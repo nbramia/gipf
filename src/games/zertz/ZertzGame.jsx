@@ -4,6 +4,7 @@ import ZertzBoard from './ZertzBoard.js';
 import useAIWorker from './hooks/useAIWorker.js';
 import { MCTS } from './engine/mcts.js';
 import { applyAIMove } from './engine/aiPlayer.js';
+import './zertz.css';
 
 const DIFFICULTY_CONFIG = {
   easy: { simulations: 100, evaluationMode: 'heuristic' },
@@ -496,7 +497,7 @@ const ZertzGame = () => {
       {/* ---- Modal ---- */}
       {showModal && (
         <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 backdrop-blur-sm"
+          className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50"
           onClick={(e) => { if (e.target === e.currentTarget) setShowModal(false); }}
         >
           <div
@@ -541,7 +542,7 @@ const ZertzGame = () => {
       {/* ---- Settings Panel ---- */}
       {showSettings && (
         <div
-          className="fixed inset-0 bg-black/40 z-50 backdrop-blur-sm"
+          className="fixed inset-0 bg-black bg-opacity-60 z-50"
           onClick={(e) => { if (e.target === e.currentTarget) setShowSettings(false); }}
         >
           <div
