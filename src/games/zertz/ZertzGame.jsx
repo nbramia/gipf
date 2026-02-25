@@ -1,7 +1,15 @@
 // ZertzGame.jsx - React UI + SVG rendering for Zertz
-import React, { useState, useEffect, useCallback } from 'react';
-import './zertz.css';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ZertzBoard from './ZertzBoard.js';
+import useAIWorker from './hooks/useAIWorker.js';
+import { MCTS } from './engine/mcts.js';
+import { applyAIMove } from './engine/aiPlayer.js';
+
+const DIFFICULTY_CONFIG = {
+  easy: { simulations: 100, evaluationMode: 'heuristic' },
+  advanced: { simulations: 200, evaluationMode: 'heuristic' },
+  expert: { simulations: 300, evaluationMode: 'nn', modelPath: '/models/zertz-value-v1.onnx' },
+};
 
 // Toggle component
 const Toggle = ({ label, checked, onChange }) => (
@@ -53,8 +61,22 @@ const ZertzGame = () => {
     const saved = localStorage.getItem('zertzShowMoves');
     return saved ? JSON.parse(saved) : true;
   });
+  const [twoPlayerMode, setTwoPlayerMode] = useState(() => {
+    const saved = localStorage.getItem('zertzTwoPlayer');
+    return saved ? JSON.parse(saved) : false;
+  });
+  const [humanPlayer, setHumanPlayer] = useState(() => Math.random() < 0.5 ? 1 : 2);
+  const [difficulty, setDifficulty] = useState(() => {
+    const saved = localStorage.getItem('zertzDifficulty');
+    return saved || 'advanced';
+  });
+  const [isAiThinking, setIsAiThinking] = useState(false);
+  const [aiSuggestion, setAiSuggestion] = useState(null);
   const [showModal, setShowModal] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+
+  const { computeMove, isSupported: workerSupported } = useAIWorker();
+  const aiTimerRef = useRef(null);
 
   useEffect(() => {
     localStorage.setItem('zertzDarkMode', JSON.stringify(darkMode));
@@ -62,6 +84,12 @@ const ZertzGame = () => {
   useEffect(() => {
     localStorage.setItem('zertzShowMoves', JSON.stringify(showPossibleMoves));
   }, [showPossibleMoves]);
+  useEffect(() => {
+    localStorage.setItem('zertzTwoPlayer', JSON.stringify(twoPlayerMode));
+  }, [twoPlayerMode]);
+  useEffect(() => {
+    localStorage.setItem('zertzDifficulty', difficulty);
+  }, [difficulty]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -80,11 +108,76 @@ const ZertzGame = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [board]);
 
+  // --- AI Logic ---
+
+  const getAISuggestion = useCallback((autoPlay = false) => {
+    if (isAiThinking) return;
+    if (board.gamePhase === 'game-over') return;
+
+    const config = DIFFICULTY_CONFIG[difficulty] || DIFFICULTY_CONFIG.advanced;
+    setIsAiThinking(true);
+    setAiSuggestion(null);
+
+    const onSuccess = (move) => {
+      setIsAiThinking(false);
+      if (!move) return;
+
+      if (autoPlay) {
+        // Apply the move directly
+        applyAIMove(board, move);
+        setBoard(board.clone());
+        if (board.gamePhase === 'game-over') setShowModal(true);
+      } else {
+        setAiSuggestion(move);
+      }
+    };
+
+    const onError = (err) => {
+      console.warn('AI error:', err);
+      setIsAiThinking(false);
+    };
+
+    if (workerSupported) {
+      const boardState = board.serializeState();
+      computeMove(
+        boardState,
+        config.simulations,
+        onSuccess,
+        onError,
+        config.evaluationMode,
+        config.modelPath || null
+      );
+    } else {
+      // Fallback: run MCTS on main thread (blocking but functional)
+      const mcts = new MCTS({ evaluationMode: config.evaluationMode });
+      mcts.getBestMove(board, config.simulations).then(onSuccess).catch(onError);
+    }
+  }, [board, difficulty, isAiThinking, workerSupported, computeMove]);
+
+  // Auto-play: when it's the AI's turn, trigger after a short delay
+  useEffect(() => {
+    if (twoPlayerMode) return;
+    if (board.gamePhase === 'game-over') return;
+    if (isAiThinking) return;
+    if (showModal) return;
+    if (board.currentPlayer === humanPlayer) return;
+
+    aiTimerRef.current = setTimeout(() => {
+      getAISuggestion(true);
+    }, 500);
+
+    return () => {
+      if (aiTimerRef.current) clearTimeout(aiTimerRef.current);
+    };
+  }, [board.gamePhase, board.currentPlayer, twoPlayerMode, humanPlayer, isAiThinking, showModal, getAISuggestion]);
+
   // --- Derived state ---
   const {
     rings, marbles, pool, captures, currentPlayer, gamePhase,
     winner, winConditionMet, selectedColor, jumpingMarble
   } = board;
+
+  const isHumanTurn = twoPlayerMode || currentPlayer === humanPlayer;
 
   const validPlacements = gamePhase === 'place-marble' && selectedColor
     ? board.getValidPlacements() : [];
@@ -95,19 +188,30 @@ const ZertzGame = () => {
 
   const positions = ZertzBoard.generateValidPositions();
 
+  // AI suggestion target key for visual highlight
+  const suggestionKey = aiSuggestion ? (
+    aiSuggestion.type === 'place-marble' ? `${aiSuggestion.q},${aiSuggestion.r}` :
+    aiSuggestion.type === 'remove-ring' ? `${aiSuggestion.q},${aiSuggestion.r}` :
+    aiSuggestion.type === 'capture' ? aiSuggestion.toKey : null
+  ) : null;
+
   // --- Handlers ---
 
   const handleHexClick = useCallback((q, r) => {
     if (gamePhase === 'game-over') return;
+    if (!isHumanTurn) return; // Block clicks during AI turn
+    setAiSuggestion(null);
     board.handleClick(q, r);
     setBoard(board.clone());
     if (board.gamePhase === 'game-over') setShowModal(true);
-  }, [board, gamePhase]);
+  }, [board, gamePhase, isHumanTurn]);
 
   const handleColorSelect = useCallback((color) => {
+    if (!isHumanTurn) return;
+    setAiSuggestion(null);
     board.selectMarbleColor(color);
     setBoard(board.clone());
-  }, [board]);
+  }, [board, isHumanTurn]);
 
   const handleUndo = () => { if (board.canUndo()) { board.undo(); setBoard(board.clone()); } };
   const handleRedo = () => { if (board.canRedo()) { board.redo(); setBoard(board.clone()); } };
@@ -116,11 +220,18 @@ const ZertzGame = () => {
     board.startNewGame();
     setBoard(board.clone());
     setShowModal(false);
+    setAiSuggestion(null);
+    setIsAiThinking(false);
+    if (aiTimerRef.current) clearTimeout(aiTimerRef.current);
+    if (!twoPlayerMode) {
+      setHumanPlayer(Math.random() < 0.5 ? 1 : 2);
+    }
   };
 
   // --- Rendering helpers ---
 
   const getPhaseText = () => {
+    if (isAiThinking) return 'Thinking...';
     switch (gamePhase) {
       case 'place-marble':
         if (!selectedColor) return 'Select a marble';
@@ -135,6 +246,11 @@ const ZertzGame = () => {
       default:
         return '';
     }
+  };
+
+  const getPlayerLabel = (player) => {
+    if (twoPlayerMode) return `Player ${player}`;
+    return player === humanPlayer ? 'You' : 'AI';
   };
 
   const getWinConditionLabel = () => {
@@ -154,6 +270,29 @@ const ZertzGame = () => {
   // Settings
   const renderSettingsToggles = () => (
     <div className="space-y-4">
+      {/* AI Difficulty */}
+      <div>
+        <span className="text-[10px] font-semibold uppercase tracking-widest block mb-2" style={{ color: 'var(--color-text-muted)' }}>
+          AI Difficulty
+        </span>
+        <div className="flex gap-1">
+          {['easy', 'advanced', 'expert'].map(d => (
+            <button
+              key={d}
+              onClick={() => setDifficulty(d)}
+              className="flex-1 py-1.5 px-2 rounded text-xs font-semibold capitalize transition-all"
+              style={{
+                backgroundColor: difficulty === d ? 'var(--color-btn-primary-bg)' : 'transparent',
+                color: difficulty === d ? 'var(--color-btn-primary-text)' : 'var(--color-text-muted)',
+                border: difficulty === d ? 'none' : '1px solid var(--color-border-panel)',
+              }}
+            >
+              {d}
+            </button>
+          ))}
+        </div>
+      </div>
+      <Toggle label="Two Players" checked={twoPlayerMode} onChange={() => setTwoPlayerMode(!twoPlayerMode)} />
       <Toggle label="Dark Mode" checked={darkMode} onChange={() => setDarkMode(!darkMode)} />
       <Toggle label="Show Valid Moves" checked={showPossibleMoves} onChange={() => setShowPossibleMoves(!showPossibleMoves)} />
     </div>
@@ -185,7 +324,7 @@ const ZertzGame = () => {
             className="text-xs font-semibold uppercase tracking-widest"
             style={{ color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-muted)' }}
           >
-            Player {player}
+            {getPlayerLabel(player)}
           </span>
         </div>
 
@@ -287,7 +426,7 @@ const ZertzGame = () => {
         <div className="flex gap-2 justify-center">
           {['white', 'grey', 'black'].map(color => {
             const count = fromCaptures ? captures[currentPlayer][color] : pool[color];
-            const isAvailable = isPlacing && availableColors.includes(color);
+            const isAvailable = isPlacing && availableColors.includes(color) && isHumanTurn;
             const isSelected = selectedColor === color;
 
             return (
@@ -346,7 +485,7 @@ const ZertzGame = () => {
   };
 
   return (
-    <div className={`game-zertz min-h-screen flex flex-col items-center font-body bg-[var(--color-bg-page)] ${darkMode ? 'dark' : ''}`}>
+    <div className={`min-h-screen flex flex-col items-center font-body bg-[var(--color-bg-page)] ${darkMode ? 'dark' : ''}`}>
 
       {/* ---- Modal ---- */}
       {showModal && (
@@ -365,7 +504,7 @@ const ZertzGame = () => {
               className="font-heading text-2xl font-extrabold text-center tracking-wider uppercase mb-1"
               style={{ color: 'var(--color-text-primary)' }}
             >
-              {gamePhase === 'game-over' ? (winner ? `Player ${winner} wins` : 'Draw') : 'ZERTZ'}
+              {gamePhase === 'game-over' ? (winner ? `${getPlayerLabel(winner)} wins` : 'Draw') : 'ZERTZ'}
             </h2>
             {gamePhase === 'game-over' && winConditionMet ? (
               <p className="text-center mb-6 text-sm" style={{ color: 'var(--color-text-muted)' }}>
@@ -444,7 +583,7 @@ const ZertzGame = () => {
           >
             {gamePhase !== 'game-over' && (
               <span style={{ color: 'var(--color-text-primary)' }} className="font-semibold">
-                P{currentPlayer}
+                {twoPlayerMode ? `P${currentPlayer}` : (currentPlayer === humanPlayer ? 'You' : 'AI')}
               </span>
             )}
             {gamePhase !== 'game-over' && <span className="mx-1.5" style={{ color: 'var(--color-text-muted)' }}>&middot;</span>}
@@ -533,6 +672,7 @@ const ZertzGame = () => {
                 const marble = marbles[key];
                 const isJumpable = showPossibleMoves && availableCaptures.includes(key);
                 const isJumping = jumpingMarble === key;
+                const isSuggestion = suggestionKey === key;
 
                 return (
                   <g
@@ -576,6 +716,17 @@ const ZertzGame = () => {
                         fill="var(--color-jump-target)"
                         stroke="var(--color-jump-target-stroke)"
                         strokeWidth={1.5}
+                      />
+                    )}
+
+                    {/* AI suggestion highlight */}
+                    {isSuggestion && (
+                      <circle cx={cx} cy={cy} r={HEX_SIZE * 0.65}
+                        fill="none"
+                        stroke="var(--color-jump-target-stroke)"
+                        strokeWidth={2.5}
+                        strokeDasharray="6 3"
+                        className="jumpable-pulse"
                       />
                     )}
 
@@ -633,13 +784,35 @@ const ZertzGame = () => {
           {renderMarblePool()}
 
           {/* Controls row */}
-          <div className="flex gap-2 items-center">
-            <button onClick={handleUndo} disabled={!board.canUndo()} className={`${btnClass} ${!board.canUndo() ? 'opacity-25' : 'hover:opacity-80'}`} style={btnStyle} title="Undo (Ctrl+Z)">
+          <div className="flex gap-2 items-center flex-wrap justify-center">
+            <button onClick={handleUndo} disabled={!board.canUndo() || isAiThinking} className={`${btnClass} ${!board.canUndo() || isAiThinking ? 'opacity-25' : 'hover:opacity-80'}`} style={btnStyle} title="Undo (Ctrl+Z)">
               Undo
             </button>
-            <button onClick={handleRedo} disabled={!board.canRedo()} className={`${btnClass} ${!board.canRedo() ? 'opacity-25' : 'hover:opacity-80'}`} style={btnStyle} title="Redo (Ctrl+Shift+Z)">
+            <button onClick={handleRedo} disabled={!board.canRedo() || isAiThinking} className={`${btnClass} ${!board.canRedo() || isAiThinking ? 'opacity-25' : 'hover:opacity-80'}`} style={btnStyle} title="Redo (Ctrl+Shift+Z)">
               Redo
             </button>
+            {/* AI Suggest — visible when human's turn or 2-player mode */}
+            {(isHumanTurn && gamePhase !== 'game-over') && (
+              <button
+                onClick={() => getAISuggestion(false)}
+                disabled={isAiThinking}
+                className={`${btnClass} ${isAiThinking ? 'opacity-25' : 'hover:opacity-80'}`}
+                style={btnStyle}
+              >
+                {isAiThinking ? 'Thinking...' : 'AI Suggest'}
+              </button>
+            )}
+            {/* AI Move — visible in 2-player mode only */}
+            {twoPlayerMode && gamePhase !== 'game-over' && (
+              <button
+                onClick={() => getAISuggestion(true)}
+                disabled={isAiThinking}
+                className={`${btnClass} ${isAiThinking ? 'opacity-25' : 'hover:opacity-80'}`}
+                style={btnStyle}
+              >
+                AI Move
+              </button>
+            )}
             <button onClick={() => setShowSettings(true)} className={`${btnClass} hover:opacity-80`} style={btnStyle}>
               Settings
             </button>

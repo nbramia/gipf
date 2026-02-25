@@ -2726,3 +2726,167 @@ describe('Static constants', () => {
     }
   });
 });
+
+// ============================================================================
+// AI Interface Methods
+// ============================================================================
+
+describe('getStateHash', () => {
+  test('same state produces same hash', () => {
+    const board = new ZertzBoard({ skipInitialHistory: true });
+    const hash1 = board.getStateHash();
+    const hash2 = board.getStateHash();
+    expect(hash1).toBe(hash2);
+  });
+
+  test('different state produces different hash', () => {
+    const board1 = new ZertzBoard({ skipInitialHistory: true });
+    const board2 = new ZertzBoard({ skipInitialHistory: true });
+    board2.selectMarbleColor('white');
+    board2.placeMarble(0, 0);
+    expect(board1.getStateHash()).not.toBe(board2.getStateHash());
+  });
+
+  test('hash includes jumping marble state', () => {
+    const board1 = createBoard({
+      rings: ['0,0', '1,0', '2,0'],
+      marbles: { '0,0': 'white', '1,0': 'black' },
+      pool: { white: 5, grey: 8, black: 9 },
+      captures: { 1: { white: 0, grey: 0, black: 0 }, 2: { white: 0, grey: 0, black: 0 } },
+      gamePhase: 'capture',
+    });
+    const board2 = createBoard({
+      rings: ['0,0', '1,0', '2,0'],
+      marbles: { '0,0': 'white', '1,0': 'black' },
+      pool: { white: 5, grey: 8, black: 9 },
+      captures: { 1: { white: 0, grey: 0, black: 0 }, 2: { white: 0, grey: 0, black: 0 } },
+      gamePhase: 'capture',
+    });
+    board2.jumpingMarble = '0,0';
+    expect(board1.getStateHash()).not.toBe(board2.getStateHash());
+  });
+});
+
+describe('getLegalMoves', () => {
+  test('returns place-marble moves in place-marble phase', () => {
+    const board = new ZertzBoard({ skipInitialHistory: true });
+    const moves = board.getLegalMoves();
+    expect(moves.length).toBeGreaterThan(0);
+    for (const m of moves) {
+      expect(m.type).toBe('place-marble');
+      expect(['white', 'grey', 'black']).toContain(m.color);
+      expect(typeof m.q).toBe('number');
+      expect(typeof m.r).toBe('number');
+    }
+  });
+
+  test('returns correct count: colors x placements', () => {
+    const board = new ZertzBoard({ skipInitialHistory: true });
+    const moves = board.getLegalMoves();
+    const colors = board.getAvailableColors().length; // 3
+    const placements = board.getValidPlacements().length; // 37
+    expect(moves.length).toBe(colors * placements);
+  });
+
+  test('returns remove-ring moves in remove-ring phase', () => {
+    const board = new ZertzBoard({ skipInitialHistory: true });
+    board.selectMarbleColor('black');
+    board.placeMarble(0, 0);
+    expect(board.gamePhase).toBe('remove-ring');
+
+    const moves = board.getLegalMoves();
+    expect(moves.length).toBeGreaterThan(0);
+    for (const m of moves) {
+      expect(m.type).toBe('remove-ring');
+    }
+  });
+
+  test('returns capture moves in capture phase', () => {
+    const board = createBoard({
+      rings: ['0,0', '1,0', '2,0'],
+      marbles: { '0,0': 'white', '1,0': 'black' },
+      pool: { white: 5, grey: 8, black: 9 },
+      captures: { 1: { white: 0, grey: 0, black: 0 }, 2: { white: 0, grey: 0, black: 0 } },
+      gamePhase: 'capture',
+    });
+
+    const moves = board.getLegalMoves();
+    expect(moves.length).toBe(1);
+    expect(moves[0].type).toBe('capture');
+    expect(moves[0].fromKey).toBe('0,0');
+    expect(moves[0].toKey).toBe('2,0');
+  });
+
+  test('returns empty array for game-over', () => {
+    const board = new ZertzBoard({ skipInitialHistory: true });
+    board.gamePhase = 'game-over';
+    expect(board.getLegalMoves()).toEqual([]);
+  });
+
+  test('respects jumpingMarble constraint in capture phase', () => {
+    const board = createBoard({
+      rings: ['0,0', '1,0', '2,0', '3,0', '0,1', '1,1'],
+      marbles: { '2,0': 'white', '1,0': 'black', '0,1': 'grey', '1,1': 'grey' },
+      pool: { white: 5, grey: 6, black: 10 },
+      captures: { 1: { white: 0, grey: 0, black: 0 }, 2: { white: 0, grey: 0, black: 0 } },
+      gamePhase: 'capture',
+    });
+    board.jumpingMarble = '2,0';
+    board.captureStarted = true;
+
+    const moves = board.getLegalMoves();
+    for (const m of moves) {
+      expect(m.fromKey).toBe('2,0');
+    }
+  });
+});
+
+describe('serializeState / fromSerializedState', () => {
+  test('round-trip preserves state hash', () => {
+    const board = new ZertzBoard({ skipInitialHistory: true });
+    board.selectMarbleColor('white');
+    board.placeMarble(0, 0);
+
+    const serialized = board.serializeState();
+    const restored = ZertzBoard.fromSerializedState(serialized);
+
+    expect(restored.getStateHash()).toBe(board.getStateHash());
+  });
+
+  test('round-trip preserves all state fields', () => {
+    const board = new ZertzBoard({ skipInitialHistory: true });
+    board.selectMarbleColor('grey');
+    board.placeMarble(1, 0);
+
+    const serialized = board.serializeState();
+    const restored = ZertzBoard.fromSerializedState(serialized);
+
+    expect(restored.rings.size).toBe(board.rings.size);
+    expect(restored.marbles).toEqual(board.marbles);
+    expect(restored.pool).toEqual(board.pool);
+    expect(restored.captures).toEqual(board.captures);
+    expect(restored.currentPlayer).toBe(board.currentPlayer);
+    expect(restored.gamePhase).toBe(board.gamePhase);
+    expect(restored.winner).toBe(board.winner);
+    expect(restored.jumpingMarble).toBe(board.jumpingMarble);
+  });
+
+  test('round-trip with capture state', () => {
+    const board = createBoard({
+      rings: ['0,0', '1,0', '2,0'],
+      marbles: { '0,0': 'white', '1,0': 'black' },
+      pool: { white: 5, grey: 8, black: 9 },
+      captures: { 1: { white: 2, grey: 1, black: 0 }, 2: { white: 0, grey: 0, black: 3 } },
+      gamePhase: 'capture',
+    });
+    board.jumpingMarble = '0,0';
+    board.captureStarted = true;
+
+    const serialized = board.serializeState();
+    const restored = ZertzBoard.fromSerializedState(serialized);
+
+    expect(restored.getStateHash()).toBe(board.getStateHash());
+    expect(restored.jumpingMarble).toBe('0,0');
+    expect(restored.captureStarted).toBe(true);
+  });
+});

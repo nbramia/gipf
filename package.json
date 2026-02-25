@@ -19,7 +19,10 @@
     "self-play": "node scripts/self-play.mjs",
     "generate-data": "node scripts/generate-training-data.mjs",
     "tournament": "node scripts/tournament.mjs",
-    "train-iteration": "bash scripts/train-iteration.sh"
+    "train-iteration": "bash scripts/train-iteration.sh",
+    "zertz:self-play": "node scripts/zertz/generate-training-data.mjs",
+    "zertz:tournament": "node scripts/zertz/tournament.mjs",
+    "zertz:train-iteration": "bash scripts/zertz/train-iteration.sh"
   },
   "devDependencies": {
     "@babel/core": "^7.26.0",

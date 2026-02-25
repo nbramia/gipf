@@ -672,6 +672,129 @@ export default class ZertzBoard {
     }
   }
 
+  // --- AI Interface ---
+
+  /**
+   * Generate a string hash encoding full game state for MCTS transposition table.
+   * Format: rings|marbles|pool|captures|player|phase|jumpingMarble
+   */
+  getStateHash() {
+    const ringsSorted = [...this.rings].sort().join(';');
+    const marblesSorted = Object.keys(this.marbles).sort()
+      .map(k => `${k}:${this.marbles[k][0]}`) // first char: w/g/b
+      .join(';');
+    const poolStr = `${this.pool.white},${this.pool.grey},${this.pool.black}`;
+    const capsStr = `${this.captures[1].white},${this.captures[1].grey},${this.captures[1].black}|${this.captures[2].white},${this.captures[2].grey},${this.captures[2].black}`;
+    const jm = this.jumpingMarble || '';
+    return `${ringsSorted}|${marblesSorted}|${poolStr}|${capsStr}|${this.currentPlayer}|${this.gamePhase}|${jm}`;
+  }
+
+  /**
+   * Returns a flat array of move objects for the current phase.
+   * This is the method MCTS calls to enumerate branches.
+   */
+  getLegalMoves() {
+    if (this.gamePhase === 'game-over') return [];
+
+    if (this.gamePhase === 'capture') {
+      const moves = [];
+      if (this.jumpingMarble) {
+        // Must continue with the same marble
+        const targets = this.getJumpTargets(this.jumpingMarble);
+        for (const t of targets) {
+          moves.push({
+            type: 'capture',
+            fromKey: this.jumpingMarble,
+            toKey: t.target,
+            capturedKey: t.captured,
+          });
+        }
+      } else {
+        // Any marble that can jump
+        const capturableKeys = this.getAvailableCaptures();
+        for (const fromKey of capturableKeys) {
+          const targets = this.getJumpTargets(fromKey);
+          for (const t of targets) {
+            moves.push({
+              type: 'capture',
+              fromKey,
+              toKey: t.target,
+              capturedKey: t.captured,
+            });
+          }
+        }
+      }
+      return moves;
+    }
+
+    if (this.gamePhase === 'place-marble') {
+      const moves = [];
+      const colors = this.getAvailableColors();
+      const placements = this.getValidPlacements();
+      for (const color of colors) {
+        for (const key of placements) {
+          const [q, r] = this._fromKey(key);
+          moves.push({ type: 'place-marble', color, q, r });
+        }
+      }
+      return moves;
+    }
+
+    if (this.gamePhase === 'remove-ring') {
+      const freeRings = this.getFreeRings();
+      return freeRings.map(key => {
+        const [q, r] = this._fromKey(key);
+        return { type: 'remove-ring', q, r };
+      });
+    }
+
+    return [];
+  }
+
+  /**
+   * Serialize all state fields for Web Worker communication.
+   */
+  serializeState() {
+    return {
+      rings: [...this.rings],
+      marbles: { ...this.marbles },
+      pool: { ...this.pool },
+      captures: {
+        1: { ...this.captures[1] },
+        2: { ...this.captures[2] },
+      },
+      currentPlayer: this.currentPlayer,
+      gamePhase: this.gamePhase,
+      winner: this.winner,
+      winConditionMet: this.winConditionMet ? { ...this.winConditionMet } : null,
+      selectedColor: this.selectedColor,
+      jumpingMarble: this.jumpingMarble,
+      captureStarted: this.captureStarted,
+    };
+  }
+
+  /**
+   * Reconstruct a board from serialized state (e.g. from Web Worker).
+   */
+  static fromSerializedState(state) {
+    const board = new ZertzBoard({ skipInitialHistory: true });
+    board.rings = new Set(state.rings);
+    board.marbles = { ...state.marbles };
+    board.pool = { ...state.pool };
+    board.captures = {
+      1: { ...state.captures[1] },
+      2: { ...state.captures[2] },
+    };
+    board.currentPlayer = state.currentPlayer;
+    board.gamePhase = state.gamePhase;
+    board.winner = state.winner;
+    board.winConditionMet = state.winConditionMet ? { ...state.winConditionMet } : null;
+    board.selectedColor = state.selectedColor;
+    board.jumpingMarble = state.jumpingMarble;
+    board.captureStarted = state.captureStarted;
+    return board;
+  }
+
   // --- Clone ---
 
   clone() {
