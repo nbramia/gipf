@@ -1,5 +1,6 @@
 // ZertzGame.jsx - React UI + SVG rendering for Zertz
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import ZertzBoard from './ZertzBoard.js';
 import useAIWorker from './hooks/useAIWorker.js';
 import { MCTS } from './engine/mcts.js';
@@ -575,6 +576,13 @@ const ZertzGame = () => {
 
       {/* ---- Header ---- */}
       <div className="flex flex-col items-center pt-3 md:pt-5 shrink-0">
+        <Link
+          to="/"
+          className="text-[10px] font-semibold uppercase tracking-[0.2em] mb-1 opacity-40 hover:opacity-70 transition-opacity"
+          style={{ color: 'var(--color-text-secondary)' }}
+        >
+          &larr; GIPF Project
+        </Link>
         <h1
           className="font-heading text-3xl md:text-4xl lg:text-5xl font-extrabold tracking-[0.3em] uppercase"
           style={{ color: 'var(--color-text-primary)' }}

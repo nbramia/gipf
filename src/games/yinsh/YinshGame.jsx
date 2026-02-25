@@ -1,5 +1,6 @@
 // YinshGame.jsx - Build: 2025-01-23 v3 (UI Overhaul)
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import './yinsh.css';
 import YinshBoard from './YinshBoard.js';
 import MCTS from './engine/mcts.js';
@@ -815,6 +816,13 @@ const YinshGame = () => {
 
       {/* Header: Wordmark + Status */}
       <div className="flex flex-col items-center pt-2 md:pt-4 shrink-0">
+        <Link
+          to="/"
+          className="text-[10px] font-semibold uppercase tracking-[0.2em] mb-1 opacity-40 hover:opacity-70 transition-opacity"
+          style={{ color: 'var(--color-text-secondary)' }}
+        >
+          &larr; GIPF Project
+        </Link>
         <h1
           className="font-heading text-4xl lg:text-6xl font-extrabold tracking-[0.25em] uppercase"
           style={{ color: 'var(--color-text-primary)' }}
