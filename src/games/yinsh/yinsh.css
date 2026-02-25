@@ -1,0 +1,130 @@
+/* ========== Yinsh Color System ========== */
+
+.game-yinsh {
+  /* Surfaces */
+  --color-bg-page: #F3F4F6;
+  --color-bg-board: #FFFFFF;
+  --color-bg-panel: #FFFFFF;
+  --color-bg-modal: #FFFFFF;
+  --color-bg-tray: #F3F4F6;
+  --color-bg-hover: #F3F4F6;
+  --color-bg-accent: rgba(5, 22, 130, 0.1);
+
+  /* Text */
+  --color-text-primary: #111827;
+  --color-text-secondary: #4B5563;
+  --color-text-muted: #6B7280;
+
+  /* Accent */
+  --color-accent: #051682;
+  --color-accent-hover: #041170;
+
+  /* Game pieces */
+  --color-grid-line: #93C5FD;
+  --color-ring-neutral: #666666;
+  --color-ring-bg: #FFFFFF;
+  --color-piece-white: #FFFFFF;
+  --color-piece-black: #000000;
+  --color-piece-white-stroke: #666666;
+  --color-valid-move: #c7c9c8;
+  --color-row-highlight: #93C5FD;
+  --color-score-empty: #dedede;
+
+  /* AI indicators */
+  --color-ai-suggest: #F59E0B;
+  --color-ai-last-move: #8B5CF6;
+  --color-ai-flipped: #C4B5FD;
+
+  /* Chrome */
+  --color-border-panel: #D1D5DB;
+  --color-border-button: #051682;
+  --color-toggle-active: #051682;
+  --color-toggle-inactive: #D1D5DB;
+  --color-toggle-knob: #FFFFFF;
+  --color-btn-primary-bg: #051682;
+  --color-btn-primary-text: #FFFFFF;
+}
+
+.game-yinsh.dark {
+  --color-bg-page: #1A1A1A;
+  --color-bg-board: #374251;
+  --color-bg-panel: #1F2937;
+  --color-bg-modal: #4B5563;
+  --color-bg-tray: #1F2937;
+  --color-bg-hover: #374151;
+  --color-bg-accent: rgba(147, 197, 253, 0.1);
+
+  --color-text-primary: #FFFFFF;
+  --color-text-secondary: #9CA3AF;
+  --color-text-muted: #6B7280;
+
+  --color-accent: #93C5FD;
+  --color-accent-hover: #BFDBFE;
+
+  --color-grid-line: #93C5FD;
+  --color-ring-neutral: #666666;
+  --color-ring-bg: #374251;
+  --color-piece-white: #FFFFFF;
+  --color-piece-black: #000000;
+  --color-piece-white-stroke: #666666;
+  --color-valid-move: #dedede;
+  --color-row-highlight: #93C5FD;
+  --color-score-empty: #dedede;
+
+  --color-ai-suggest: #F59E0B;
+  --color-ai-last-move: #8B5CF6;
+  --color-ai-flipped: #C4B5FD;
+
+  --color-border-panel: #4B5563;
+  --color-border-button: #93C5FD;
+  --color-toggle-active: #051682;
+  --color-toggle-inactive: #4B5563;
+  --color-toggle-knob: #FFFFFF;
+  --color-btn-primary-bg: #051682;
+  --color-btn-primary-text: #FFFFFF;
+}
+
+/* ========== Yinsh Animations ========== */
+
+@keyframes yinsh-ai-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@keyframes yinsh-piece-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes yinsh-marker-flash {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.game-yinsh .ai-suggest-pulse {
+  animation: yinsh-ai-pulse 1.5s ease-in-out infinite;
+}
+
+.game-yinsh .piece-enter {
+  animation: yinsh-piece-fade-in 0.25s ease-out;
+}
+
+.game-yinsh .marker-flip {
+  animation: yinsh-marker-flash 0.3s ease-in-out;
+}
+
+.game-yinsh .settings-panel {
+  animation: slide-in-right 0.2s ease-out;
+}
+
+/* ========== Yinsh Accessibility ========== */
+
+.game-yinsh svg g[role="button"]:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.game-yinsh button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}

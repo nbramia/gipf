@@ -1,0 +1,162 @@
+/* ========== Zertz Color System ========== */
+
+.game-zertz {
+  /* Surfaces */
+  --color-bg-page: #EDEBE8;
+  --color-bg-board: #FAF9F7;
+  --color-bg-panel: #FFFFFF;
+  --color-bg-modal: #FFFFFF;
+  --color-bg-tray: #F5F3F0;
+  --color-bg-hover: #F0EEEB;
+  --color-bg-accent: rgba(62, 50, 38, 0.08);
+
+  /* Text */
+  --color-text-primary: #1C1917;
+  --color-text-secondary: #57534E;
+  --color-text-muted: #A8A29E;
+
+  /* Accent */
+  --color-accent: #78716C;
+  --color-accent-hover: #57534E;
+
+  /* Game pieces — Zertz marble colors */
+  --color-marble-white: #F5F5F5;
+  --color-marble-white-mid: #E8E8E8;
+  --color-marble-white-stroke: #B8B8B8;
+  --color-marble-grey: #8B8B8B;
+  --color-marble-grey-mid: #6A6A6A;
+  --color-marble-grey-stroke: #505050;
+  --color-marble-black: #1A1A1A;
+  --color-marble-black-mid: #0A0A0A;
+  --color-marble-black-stroke: #000000;
+
+  /* Ring tile — warm sandstone feel */
+  --color-ring-fill: #DDD8D0;
+  --color-ring-fill-inner: #E8E4DC;
+  --color-ring-stroke: #C4BDB3;
+  --color-ring-stroke-inner: #EDE9E3;
+  --color-ring-free: rgba(120, 113, 108, 0.2);
+  --color-ring-free-stroke: #78716C;
+
+  /* Indicators */
+  --color-valid-placement: rgba(120, 113, 108, 0.35);
+  --color-jump-target: rgba(22, 163, 74, 0.5);
+  --color-jump-target-stroke: #16A34A;
+  --color-jumpable-marble: #D97706;
+  --color-capture-progress-empty: #E7E5E4;
+  --color-player-active: #78716C;
+
+  /* Chrome */
+  --color-border-panel: #D6D3D1;
+  --color-border-button: #A8A29E;
+  --color-toggle-active: #78716C;
+  --color-toggle-inactive: #D6D3D1;
+  --color-toggle-knob: #FFFFFF;
+  --color-btn-primary-bg: #44403C;
+  --color-btn-primary-text: #FAFAF9;
+}
+
+.game-zertz.dark {
+  --color-bg-page: #171412;
+  --color-bg-board: #28231F;
+  --color-bg-panel: #1F1B18;
+  --color-bg-modal: #2C2723;
+  --color-bg-tray: #231F1C;
+  --color-bg-hover: #2C2723;
+  --color-bg-accent: rgba(168, 162, 158, 0.08);
+
+  --color-text-primary: #FAFAF9;
+  --color-text-secondary: #A8A29E;
+  --color-text-muted: #78716C;
+
+  --color-accent: #A8A29E;
+  --color-accent-hover: #D6D3D1;
+
+  --color-marble-white: #EAEAEA;
+  --color-marble-white-mid: #D0D0D0;
+  --color-marble-white-stroke: #888888;
+  --color-marble-grey: #787878;
+  --color-marble-grey-mid: #585858;
+  --color-marble-grey-stroke: #444444;
+  --color-marble-black: #151515;
+  --color-marble-black-mid: #080808;
+  --color-marble-black-stroke: #000000;
+
+  --color-ring-fill: #3D3632;
+  --color-ring-fill-inner: #4A433E;
+  --color-ring-stroke: #524A44;
+  --color-ring-stroke-inner: #5A524C;
+  --color-ring-free: rgba(168, 162, 158, 0.2);
+  --color-ring-free-stroke: #A8A29E;
+
+  --color-valid-placement: rgba(168, 162, 158, 0.3);
+  --color-jump-target: rgba(34, 197, 94, 0.4);
+  --color-jump-target-stroke: #22C55E;
+  --color-jumpable-marble: #F59E0B;
+  --color-capture-progress-empty: #3D3632;
+  --color-player-active: #A8A29E;
+
+  --color-border-panel: #3D3632;
+  --color-border-button: #78716C;
+  --color-toggle-active: #78716C;
+  --color-toggle-inactive: #3D3632;
+  --color-toggle-knob: #FAFAF9;
+  --color-btn-primary-bg: #57534E;
+  --color-btn-primary-text: #FAFAF9;
+}
+
+/* ========== Zertz Animations ========== */
+
+@keyframes zertz-piece-fade-in {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes zertz-ring-remove {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(0.3); }
+}
+
+@keyframes zertz-isolation-flash {
+  0%, 100% { opacity: 1; }
+  25% { opacity: 0.3; }
+  50% { opacity: 1; }
+  75% { opacity: 0.3; }
+}
+
+@keyframes zertz-pulse-ring {
+  0%, 100% { stroke-opacity: 0.6; }
+  50% { stroke-opacity: 1; }
+}
+
+.game-zertz .piece-enter {
+  animation: zertz-piece-fade-in 0.2s ease-out;
+}
+
+.game-zertz .ring-removing {
+  animation: zertz-ring-remove 0.3s ease-in forwards;
+}
+
+.game-zertz .settings-panel {
+  animation: slide-in-right 0.2s ease-out;
+}
+
+.game-zertz .isolation-flash {
+  animation: zertz-isolation-flash 0.4s ease-in-out;
+}
+
+.game-zertz .jumpable-pulse {
+  animation: zertz-pulse-ring 1.2s ease-in-out infinite;
+}
+
+/* ========== Zertz Accessibility ========== */
+
+.game-zertz svg g[role="button"]:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.game-zertz button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}

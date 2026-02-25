@@ -1,0 +1,48 @@
+{
+  "name": "gipf",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "onnxruntime-web": "^1.24.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.28.0",
+    "react-scripts": "5.0.1"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "test:engine": "node src/games/yinsh/engine/test-yinsh.js",
+    "self-play": "node scripts/self-play.mjs",
+    "generate-data": "node scripts/generate-training-data.mjs",
+    "tournament": "node scripts/tournament.mjs",
+    "train-iteration": "bash scripts/train-iteration.sh"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.26.0",
+    "@babel/preset-env": "^7.26.0",
+    "@babel/preset-react": "^7.26.3",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.2.0",
+    "autoprefixer": "^10.4.20",
+    "babel-loader": "^9.2.1",
+    "onnxruntime-node": "^1.20.1",
+    "postcss": "^8.5.1",
+    "tailwindcss": "^3.4.17"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  }
+}
