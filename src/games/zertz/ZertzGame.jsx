@@ -74,6 +74,7 @@ const ZertzGame = () => {
   const [aiSuggestion, setAiSuggestion] = useState(null);
   const [showModal, setShowModal] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [lastMoveKeys, setLastMoveKeys] = useState([]);
 
   const { computeMove, isSupported: workerSupported } = useAIWorker();
   const aiTimerRef = useRef(null);
@@ -123,9 +124,15 @@ const ZertzGame = () => {
       if (!move) return;
 
       if (autoPlay) {
-        // Apply the move directly
+        // Track affected positions for last-move indicator
+        const newKeys = [];
+        if (move.type === 'place-marble') newKeys.push(`${move.q},${move.r}`);
+        else if (move.type === 'remove-ring') newKeys.push(`${move.q},${move.r}`);
+        else if (move.type === 'capture') { newKeys.push(move.fromKey); newKeys.push(move.toKey); }
+
         applyAIMove(board, move);
         setBoard(board.clone());
+        setLastMoveKeys(prev => [...prev, ...newKeys]);
         if (board.gamePhase === 'game-over') setShowModal(true);
       } else {
         setAiSuggestion(move);
@@ -201,6 +208,7 @@ const ZertzGame = () => {
     if (gamePhase === 'game-over') return;
     if (!isHumanTurn) return; // Block clicks during AI turn
     setAiSuggestion(null);
+    setLastMoveKeys([]);
     board.handleClick(q, r);
     setBoard(board.clone());
     if (board.gamePhase === 'game-over') setShowModal(true);
@@ -209,12 +217,13 @@ const ZertzGame = () => {
   const handleColorSelect = useCallback((color) => {
     if (!isHumanTurn) return;
     setAiSuggestion(null);
+    setLastMoveKeys([]);
     board.selectMarbleColor(color);
     setBoard(board.clone());
   }, [board, isHumanTurn]);
 
-  const handleUndo = () => { if (board.canUndo()) { board.undo(); setBoard(board.clone()); } };
-  const handleRedo = () => { if (board.canRedo()) { board.redo(); setBoard(board.clone()); } };
+  const handleUndo = () => { if (board.canUndo()) { board.undo(); setBoard(board.clone()); setLastMoveKeys([]); } };
+  const handleRedo = () => { if (board.canRedo()) { board.redo(); setBoard(board.clone()); setLastMoveKeys([]); } };
 
   const startNewGame = () => {
     board.startNewGame();
@@ -222,6 +231,7 @@ const ZertzGame = () => {
     setShowModal(false);
     setAiSuggestion(null);
     setIsAiThinking(false);
+    setLastMoveKeys([]);
     if (aiTimerRef.current) clearTimeout(aiTimerRef.current);
     if (!twoPlayerMode) {
       setHumanPlayer(Math.random() < 0.5 ? 1 : 2);
@@ -477,15 +487,11 @@ const ZertzGame = () => {
     );
   };
 
-  // Button style
-  const btnClass = `border text-sm font-medium py-2 px-3 rounded-lg transition-all min-h-[40px]`;
-  const btnStyle = {
-    borderColor: 'var(--color-border-button)',
-    color: 'var(--color-text-secondary)',
-  };
+  // Button style (mirrors Yinsh)
+  const btnClass = `border-2 border-[var(--color-border-button)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] py-3 px-4 md:py-2 md:px-4 rounded-lg font-semibold transition-colors text-sm min-h-[44px]`;
 
   return (
-    <div className={`min-h-screen flex flex-col items-center font-body bg-[var(--color-bg-page)] ${darkMode ? 'dark' : ''}`}>
+    <div className={`game-zertz min-h-screen flex flex-col items-center font-body bg-[var(--color-bg-page)] ${darkMode ? 'dark' : ''}`}>
 
       {/* ---- Modal ---- */}
       {showModal && (
@@ -556,6 +562,20 @@ const ZertzGame = () => {
               </button>
             </div>
             <div className="p-5">{renderSettingsToggles()}</div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Thinking Overlay */}
+      {isAiThinking && (
+        <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-40 pointer-events-none">
+          <div className="p-6 rounded-lg shadow-2xl border-2 bg-[var(--color-bg-modal)] border-[var(--color-border-panel)]">
+            <div className="flex flex-col items-center gap-3">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[var(--color-accent)]"></div>
+              <p className="text-lg font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+                AI Thinking...
+              </p>
+            </div>
           </div>
         </div>
       )}
@@ -657,23 +677,14 @@ const ZertzGame = () => {
                 </filter>
               </defs>
 
-              {/* Hex tiles */}
+              {/* Background layer: hex tiles (clickable) */}
               {positions.map(([q, r]) => {
                 const key = `${q},${r}`;
                 if (!rings.has(key)) return null;
-
                 const [sx, sy] = axialToScreen(q, r);
                 const cx = CENTER + sx;
                 const cy = CENTER + sy;
-
                 const isFree = freeRings.includes(key);
-                const isValidPlacement = showPossibleMoves && validPlacements.includes(key);
-                const isJumpTarget = showPossibleMoves && jumpTargets.includes(key);
-                const marble = marbles[key];
-                const isJumpable = showPossibleMoves && availableCaptures.includes(key);
-                const isJumping = jumpingMarble === key;
-                const isSuggestion = suggestionKey === key;
-
                 return (
                   <g
                     key={key}
@@ -683,7 +694,6 @@ const ZertzGame = () => {
                     onKeyDown={(e) => { if (e.key === 'Enter') handleHexClick(q, r); }}
                     style={{ cursor: 'pointer' }}
                   >
-                    {/* Outer hex — ring platform */}
                     <polygon
                       points={hexPoints(cx, cy, HEX_SIZE - 1)}
                       fill={isFree ? 'var(--color-ring-free)' : 'var(--color-ring-fill)'}
@@ -691,15 +701,33 @@ const ZertzGame = () => {
                       strokeWidth={isFree ? 1.5 : 0.75}
                       filter="url(#tile-bevel)"
                     />
-
-                    {/* Inner hex — raised center */}
                     <polygon
                       points={hexPoints(cx, cy - 0.5, HEX_SIZE - 5)}
                       fill={isFree ? 'none' : 'var(--color-ring-fill-inner)'}
                       stroke={isFree ? 'none' : 'var(--color-ring-stroke-inner)'}
                       strokeWidth="0.5"
                     />
+                  </g>
+                );
+              })}
 
+              {/* Foreground layer: indicators + marbles (non-interactive, above all tiles) */}
+              {positions.map(([q, r]) => {
+                const key = `${q},${r}`;
+                if (!rings.has(key)) return null;
+                const [sx, sy] = axialToScreen(q, r);
+                const cx = CENTER + sx;
+                const cy = CENTER + sy;
+                const marble = marbles[key];
+                const isValidPlacement = showPossibleMoves && validPlacements.includes(key);
+                const isJumpTarget = showPossibleMoves && jumpTargets.includes(key);
+                const isJumpable = showPossibleMoves && availableCaptures.includes(key);
+                const isJumping = jumpingMarble === key;
+                const isSuggestion = suggestionKey === key;
+                const isLastMove = lastMoveKeys.includes(key);
+
+                return (
+                  <g key={key} pointerEvents="none">
                     {/* Valid placement dot */}
                     {isValidPlacement && !marble && (
                       <circle cx={cx} cy={cy} r={6}
@@ -719,6 +747,15 @@ const ZertzGame = () => {
                       />
                     )}
 
+                    {/* Last move indicator — purple ring */}
+                    {isLastMove && (
+                      <circle cx={cx} cy={cy} r={HEX_SIZE * 0.62}
+                        fill="none"
+                        stroke="var(--color-last-move)"
+                        strokeWidth={2.5}
+                      />
+                    )}
+
                     {/* AI suggestion highlight */}
                     {isSuggestion && (
                       <circle cx={cx} cy={cy} r={HEX_SIZE * 0.65}
@@ -733,25 +770,20 @@ const ZertzGame = () => {
                     {/* Marble */}
                     {marble && (
                       <g className="piece-enter" filter="url(#marble-shadow)">
-                        {/* Main sphere */}
                         <circle
                           cx={cx} cy={cy} r={HEX_SIZE * 0.5}
                           fill={`url(#grad-${marble})`}
                           stroke={`var(--color-marble-${marble}-stroke)`}
                           strokeWidth={marble === 'white' ? 0.75 : 0.5}
                         />
-
-                        {/* Specular highlight */}
                         <ellipse
                           cx={cx - HEX_SIZE * 0.12}
                           cy={cy - HEX_SIZE * 0.14}
                           rx={HEX_SIZE * 0.15}
                           ry={HEX_SIZE * 0.1}
                           fill="white"
-                          opacity={marble === 'white' ? 0.5 : marble === 'grey' ? 0.3 : 0.12}
+                          opacity={marble === 'white' ? 0.5 : marble === 'grey' ? 0.3 : 0.25}
                         />
-
-                        {/* Jumpable highlight ring */}
                         {isJumpable && (
                           <circle
                             cx={cx} cy={cy} r={HEX_SIZE * 0.57}
@@ -761,8 +793,6 @@ const ZertzGame = () => {
                             className="jumpable-pulse"
                           />
                         )}
-
-                        {/* Currently jumping indicator */}
                         {isJumping && (
                           <circle
                             cx={cx} cy={cy} r={HEX_SIZE * 0.6}
@@ -785,19 +815,18 @@ const ZertzGame = () => {
 
           {/* Controls row */}
           <div className="flex gap-2 items-center flex-wrap justify-center">
-            <button onClick={handleUndo} disabled={!board.canUndo() || isAiThinking} className={`${btnClass} ${!board.canUndo() || isAiThinking ? 'opacity-25' : 'hover:opacity-80'}`} style={btnStyle} title="Undo (Ctrl+Z)">
+            <button onClick={handleUndo} disabled={!board.canUndo() || isAiThinking} className={`${btnClass} ${!board.canUndo() || isAiThinking ? 'opacity-30 cursor-not-allowed' : ''}`} title="Undo (Ctrl+Z)">
               Undo
             </button>
-            <button onClick={handleRedo} disabled={!board.canRedo() || isAiThinking} className={`${btnClass} ${!board.canRedo() || isAiThinking ? 'opacity-25' : 'hover:opacity-80'}`} style={btnStyle} title="Redo (Ctrl+Shift+Z)">
+            <button onClick={handleRedo} disabled={!board.canRedo() || isAiThinking} className={`${btnClass} ${!board.canRedo() || isAiThinking ? 'opacity-30 cursor-not-allowed' : ''}`} title="Redo (Ctrl+Shift+Z)">
               Redo
             </button>
             {/* AI Suggest — visible when human's turn or 2-player mode */}
-            {(isHumanTurn && gamePhase !== 'game-over') && (
+            {(twoPlayerMode || (!twoPlayerMode && currentPlayer === humanPlayer && !isAiThinking)) && gamePhase !== 'game-over' && (
               <button
                 onClick={() => getAISuggestion(false)}
                 disabled={isAiThinking}
-                className={`${btnClass} ${isAiThinking ? 'opacity-25' : 'hover:opacity-80'}`}
-                style={btnStyle}
+                className={`${btnClass} ${isAiThinking ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 {isAiThinking ? 'Thinking...' : 'AI Suggest'}
               </button>
@@ -807,17 +836,16 @@ const ZertzGame = () => {
               <button
                 onClick={() => getAISuggestion(true)}
                 disabled={isAiThinking}
-                className={`${btnClass} ${isAiThinking ? 'opacity-25' : 'hover:opacity-80'}`}
-                style={btnStyle}
+                className={`${btnClass} ${isAiThinking ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
-                AI Move
+                {isAiThinking ? 'Thinking...' : 'AI Move'}
               </button>
             )}
-            <button onClick={() => setShowSettings(true)} className={`${btnClass} hover:opacity-80`} style={btnStyle}>
+            <button onClick={() => setShowSettings(true)} className={btnClass}>
               Settings
             </button>
-            <button onClick={() => setShowModal(true)} className={`${btnClass} hover:opacity-80`} style={btnStyle}>
-              Menu
+            <button onClick={() => setShowModal(true)} className={btnClass}>
+              New Game
             </button>
           </div>
 

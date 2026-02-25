@@ -43,6 +43,7 @@
   --color-jump-target: rgba(22, 163, 74, 0.5);
   --color-jump-target-stroke: #16A34A;
   --color-jumpable-marble: #D97706;
+  --color-last-move: #8B5CF6;
   --color-capture-progress-empty: #E7E5E4;
   --color-player-active: #78716C;
 
@@ -80,7 +81,7 @@
   --color-marble-grey-stroke: #444444;
   --color-marble-black: #151515;
   --color-marble-black-mid: #080808;
-  --color-marble-black-stroke: #000000;
+  --color-marble-black-stroke: #555555;
 
   --color-ring-fill: #3D3632;
   --color-ring-fill-inner: #4A433E;
@@ -93,6 +94,7 @@
   --color-jump-target: rgba(34, 197, 94, 0.4);
   --color-jump-target-stroke: #22C55E;
   --color-jumpable-marble: #F59E0B;
+  --color-last-move: #A78BFA;
   --color-capture-progress-empty: #3D3632;
   --color-player-active: #A8A29E;
 
