@@ -33,6 +33,8 @@ def main():
     parser.add_argument("--augment", action="store_true", help="6-fold hex rotation augmentation")
     parser.add_argument("--model-type", default="policy-value", choices=["value", "policy-value"],
                         help="Model type: 'value' (legacy) or 'policy-value' (default)")
+    parser.add_argument("--distill-weight", type=float, default=0.5,
+                        help="Weight for heuristic distillation loss (0=disabled, 0.5=default)")
     args = parser.parse_args()
 
     use_policy = args.model_type == "policy-value"
@@ -123,11 +125,12 @@ def main():
         train_correct = 0
         train_total = 0
 
-        for boards, metas, values, policies in train_loader:
+        for boards, metas, values, policies, heuristics in train_loader:
             boards = boards.to(device)
             metas = metas.to(device)
             values = values.to(device)
             policies = policies.to(device)
+            heuristics = heuristics.to(device)
 
             optimizer.zero_grad()
 
@@ -135,17 +138,21 @@ def main():
                 value_pred, policy_logits = model(boards, metas)
                 value_pred = value_pred.squeeze(-1)
 
-                # Combined loss: MSE for value + cross-entropy for policy
+                # Combined loss: MSE for value + cross-entropy for policy + heuristic distillation
                 v_loss = value_criterion(value_pred, values)
                 log_probs = F.log_softmax(policy_logits, dim=1)
                 p_loss = -(policies * log_probs).sum(dim=1).mean()
-                loss = v_loss + p_loss
+                # Heuristic distillation: teach NN to match heuristic evaluation
+                h_loss = value_criterion(value_pred, heuristics) if args.distill_weight > 0 else torch.tensor(0.0)
+                loss = v_loss + p_loss + args.distill_weight * h_loss
 
                 train_vloss += v_loss.item() * boards.size(0)
                 train_ploss += p_loss.item() * boards.size(0)
             else:
                 value_pred = model(boards, metas).squeeze(-1)
-                loss = value_criterion(value_pred, values)
+                v_loss = value_criterion(value_pred, values)
+                h_loss = value_criterion(value_pred, heuristics) if args.distill_weight > 0 else torch.tensor(0.0)
+                loss = v_loss + args.distill_weight * h_loss
                 train_vloss += loss.item() * boards.size(0)
 
             loss.backward()
@@ -171,11 +178,12 @@ def main():
         val_total = 0
 
         with torch.no_grad():
-            for boards, metas, values, policies in val_loader:
+            for boards, metas, values, policies, heuristics in val_loader:
                 boards = boards.to(device)
                 metas = metas.to(device)
                 values = values.to(device)
                 policies = policies.to(device)
+                heuristics = heuristics.to(device)
 
                 if use_policy:
                     value_pred, policy_logits = model(boards, metas)
@@ -183,12 +191,15 @@ def main():
                     v_loss = value_criterion(value_pred, values)
                     log_probs = F.log_softmax(policy_logits, dim=1)
                     p_loss = -(policies * log_probs).sum(dim=1).mean()
-                    loss = v_loss + p_loss
+                    h_loss = value_criterion(value_pred, heuristics) if args.distill_weight > 0 else torch.tensor(0.0)
+                    loss = v_loss + p_loss + args.distill_weight * h_loss
                     val_vloss += v_loss.item() * boards.size(0)
                     val_ploss += p_loss.item() * boards.size(0)
                 else:
                     value_pred = model(boards, metas).squeeze(-1)
-                    loss = value_criterion(value_pred, values)
+                    v_loss = value_criterion(value_pred, values)
+                    h_loss = value_criterion(value_pred, heuristics) if args.distill_weight > 0 else torch.tensor(0.0)
+                    loss = v_loss + args.distill_weight * h_loss
                     val_vloss += loss.item() * boards.size(0)
 
                 val_loss += loss.item() * boards.size(0)

@@ -148,7 +148,7 @@ function selectWithTemperature(move, moveNumber) {
 
 async function main() {
   const { default: ZertzBoard } = await import(resolve(srcDir, 'ZertzBoard.js'));
-  const { MCTS, applyMove } = await import(resolve(srcDir, 'engine', 'mcts.js'));
+  const { MCTS, applyMove, evaluatePosition } = await import(resolve(srcDir, 'engine', 'mcts.js'));
   const { extractFeatures } = await import(resolve(srcDir, 'engine', 'features.js'));
 
   // Load NN model if needed
@@ -223,11 +223,15 @@ async function main() {
       // Extract policy target from visit counts
       const policyTarget = extractPolicyTarget(bestMove);
 
+      // Record heuristic evaluation for distillation training
+      const heuristicValue = evaluatePosition(board, board.currentPlayer);
+
       positionBuffer.push({
         board: Array.from(boardFeatures),
         meta: Array.from(metaFeatures),
         policy: Array.from(policyTarget),
         player: board.currentPlayer,
+        heuristic: heuristicValue,
       });
 
       // Temperature-based move selection for exploration
@@ -252,6 +256,7 @@ async function main() {
         meta: pos.meta,
         value,
         policy: pos.policy,
+        heuristic: pos.heuristic,
       });
       stream.write(line + '\n');
     }

@@ -395,8 +395,30 @@ export class MCTS {
   async _evaluateLeaf(board, rootPlayer) {
     if (this.evaluationMode === 'nn' && this.valueNetwork && this.valueNetwork.isLoaded()) {
       try {
-        const nnValue = await this.valueNetwork.evaluatePosition(board);
-        if (board.currentPlayer !== rootPlayer) return -nnValue;
+        // Hybrid: short rollout (5 steps) then NN evaluation
+        // This gives the NN lookahead context while being faster than full 20-step rollout
+        const NN_ROLLOUT_DEPTH = 5;
+        let evalBoard = board;
+        if (board.gamePhase !== 'game-over') {
+          const simBoard = board.clone();
+          simBoard.stateHistory = [];
+          simBoard.historyIndex = -1;
+          let depth = 0;
+          while (depth < NN_ROLLOUT_DEPTH && simBoard.gamePhase !== 'game-over') {
+            const moves = simBoard.getLegalMoves();
+            if (moves.length === 0) break;
+            const move = selectMoveByFastHeuristic(moves, simBoard);
+            if (!move) break;
+            applyMove(simBoard, move);
+            depth++;
+          }
+          evalBoard = simBoard;
+        }
+        if (evalBoard.gamePhase === 'game-over') {
+          return evaluatePosition(evalBoard, rootPlayer);
+        }
+        const nnValue = await this.valueNetwork.evaluatePosition(evalBoard);
+        if (evalBoard.currentPlayer !== rootPlayer) return -nnValue;
         return nnValue;
       } catch {
         return evaluatePosition(board, rootPlayer);

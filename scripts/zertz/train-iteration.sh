@@ -104,7 +104,7 @@ echo "---"
 PYTHONPATH=training $VENV training/zertz/train.py \
   --data "${TRAIN_DATA}" \
   --lr "${LR}" --epochs 40 --patience 12 \
-  --model-type policy-value --augment \
+  --model-type policy-value --augment --distill-weight 0.5 \
   --output-dir "${CHECKPOINT_DIR}"
 
 # Rename best.pt to versioned checkpoint

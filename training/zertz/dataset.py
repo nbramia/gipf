@@ -1,9 +1,11 @@
 """
 NDJSON dataset loader for Zertz value/policy-value network training.
 
-Each line: {"board": [245 floats], "meta": [12 floats], "value": 1.0|-1.0, "policy": [49 floats]?}
+Each line: {"board": [245 floats], "meta": [12 floats], "value": 1.0|-1.0,
+            "policy": [49 floats]?, "heuristic": float?}
 
 Policy field is optional — if missing, a uniform distribution (1/49) is used.
+Heuristic field is optional — if missing, the game outcome value is used.
 Supports 6-fold rotational augmentation of the hexagonal board and policy targets.
 """
 
@@ -84,6 +86,7 @@ class ZertzDataset(Dataset):
         self.metas = []
         self.values = []
         self.policies = []
+        self.heuristics = []
 
         with open(filepath, "r") as f:
             for line in f:
@@ -101,6 +104,9 @@ class ZertzDataset(Dataset):
                 else:
                     policy = UNIFORM_POLICY.copy()
 
+                # Heuristic evaluation: use recorded value or fall back to game outcome
+                heuristic = np.float32(record.get("heuristic", value))
+
                 if augment:
                     # Add all 6 rotations (including identity)
                     for rot_idx in range(6):
@@ -108,16 +114,19 @@ class ZertzDataset(Dataset):
                         self.metas.append(meta.copy())  # meta is rotation-invariant
                         self.values.append(value)
                         self.policies.append(rotate_policy_target(policy, rot_idx))
+                        self.heuristics.append(heuristic)
                 else:
                     self.boards.append(board)
                     self.metas.append(meta)
                     self.values.append(value)
                     self.policies.append(policy)
+                    self.heuristics.append(heuristic)
 
         self.boards = np.array(self.boards)
         self.metas = np.array(self.metas)
         self.values = np.array(self.values)
         self.policies = np.array(self.policies)
+        self.heuristics = np.array(self.heuristics)
 
     def __len__(self):
         return len(self.values)
@@ -128,4 +137,5 @@ class ZertzDataset(Dataset):
             torch.from_numpy(self.metas[idx]),
             torch.tensor(self.values[idx], dtype=torch.float32),
             torch.from_numpy(self.policies[idx]),
+            torch.tensor(self.heuristics[idx], dtype=torch.float32),
         )

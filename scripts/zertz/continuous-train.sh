@@ -22,8 +22,8 @@ LOG_FILE=training/zertz/continuous.log
 CHECKPOINT_DIR=training/zertz/checkpoints
 DATA_DIR=data/zertz
 MAX_ITERATIONS=${MAX_ITERATIONS:-999}
-GAMES=${GAMES:-50}
-SIMS=${SIMS:-200}
+GAMES=${GAMES:-100}
+SIMS=${SIMS:-300}
 WORKERS=${WORKERS:-6}
 PAUSED=0
 WIN_COUNT=0
@@ -118,11 +118,13 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
   ITER_START=$(date +%s)
 
   # Step 1: Parallel self-play
-  # Use NN-guided self-play if a deployed model exists
+  # Use the LATEST trained model for self-play (AlphaZero style), not just the deployed one.
+  # This creates a virtuous cycle: better model -> better data -> better model.
   SELFPLAY_ARGS="--games $GAMES --sims $SIMS --output ${DATA_DIR}/v${VERSION}_selfplay.ndjson --workers $WORKERS"
-  if [ -f "public/models/zertz-value-v1.onnx" ]; then
-    SELFPLAY_ARGS="$SELFPLAY_ARGS --mode nn --model public/models/zertz-value-v1.onnx"
-    log "Step 1/6: NN self-play (${GAMES} games, ${SIMS} sims, ${WORKERS} workers)..."
+  LATEST_ONNX=$(ls -1 public/models/zertz-value-v[0-9]*.onnx 2>/dev/null | sort -V | tail -1)
+  if [ -n "$LATEST_ONNX" ]; then
+    SELFPLAY_ARGS="$SELFPLAY_ARGS --mode nn --model $LATEST_ONNX"
+    log "Step 1/6: NN self-play with $(basename $LATEST_ONNX) (${GAMES} games, ${SIMS} sims, ${WORKERS} workers)..."
   else
     log "Step 1/6: Heuristic self-play (${GAMES} games, ${SIMS} sims, ${WORKERS} workers)..."
   fi
@@ -142,12 +144,12 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
   check_paused
   log "Step 2/6: Combining training data..."
   RECENT_DATA=("${DATA_DIR}/v${VERSION}_selfplay.ndjson")
-  for f in $(ls -1t "${DATA_DIR}"/v*_selfplay.ndjson 2>/dev/null | grep -v "v${VERSION}_selfplay" | head -5); do
+  for f in $(ls -1t "${DATA_DIR}"/v*_selfplay.ndjson 2>/dev/null | grep -v "v${VERSION}_selfplay" | head -14); do
     SIZE=$(wc -c < "$f" | tr -d ' ')
     if [ "$SIZE" -gt 100 ]; then
       RECENT_DATA+=("$f")
     fi
-    if [ ${#RECENT_DATA[@]} -ge 6 ]; then
+    if [ ${#RECENT_DATA[@]} -ge 15 ]; then
       break
     fi
   done
@@ -160,7 +162,7 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
   check_paused
   log "Step 3/6: Training v${VERSION}..."
 
-  TRAIN_ARGS="--data ${DATA_DIR}/combined_v${VERSION}.ndjson --lr 1e-4 --epochs 40 --patience 12 --model-type policy-value --augment --output-dir ${CHECKPOINT_DIR}"
+  TRAIN_ARGS="--data ${DATA_DIR}/combined_v${VERSION}.ndjson --lr 1e-4 --epochs 40 --patience 12 --model-type policy-value --augment --distill-weight 0.5 --output-dir ${CHECKPOINT_DIR}"
   if [ -n "${DEPLOYED_PT:-}" ] && [ -f "${DEPLOYED_PT:-}" ]; then
     # Fine-tune from best checkpoint, rename output
     PYTHONPATH=training $VENV training/zertz/train.py $TRAIN_ARGS 2>&1
