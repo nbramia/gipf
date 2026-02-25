@@ -26,7 +26,7 @@ let valueNetwork = null;
 async function loadModel() {
   if (!MODEL_PATH) return;
   try {
-    const { ValueNetwork } = await import('../../src/engine/valueNetworkNode.js');
+    const { ValueNetwork } = await import('../../src/games/zertz/engine/valueNetworkNode.js');
     valueNetwork = new ValueNetwork();
     await valueNetwork.load(MODEL_PATH);
     console.log(`Loaded NN model: ${MODEL_PATH}`);
@@ -93,6 +93,23 @@ async function main() {
   console.log('---');
   console.log(`Results: NN=${results.nn}, Heuristic=${results.heuristic}, Draws=${results.draw}`);
   console.log(`Time: ${elapsed}s`);
+
+  // Exit code: 0 if NN wins majority, 1 otherwise
+  // Also fail if no model was loaded (heuristic vs heuristic is meaningless)
+  if (!valueNetwork) {
+    console.log('FAIL: No NN model loaded — cannot evaluate.');
+    process.exit(1);
+  }
+  if (results.nn > results.heuristic) {
+    console.log('RESULT: NN wins the tournament.');
+    process.exit(0);
+  } else {
+    console.log('RESULT: Heuristic wins or tied — NN not promoted.');
+    process.exit(1);
+  }
 }
 
-main().catch(console.error);
+main().catch(err => {
+  console.error(err);
+  process.exit(1);
+});
