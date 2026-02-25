@@ -1,6 +1,8 @@
-# AI Engine
+# AI Engine (Yinsh)
 
-The AI opponent uses Monte Carlo Tree Search (MCTS) with two evaluation modes: hand-crafted heuristics (default) or a trained neural network value estimator. The MCTS implementation is in `src/engine/mcts.js`; the value network pipeline spans `src/engine/features.js`, `src/engine/valueNetwork.js`, and `training/`.
+The Yinsh AI opponent uses Monte Carlo Tree Search (MCTS) with two evaluation modes: hand-crafted heuristics (default) or a trained neural network value estimator. The MCTS implementation is in `src/games/yinsh/engine/mcts.js`; the value network pipeline spans `src/games/yinsh/engine/features.js`, `src/games/yinsh/engine/valueNetwork.js`, and `training/`.
+
+> **Note:** This document covers the Yinsh AI only. Zertz does not currently have an AI opponent.
 
 ## Evaluation Modes
 
@@ -76,23 +78,23 @@ Leaf positions are scored by `_evaluatePlayoutResult()` using multiple factors:
 
 ## Neural Network Evaluation
 
-### Architecture (~65K parameters)
+### Architecture (~315K parameters)
 
 ```
 Input:  4 x 11 x 11 planes + 5 scalars
 
-Conv2d(4, 32, 3x3, pad=1) → BN → ReLU
-ResBlock(32) x 3  [Conv→BN→ReLU→Conv→BN + skip]
+Conv2d(4, 64, 3x3, pad=1) → BN → ReLU
+ResBlock(64) x 4  [Conv→BN→ReLU→Conv→BN + skip]
 
 Value head:
-  Conv2d(32, 1, 1x1) → BN → ReLU → Flatten(121)
+  Conv2d(64, 1, 1x1) → BN → ReLU → Flatten(121)
   Concat(121 + 5 meta = 126)
-  Linear(126, 64) → ReLU → Linear(64, 1) → Tanh
+  Linear(126, 128) → ReLU → Linear(128, 1) → Tanh
 
 Output: scalar in [-1, +1] (current player's winning probability)
 ```
 
-### Feature Extraction (`src/engine/features.js`)
+### Feature Extraction (`src/games/yinsh/engine/features.js`)
 
 Converts board state to neural network input:
 
@@ -115,7 +117,7 @@ Converts board state to neural network input:
 
 Features are always from the **current player's perspective** — the network learns a single perspective and the feature extraction handles the rotation.
 
-### Browser Inference (`src/engine/valueNetwork.js`)
+### Browser Inference (`src/games/yinsh/engine/valueNetwork.js`)
 
 Uses `onnxruntime-web` (WASM backend) for browser inference. The model is lazy-loaded on first NN-mode request in the Web Worker:
 
@@ -126,7 +128,7 @@ Worker receives evaluationMode='nn'
   → MCTS calls evaluatePosition() per simulation
 ```
 
-### Node.js Inference (`src/engine/valueNetworkNode.js`)
+### Node.js Inference (`src/games/yinsh/engine/valueNetworkNode.js`)
 
 Uses `onnxruntime-node` (native backend) for CLI scripts (tournament, future training data generation with NN self-play). Same API as browser version.
 
@@ -166,9 +168,9 @@ npm run tournament -- --games 5 --sims 50
 
 **Training config:** Batch size 256, Adam lr=1e-3 with cosine annealing to 1e-5, 90/10 train/val split, early stopping with patience 8.
 
-### Current Model Status (v1)
+### Current Model Status (v12)
 
-Trained on 546 positions from 10 self-play games (20 sims/move). Val MSE: 0.037, winner prediction accuracy: 100% on val set. This model is overfit on a tiny dataset — it serves as pipeline validation. In a 6-game tournament against the heuristic at 20 sims, the result was **3-3 (tied)**.
+Deployed model: v12 (`public/models/yinsh-value-v1.onnx`), 315K params (64 channels, 4 residual blocks, FC 128). Model lineage: v1 -> v3 -> v5 -> v8 -> v10 -> v12, each beating its predecessor in tournament. NN wins 80% against heuristic (16-4 in 20-game tournament at 50 sims). See CLAUDE.md for the full training pipeline.
 
 ## Multi-Phase Intelligence
 
@@ -212,7 +214,7 @@ For simulation, the AI clones the board with `board.clone()` to avoid mutating t
 ## Testing
 
 ```bash
-CI=true npm test          # Full suite (84 tests)
+CI=true npm test          # Full suite (305 tests)
 npm run test:engine       # MCTS-specific tests
 npm run tournament        # Compare heuristic vs NN
 ```

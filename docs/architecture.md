@@ -1,36 +1,101 @@
 # Architecture
 
-## Separation of Concerns
+## Project Structure
 
-The codebase is split into three independent modules:
+GIPF Project is a multi-game React application. Each game is self-contained in `src/games/<name>/` and lazy-loaded via React Router. Games share only the routing shell, Tailwind config, fonts, and deployment infrastructure.
+
+```
+src/
+  App.jsx              # BrowserRouter + React.lazy routes
+  LandingPage.jsx      # Landing page with game cards
+  index.css            # Tailwind directives + shared keyframes
+  index.js             # React DOM entry point
+  games/
+    yinsh/             # Complete Yinsh game (logic + UI + AI + CSS + tests)
+    zertz/             # Complete Zertz game (logic + UI + CSS + tests)
+api/                   # Vercel serverless functions
+scripts/               # CLI tools (self-play, training, tournaments)
+training/              # PyTorch training pipeline
+public/models/         # ONNX neural network models
+```
+
+## Routing and Code Splitting
+
+`App.jsx` uses `React.lazy()` for game components:
+
+```jsx
+const YinshGame = lazy(() => import('./games/yinsh/YinshGame.jsx'));
+const ZertzGame = lazy(() => import('./games/zertz/ZertzGame.jsx'));
+```
+
+This means visiting `/zertz` never loads the Yinsh MCTS engine or ONNX runtime. `LandingPage` is eagerly loaded since it's the entry point.
+
+`vercel.json` routes API calls to serverless functions and everything else to `index.html` for client-side routing:
+```json
+{ "source": "/api/:path*", "destination": "/api/:path*" },
+{ "source": "/(.*)", "destination": "/index.html" }
+```
+
+## CSS Isolation
+
+Both games define CSS custom properties with overlapping names (`--color-bg-page`, `--color-accent`, etc.) but different values. They're isolated by scoping under wrapper classes:
+
+- Yinsh: `.game-yinsh` and `.game-yinsh.dark` (in `src/games/yinsh/yinsh.css`)
+- Zertz: `.game-zertz` and `.game-zertz.dark` (in `src/games/zertz/zertz.css`)
+
+Animation keyframes are prefixed (`yinsh-piece-fade-in`, `zertz-piece-fade-in`) and animation classes are scoped (`.game-yinsh .piece-enter`). The only shared keyframe is `slide-in-right` in `src/index.css`.
+
+Each game component's root div includes the wrapper class:
+```jsx
+<div className={`game-yinsh min-h-screen ... ${darkMode ? 'dark' : ''}`}>
+```
+
+## Game Architecture Pattern
+
+Both games follow the same separation of concerns:
+
+| Module | Responsibility |
+|--------|----------------|
+| `<Game>Board.js` | Pure game logic -- state, rules, phase transitions. No React, no UI. |
+| `<Game>Game.jsx` | React UI -- SVG board rendering, modals, interaction handlers, localStorage. |
+| `<game>.css` | Scoped CSS variables and animations. |
+| `<Game>Board.test.js` | Jest tests for game logic. |
+
+This separation means:
+- AI can simulate game logic without UI overhead
+- Tests run without React
+- Each module can be understood independently
+- Games don't import from each other
+
+---
+
+## Yinsh
+
+### Files
 
 | File | Lines | Responsibility |
 |------|-------|----------------|
-| `src/YinshBoard.js` | 1,045 | Pure game logic -- state, rules, phase transitions. No React, no UI. |
-| `src/YinshGame.jsx` | 1,178 | React UI -- SVG board rendering, modals, interaction handlers, localStorage. |
-| `src/engine/mcts.js` | ~2,400 | AI engine -- MCTS algorithm, heuristic + NN evaluation, move categorization. |
-
-This separation means the AI can simulate game logic without UI overhead, tests run without React, and each module can be understood independently.
+| `src/games/yinsh/YinshBoard.js` | ~1,050 | Pure game logic -- state, rules, phase transitions |
+| `src/games/yinsh/YinshGame.jsx` | ~1,180 | React UI -- SVG board, modals, interactions, AI integration |
+| `src/games/yinsh/engine/mcts.js` | ~2,400 | AI engine -- MCTS, heuristic + NN evaluation |
 
 Supporting files:
 
 | File | Purpose |
 |------|---------|
-| `src/YinshNotation.js` (262 lines) | Chess-style move notation recording and export |
-| `api/aiMove.js` (173 lines) | Vercel serverless function wrapping MCTS for API-mode AI |
-| `src/engine/features.js` | Board state → NN input feature extraction |
-| `src/engine/valueNetwork.js` | Browser ONNX inference (onnxruntime-web) |
-| `src/engine/valueNetworkNode.js` | Node.js ONNX inference (onnxruntime-node) |
-| `src/engine/aiPlayer.js` | Shared AI move interface for UI and CLI |
-| `src/hooks/useAIWorker.js` | React hook managing MCTS Web Worker lifecycle |
-| `src/YinshBoard.test.js` | 84 Jest tests covering all game logic |
-| `src/testHelpers.js` | Board state fixtures and test utilities |
+| `YinshNotation.js` | Chess-style move notation |
+| `engine/features.js` | Board state -> NN input feature extraction |
+| `engine/valueNetwork.js` | Browser ONNX inference (onnxruntime-web) |
+| `engine/valueNetworkNode.js` | Node.js ONNX inference (onnxruntime-node) |
+| `engine/aiPlayer.js` | Shared AI move interface for UI and CLI |
+| `hooks/useAIWorker.js` | React hook managing MCTS Web Worker lifecycle |
+| `testHelpers.js` | Board state fixtures and test utilities |
 
-## Coordinate System
+### Coordinate System
 
-The board uses **axial hexagonal coordinates** `(q, r)` where both range from -5 to 5, with 8 corner positions excluded, giving 85 grid points total (of which 51 are playable intersections on the standard Yinsh board).
+Axial hexagonal coordinates `(q, r)` where both range from -5 to 5, with 8 corner positions excluded, giving 85 grid points (51 playable intersections).
 
-**Storage:** Board state is an object with string keys: `boardState["q,r"]` maps to `{type: 'ring'|'marker', player: 1|2}`.
+**Storage:** `boardState["q,r"]` -> `{type: 'ring'|'marker', player: 1|2}`
 
 **Screen conversion:**
 ```
@@ -38,36 +103,27 @@ x = q * 50 + r * 25 + 300
 y = r * 43.3 + 300
 ```
 
-**Six hexagonal directions:**
-```
-[1, 0]   East        [-1, 0]  West
-[0, 1]   Southeast   [0, -1]  Northwest
-[-1, 1]  Southwest   [1, -1]  Northeast
-```
+**Six hexagonal directions:** `[1,0] [0,1] [-1,1] [-1,0] [0,-1] [1,-1]`
 
-## Game Phase State Machine
-
-The game is driven by a `gamePhase` string that determines what actions are valid:
+### Game Phase State Machine
 
 ```
-setup ──> play ──> remove-row ──> remove-ring ──> play (loop)
-                                       │
-                                 (if score == 3)
-                                       │
-                                  game-over
+setup --> play --> remove-row --> remove-ring --> play (loop)
+                                      |
+                                (if score == 3)
+                                      |
+                                 game-over
 ```
 
-**Setup:** Players alternate placing 5 rings each (10 total). After the 10th ring, phase transitions to `play`.
+**Setup:** 10 rings placed alternately (5 per player). After the 10th, phase transitions to `play`.
 
-**Play:** Player selects a ring, moves it along a straight line. A marker is placed at the origin. Jumped markers are flipped. If any rows of 5 are formed, phase transitions to `remove-row`.
+**Play:** Select a ring, move it along a straight line. A marker is placed at the origin. Jumped markers flip. If rows of 5 form, phase transitions to `remove-row`.
 
-**Remove-row:** Player selects exactly 5 consecutive markers to remove. This uses a **queue-based iterative resolution system** -- the most complex logic in the codebase.
+**Remove-row:** Queue-based iterative resolution. Active player's rows first, then opponent's. Each removal triggers a re-check for new rows. Most complex logic in the codebase.
 
-**Remove-ring:** Player sacrifices one of their own rings to score a point. If they reach 3 points, game over. Otherwise, check for new rows or return to play.
+**Remove-ring:** Sacrifice one ring to score. If score reaches 3, game over.
 
 ### Row Resolution Queue
-
-When a move creates rows, a queue is built:
 
 ```javascript
 rowResolutionQueue = [
@@ -76,87 +132,131 @@ rowResolutionQueue = [
 ]
 ```
 
-The active player resolves ONE row at a time. After each removal, the board is re-checked for new rows (which get added to the FRONT of the queue for immediate resolution). After the active player finishes, the opponent resolves their rows the same way. Only when the queue is empty does the game proceed to ring removal and then back to play.
+Active player resolves ONE row at a time. After each removal, re-check for new rows (added to FRONT of queue). After active player finishes, opponent resolves theirs. Only when the queue is empty does the game proceed.
 
-This queue system is critical to rule compliance. Direct state manipulation (bypassing the queue) will corrupt game state.
+### AI Architecture
 
-## State Management
+Two execution modes:
+- **Local**: Web Worker (`mcts.worker.js`), 200 simulations per move
+- **API**: Vercel serverless at `/api/aiMove`, 30-500 sims with 2.5s time budget
 
-### Data Flow
+Two evaluation modes:
+- **Heuristic**: 12-move rollouts + hand-crafted scoring (`_evaluatePlayoutResult()`)
+- **Neural Network**: ONNX value network (`_evaluateWithNN()`), scaled to +/-5000
+
+### Value Network Pipeline
+
+```
+Self-play data generation (scripts/generate-training-data.mjs)
+  -> NDJSON: {board: [484], meta: [5], value: +/-1.0}
+  -> PyTorch training (training/train.py)
+  -> ONNX export (training/export_onnx.py)
+  -> public/models/yinsh-value-v1.onnx
+  -> Browser: onnxruntime-web loads model in Web Worker
+  -> MCTS uses NN output instead of rollouts
+```
+
+Feature extraction (`engine/features.js`):
+- 4 planes of 11x11 (current player rings, markers; opponent rings, markers)
+- 5 scalar metadata (scores, ring counts, phase encoding)
+
+### localStorage Keys
+
+```
+yinshDarkMode, yinshShowMoves, yinshRandomSetup,
+yinshKeepScore, yinshWins, yinshShowMoveHistory, yinshEvaluationMode
+```
+
+---
+
+## Zertz
+
+### Files
+
+| File | Lines | Responsibility |
+|------|-------|----------------|
+| `src/games/zertz/ZertzBoard.js` | ~795 | Pure game logic -- rings, marbles, captures, isolation |
+| `src/games/zertz/ZertzGame.jsx` | ~667 | React UI -- SVG hex board, modals, interactions |
+| `src/games/zertz/ZertzBoard.test.js` | ~2,728 | Comprehensive Jest tests |
+
+### Coordinate System
+
+Axial hexagonal coordinates `(q, r)` where `max(|q|, |r|, |q+r|) <= 3`, giving 37 positions.
+
+**Storage:**
+- `rings`: `Set` of `"q,r"` string keys (positions that still have rings)
+- `marbles`: `{"q,r": 'white'|'grey'|'black'}` (marbles placed on rings)
+- `pool`: `{white: n, grey: n, black: n}` (shared marble supply)
+- `captures`: `{1: {white, grey, black}, 2: {white, grey, black}}`
+
+**Screen conversion:**
+```
+x = 34 * (sqrt(3) * q + sqrt(3)/2 * r)
+y = 34 * 1.5 * r
+```
+
+### Game Phase State Machine
+
+```
+place-marble --> remove-ring --> (check forced captures)
+                                      |
+                              capture (if jumps exist)
+                                      |
+                              (multi-jump loop)
+                                      |
+                              place-marble (next player)
+                                      |
+                              game-over (if win condition met)
+```
+
+**Place-marble:** Select a marble color from the shared pool, place it on any empty ring.
+
+**Remove-ring:** Remove one ring from the board edge (must have no marble, must be on the perimeter). After removal, check for isolated groups -- rings disconnected from the main board are removed along with their marbles (captured by the player who caused the isolation).
+
+**Capture (forced):** If the current player has any marble that can jump over an adjacent marble into an empty ring, they MUST execute the jump. Jumped marbles are captured. Multi-jump sequences are supported.
+
+**Win conditions:** First player to capture 4 white, 5 grey, 6 black, or 3 of each color wins.
+
+### localStorage Keys
+
+```
+zertzDarkMode, zertzShowMoves
+```
+
+---
+
+## Shared Infrastructure
+
+### State Management (Both Games)
 
 ```
 User Click
-  → YinshGame.handleIntersectionClick(q, r)
-    → YinshBoard.handleClick(q, r)     // mutates internal state
-      → YinshBoard._captureState()      // snapshot for undo/redo
-    → setYinshBoard(board.clone())     // React re-render
+  -> <Game>Game.handleClick(q, r)
+    -> <Game>Board.handleClick(q, r)     // mutates internal state
+      -> <Game>Board._captureState()      // snapshot for undo/redo
+    -> setBoard(board.clone())           // React re-render
 ```
 
-**YinshBoard is the single source of truth.** React state holds a clone of it for rendering. After any mutation to the board, `.clone()` must be called to trigger a React re-render.
+The Board class is the single source of truth. React state holds a clone for rendering. After any mutation, `.clone()` must be called to trigger re-render.
 
-### Undo/Redo
+### Undo/Redo (Both Games)
 
-`_captureState()` is called after every successful move in every game phase. It creates a deep snapshot of the complete game state (board, phase, scores, notation, queue state, etc.) and pushes it onto `stateHistory`.
+`_captureState()` creates a deep snapshot after every successful move. Both games support:
+- History limited to prevent memory issues (50 for Yinsh, 100 for Zertz)
+- `undo()` / `redo()` restore from snapshots
+- Redo history cleared when a new move is made after undo
+- History cleared on new game
+- Test helpers use `skipInitialHistory: true`
 
-- History is limited to 50 moves to prevent memory issues
-- `undo()` and `redo()` restore from snapshots
-- Redo history is cleared when a new move is made after an undo
-- History is cleared on `startNewGame()`
-- Test helpers use `skipInitialHistory: true` to avoid capturing an empty initial state
+### Testing
 
-### localStorage Persistence
+305 tests across 5 suites, auto-discovered by `testMatch: ['**/*.test.js']`:
+- `YinshBoard.test.js` -- game logic
+- `ZertzBoard.test.js` -- game logic
+- `mcts.test.js` -- MCTS unit tests
+- `mcts.positions.test.js` -- positional AI tests
+- `mcts.benchmark.test.js` -- performance tests
 
-User preferences are stored in localStorage with these keys:
-
+```bash
+CI=true npm test          # All 305 must pass before deployment
 ```
-yinshDarkMode          boolean
-yinshShowMoves         boolean
-yinshRandomSetup       boolean
-yinshKeepScore         boolean
-yinshWins              {1: number, 2: number}
-yinshShowMoveHistory   boolean
-yinshEvaluationMode    'heuristic' | 'nn'
-```
-
-These keys must not be renamed or restructured without migration logic. Users expect their preferences and scores to persist across sessions.
-
-## Key Methods
-
-### YinshBoard.js
-
-| Method | Purpose |
-|--------|---------|
-| `handleClick(q, r)` | Main entry point for all game phases. Routes to phase-specific logic. |
-| `calculateValidMoves(q, r)` | Returns all legal destination squares for a ring at (q, r). |
-| `_scanDirectionForMoves(q, r, dq, dr)` | Scans one direction for valid landing spots, handling marker jumping. |
-| `checkForRows(boardState)` | Detects all completed rows (5+ consecutive markers), returns all valid 5-marker subsets. |
-| `_findFullLine(q, r, dq, dr, player, boardState)` | Finds a full consecutive line of markers in one direction. |
-| `_flipMarkersAlongPath(fromQ, fromR, toQ, toR, boardState)` | Flips all markers along a ring's movement path. |
-| `_startNextRowResolution()` | Processes the next item in the row resolution queue. |
-| `_captureState()` | Creates a state snapshot for undo/redo. |
-| `clone()` | Deep-clones the board for React state updates and AI simulation. |
-
-### YinshGame.jsx
-
-| Function | Purpose |
-|----------|---------|
-| `handleIntersectionClick(q, r)` | User click handler -- delegates to `board.handleClick()`, then updates React state. |
-| `getAISuggestion()` | Requests an AI move recommendation (API or local mode). |
-| `executeAIMove(suggestion)` | Applies the AI's recommended move to the board. |
-
-## Testing
-
-84 tests in `YinshBoard.test.js` covering:
-
-- Initialization and constants
-- Setup phase ring placement
-- Valid move calculation (jumping, blocking, directions)
-- Marker placement and flipping
-- Row detection (exact, overlapping, multi-directional)
-- Win conditions and scoring
-- State cloning and independence
-- Row/ring removal operations
-- Row resolution queue (multi-row, opponent rows)
-- Undo/redo across all phases
-
-Run with `CI=true npm test`. All must pass before deployment.

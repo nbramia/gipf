@@ -1,6 +1,6 @@
-# Move Notation
+# Move Notation (Yinsh)
 
-Every move is automatically recorded in a chess-inspired notation format. The notation system is implemented in `src/YinshNotation.js` and integrated into `YinshBoard` -- moves are logged as they happen during gameplay.
+Every Yinsh move is automatically recorded in a chess-inspired notation format. The notation system is implemented in `src/games/yinsh/YinshNotation.js` and integrated into `YinshBoard` -- moves are logged as they happen during gameplay.
 
 ## Format
 
