@@ -2,22 +2,22 @@
 
 .game-zertz {
   /* Surfaces */
-  --color-bg-page: #EDEBE8;
-  --color-bg-board: #FAF9F7;
+  --color-bg-page: #F3F4F6;
+  --color-bg-board: #FFFFFF;
   --color-bg-panel: #FFFFFF;
   --color-bg-modal: #FFFFFF;
-  --color-bg-tray: #F5F3F0;
-  --color-bg-hover: #F0EEEB;
-  --color-bg-accent: rgba(62, 50, 38, 0.08);
+  --color-bg-tray: #F3F4F6;
+  --color-bg-hover: #F3F4F6;
+  --color-bg-accent: rgba(5, 22, 130, 0.1);
 
   /* Text */
-  --color-text-primary: #1C1917;
-  --color-text-secondary: #57534E;
-  --color-text-muted: #A8A29E;
+  --color-text-primary: #111827;
+  --color-text-secondary: #4B5563;
+  --color-text-muted: #6B7280;
 
   /* Accent */
-  --color-accent: #78716C;
-  --color-accent-hover: #57534E;
+  --color-accent: #051682;
+  --color-accent-hover: #041170;
 
   /* Game pieces — Zertz marble colors */
   --color-marble-white: #F5F5F5;
@@ -35,43 +35,43 @@
   --color-ring-fill-inner: #E8E4DC;
   --color-ring-stroke: #C4BDB3;
   --color-ring-stroke-inner: #EDE9E3;
-  --color-ring-free: rgba(120, 113, 108, 0.2);
-  --color-ring-free-stroke: #78716C;
+  --color-ring-free: rgba(5, 22, 130, 0.15);
+  --color-ring-free-stroke: #051682;
 
   /* Indicators */
-  --color-valid-placement: rgba(120, 113, 108, 0.35);
+  --color-valid-placement: rgba(5, 22, 130, 0.25);
   --color-jump-target: rgba(22, 163, 74, 0.5);
   --color-jump-target-stroke: #16A34A;
   --color-jumpable-marble: #D97706;
   --color-last-move: #8B5CF6;
-  --color-capture-progress-empty: #E7E5E4;
-  --color-player-active: #78716C;
+  --color-capture-progress-empty: #dedede;
+  --color-player-active: #051682;
 
   /* Chrome */
-  --color-border-panel: #D6D3D1;
-  --color-border-button: #A8A29E;
-  --color-toggle-active: #78716C;
-  --color-toggle-inactive: #D6D3D1;
+  --color-border-panel: #D1D5DB;
+  --color-border-button: #051682;
+  --color-toggle-active: #051682;
+  --color-toggle-inactive: #D1D5DB;
   --color-toggle-knob: #FFFFFF;
-  --color-btn-primary-bg: #44403C;
-  --color-btn-primary-text: #FAFAF9;
+  --color-btn-primary-bg: #051682;
+  --color-btn-primary-text: #FFFFFF;
 }
 
 .game-zertz.dark {
-  --color-bg-page: #171412;
-  --color-bg-board: #28231F;
-  --color-bg-panel: #1F1B18;
-  --color-bg-modal: #2C2723;
-  --color-bg-tray: #231F1C;
-  --color-bg-hover: #2C2723;
-  --color-bg-accent: rgba(168, 162, 158, 0.08);
+  --color-bg-page: #1A1A1A;
+  --color-bg-board: #374251;
+  --color-bg-panel: #1F2937;
+  --color-bg-modal: #4B5563;
+  --color-bg-tray: #1F2937;
+  --color-bg-hover: #374151;
+  --color-bg-accent: rgba(147, 197, 253, 0.1);
 
-  --color-text-primary: #FAFAF9;
-  --color-text-secondary: #A8A29E;
-  --color-text-muted: #78716C;
+  --color-text-primary: #FFFFFF;
+  --color-text-secondary: #9CA3AF;
+  --color-text-muted: #6B7280;
 
-  --color-accent: #A8A29E;
-  --color-accent-hover: #D6D3D1;
+  --color-accent: #93C5FD;
+  --color-accent-hover: #BFDBFE;
 
   --color-marble-white: #EAEAEA;
   --color-marble-white-mid: #D0D0D0;
@@ -87,24 +87,24 @@
   --color-ring-fill-inner: #4A433E;
   --color-ring-stroke: #524A44;
   --color-ring-stroke-inner: #5A524C;
-  --color-ring-free: rgba(168, 162, 158, 0.2);
-  --color-ring-free-stroke: #A8A29E;
+  --color-ring-free: rgba(147, 197, 253, 0.2);
+  --color-ring-free-stroke: #93C5FD;
 
-  --color-valid-placement: rgba(168, 162, 158, 0.3);
+  --color-valid-placement: rgba(147, 197, 253, 0.3);
   --color-jump-target: rgba(34, 197, 94, 0.4);
   --color-jump-target-stroke: #22C55E;
   --color-jumpable-marble: #F59E0B;
   --color-last-move: #A78BFA;
   --color-capture-progress-empty: #3D3632;
-  --color-player-active: #A8A29E;
+  --color-player-active: #93C5FD;
 
-  --color-border-panel: #3D3632;
-  --color-border-button: #78716C;
-  --color-toggle-active: #78716C;
-  --color-toggle-inactive: #3D3632;
-  --color-toggle-knob: #FAFAF9;
-  --color-btn-primary-bg: #57534E;
-  --color-btn-primary-text: #FAFAF9;
+  --color-border-panel: #4B5563;
+  --color-border-button: #93C5FD;
+  --color-toggle-active: #051682;
+  --color-toggle-inactive: #4B5563;
+  --color-toggle-knob: #FFFFFF;
+  --color-btn-primary-bg: #051682;
+  --color-btn-primary-text: #FFFFFF;
 }
 
 /* ========== Zertz Animations ========== */

@@ -497,41 +497,31 @@ const ZertzGame = () => {
       {/* ---- Modal ---- */}
       {showModal && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
           onClick={(e) => { if (e.target === e.currentTarget) setShowModal(false); }}
         >
           <div
-            className="p-8 rounded-xl shadow-2xl max-w-sm w-full mx-4"
-            style={{
-              backgroundColor: 'var(--color-bg-modal)',
-              border: '1px solid var(--color-border-panel)',
-            }}
+            className="p-8 rounded-lg shadow-2xl max-w-md w-full mx-4 border bg-[var(--color-bg-modal)] border-[var(--color-border-panel)]"
           >
             <h2
-              className="font-heading text-2xl font-extrabold text-center tracking-wider uppercase mb-1"
+              className="text-xl font-bold text-center mb-6"
               style={{ color: 'var(--color-text-primary)' }}
             >
-              {gamePhase === 'game-over' ? (winner ? `${getPlayerLabel(winner)} wins` : 'Draw') : 'ZERTZ'}
+              {gamePhase === 'game-over'
+                ? (winner ? `${getPlayerLabel(winner)} wins!` : 'Draw')
+                : 'Welcome to ZERTZ!'}
             </h2>
-            {gamePhase === 'game-over' && winConditionMet ? (
-              <p className="text-center mb-6 text-sm" style={{ color: 'var(--color-text-muted)' }}>
+            {gamePhase === 'game-over' && winConditionMet && (
+              <p className="text-center -mt-4 mb-6 text-sm" style={{ color: 'var(--color-text-muted)' }}>
                 {getWinConditionLabel()}
-              </p>
-            ) : (
-              <p className="text-center mb-6 text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                A game of the GIPF project
               </p>
             )}
             <div className="flex justify-center mb-6">
               <button
                 onClick={startNewGame}
-                className="py-2.5 px-8 rounded-lg font-semibold text-sm hover:opacity-90 transition-all tracking-wide"
-                style={{
-                  backgroundColor: 'var(--color-btn-primary-bg)',
-                  color: 'var(--color-btn-primary-text)',
-                }}
+                className="py-3 px-6 rounded-lg font-semibold hover:opacity-90 transition-colors bg-[var(--color-btn-primary-bg)] text-[var(--color-btn-primary-text)]"
               >
-                {gamePhase === 'game-over' ? 'Play Again' : 'New Game'}
+                New Game
               </button>
             </div>
             {renderSettingsToggles()}
@@ -542,27 +532,29 @@ const ZertzGame = () => {
       {/* ---- Settings Panel ---- */}
       {showSettings && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-60 z-50"
+          className="fixed inset-0 bg-black bg-opacity-50 z-50"
           onClick={(e) => { if (e.target === e.currentTarget) setShowSettings(false); }}
         >
-          <div
-            className="settings-panel fixed right-0 top-0 bottom-0 w-72 shadow-2xl overflow-y-auto"
-            style={{
-              backgroundColor: 'var(--color-bg-panel)',
-              borderLeft: '1px solid var(--color-border-panel)',
-            }}
-          >
-            <div className="flex items-center justify-between p-5 border-b" style={{ borderColor: 'var(--color-border-panel)' }}>
-              <h2 className="text-base font-bold" style={{ color: 'var(--color-text-primary)' }}>Settings</h2>
+          <div className="settings-panel fixed right-0 top-0 bottom-0 w-80 shadow-2xl overflow-y-auto border-l bg-[var(--color-bg-panel)] border-[var(--color-border-panel)]">
+            <div
+              className="flex items-center justify-between p-6 border-b"
+              style={{ borderColor: 'var(--color-border-panel)' }}
+            >
+              <h2
+                className="text-xl font-bold"
+                style={{ color: 'var(--color-text-primary)' }}
+              >
+                Settings
+              </h2>
               <button
                 onClick={() => setShowSettings(false)}
-                className="text-xl leading-none"
-                style={{ color: 'var(--color-text-muted)' }}
+                className="text-2xl font-bold"
+                style={{ color: 'var(--color-text-secondary)' }}
               >
                 &times;
               </button>
             </div>
-            <div className="p-5">{renderSettingsToggles()}</div>
+            <div className="p-6">{renderSettingsToggles()}</div>
           </div>
         </div>
       )}
