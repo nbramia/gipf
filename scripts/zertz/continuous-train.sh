@@ -118,12 +118,16 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
   ITER_START=$(date +%s)
 
   # Step 1: Parallel self-play
-  log "Step 1/6: Parallel self-play (${GAMES} games, ${SIMS} sims, ${WORKERS} workers)..."
+  # Use NN-guided self-play if a deployed model exists
+  SELFPLAY_ARGS="--games $GAMES --sims $SIMS --output ${DATA_DIR}/v${VERSION}_selfplay.ndjson --workers $WORKERS"
+  if [ -f "public/models/zertz-value-v1.onnx" ]; then
+    SELFPLAY_ARGS="$SELFPLAY_ARGS --mode nn --model public/models/zertz-value-v1.onnx"
+    log "Step 1/6: NN self-play (${GAMES} games, ${SIMS} sims, ${WORKERS} workers)..."
+  else
+    log "Step 1/6: Heuristic self-play (${GAMES} games, ${SIMS} sims, ${WORKERS} workers)..."
+  fi
   check_paused
-  node scripts/zertz/parallel-selfplay.mjs \
-    --games "$GAMES" --sims "$SIMS" \
-    --output "${DATA_DIR}/v${VERSION}_selfplay.ndjson" \
-    --workers "$WORKERS" 2>&1
+  node scripts/zertz/parallel-selfplay.mjs $SELFPLAY_ARGS 2>&1
 
   if ! verify_file "${DATA_DIR}/v${VERSION}_selfplay.ndjson" "Self-play data"; then
     log "Skipping v${VERSION} due to data generation failure"
@@ -197,7 +201,7 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
     log "Step 5/6: Tournament v${VERSION} vs deployed v${DEPLOYED_VERSION}..."
     set +e
     node scripts/zertz/tournament.mjs \
-      --games 10 --sims 50 \
+      --games 20 --sims 100 \
       --model "public/models/zertz-value-v${VERSION}.onnx" 2>&1
     RESULT=$?
     set -e
