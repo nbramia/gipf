@@ -18,6 +18,7 @@ export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Credentials', true);
     const allowedOrigins = [
       'http://localhost:3000',
+      'https://gipf.vercel.app',
       'https://yinsh.vercel.app',
       'https://yinsh-nathan-ramias-projects.vercel.app'
     ];
@@ -156,6 +157,7 @@ export default async function handler(req, res) {
       const origin = req.headers?.origin;
       const allowedOrigins = [
         'http://localhost:3000',
+        'https://gipf.vercel.app',
         'https://yinsh.vercel.app',
         'https://yinsh-nathan-ramias-projects.vercel.app'
       ];
