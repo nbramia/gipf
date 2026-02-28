@@ -84,6 +84,7 @@ const YinshGame = () => {
   const [selectedSetupRing, setSelectedSetupRing] = useState(null);
   const [showInvalidFlash, setShowInvalidFlash] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showRules, setShowRules] = useState(false);
   const [showMoveHistory, setShowMoveHistory] = useState(() => {
     const saved = localStorage.getItem('yinshShowMoveHistory');
     return saved ? JSON.parse(saved) : true;
@@ -667,6 +668,17 @@ const YinshGame = () => {
           ))}
         </div>
       </div>
+      <button
+        onClick={() => setShowRules(true)}
+        className="w-full py-2 px-4 rounded-lg text-sm font-semibold transition-colors border-2"
+        style={{
+          borderColor: 'var(--color-border-button)',
+          color: 'var(--color-text-secondary)',
+          backgroundColor: 'transparent',
+        }}
+      >
+        Rules
+      </button>
     </div>
   );
 
@@ -792,6 +804,212 @@ const YinshGame = () => {
             </div>
             <div className="p-6">
               {renderSettingsToggles()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rules Modal */}
+      {showRules && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowRules(false); }}
+        >
+          <div
+            className="p-6 rounded-lg shadow-2xl max-w-2xl w-full mx-4 border max-h-[85vh] overflow-y-auto bg-[var(--color-bg-modal)] border-[var(--color-border-panel)]"
+          >
+            <div className="flex items-center justify-between mb-5 sticky top-0 pb-3 -mt-1 -mx-1 px-1 pt-1" style={{ backgroundColor: 'var(--color-bg-modal)' }}>
+              <h2 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
+                How to Play YINSH
+              </h2>
+              <button
+                onClick={() => setShowRules(false)}
+                className="text-2xl font-bold leading-none"
+                style={{ color: 'var(--color-text-secondary)' }}
+              >
+                &times;
+              </button>
+            </div>
+            <div className="space-y-6 text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
+
+              {/* Overview */}
+              <div>
+                <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Overview</h3>
+                <p>YINSH is a two-player abstract strategy game and the fifth game in the GIPF Project series. Players move rings across a hexagonal board, placing and flipping markers along the way. The goal is to form rows of five markers in your color to score points. The twist: every move flips markers you jump over, constantly changing the board.</p>
+              </div>
+
+              {/* Components */}
+              <div>
+                <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Components</h3>
+                <div className="flex items-center gap-6 my-3 justify-center">
+                  <svg width="140" height="50" viewBox="0 0 140 50">
+                    {/* White ring */}
+                    <circle cx="25" cy="25" r="18" fill="none" stroke="var(--color-text-primary)" strokeWidth="3" opacity="0.8" />
+                    <text x="25" y="48" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif">Ring</text>
+                    {/* White marker */}
+                    <circle cx="75" cy="25" r="12" fill="var(--color-text-primary)" opacity="0.85" />
+                    <text x="75" y="48" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif">White</text>
+                    {/* Black marker */}
+                    <circle cx="120" cy="25" r="12" fill="var(--color-text-muted)" opacity="0.7" />
+                    <text x="120" y="48" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif">Black</text>
+                  </svg>
+                </div>
+                <p>Each player has <strong style={{ color: 'var(--color-text-primary)' }}>5 rings</strong> and shares a pool of 51 markers. Markers are double-sided: white on one side, black on the other. A marker always shows the color of the player who last placed or flipped it.</p>
+              </div>
+
+              {/* Setup */}
+              <div>
+                <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Setup</h3>
+                <p>The board starts empty. Players alternate placing their 5 rings one at a time on any vacant intersection. White goes first. Ring placement is strategic — your starting positions matter.</p>
+              </div>
+
+              {/* Moving a Ring */}
+              <div>
+                <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Moving a Ring</h3>
+                <p className="mb-3">Each turn has two parts:</p>
+                <ol className="list-decimal pl-5 space-y-1 mb-3">
+                  <li><strong style={{ color: 'var(--color-text-primary)' }}>Place a marker.</strong> Click one of your rings. A marker of your color is placed on the spot where the ring sits.</li>
+                  <li><strong style={{ color: 'var(--color-text-primary)' }}>Move the ring.</strong> Slide the ring along a straight line (any of the 6 hex directions) to a new empty intersection.</li>
+                </ol>
+
+                {/* Movement diagram */}
+                <div className="flex justify-center my-3">
+                  <svg width="280" height="70" viewBox="0 0 280 70">
+                    {/* Line */}
+                    <line x1="30" y1="35" x2="250" y2="35" stroke="var(--color-text-muted)" strokeWidth="1" strokeDasharray="4 3" opacity="0.5" />
+                    {/* Dots for intersections */}
+                    {[30, 75, 120, 165, 210, 250].map((x, i) => (
+                      <circle key={i} cx={x} cy={35} r="3" fill="var(--color-text-muted)" opacity="0.3" />
+                    ))}
+                    {/* Ring at start with marker placed */}
+                    <circle cx="30" cy="35" r="12" fill="var(--color-text-primary)" opacity="0.85" />
+                    <text x="30" y="62" textAnchor="middle" fill="var(--color-text-muted)" fontSize="8" fontFamily="Outfit, sans-serif">marker</text>
+                    {/* Arrow showing movement */}
+                    <line x1="50" y1="35" x2="195" y2="35" stroke="var(--color-accent, #6366f1)" strokeWidth="2" markerEnd="url(#arrowhead-rules)" />
+                    <defs>
+                      <marker id="arrowhead-rules" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                        <polygon points="0 0, 8 3, 0 6" fill="var(--color-accent, #6366f1)" />
+                      </marker>
+                    </defs>
+                    {/* Ring at destination */}
+                    <circle cx="210" cy="35" r="14" fill="none" stroke="var(--color-text-primary)" strokeWidth="3" opacity="0.8" />
+                    <text x="210" y="62" textAnchor="middle" fill="var(--color-text-muted)" fontSize="8" fontFamily="Outfit, sans-serif">ring lands</text>
+                  </svg>
+                </div>
+              </div>
+
+              {/* Flipping Markers */}
+              <div>
+                <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Flipping Markers</h3>
+                <p className="mb-3">When a ring jumps over markers, <strong style={{ color: 'var(--color-text-primary)' }}>every marker it passes over is flipped</strong> to the opposite color. This is the core mechanic of YINSH — your move always changes the board for your opponent too.</p>
+
+                {/* Flipping diagram */}
+                <div className="flex justify-center my-3">
+                  <svg width="280" height="90" viewBox="0 0 280 90">
+                    {/* Before label */}
+                    <text x="140" y="12" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif" fontWeight="600">BEFORE</text>
+                    {/* Before state */}
+                    <circle cx="40" cy="32" r="14" fill="none" stroke="var(--color-text-primary)" strokeWidth="3" opacity="0.8" />
+                    <circle cx="85" cy="32" r="10" fill="var(--color-text-muted)" opacity="0.7" />
+                    <circle cx="125" cy="32" r="10" fill="var(--color-text-primary)" opacity="0.85" />
+                    <circle cx="165" cy="32" r="10" fill="var(--color-text-muted)" opacity="0.7" />
+                    <circle cx="210" cy="32" r="3" fill="var(--color-text-muted)" opacity="0.3" />
+
+                    {/* Arrow */}
+                    <text x="250" y="50" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="18" fontFamily="Outfit, sans-serif">&#8595;</text>
+
+                    {/* After label */}
+                    <text x="140" y="68" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif" fontWeight="600">AFTER</text>
+                    {/* After state — marker placed, markers flipped, ring moved */}
+                    <circle cx="40" cy="82" r="10" fill="var(--color-text-primary)" opacity="0.85" />
+                    <circle cx="85" cy="82" r="10" fill="var(--color-text-primary)" opacity="0.85" />
+                    <circle cx="125" cy="82" r="10" fill="var(--color-text-muted)" opacity="0.7" />
+                    <circle cx="165" cy="82" r="10" fill="var(--color-text-primary)" opacity="0.85" />
+                    <circle cx="210" cy="82" r="14" fill="none" stroke="var(--color-text-primary)" strokeWidth="3" opacity="0.8" />
+                    {/* Flip indicators */}
+                    <text x="85" y="60" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="10" fontFamily="Outfit, sans-serif">&#8635;</text>
+                    <text x="125" y="60" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="10" fontFamily="Outfit, sans-serif">&#8635;</text>
+                    <text x="165" y="60" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="10" fontFamily="Outfit, sans-serif">&#8635;</text>
+                  </svg>
+                </div>
+
+                <p className="mt-2"><strong style={{ color: 'var(--color-text-primary)' }}>Movement rules:</strong></p>
+                <ul className="list-disc pl-5 space-y-1 mt-1">
+                  <li>A ring moves in a straight line along any of the 6 hex directions.</li>
+                  <li>It may move over empty intersections freely.</li>
+                  <li>It may jump over one or more <em>contiguous</em> markers (no gaps within the group).</li>
+                  <li>It <strong style={{ color: 'var(--color-text-primary)' }}>cannot</strong> jump over other rings.</li>
+                  <li>After jumping a group of markers, the ring must land on the <strong style={{ color: 'var(--color-text-primary)' }}>first empty intersection</strong> beyond them.</li>
+                  <li>All jumped markers are flipped regardless of their color.</li>
+                </ul>
+              </div>
+
+              {/* Forming a Row */}
+              <div>
+                <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Forming a Row of 5</h3>
+
+                {/* Row diagram */}
+                <div className="flex justify-center my-3">
+                  <svg width="240" height="50" viewBox="0 0 240 50">
+                    {[40, 80, 120, 160, 200].map((x, i) => (
+                      <g key={i}>
+                        <circle cx={x} cy={20} r="12" fill="var(--color-text-primary)" opacity="0.85" />
+                        <line x1={x} y1="35" x2={x} y2="42" stroke="var(--color-accent, #6366f1)" strokeWidth="1.5" />
+                      </g>
+                    ))}
+                    <line x1="40" y1="42" x2="200" y2="42" stroke="var(--color-accent, #6366f1)" strokeWidth="1.5" />
+                    <text x="120" y="50" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="8" fontFamily="Outfit, sans-serif" fontWeight="600">ROW OF 5 — REMOVE</text>
+                  </svg>
+                </div>
+
+                <p className="mb-2">When 5 markers of the same color form an unbroken line (in any of the 6 hex directions), the owning player:</p>
+                <ol className="list-decimal pl-5 space-y-1">
+                  <li><strong style={{ color: 'var(--color-text-primary)' }}>Removes the 5 markers</strong> from the board (they return to the shared pool).</li>
+                  <li><strong style={{ color: 'var(--color-text-primary)' }}>Removes one of their own rings</strong> from the board. This ring is placed beside the board as a point scored.</li>
+                </ol>
+                <p className="mt-2">If a row contains more than 5 same-color markers in a line, the player chooses which 5 to remove.</p>
+              </div>
+
+              {/* Multiple Rows */}
+              <div>
+                <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Multiple Rows</h3>
+                <p>A single move can create multiple rows (for either player). When this happens:</p>
+                <ul className="list-disc pl-5 space-y-1 mt-1">
+                  <li>The <strong style={{ color: 'var(--color-text-primary)' }}>active player</strong> resolves their rows first.</li>
+                  <li>Rows are removed <strong style={{ color: 'var(--color-text-primary)' }}>one at a time</strong>. After each removal, the board is re-checked — removing a row may create or destroy other rows.</li>
+                  <li>Once the active player has resolved all their rows, the opponent resolves theirs (if any remain).</li>
+                  <li>Each row removal also requires removing one ring.</li>
+                </ul>
+              </div>
+
+              {/* Winning */}
+              <div>
+                <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Winning</h3>
+                <div className="flex items-center gap-4 my-3 justify-center">
+                  <svg width="160" height="45" viewBox="0 0 160 45">
+                    {[30, 65, 100].map((x, i) => (
+                      <g key={i}>
+                        <circle cx={x} cy={20} r="16" fill="none" stroke="var(--color-accent, #6366f1)" strokeWidth="2.5" />
+                        <text x={x} y="24" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="12" fontFamily="Outfit, sans-serif" fontWeight="700">{i + 1}</text>
+                      </g>
+                    ))}
+                    <text x="140" y="24" fill="var(--color-accent, #6366f1)" fontSize="16" fontFamily="Outfit, sans-serif" fontWeight="700">&#127942;</text>
+                  </svg>
+                </div>
+                <p>The first player to remove <strong style={{ color: 'var(--color-text-primary)' }}>3 of their rings</strong> from the board wins. Note that removing rings is both the scoring mechanism and a sacrifice — you have fewer rings to move with as you score points.</p>
+              </div>
+
+              {/* Strategy Tips */}
+              <div className="rounded-lg p-4 mt-2" style={{ backgroundColor: 'var(--color-bg-panel)', border: '1px solid var(--color-border-panel)' }}>
+                <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Strategy Tips</h3>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>Every flip changes the board for both players. Think about what your opponent gains from your move.</li>
+                  <li>Keep your rings mobile — a ring boxed in by other rings can't move far.</li>
+                  <li>Building toward a row of 5 is obvious. Try to set up multiple threats at once.</li>
+                  <li>Sometimes it's better to flip your opponent's markers rather than extend your own row.</li>
+                </ul>
+              </div>
+
             </div>
           </div>
         </div>

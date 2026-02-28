@@ -76,6 +76,7 @@ const ZertzGame = () => {
   const [aiSuggestion, setAiSuggestion] = useState(null);
   const [showModal, setShowModal] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [showRules, setShowRules] = useState(false);
   const [lastMoveKeys, setLastMoveKeys] = useState([]);
 
   const { computeMove, isSupported: workerSupported } = useAIWorker();
@@ -307,6 +308,17 @@ const ZertzGame = () => {
       <Toggle label="Two Players" checked={twoPlayerMode} onChange={() => setTwoPlayerMode(!twoPlayerMode)} />
       <Toggle label="Dark Mode" checked={darkMode} onChange={() => setDarkMode(!darkMode)} />
       <Toggle label="Show Valid Moves" checked={showPossibleMoves} onChange={() => setShowPossibleMoves(!showPossibleMoves)} />
+      <button
+        onClick={() => setShowRules(true)}
+        className="w-full py-2 px-4 rounded-lg text-sm font-semibold transition-colors border-2"
+        style={{
+          borderColor: 'var(--color-border-button)',
+          color: 'var(--color-text-secondary)',
+          backgroundColor: 'transparent',
+        }}
+      >
+        Rules
+      </button>
     </div>
   );
 
@@ -556,6 +568,307 @@ const ZertzGame = () => {
               </button>
             </div>
             <div className="p-6">{renderSettingsToggles()}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Rules Modal */}
+      {showRules && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowRules(false); }}
+        >
+          <div
+            className="p-6 rounded-lg shadow-2xl max-w-2xl w-full mx-4 border max-h-[85vh] overflow-y-auto bg-[var(--color-bg-modal)] border-[var(--color-border-panel)]"
+          >
+            <div className="flex items-center justify-between mb-5 sticky top-0 pb-3 -mt-1 -mx-1 px-1 pt-1" style={{ backgroundColor: 'var(--color-bg-modal)' }}>
+              <h2 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
+                How to Play ZERTZ
+              </h2>
+              <button
+                onClick={() => setShowRules(false)}
+                className="text-2xl font-bold leading-none"
+                style={{ color: 'var(--color-text-secondary)' }}
+              >
+                &times;
+              </button>
+            </div>
+            <div className="space-y-6 text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
+
+              {/* Overview */}
+              <div>
+                <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Overview</h3>
+                <p>ZERTZ is a two-player abstract strategy game and one of the GIPF Project series. Both players share the same pieces and compete to capture marbles from a hexagonal board that shrinks every turn. The marbles belong to no one until captured — what matters is who takes them.</p>
+              </div>
+
+              {/* Components */}
+              <div>
+                <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Components</h3>
+                <div className="flex items-center gap-6 my-3 justify-center">
+                  <svg width="240" height="55" viewBox="0 0 240 55">
+                    <defs>
+                      <radialGradient id="rules-grad-w" cx="38%" cy="35%">
+                        <stop offset="0%" stopColor="#FFFFFF" />
+                        <stop offset="100%" stopColor="#C8C8C8" />
+                      </radialGradient>
+                      <radialGradient id="rules-grad-g" cx="38%" cy="35%">
+                        <stop offset="0%" stopColor="#ABABAB" />
+                        <stop offset="100%" stopColor="#505050" />
+                      </radialGradient>
+                      <radialGradient id="rules-grad-b" cx="38%" cy="35%">
+                        <stop offset="0%" stopColor="#4A4A4A" />
+                        <stop offset="100%" stopColor="#050505" />
+                      </radialGradient>
+                    </defs>
+                    {/* White */}
+                    <circle cx="40" cy="22" r="14" fill="url(#rules-grad-w)" stroke="#999" strokeWidth="0.75" />
+                    <circle cx="35" cy="17" r="3" fill="white" opacity="0.5" />
+                    <text x="40" y="50" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif">White (6)</text>
+                    {/* Grey */}
+                    <circle cx="120" cy="22" r="14" fill="url(#rules-grad-g)" stroke="#555" strokeWidth="0.75" />
+                    <circle cx="115" cy="17" r="2.5" fill="#B0B0B0" opacity="0.4" />
+                    <text x="120" y="50" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif">Grey (8)</text>
+                    {/* Black */}
+                    <circle cx="200" cy="22" r="14" fill="url(#rules-grad-b)" stroke="#222" strokeWidth="0.75" />
+                    <circle cx="195" cy="17" r="2.5" fill="#555" opacity="0.3" />
+                    <text x="200" y="50" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif">Black (10)</text>
+                  </svg>
+                </div>
+                <p>The game uses <strong style={{ color: 'var(--color-text-primary)' }}>37 rings</strong> forming the hexagonal board and a shared supply of <strong style={{ color: 'var(--color-text-primary)' }}>24 marbles</strong>: 6 white (most valuable), 8 grey, and 10 black. Neither player "owns" a color — both draw from the same supply and both try to capture marbles.</p>
+              </div>
+
+              {/* Placing a Marble */}
+              <div>
+                <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Turn Option 1: Place a Marble</h3>
+                <p className="mb-3">If no captures are available (see below), you must place a marble. This has two steps:</p>
+
+                {/* Placing diagram */}
+                <div className="flex justify-center my-3">
+                  <svg width="300" height="80" viewBox="0 0 300 80">
+                    {/* Step 1 */}
+                    <text x="75" y="12" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif" fontWeight="600">1. PLACE MARBLE</text>
+                    {/* Board rings */}
+                    {[30, 75, 120].map((x, i) => (
+                      <polygon key={i} points={`${x},25 ${x+15},33 ${x+15},48 ${x},55 ${x-15},48 ${x-15},33`}
+                        fill="var(--color-ring-fill, #e8e0d4)" stroke="var(--color-ring-stroke, #c4b8a8)" strokeWidth="1" />
+                    ))}
+                    {/* Marble placed on middle ring */}
+                    <circle cx="75" cy="41" r="10" fill="url(#rules-grad-g)" stroke="#555" strokeWidth="0.75" />
+                    <text x="75" y="72" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="8" fontFamily="Outfit, sans-serif">choose any ring</text>
+
+                    {/* Arrow */}
+                    <text x="160" y="44" fill="var(--color-text-muted)" fontSize="20">&#8594;</text>
+
+                    {/* Step 2 */}
+                    <text x="235" y="12" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif" fontWeight="600">2. REMOVE EDGE RING</text>
+                    {[195, 240, 280].map((x, i) => (
+                      <polygon key={i} points={`${x},25 ${x+15},33 ${x+15},48 ${x},55 ${x-15},48 ${x-15},33`}
+                        fill={i === 2 ? 'transparent' : 'var(--color-ring-fill, #e8e0d4)'}
+                        stroke={i === 2 ? 'var(--color-accent, #6366f1)' : 'var(--color-ring-stroke, #c4b8a8)'}
+                        strokeWidth={i === 2 ? 2 : 1}
+                        strokeDasharray={i === 2 ? '4 3' : 'none'}
+                      />
+                    ))}
+                    <circle cx="240" cy="41" r="10" fill="url(#rules-grad-g)" stroke="#555" strokeWidth="0.75" />
+                    <text x="280" y="44" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="14">&#10005;</text>
+                    <text x="235" y="72" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="8" fontFamily="Outfit, sans-serif">board shrinks</text>
+                  </svg>
+                </div>
+
+                <ol className="list-decimal pl-5 space-y-1">
+                  <li><strong style={{ color: 'var(--color-text-primary)' }}>Choose a marble color</strong> from the shared pool and place it on any empty ring.</li>
+                  <li><strong style={{ color: 'var(--color-text-primary)' }}>Remove one unoccupied edge ring</strong> from the board. An edge ring is one that sits on the border of the board (connected to the void on at least one side) and has no marble on it.</li>
+                </ol>
+                <p className="mt-2">This means the board gets smaller every turn. Choosing which ring to remove is as important as where you place your marble.</p>
+              </div>
+
+              {/* Capturing */}
+              <div>
+                <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Turn Option 2: Capture by Jumping</h3>
+                <p className="mb-3">A marble captures by jumping over an adjacent marble and landing on the empty ring directly beyond it. The jumped marble is removed from the board and added to your captures.</p>
+
+                {/* Capture diagram */}
+                <div className="flex justify-center my-3">
+                  <svg width="280" height="70" viewBox="0 0 280 70">
+                    <defs>
+                      <marker id="arrowhead-zertz-rules" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                        <polygon points="0 0, 8 3, 0 6" fill="var(--color-accent, #6366f1)" />
+                      </marker>
+                    </defs>
+                    {/* Three rings in a line */}
+                    {[60, 140, 220].map((x, i) => (
+                      <polygon key={i} points={`${x},15 ${x+20},25 ${x+20},45 ${x},55 ${x-20},45 ${x-20},25`}
+                        fill="var(--color-ring-fill, #e8e0d4)" stroke="var(--color-ring-stroke, #c4b8a8)" strokeWidth="1" />
+                    ))}
+                    {/* Jumping marble */}
+                    <circle cx="60" cy="35" r="12" fill="url(#rules-grad-b)" stroke="#222" strokeWidth="0.75" />
+                    {/* Jumped marble (being captured) */}
+                    <circle cx="140" cy="35" r="12" fill="url(#rules-grad-w)" stroke="#999" strokeWidth="0.75" />
+                    <circle cx="140" cy="35" r="14" fill="none" stroke="var(--color-accent, #6366f1)" strokeWidth="1.5" strokeDasharray="3 2" />
+                    {/* Arrow */}
+                    <line x1="80" y1="35" x2="200" y2="35" stroke="var(--color-accent, #6366f1)" strokeWidth="2" markerEnd="url(#arrowhead-zertz-rules)" />
+                    {/* Labels */}
+                    <text x="60" y="66" textAnchor="middle" fill="var(--color-text-muted)" fontSize="8" fontFamily="Outfit, sans-serif">jumper</text>
+                    <text x="140" y="66" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="8" fontFamily="Outfit, sans-serif">captured</text>
+                    <text x="220" y="66" textAnchor="middle" fill="var(--color-text-muted)" fontSize="8" fontFamily="Outfit, sans-serif">lands here</text>
+                  </svg>
+                </div>
+
+                <p><strong style={{ color: 'var(--color-text-primary)' }}>Key rules for capturing:</strong></p>
+                <ul className="list-disc pl-5 space-y-1 mt-1">
+                  <li>Any marble on the board can jump any other marble — colors don't matter.</li>
+                  <li>The jumped marble is captured by the <strong style={{ color: 'var(--color-text-primary)' }}>player making the jump</strong>, regardless of who placed either marble.</li>
+                  <li>The landing ring must be empty and directly adjacent to the jumped marble (in a straight line).</li>
+                </ul>
+              </div>
+
+              {/* Multi-jump */}
+              <div>
+                <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Multi-Jump Sequences</h3>
+                <p className="mb-3">After a marble lands from a jump, if it can jump again from its new position, it <strong style={{ color: 'var(--color-text-primary)' }}>may continue jumping</strong> in the same turn. Each jump captures another marble. The direction can change between jumps.</p>
+
+                {/* Multi-jump diagram */}
+                <div className="flex justify-center my-3">
+                  <svg width="220" height="100" viewBox="0 0 220 100">
+                    {/* Rings */}
+                    {[[40,30],[100,30],[160,30],[160,75]].map(([x,y], i) => (
+                      <polygon key={i} points={`${x},${y-15} ${x+15},${y-7} ${x+15},${y+7} ${x},${y+15} ${x-15},${y+7} ${x-15},${y-7}`}
+                        fill="var(--color-ring-fill, #e8e0d4)" stroke="var(--color-ring-stroke, #c4b8a8)" strokeWidth="1" />
+                    ))}
+                    {/* Jumping marble */}
+                    <circle cx="40" cy="30" r="10" fill="url(#rules-grad-b)" stroke="#222" strokeWidth="0.75" />
+                    {/* First jumped marble */}
+                    <circle cx="100" cy="30" r="10" fill="url(#rules-grad-w)" stroke="#999" strokeWidth="0.75" opacity="0.5" />
+                    <line x1="93" y1="23" x2="107" y2="37" stroke="var(--color-accent, #6366f1)" strokeWidth="2" />
+                    {/* Arrow 1 */}
+                    <path d="M 55 30 L 145 30" fill="none" stroke="var(--color-accent, #6366f1)" strokeWidth="1.5" strokeDasharray="4 3" />
+                    {/* Second jumped marble */}
+                    <circle cx="160" cy="30" r="10" fill="url(#rules-grad-g)" stroke="#555" strokeWidth="0.75" opacity="0.5" />
+                    <line x1="153" y1="23" x2="167" y2="37" stroke="var(--color-accent, #6366f1)" strokeWidth="2" />
+                    {/* Arrow 2 turning down */}
+                    <path d="M 160 45 L 160 60" fill="none" stroke="var(--color-accent, #6366f1)" strokeWidth="1.5" strokeDasharray="4 3" />
+                    {/* Final position */}
+                    <circle cx="160" cy="75" r="10" fill="url(#rules-grad-b)" stroke="#222" strokeWidth="0.75" />
+                    {/* Labels */}
+                    <text x="40" y="50" textAnchor="middle" fill="var(--color-text-muted)" fontSize="7" fontFamily="Outfit, sans-serif">start</text>
+                    <text x="160" y="95" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="7" fontFamily="Outfit, sans-serif">2 captures!</text>
+                  </svg>
+                </div>
+
+                <p>Multi-jumps are optional — you may stop after any jump. But if a forced capture is available (see below), you must make at least the first jump.</p>
+              </div>
+
+              {/* Forced Captures */}
+              <div>
+                <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Forced Captures</h3>
+                <div className="rounded-lg p-3 my-2" style={{ backgroundColor: 'var(--color-bg-panel)', border: '1px solid var(--color-border-panel)' }}>
+                  <p><strong style={{ color: 'var(--color-text-primary)' }}>Important:</strong> If any marble on the board can make a jump for you, you <strong style={{ color: 'var(--color-text-primary)' }}>must</strong> capture. You cannot choose to place a marble instead. This rule creates tactical depth — sometimes placing a marble sets up a forced capture for your opponent on their next turn.</p>
+                </div>
+                <p className="mt-2">After placing a marble and removing a ring, the game checks if the current player has any available jumps. If so, the player must jump before their turn ends.</p>
+              </div>
+
+              {/* Isolated Rings */}
+              <div>
+                <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Isolated Rings</h3>
+                <p className="mb-3">When removing a ring causes part of the board to become disconnected from the main group, all isolated rings are removed. Any marbles sitting on those isolated rings are <strong style={{ color: 'var(--color-text-primary)' }}>captured by the player who caused the isolation</strong>.</p>
+
+                {/* Isolation diagram */}
+                <div className="flex justify-center my-3">
+                  <svg width="260" height="70" viewBox="0 0 260 70">
+                    {/* Main board cluster */}
+                    {[30, 65, 100, 135].map((x, i) => (
+                      <polygon key={i} points={`${x},15 ${x+13},22 ${x+13},35 ${x},42 ${x-13},35 ${x-13},22`}
+                        fill="var(--color-ring-fill, #e8e0d4)" stroke="var(--color-ring-stroke, #c4b8a8)" strokeWidth="1" />
+                    ))}
+                    <text x="82" y="56" textAnchor="middle" fill="var(--color-text-muted)" fontSize="8" fontFamily="Outfit, sans-serif">main board</text>
+
+                    {/* Gap — removed ring */}
+                    <polygon points="170,15 183,22 183,35 170,42 157,35 157,22"
+                      fill="transparent" stroke="var(--color-text-muted)" strokeWidth="1" strokeDasharray="3 2" opacity="0.4" />
+                    <text x="170" y="32" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9">&#10005;</text>
+                    <text x="170" y="56" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="8" fontFamily="Outfit, sans-serif">removed</text>
+
+                    {/* Isolated ring with marble */}
+                    <polygon points="210,15 223,22 223,35 210,42 197,35 197,22"
+                      fill="var(--color-ring-fill, #e8e0d4)" stroke="var(--color-accent, #6366f1)" strokeWidth="1.5" strokeDasharray="4 2" />
+                    <circle cx="210" cy="28" r="8" fill="url(#rules-grad-w)" stroke="#999" strokeWidth="0.75" />
+                    <text x="210" y="56" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="8" fontFamily="Outfit, sans-serif">isolated!</text>
+
+                    {/* Captured label */}
+                    <text x="245" y="32" fill="var(--color-accent, #6366f1)" fontSize="14">&#8594;</text>
+                  </svg>
+                </div>
+                <p>This can be a powerful tactic — strategically removing a ring to cut off a section of the board and claim all the marbles on it.</p>
+              </div>
+
+              {/* Winning */}
+              <div>
+                <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Winning Conditions</h3>
+                <p className="mb-3">You win by being the first player to capture <strong style={{ color: 'var(--color-text-primary)' }}>any one</strong> of these sets:</p>
+
+                {/* Win conditions diagram */}
+                <div className="flex justify-center my-3">
+                  <svg width="280" height="130" viewBox="0 0 280 130">
+                    {/* 4 White */}
+                    <text x="65" y="14" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif" fontWeight="600">4 White</text>
+                    {[25, 50, 75, 100].map((x, i) => (
+                      <circle key={i} cx={x} cy="30" r="9" fill="url(#rules-grad-w)" stroke="#999" strokeWidth="0.75" />
+                    ))}
+
+                    {/* 5 Grey */}
+                    <text x="65" y="58" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif" fontWeight="600">5 Grey</text>
+                    {[15, 40, 65, 90, 115].map((x, i) => (
+                      <circle key={i} cx={x} cy="74" r="9" fill="url(#rules-grad-g)" stroke="#555" strokeWidth="0.75" />
+                    ))}
+
+                    {/* 6 Black */}
+                    <text x="75" y="102" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif" fontWeight="600">6 Black</text>
+                    {[15, 37, 59, 81, 103, 125].map((x, i) => (
+                      <circle key={i} cx={x} cy="118" r="9" fill="url(#rules-grad-b)" stroke="#222" strokeWidth="0.75" />
+                    ))}
+
+                    {/* OR divider */}
+                    <text x="170" y="48" textAnchor="middle" fill="var(--color-text-muted)" fontSize="10" fontFamily="Outfit, sans-serif" fontWeight="600">OR</text>
+
+                    {/* 3 of each */}
+                    <text x="220" y="14" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif" fontWeight="600">3 of each</text>
+                    {[190, 215, 240].map((x, i) => (
+                      <circle key={i} cx={x} cy="30" r="9" fill="url(#rules-grad-w)" stroke="#999" strokeWidth="0.75" />
+                    ))}
+                    {[190, 215, 240].map((x, i) => (
+                      <circle key={i} cx={x} cy="55" r="9" fill="url(#rules-grad-g)" stroke="#555" strokeWidth="0.75" />
+                    ))}
+                    {[190, 215, 240].map((x, i) => (
+                      <circle key={i} cx={x} cy="80" r="9" fill="url(#rules-grad-b)" stroke="#222" strokeWidth="0.75" />
+                    ))}
+
+                    {/* Trophy */}
+                    <text x="220" y="108" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="18">&#127942;</text>
+                  </svg>
+                </div>
+
+                <p>White marbles are the rarest (only 6 in the game) and require the fewest captures to win. Black marbles are the most common but require 6 to win. The "3 of each" condition rewards balanced capturing.</p>
+              </div>
+
+              {/* Pool Exhaustion */}
+              <div>
+                <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Pool Exhaustion</h3>
+                <p>If the marble pool runs out of a color, players may place marbles from their own captures back onto the board. If a player has no marbles to place at all, the game ends — the player with more progress toward any winning condition wins.</p>
+              </div>
+
+              {/* Strategy Tips */}
+              <div className="rounded-lg p-4 mt-2" style={{ backgroundColor: 'var(--color-bg-panel)', border: '1px solid var(--color-border-panel)' }}>
+                <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Strategy Tips</h3>
+                <ul className="list-disc pl-5 space-y-1">
+                  <li>White marbles are the most valuable — capturing even one puts you a quarter of the way to winning.</li>
+                  <li>Forced captures can backfire. Placing a marble near your opponent's pieces may force them into a beneficial jump on their turn.</li>
+                  <li>Removing rings strategically can isolate sections of the board, capturing multiple marbles at once.</li>
+                  <li>Pay attention to the board's shrinking shape — edge rings become critical as the board gets smaller.</li>
+                  <li>Sometimes placing a black marble (least valuable) is the safest move when the board position is tense.</li>
+                </ul>
+              </div>
+
+            </div>
           </div>
         </div>
       )}
