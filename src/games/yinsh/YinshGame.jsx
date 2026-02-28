@@ -832,6 +832,23 @@ const YinshGame = () => {
             </div>
             <div className="space-y-6 text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
 
+              {/* Shared defs for rules diagrams */}
+              <svg width="0" height="0" style={{ position: 'absolute' }}>
+                <defs>
+                  <radialGradient id="rules-marker-white" cx="40%" cy="40%">
+                    <stop offset="0%" stopColor="#FFFFFF" />
+                    <stop offset="100%" stopColor="#e8e8e8" />
+                  </radialGradient>
+                  <radialGradient id="rules-marker-black" cx="40%" cy="40%">
+                    <stop offset="0%" stopColor="#4a4a4a" />
+                    <stop offset="100%" stopColor="#000000" />
+                  </radialGradient>
+                  <marker id="rules-arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+                    <polygon points="0 0, 8 3, 0 6" fill="var(--color-accent, #6366f1)" />
+                  </marker>
+                </defs>
+              </svg>
+
               {/* Overview */}
               <div>
                 <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Overview</h3>
@@ -841,17 +858,27 @@ const YinshGame = () => {
               {/* Components */}
               <div>
                 <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Components</h3>
-                <div className="flex items-center gap-6 my-3 justify-center">
-                  <svg width="140" height="50" viewBox="0 0 140 50">
-                    {/* White ring */}
-                    <circle cx="25" cy="25" r="18" fill="none" stroke="var(--color-text-primary)" strokeWidth="3" opacity="0.8" />
-                    <text x="25" y="48" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif">Ring</text>
+                <div className="flex items-center gap-4 my-3 justify-center">
+                  <svg width="280" height="60" viewBox="0 0 280 60">
+                    {/* White ring — 3-layer like actual game */}
+                    <circle cx="35" cy="25" r="15" fill="var(--color-ring-bg)" />
+                    <circle cx="35" cy="25" r="15" fill="none" stroke="var(--color-ring-neutral)" strokeWidth="6" />
+                    <circle cx="35" cy="25" r="15" fill="none" stroke="var(--color-piece-white)" strokeWidth="4" />
+                    <text x="35" y="52" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif">White Ring</text>
+
+                    {/* Black ring — 3-layer */}
+                    <circle cx="105" cy="25" r="15" fill="var(--color-ring-bg)" />
+                    <circle cx="105" cy="25" r="15" fill="none" stroke="var(--color-ring-neutral)" strokeWidth="6" />
+                    <circle cx="105" cy="25" r="15" fill="none" stroke="var(--color-piece-black)" strokeWidth="4" />
+                    <text x="105" y="52" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif">Black Ring</text>
+
                     {/* White marker */}
-                    <circle cx="75" cy="25" r="12" fill="var(--color-text-primary)" opacity="0.85" />
-                    <text x="75" y="48" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif">White</text>
+                    <circle cx="185" cy="25" r="12" fill="url(#rules-marker-white)" stroke="var(--color-piece-white-stroke)" strokeWidth="1" />
+                    <text x="185" y="52" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif">White Marker</text>
+
                     {/* Black marker */}
-                    <circle cx="120" cy="25" r="12" fill="var(--color-text-muted)" opacity="0.7" />
-                    <text x="120" y="48" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif">Black</text>
+                    <circle cx="255" cy="25" r="12" fill="url(#rules-marker-black)" />
+                    <text x="255" y="52" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif">Black Marker</text>
                   </svg>
                 </div>
                 <p>Each player has <strong style={{ color: 'var(--color-text-primary)' }}>5 rings</strong> and shares a pool of 51 markers. Markers are double-sided: white on one side, black on the other. A marker always shows the color of the player who last placed or flipped it.</p>
@@ -878,21 +905,18 @@ const YinshGame = () => {
                     {/* Line */}
                     <line x1="30" y1="35" x2="250" y2="35" stroke="var(--color-text-muted)" strokeWidth="1" strokeDasharray="4 3" opacity="0.5" />
                     {/* Dots for intersections */}
-                    {[30, 75, 120, 165, 210, 250].map((x, i) => (
+                    {[75, 120, 165, 250].map((x, i) => (
                       <circle key={i} cx={x} cy={35} r="3" fill="var(--color-text-muted)" opacity="0.3" />
                     ))}
-                    {/* Ring at start with marker placed */}
-                    <circle cx="30" cy="35" r="12" fill="var(--color-text-primary)" opacity="0.85" />
-                    <text x="30" y="62" textAnchor="middle" fill="var(--color-text-muted)" fontSize="8" fontFamily="Outfit, sans-serif">marker</text>
+                    {/* White marker placed where ring was */}
+                    <circle cx="30" cy="35" r="12" fill="url(#rules-marker-white)" stroke="var(--color-piece-white-stroke)" strokeWidth="1" />
+                    <text x="30" y="62" textAnchor="middle" fill="var(--color-text-muted)" fontSize="8" fontFamily="Outfit, sans-serif">marker left</text>
                     {/* Arrow showing movement */}
-                    <line x1="50" y1="35" x2="195" y2="35" stroke="var(--color-accent, #6366f1)" strokeWidth="2" markerEnd="url(#arrowhead-rules)" />
-                    <defs>
-                      <marker id="arrowhead-rules" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-                        <polygon points="0 0, 8 3, 0 6" fill="var(--color-accent, #6366f1)" />
-                      </marker>
-                    </defs>
-                    {/* Ring at destination */}
-                    <circle cx="210" cy="35" r="14" fill="none" stroke="var(--color-text-primary)" strokeWidth="3" opacity="0.8" />
+                    <line x1="50" y1="35" x2="195" y2="35" stroke="var(--color-accent, #6366f1)" strokeWidth="2" markerEnd="url(#rules-arrow)" />
+                    {/* White ring at destination — 3-layer */}
+                    <circle cx="210" cy="35" r="15" fill="var(--color-ring-bg)" />
+                    <circle cx="210" cy="35" r="15" fill="none" stroke="var(--color-ring-neutral)" strokeWidth="6" />
+                    <circle cx="210" cy="35" r="15" fill="none" stroke="var(--color-piece-white)" strokeWidth="4" />
                     <text x="210" y="62" textAnchor="middle" fill="var(--color-text-muted)" fontSize="8" fontFamily="Outfit, sans-serif">ring lands</text>
                   </svg>
                 </div>
@@ -905,31 +929,35 @@ const YinshGame = () => {
 
                 {/* Flipping diagram */}
                 <div className="flex justify-center my-3">
-                  <svg width="280" height="90" viewBox="0 0 280 90">
+                  <svg width="280" height="100" viewBox="0 0 280 100">
                     {/* Before label */}
-                    <text x="140" y="12" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif" fontWeight="600">BEFORE</text>
-                    {/* Before state */}
-                    <circle cx="40" cy="32" r="14" fill="none" stroke="var(--color-text-primary)" strokeWidth="3" opacity="0.8" />
-                    <circle cx="85" cy="32" r="10" fill="var(--color-text-muted)" opacity="0.7" />
-                    <circle cx="125" cy="32" r="10" fill="var(--color-text-primary)" opacity="0.85" />
-                    <circle cx="165" cy="32" r="10" fill="var(--color-text-muted)" opacity="0.7" />
-                    <circle cx="210" cy="32" r="3" fill="var(--color-text-muted)" opacity="0.3" />
+                    <text x="125" y="12" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif" fontWeight="600">BEFORE</text>
+                    {/* Before: white ring, then black/white/black markers, then empty */}
+                    <circle cx="30" cy="32" r="14" fill="var(--color-ring-bg)" />
+                    <circle cx="30" cy="32" r="14" fill="none" stroke="var(--color-ring-neutral)" strokeWidth="5" />
+                    <circle cx="30" cy="32" r="14" fill="none" stroke="var(--color-piece-white)" strokeWidth="3.5" />
+                    <circle cx="80" cy="32" r="10" fill="url(#rules-marker-black)" />
+                    <circle cx="125" cy="32" r="10" fill="url(#rules-marker-white)" stroke="var(--color-piece-white-stroke)" strokeWidth="0.75" />
+                    <circle cx="170" cy="32" r="10" fill="url(#rules-marker-black)" />
+                    <circle cx="220" cy="32" r="3" fill="var(--color-text-muted)" opacity="0.3" />
 
-                    {/* Arrow */}
-                    <text x="250" y="50" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="18" fontFamily="Outfit, sans-serif">&#8595;</text>
+                    {/* Arrow down */}
+                    <text x="260" y="55" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="18" fontFamily="Outfit, sans-serif">&#8595;</text>
 
                     {/* After label */}
-                    <text x="140" y="68" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif" fontWeight="600">AFTER</text>
-                    {/* After state — marker placed, markers flipped, ring moved */}
-                    <circle cx="40" cy="82" r="10" fill="var(--color-text-primary)" opacity="0.85" />
-                    <circle cx="85" cy="82" r="10" fill="var(--color-text-primary)" opacity="0.85" />
-                    <circle cx="125" cy="82" r="10" fill="var(--color-text-muted)" opacity="0.7" />
-                    <circle cx="165" cy="82" r="10" fill="var(--color-text-primary)" opacity="0.85" />
-                    <circle cx="210" cy="82" r="14" fill="none" stroke="var(--color-text-primary)" strokeWidth="3" opacity="0.8" />
+                    <text x="125" y="68" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif" fontWeight="600">AFTER</text>
+                    {/* After: white marker placed, markers flipped, ring moved */}
+                    <circle cx="30" cy="85" r="10" fill="url(#rules-marker-white)" stroke="var(--color-piece-white-stroke)" strokeWidth="0.75" />
+                    <circle cx="80" cy="85" r="10" fill="url(#rules-marker-white)" stroke="var(--color-piece-white-stroke)" strokeWidth="0.75" />
+                    <circle cx="125" cy="85" r="10" fill="url(#rules-marker-black)" />
+                    <circle cx="170" cy="85" r="10" fill="url(#rules-marker-white)" stroke="var(--color-piece-white-stroke)" strokeWidth="0.75" />
+                    <circle cx="220" cy="85" r="14" fill="var(--color-ring-bg)" />
+                    <circle cx="220" cy="85" r="14" fill="none" stroke="var(--color-ring-neutral)" strokeWidth="5" />
+                    <circle cx="220" cy="85" r="14" fill="none" stroke="var(--color-piece-white)" strokeWidth="3.5" />
                     {/* Flip indicators */}
-                    <text x="85" y="60" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="10" fontFamily="Outfit, sans-serif">&#8635;</text>
+                    <text x="80" y="60" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="10" fontFamily="Outfit, sans-serif">&#8635;</text>
                     <text x="125" y="60" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="10" fontFamily="Outfit, sans-serif">&#8635;</text>
-                    <text x="165" y="60" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="10" fontFamily="Outfit, sans-serif">&#8635;</text>
+                    <text x="170" y="60" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="10" fontFamily="Outfit, sans-serif">&#8635;</text>
                   </svg>
                 </div>
 
@@ -950,15 +978,15 @@ const YinshGame = () => {
 
                 {/* Row diagram */}
                 <div className="flex justify-center my-3">
-                  <svg width="240" height="50" viewBox="0 0 240 50">
+                  <svg width="240" height="55" viewBox="0 0 240 55">
                     {[40, 80, 120, 160, 200].map((x, i) => (
                       <g key={i}>
-                        <circle cx={x} cy={20} r="12" fill="var(--color-text-primary)" opacity="0.85" />
+                        <circle cx={x} cy={20} r="12" fill="url(#rules-marker-white)" stroke="var(--color-piece-white-stroke)" strokeWidth="1" />
                         <line x1={x} y1="35" x2={x} y2="42" stroke="var(--color-accent, #6366f1)" strokeWidth="1.5" />
                       </g>
                     ))}
                     <line x1="40" y1="42" x2="200" y2="42" stroke="var(--color-accent, #6366f1)" strokeWidth="1.5" />
-                    <text x="120" y="50" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="8" fontFamily="Outfit, sans-serif" fontWeight="600">ROW OF 5 — REMOVE</text>
+                    <text x="120" y="53" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="8" fontFamily="Outfit, sans-serif" fontWeight="600">ROW OF 5 — REMOVE</text>
                   </svg>
                 </div>
 
@@ -986,14 +1014,16 @@ const YinshGame = () => {
               <div>
                 <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Winning</h3>
                 <div className="flex items-center gap-4 my-3 justify-center">
-                  <svg width="160" height="45" viewBox="0 0 160 45">
-                    {[30, 65, 100].map((x, i) => (
+                  <svg width="190" height="50" viewBox="0 0 190 50">
+                    {[30, 75, 120].map((x, i) => (
                       <g key={i}>
-                        <circle cx={x} cy={20} r="16" fill="none" stroke="var(--color-accent, #6366f1)" strokeWidth="2.5" />
-                        <text x={x} y="24" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="12" fontFamily="Outfit, sans-serif" fontWeight="700">{i + 1}</text>
+                        <circle cx={x} cy={22} r="15" fill="var(--color-ring-bg)" />
+                        <circle cx={x} cy={22} r="15" fill="none" stroke="var(--color-ring-neutral)" strokeWidth="6" />
+                        <circle cx={x} cy={22} r="15" fill="none" stroke="var(--color-piece-white)" strokeWidth="4" />
+                        <text x={x} y="26" textAnchor="middle" fill="var(--color-accent, #6366f1)" fontSize="11" fontFamily="Outfit, sans-serif" fontWeight="700">{i + 1}</text>
                       </g>
                     ))}
-                    <text x="140" y="24" fill="var(--color-accent, #6366f1)" fontSize="16" fontFamily="Outfit, sans-serif" fontWeight="700">&#127942;</text>
+                    <text x="165" y="28" fill="var(--color-accent, #6366f1)" fontSize="18" fontFamily="Outfit, sans-serif" fontWeight="700">&#127942;</text>
                   </svg>
                 </div>
                 <p>The first player to remove <strong style={{ color: 'var(--color-text-primary)' }}>3 of their rings</strong> from the board wins. Note that removing rings is both the scoring mechanism and a sacrifice — you have fewer rings to move with as you score points.</p>
