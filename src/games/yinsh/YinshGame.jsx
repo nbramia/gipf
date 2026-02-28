@@ -929,7 +929,7 @@ const YinshGame = () => {
 
                 {/* Flipping diagram */}
                 <div className="flex justify-center my-3">
-                  <svg width="280" height="100" viewBox="0 0 280 100">
+                  <svg width="280" height="105" viewBox="0 0 280 105">
                     {/* Before label */}
                     <text x="125" y="12" textAnchor="middle" fill="var(--color-text-muted)" fontSize="9" fontFamily="Outfit, sans-serif" fontWeight="600">BEFORE</text>
                     {/* Before: white ring, then black/white/black markers, then empty */}
