@@ -8,7 +8,7 @@
 // eval comes from the engine's analysis of the position AFTER the move.
 
 import { Chess } from 'chess.js';
-import { classifyMove, formatEval } from './classify.js';
+import { classifyMove, centipawnLoss, formatEval } from './classify.js';
 
 // Convert a UCI pv (array of long-algebraic moves) to SAN, replaying from `fen`.
 // Stops at the first illegal/unexpected move so a malformed pv can't crash us.
@@ -77,12 +77,9 @@ export function buildMovePayload({
   const playedMateIn = afterTop ? afterTop.mateIn : null;
 
   const wasTopMove = !!(bestLine && bestLine.san === movePlayedSan);
-  const classification = classifyMove({
-    bestEvalWhite: bestLine ? bestLine.evalWhite : 0,
-    playedEvalWhite,
-    moverColor,
-    wasTopMove,
-  });
+  const bestEvalWhite = bestLine ? bestLine.evalWhite : 0;
+  const classification = classifyMove({ bestEvalWhite, playedEvalWhite, moverColor, wasTopMove });
+  const cpLoss = wasTopMove ? 0 : centipawnLoss({ bestEvalWhite, playedEvalWhite, moverColor });
 
   return {
     kind,
@@ -97,6 +94,7 @@ export function buildMovePayload({
     evalAfter: formatEval(playedEvalWhite, playedMateIn),
     playedEval: formatEval(playedEvalWhite, playedMateIn),
     classification,
+    cpLoss,
     learningGoal: learningGoal || undefined,
   };
 }

@@ -14,6 +14,7 @@ import { DIFFICULTY_TIERS, DEFAULT_TIER_KEY } from './engine/difficulty.js';
 import { buildMovePayload } from './coach/analyzeMove.js';
 import { detectOpening } from './coach/openings.js';
 import { withHeaders, downloadPgn, readPgnFile, looksLikePgn } from './coach/pgn.js';
+import { summarizeAccuracy } from './coach/accuracy.js';
 import { requestCommentary, setApiKey, hasApiKey } from './coach/coachClient.js';
 import './chess.css';
 
@@ -59,6 +60,7 @@ export default function ChessGame() {
 
   // Coaching state.
   const [dialogue, setDialogue] = useState([]); // [{id, ply, kind, san, tone, label, text, source, pending}]
+  const [moveStats, setMoveStats] = useState([]); // [{ply, moverColor, cpLoss, classification}] for accuracy (#17)
   const [coaching, setCoaching] = useState(false);
   const [learningGoal, setLearningGoal] = useState(() => localStorage.getItem('chessLearningGoal') || '');
   const [apiKeyInput, setApiKeyInput] = useState('');
@@ -171,6 +173,11 @@ export default function ChessGame() {
         // Attach opening context (#15) so the coach can name it / flag leaving book.
         if (opening.name) payload.opening = opening.name;
         if (opening.leftBookAtPly === ply) payload.leftBook = true;
+        // Record per-move accuracy data (#17), replacing any prior entry at this ply.
+        setMoveStats((s) => [
+          ...s.filter((x) => x.ply !== ply),
+          { ply, moverColor, cpLoss: payload.cpLoss || 0, classification: payload.classification },
+        ]);
         const { text, source } = await requestCommentary(payload);
         if (seq !== coachSeqRef.current) return;
         const tone =
@@ -304,6 +311,7 @@ export default function ChessGame() {
     setResigned(null);
     setSelected(null);
     setDialogue([]);
+    setMoveStats([]);
     setCoaching(false);
     thinkingRef.current = false;
     setIsThinking(false);
@@ -318,9 +326,10 @@ export default function ChessGame() {
     if (board.turn() === aiColor && board.canUndo()) board.undo();
     setSelected(null);
     setResigned(null);
-    // Drop dialogue entries past the new ply count.
+    // Drop dialogue + stats past the new ply count.
     const ply = board.sanHistory().length;
     setDialogue((d) => d.filter((e) => e.ply <= ply));
+    setMoveStats((s) => s.filter((x) => x.ply <= ply));
     setCoaching(false);
     setBoard(board.clone());
   };
@@ -362,6 +371,7 @@ export default function ChessGame() {
       }
       coachSeqRef.current += 1; // invalidate in-flight coaching
       setDialogue([]);
+      setMoveStats([]);
       setCoaching(false);
       setSelected(null);
       setResigned(null);
@@ -388,6 +398,13 @@ export default function ChessGame() {
   for (let i = 0; i < sanHistory.length; i += 2) {
     movePairs.push([sanHistory[i], sanHistory[i + 1]]);
   }
+
+  // Post-game accuracy summary (#17) — computed once the game is over and we
+  // have at least some analysed moves.
+  const accuracyReport =
+    gameOver && moveStats.length > 0 ? summarizeAccuracy(moveStats) : null;
+  const humanSide = accuracyReport ? (humanColor === 'w' ? accuracyReport.white : accuracyReport.black) : null;
+  const aiSide = accuracyReport ? (humanColor === 'w' ? accuracyReport.black : accuracyReport.white) : null;
 
   let statusText;
   if (gameResult) {
@@ -474,6 +491,38 @@ export default function ChessGame() {
             </div>
 
             <div className="space-y-4">
+              {/* Post-game accuracy summary (#17) */}
+              {accuracyReport && (
+                <div className="panel rounded-xl p-4">
+                  <h2 className="font-heading text-sm font-semibold mb-3" style={{ color: 'var(--color-text-primary)' }}>
+                    Game summary
+                  </h2>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { label: 'You', side: humanSide },
+                      { label: 'Stockfish', side: aiSide },
+                    ].map(({ label, side }) => (
+                      <div key={label}>
+                        <div className="font-body text-xs mb-1" style={{ color: 'var(--color-text-muted)' }}>
+                          {label}
+                        </div>
+                        <div className="font-display text-2xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
+                          {side && side.accuracy != null ? `${side.accuracy}%` : '—'}
+                        </div>
+                        <div className="font-body text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+                          {side
+                            ? `${side.counts.blunder} blunder${side.counts.blunder === 1 ? '' : 's'}, ${side.counts.mistake} mistake${side.counts.mistake === 1 ? '' : 's'}, ${side.counts.inaccuracy} inaccurac${side.counts.inaccuracy === 1 ? 'y' : 'ies'}`
+                            : ''}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="font-body text-xs mt-3" style={{ color: 'var(--color-text-muted)' }}>
+                    Accuracy from engine analysis of every move.
+                  </p>
+                </div>
+              )}
+
               {/* Coaching dialogue (#8 / #10) */}
               <div className="panel rounded-xl p-4">
                 <div className="flex items-center justify-between mb-2">
