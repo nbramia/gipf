@@ -16,8 +16,13 @@ import { detectOpening } from './coach/openings.js';
 import { withHeaders, downloadPgn, readPgnFile, looksLikePgn } from './coach/pgn.js';
 import { summarizeAccuracy } from './coach/accuracy.js';
 import { PUZZLES, checkSolution } from './coach/puzzles.js';
+import { capturedPieces, materialBalance } from './coach/material.js';
+import { playSound, moveSoundKind } from './coach/sound.js';
+import { formatEval } from './coach/classify.js';
 import { requestCommentary, setApiKey, hasApiKey } from './coach/coachClient.js';
 import './chess.css';
+
+const PIECE_GLYPH = { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛', k: '♚' };
 
 const TONE_CLASS = { great: 'tone-great', good: 'tone-good', warn: 'tone-warn', bad: 'tone-bad' };
 
@@ -68,8 +73,22 @@ export default function ChessGame() {
   const [keySet, setKeySet] = useState(() => hasApiKey());
   const [showKeyField, setShowKeyField] = useState(false);
 
+  // Polish (#21): eval bar, sounds.
+  const [showEvalBar, setShowEvalBar] = useState(() => {
+    const saved = localStorage.getItem('chessShowEvalBar');
+    return saved ? JSON.parse(saved) : true;
+  });
+  const [soundOn, setSoundOn] = useState(() => {
+    const saved = localStorage.getItem('chessSound');
+    return saved ? JSON.parse(saved) : false;
+  });
+  const [evalWhite, setEvalWhite] = useState(0); // latest White-POV cp from analysis
+  const [evalMate, setEvalMate] = useState(null);
+
   const { status: engineStatus, getMove, analyze } = useStockfish();
   const thinkingRef = useRef(false);
+  const soundRef = useRef(soundOn); // latest value usable inside callbacks
+  useEffect(() => { soundRef.current = soundOn; }, [soundOn]);
   const coachSeqRef = useRef(0); // ignores stale coaching results after new game/undo
   const transcriptRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -93,6 +112,12 @@ export default function ChessGame() {
   useEffect(() => {
     localStorage.setItem('chessLearningGoal', learningGoal);
   }, [learningGoal]);
+  useEffect(() => {
+    localStorage.setItem('chessShowEvalBar', JSON.stringify(showEvalBar));
+  }, [showEvalBar]);
+  useEffect(() => {
+    localStorage.setItem('chessSound', JSON.stringify(soundOn));
+  }, [soundOn]);
 
   // Auto-scroll the transcript to the newest entry.
   useEffect(() => {
@@ -131,6 +156,7 @@ export default function ChessGame() {
           const fenAfter = board.fen();
           const sanAfter = board.sanHistory();
           const ply = sanAfter.length;
+          if (soundRef.current) playSound(moveSoundKind(applied, board.isCheck(), board.isGameOver()));
           setBoard(board.clone());
           coachOnMove(fenBefore, fenAfter, applied.san, applied.color, 'ai-move', ply, sanAfter);
         }
@@ -168,6 +194,12 @@ export default function ChessGame() {
           analyze(fenAfter, { multipv: 1 }),
         ]);
         if (seq !== coachSeqRef.current) return; // superseded (new game / undo)
+        // Update the eval bar (#21) from the post-move top line (White POV).
+        const afterTop = analysisAfter && analysisAfter.lines && analysisAfter.lines[0];
+        if (afterTop) {
+          setEvalWhite(typeof afterTop.scoreCp === 'number' ? afterTop.scoreCp : 0);
+          setEvalMate(typeof afterTop.mateIn === 'number' ? afterTop.mateIn : null);
+        }
         const payload = buildMovePayload({
           fenBefore,
           fenAfter,
@@ -293,6 +325,7 @@ export default function ChessGame() {
       const fenAfter = board.fen();
       const sanAfter = board.sanHistory();
       const ply = sanAfter.length;
+      if (soundRef.current) playSound(moveSoundKind(mv, board.isCheck(), board.isGameOver()));
       setSelected(null);
       setBoard(board.clone());
       coachOnMove(fenBefore, fenAfter, mv.san, mv.color, 'player-move', ply, sanAfter);
@@ -354,6 +387,8 @@ export default function ChessGame() {
     setSelected(null);
     setDialogue([]);
     setMoveStats([]);
+    setEvalWhite(0);
+    setEvalMate(null);
     setCoaching(false);
     thinkingRef.current = false;
     setIsThinking(false);
@@ -374,6 +409,8 @@ export default function ChessGame() {
     setResigned(null);
     setDialogue([]);
     setMoveStats([]);
+    setEvalWhite(0);
+    setEvalMate(null);
     setCoaching(false);
     thinkingRef.current = false;
     setIsThinking(false);
@@ -507,6 +544,31 @@ export default function ChessGame() {
     statusText = `${board.turn() === 'w' ? 'White' : 'Black'} to move${board.isCheck() ? ' — check' : ''}`;
   }
 
+  // Material / captured pieces (#21).
+  const boardArray = board.board();
+  const capturedByWhite = capturedPieces(boardArray, 'b'); // black pieces White took
+  const capturedByBlack = capturedPieces(boardArray, 'w');
+  const material = materialBalance(boardArray);
+  // Eval bar: White-advantage fraction [0,1]; mate pins to the extreme.
+  const evalFraction = evalMate != null
+    ? (evalMate > 0 ? 1 : 0)
+    : 1 / (1 + Math.exp(-evalWhite / 400));
+  const evalLabel = formatEval(evalWhite, evalMate);
+
+  // A captured-pieces tray for one side, oriented to the board.
+  const Tray = ({ pieces, plus }) => (
+    <div className="flex items-center gap-0.5 min-h-[20px] text-lg leading-none" style={{ color: 'var(--color-text-secondary)' }}>
+      {pieces.map((t, i) => (
+        <span key={i}>{PIECE_GLYPH[t]}</span>
+      ))}
+      {plus > 0 && (
+        <span className="ml-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
+          +{plus}
+        </span>
+      )}
+    </div>
+  );
+
   return (
     <div className={`game-chess${darkMode ? ' dark' : ''}`}>
       <div className="min-h-screen px-4 sm:px-6 py-6">
@@ -526,19 +588,47 @@ export default function ChessGame() {
               <div className="mb-3 font-body text-sm" style={{ color: 'var(--color-text-secondary)' }} aria-live="polite">
                 {statusText}
               </div>
-              <div className="w-full max-w-[560px] mx-auto">
-                <Chessboard
-                  position={board.fen()}
-                  onPieceDrop={onPieceDrop}
-                  onSquareClick={onSquareClick}
-                  onPromotionPieceSelect={onPromotionPieceSelect}
-                  boardOrientation={orientation}
-                  customSquareStyles={squareStyles}
-                  customBoardStyle={{ borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.18)' }}
-                  customDarkSquareStyle={{ backgroundColor: 'var(--sq-dark)' }}
-                  customLightSquareStyle={{ backgroundColor: 'var(--sq-light)' }}
-                  arePiecesDraggable={canInteract}
-                />
+              <div className="flex gap-3 w-full max-w-[600px] mx-auto">
+                {showEvalBar && !puzzleMode && (
+                  <div
+                    className="w-3 sm:w-4 rounded overflow-hidden shrink-0 self-stretch flex flex-col"
+                    style={{ backgroundColor: '#3f3f46' }}
+                    title={`Evaluation ${evalLabel}`}
+                    aria-label={`Evaluation ${evalLabel}`}
+                  >
+                    {/* Black share on top, White share on bottom (board orientation aside). */}
+                    <div style={{ height: `${(1 - evalFraction) * 100}%`, transition: 'height 300ms ease' }} />
+                    <div style={{ height: `${evalFraction * 100}%`, backgroundColor: '#fafafa', transition: 'height 300ms ease' }} />
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  {/* Top tray = pieces captured by the side shown at top */}
+                  <div className="flex items-center justify-between mb-1">
+                    <Tray pieces={orientation === 'white' ? capturedByBlack : capturedByWhite} plus={0} />
+                    {showEvalBar && !puzzleMode && (
+                      <span className="font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                        {material > 0 ? `White +${material}` : material < 0 ? `Black +${-material}` : 'Even'}
+                      </span>
+                    )}
+                  </div>
+                  <Chessboard
+                    position={board.fen()}
+                    onPieceDrop={onPieceDrop}
+                    onSquareClick={onSquareClick}
+                    onPromotionPieceSelect={onPromotionPieceSelect}
+                    boardOrientation={orientation}
+                    customSquareStyles={squareStyles}
+                    customBoardStyle={{ borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.18)' }}
+                    customDarkSquareStyle={{ backgroundColor: 'var(--sq-dark)' }}
+                    customLightSquareStyle={{ backgroundColor: 'var(--sq-light)' }}
+                    arePiecesDraggable={canInteract}
+                    animationDuration={200}
+                  />
+                  {/* Bottom tray = pieces captured by the side shown at bottom */}
+                  <div className="mt-1">
+                    <Tray pieces={orientation === 'white' ? capturedByWhite : capturedByBlack} plus={0} />
+                  </div>
+                </div>
               </div>
 
               {puzzleMode ? (
@@ -705,6 +795,8 @@ export default function ChessGame() {
                 </h2>
                 <Toggle label="Dark mode" checked={darkMode} onChange={() => setDarkMode((v) => !v)} />
                 <Toggle label="Show legal moves" checked={showMoves} onChange={() => setShowMoves((v) => !v)} />
+                <Toggle label="Evaluation bar" checked={showEvalBar} onChange={() => setShowEvalBar((v) => !v)} />
+                <Toggle label="Sound" checked={soundOn} onChange={() => setSoundOn((v) => !v)} />
 
                 <div>
                   <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
