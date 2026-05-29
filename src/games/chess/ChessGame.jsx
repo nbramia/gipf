@@ -11,7 +11,11 @@ import { Chessboard } from 'react-chessboard';
 import ChessBoard from './ChessBoard.js';
 import useStockfish from './hooks/useStockfish.js';
 import { DIFFICULTY_TIERS, DEFAULT_TIER_KEY } from './engine/difficulty.js';
+import { buildMovePayload } from './coach/analyzeMove.js';
+import { requestCommentary, setApiKey, hasApiKey } from './coach/coachClient.js';
 import './chess.css';
+
+const TONE_CLASS = { great: 'tone-great', good: 'tone-good', warn: 'tone-warn', bad: 'tone-bad' };
 
 const Toggle = ({ label, checked, onChange }) => (
   <div className="flex items-center justify-between gap-4">
@@ -51,8 +55,18 @@ export default function ChessGame() {
   const [isThinking, setIsThinking] = useState(false);
   const [resigned, setResigned] = useState(null); // color that resigned
 
-  const { status: engineStatus, getMove } = useStockfish();
+  // Coaching state.
+  const [dialogue, setDialogue] = useState([]); // [{id, ply, kind, san, tone, label, text, source, pending}]
+  const [coaching, setCoaching] = useState(false);
+  const [learningGoal, setLearningGoal] = useState(() => localStorage.getItem('chessLearningGoal') || '');
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [keySet, setKeySet] = useState(() => hasApiKey());
+  const [showKeyField, setShowKeyField] = useState(false);
+
+  const { status: engineStatus, getMove, analyze } = useStockfish();
   const thinkingRef = useRef(false);
+  const coachSeqRef = useRef(0); // ignores stale coaching results after new game/undo
+  const transcriptRef = useRef(null);
 
   useEffect(() => {
     localStorage.setItem('chessDarkMode', JSON.stringify(darkMode));
@@ -63,6 +77,16 @@ export default function ChessGame() {
   useEffect(() => {
     localStorage.setItem('chessDifficulty', difficulty);
   }, [difficulty]);
+  useEffect(() => {
+    localStorage.setItem('chessLearningGoal', learningGoal);
+  }, [learningGoal]);
+
+  // Auto-scroll the transcript to the newest entry.
+  useEffect(() => {
+    if (transcriptRef.current) {
+      transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+    }
+  }, [dialogue]);
 
   const aiColor = humanColor === 'w' ? 'b' : 'w';
   const gameResult = resigned
@@ -84,11 +108,17 @@ export default function ChessGame() {
     setIsThinking(true);
     let cancelled = false;
 
+    const fenBefore = board.fen();
     getMove(board.fen(), difficulty)
       .then((mv) => {
         if (cancelled || !mv) return;
         const applied = board.move(mv.from, mv.to, mv.promotion || 'q');
-        if (applied) setBoard(board.clone());
+        if (applied) {
+          const fenAfter = board.fen();
+          const ply = board.sanHistory().length;
+          setBoard(board.clone());
+          coachOnMove(fenBefore, fenAfter, applied.san, applied.color, 'ai-move', ply);
+        }
       })
       .catch(() => {
         /* surfaced via engineStatus; leave turn to the human to retry */
@@ -101,7 +131,69 @@ export default function ChessGame() {
     return () => {
       cancelled = true;
     };
-  }, [board, aiColor, engineStatus, difficulty, gameOver, getMove]);
+  }, [board, aiColor, engineStatus, difficulty, gameOver, getMove, coachOnMove]);
+
+  // Produce coaching for a move that was just played. Runs two full-strength
+  // analyses (position before + after the move) so commentary is engine-true,
+  // then asks the coach (Claude or template fallback) to phrase it.
+  const coachOnMove = useCallback(
+    async (fenBefore, fenAfter, movePlayedSan, moverColor, kind, ply) => {
+      const seq = coachSeqRef.current;
+      const entryId = `${ply}-${kind}`;
+      // Insert a pending entry immediately for responsive UX.
+      setDialogue((d) => [
+        ...d,
+        { id: entryId, ply, kind, san: movePlayedSan, tone: 'good', label: '…', text: '', source: 'pending', pending: true },
+      ]);
+      setCoaching(true);
+      try {
+        const [analysisBefore, analysisAfter] = await Promise.all([
+          analyze(fenBefore, { multipv: 3 }),
+          analyze(fenAfter, { multipv: 1 }),
+        ]);
+        if (seq !== coachSeqRef.current) return; // superseded (new game / undo)
+        const payload = buildMovePayload({
+          fenBefore,
+          fenAfter,
+          movePlayedSan,
+          moverColor,
+          analysisBefore,
+          analysisAfter,
+          kind,
+          learningGoal,
+        });
+        const { text, source } = await requestCommentary(payload);
+        if (seq !== coachSeqRef.current) return;
+        const tone =
+          payload.classification === 'blunder' || payload.classification === 'mistake'
+            ? 'bad'
+            : payload.classification === 'inaccuracy'
+              ? 'warn'
+              : payload.classification === 'best' || payload.classification === 'excellent'
+                ? 'great'
+                : 'good';
+        setDialogue((d) =>
+          d.map((e) =>
+            e.id === entryId
+              ? { ...e, tone, label: kind === 'player-move' ? payload.classification : 'engine', text, source, pending: false }
+              : e
+          )
+        );
+      } catch (_) {
+        if (seq !== coachSeqRef.current) return;
+        setDialogue((d) =>
+          d.map((e) =>
+            e.id === entryId
+              ? { ...e, label: '', text: 'Analysis unavailable for this move.', source: 'error', pending: false }
+              : e
+          )
+        );
+      } finally {
+        if (seq === coachSeqRef.current) setCoaching(false);
+      }
+    },
+    [analyze, learningGoal]
+  );
 
   const squareStyles = useMemo(() => {
     const styles = {};
@@ -132,13 +224,17 @@ export default function ChessGame() {
   const tryHumanMove = useCallback(
     (from, to, promotion) => {
       if (!humanToMove) return false;
+      const fenBefore = board.fen();
       const mv = board.move(from, to, promotion || 'q');
       if (!mv) return false;
+      const fenAfter = board.fen();
+      const ply = board.sanHistory().length;
       setSelected(null);
       setBoard(board.clone());
+      coachOnMove(fenBefore, fenAfter, mv.san, mv.color, 'player-move', ply);
       return true;
     },
-    [board, humanToMove]
+    [board, humanToMove, coachOnMove]
   );
 
   const onPieceDrop = useCallback(
@@ -183,10 +279,13 @@ export default function ChessGame() {
 
   const startGame = (color) => {
     const c = color || (Math.random() < 0.5 ? 'w' : 'b');
+    coachSeqRef.current += 1; // invalidate any in-flight coaching
     setHumanColor(c);
     setOrientation(c === 'w' ? 'white' : 'black');
     setResigned(null);
     setSelected(null);
+    setDialogue([]);
+    setCoaching(false);
     thinkingRef.current = false;
     setIsThinking(false);
     setBoard(new ChessBoard());
@@ -195,11 +294,28 @@ export default function ChessGame() {
   const undo = () => {
     // Undo back to the human's turn: pop AI move + human move when possible.
     if (!board.canUndo() || isThinking) return;
+    coachSeqRef.current += 1; // invalidate any in-flight coaching
     board.undo();
     if (board.turn() === aiColor && board.canUndo()) board.undo();
     setSelected(null);
     setResigned(null);
+    // Drop dialogue entries past the new ply count.
+    const ply = board.sanHistory().length;
+    setDialogue((d) => d.filter((e) => e.ply <= ply));
+    setCoaching(false);
     setBoard(board.clone());
+  };
+
+  const saveKey = () => {
+    setApiKey(apiKeyInput.trim());
+    setKeySet(hasApiKey());
+    setApiKeyInput('');
+    setShowKeyField(false);
+  };
+  const removeKey = () => {
+    setApiKey('');
+    setKeySet(false);
+    setShowKeyField(false);
   };
 
   const flip = () => setOrientation((o) => (o === 'white' ? 'black' : 'white'));
@@ -298,6 +414,48 @@ export default function ChessGame() {
             </div>
 
             <div className="space-y-4">
+              {/* Coaching dialogue (#8 / #10) */}
+              <div className="panel rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="font-heading text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+                    Coach
+                  </h2>
+                  <span className="font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                    {keySet ? (coaching ? 'thinking…' : 'Claude') : 'built-in'}
+                  </span>
+                </div>
+                <div
+                  ref={transcriptRef}
+                  className="max-h-72 overflow-y-auto pr-1 space-y-2"
+                  aria-live="polite"
+                >
+                  {dialogue.length === 0 ? (
+                    <p className="font-body text-sm" style={{ color: 'var(--color-text-muted)' }}>
+                      Make a move and I’ll explain what’s happening — your moves and mine.
+                      {!keySet && ' Add your Anthropic API key below for richer coaching.'}
+                    </p>
+                  ) : (
+                    dialogue.map((e) => (
+                      <div key={e.id} className="coach-entry font-body text-sm">
+                        <div className="flex items-baseline gap-2">
+                          <span style={{ color: 'var(--color-text-muted)' }} className="text-xs">
+                            {Math.ceil(e.ply / 2)}.{e.kind === 'ai-move' ? '..' : ''} {e.san}
+                          </span>
+                          {e.label && e.label !== 'engine' && (
+                            <span className={`text-xs font-semibold ${TONE_CLASS[e.tone] || ''}`}>
+                              {e.label}
+                            </span>
+                          )}
+                        </div>
+                        <p style={{ color: 'var(--color-text-secondary)' }}>
+                          {e.pending ? 'Analyzing…' : e.text}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
               <div className="panel rounded-xl p-4 space-y-3">
                 <h2 className="font-heading text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                   Game
@@ -340,6 +498,56 @@ export default function ChessGame() {
                 </h2>
                 <Toggle label="Dark mode" checked={darkMode} onChange={() => setDarkMode((v) => !v)} />
                 <Toggle label="Show legal moves" checked={showMoves} onChange={() => setShowMoves((v) => !v)} />
+
+                <div>
+                  <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+                    What do you want to learn? (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={learningGoal}
+                    onChange={(e) => setLearningGoal(e.target.value)}
+                    placeholder="e.g. Italian Game openings"
+                    className="w-full px-3 py-2 rounded-lg font-body text-sm panel"
+                    style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+                    Anthropic API key (for richer coaching)
+                  </label>
+                  {keySet && !showKeyField ? (
+                    <div className="flex items-center gap-2">
+                      <span className="font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                        Key saved ✓
+                      </span>
+                      <button onClick={() => setShowKeyField(true)} className="px-2 py-1 rounded font-body text-xs panel">
+                        Change
+                      </button>
+                      <button onClick={removeKey} className="px-2 py-1 rounded font-body text-xs panel">
+                        Remove
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        value={apiKeyInput}
+                        onChange={(e) => setApiKeyInput(e.target.value)}
+                        placeholder="sk-ant-…"
+                        className="flex-1 min-w-0 px-3 py-2 rounded-lg font-body text-sm panel"
+                        style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
+                      />
+                      <button onClick={saveKey} disabled={!apiKeyInput.trim()} className="px-3 py-2 rounded-lg font-body text-sm panel disabled:opacity-40">
+                        Save
+                      </button>
+                    </div>
+                  )}
+                  <p className="mt-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                    Stored only in your browser. Never sent anywhere but Anthropic. Coaching works without it using built-in analysis.
+                  </p>
+                </div>
               </div>
 
               <div className="panel rounded-xl p-4">

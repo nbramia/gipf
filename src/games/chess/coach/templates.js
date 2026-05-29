@@ -5,7 +5,7 @@
 // moves, evals, principal variations) so the fallback can never fabricate a
 // line — it just reports what Stockfish actually found.
 
-import { CATEGORIES, formatEval } from './classify';
+import { CATEGORIES, formatEval } from './classify.js';
 
 function pvLine(pv, max = 5) {
   if (!pv || !pv.length) return '';

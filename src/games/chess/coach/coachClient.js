@@ -5,7 +5,7 @@
 // network error, upstream error — it falls back to deterministic, engine-
 // grounded templates so the dialogue never breaks and never fabricates lines.
 
-import { describeAiMove, describePlayerMove } from './templates';
+import { describeAiMove, describePlayerMove } from './templates.js';
 
 const KEY_STORAGE = 'chessApiKey';
 

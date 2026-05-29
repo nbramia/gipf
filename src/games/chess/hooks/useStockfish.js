@@ -17,6 +17,7 @@ export default function useStockfish() {
   const engineRef = useRef(null);
   const readyRef = useRef(false);
   const pendingRef = useRef(null); // active request handler for streamed lines
+  const queueRef = useRef(Promise.resolve()); // serializes engine searches
   const [status, setStatus] = useState('loading'); // loading | ready | error
   const supported = isEngineSupported();
 
@@ -63,8 +64,18 @@ export default function useStockfish() {
     };
   }, [supported]);
 
-  // Run one `go` request, collecting info lines until `bestmove`.
-  const runSearch = useCallback((fen, { elo, movetime, multipv }) => {
+  // Run one `go` request, collecting info lines until `bestmove`. Calls are
+  // serialized through queueRef so the AI-move search and the coaching analysis
+  // search never interleave on the single shared engine.
+  const runSearch = useCallback((fen, opts) => {
+    const task = () => runSearchNow(fen, opts);
+    const next = queueRef.current.then(task, task);
+    // Keep the chain alive even if a task rejects.
+    queueRef.current = next.catch(() => {});
+    return next;
+  }, []);
+
+  const runSearchNow = (fen, { elo, movetime, multipv }) => {
     return new Promise((resolve, reject) => {
       const engine = engineRef.current;
       if (!engine || !readyRef.current) {
@@ -111,7 +122,7 @@ export default function useStockfish() {
       engine.post(`position fen ${fen}`);
       engine.post(`go movetime ${movetime || 1000}`);
     });
-  }, []);
+  };
 
   // Opponent move at a difficulty tier. Returns {from,to,promotion} or null.
   const getMove = useCallback(
