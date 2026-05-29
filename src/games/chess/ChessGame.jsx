@@ -15,6 +15,7 @@ import { buildMovePayload } from './coach/analyzeMove.js';
 import { detectOpening } from './coach/openings.js';
 import { withHeaders, downloadPgn, readPgnFile, looksLikePgn } from './coach/pgn.js';
 import { summarizeAccuracy } from './coach/accuracy.js';
+import { PUZZLES, checkSolution } from './coach/puzzles.js';
 import { requestCommentary, setApiKey, hasApiKey } from './coach/coachClient.js';
 import './chess.css';
 
@@ -74,6 +75,12 @@ export default function ChessGame() {
   const fileInputRef = useRef(null);
   const [pgnError, setPgnError] = useState('');
 
+  // Puzzle mode (#18).
+  const [puzzleMode, setPuzzleMode] = useState(false);
+  const [puzzleIndex, setPuzzleIndex] = useState(0);
+  const [puzzleState, setPuzzleState] = useState('idle'); // idle | solving | solved | wrong
+  const [puzzleMsg, setPuzzleMsg] = useState('');
+
   useEffect(() => {
     localStorage.setItem('chessDarkMode', JSON.stringify(darkMode));
   }, [darkMode]);
@@ -105,6 +112,7 @@ export default function ChessGame() {
 
   // Drive the AI: whenever it's the engine's turn and the game is live, ask it.
   useEffect(() => {
+    if (puzzleMode) return; // no engine opponent while solving puzzles
     if (gameOver) return;
     if (board.turn() !== aiColor) return;
     if (engineStatus !== 'ready') return;
@@ -138,7 +146,7 @@ export default function ChessGame() {
     return () => {
       cancelled = true;
     };
-  }, [board, aiColor, engineStatus, difficulty, gameOver, getMove, coachOnMove]);
+  }, [board, aiColor, engineStatus, difficulty, gameOver, getMove, coachOnMove, puzzleMode]);
 
   // Produce coaching for a move that was just played. Runs two full-strength
   // analyses (position before + after the move) so commentary is engine-true,
@@ -246,8 +254,38 @@ export default function ChessGame() {
     return styles;
   }, [board, selected, showMoves, lastMove, checkedSquare]);
 
+  // Attempt the current puzzle's solution with the given move.
+  const tryPuzzleMove = useCallback(
+    (from, to, promotion) => {
+      const puzzle = PUZZLES[puzzleIndex];
+      const res = checkSolution(puzzle, from, to, promotion || 'q');
+      if (!res.legal) return false; // snap the piece back
+      setSelected(null);
+      if (res.solved) {
+        // Show the solving move on the board, then mark solved.
+        board.move(from, to, promotion || 'q');
+        setBoard(board.clone());
+        setPuzzleState('solved');
+        setPuzzleMsg(`Correct — ${res.played}. ${puzzle.theme}.`);
+      } else {
+        setPuzzleState('wrong');
+        setPuzzleMsg(
+          res.mate
+            ? `${res.played} is mate too, but the intended key was different — try again.`
+            : `${res.played} doesn't finish the job. ${puzzle.hint}`
+        );
+      }
+      return true;
+    },
+    [board, puzzleIndex]
+  );
+
   const tryHumanMove = useCallback(
     (from, to, promotion) => {
+      if (puzzleMode) {
+        if (puzzleState === 'solved') return false;
+        return tryPuzzleMove(from, to, promotion);
+      }
       if (!humanToMove) return false;
       const fenBefore = board.fen();
       const mv = board.move(from, to, promotion || 'q');
@@ -260,23 +298,26 @@ export default function ChessGame() {
       coachOnMove(fenBefore, fenAfter, mv.san, mv.color, 'player-move', ply, sanAfter);
       return true;
     },
-    [board, humanToMove, coachOnMove]
+    [board, humanToMove, coachOnMove, puzzleMode, puzzleState, tryPuzzleMove]
   );
+
+  // Whether the user may move a piece right now (normal play or active puzzle).
+  const canInteract = puzzleMode ? puzzleState !== 'solved' : humanToMove;
 
   const onPieceDrop = useCallback(
     (from, to, piece) => {
-      if (!humanToMove) return false;
+      if (!canInteract) return false;
       const isPawn = piece && piece[1] === 'P';
       const promoRank = to[1] === '8' || to[1] === '1';
       const promotion = isPawn && promoRank ? 'q' : undefined;
       return tryHumanMove(from, to, promotion);
     },
-    [humanToMove, tryHumanMove]
+    [canInteract, tryHumanMove]
   );
 
   const onSquareClick = useCallback(
     (square) => {
-      if (!humanToMove) return;
+      if (!canInteract) return;
       if (selected) {
         if (square === selected) {
           setSelected(null);
@@ -292,7 +333,7 @@ export default function ChessGame() {
       // Only select own pieces (legalMovesFrom returns moves only for side to move).
       setSelected(moves.length ? square : null);
     },
-    [selected, board, humanToMove, tryHumanMove]
+    [selected, board, canInteract, tryHumanMove]
   );
 
   const onPromotionPieceSelect = useCallback(
@@ -306,6 +347,7 @@ export default function ChessGame() {
   const startGame = (color) => {
     const c = color || (Math.random() < 0.5 ? 'w' : 'b');
     coachSeqRef.current += 1; // invalidate any in-flight coaching
+    setPuzzleMode(false);
     setHumanColor(c);
     setOrientation(c === 'w' ? 'white' : 'black');
     setResigned(null);
@@ -317,6 +359,30 @@ export default function ChessGame() {
     setIsThinking(false);
     setBoard(new ChessBoard());
   };
+
+  // Puzzle mode (#18): load a puzzle position; the solver plays the side to move.
+  const loadPuzzle = (index) => {
+    const i = ((index % PUZZLES.length) + PUZZLES.length) % PUZZLES.length;
+    const puzzle = PUZZLES[i];
+    const next = new ChessBoard(puzzle.fen);
+    coachSeqRef.current += 1;
+    setPuzzleMode(true);
+    setPuzzleIndex(i);
+    setPuzzleState('solving');
+    setPuzzleMsg('');
+    setSelected(null);
+    setResigned(null);
+    setDialogue([]);
+    setMoveStats([]);
+    setCoaching(false);
+    thinkingRef.current = false;
+    setIsThinking(false);
+    setOrientation(next.turn() === 'w' ? 'white' : 'black');
+    setBoard(next);
+  };
+  const startPuzzles = () => loadPuzzle(0);
+  const nextPuzzle = () => loadPuzzle(puzzleIndex + 1);
+  const retryPuzzle = () => loadPuzzle(puzzleIndex);
 
   const undo = () => {
     // Undo back to the human's turn: pop AI move + human move when possible.
@@ -407,7 +473,16 @@ export default function ChessGame() {
   const aiSide = accuracyReport ? (humanColor === 'w' ? accuracyReport.black : accuracyReport.white) : null;
 
   let statusText;
-  if (gameResult) {
+  if (puzzleMode) {
+    const puzzle = PUZZLES[puzzleIndex];
+    const toMove = board.turn() === 'w' ? 'White' : 'Black';
+    statusText =
+      puzzleState === 'solved'
+        ? `✓ ${puzzleMsg}`
+        : puzzleState === 'wrong'
+          ? puzzleMsg
+          : `Puzzle ${puzzleIndex + 1}/${PUZZLES.length}: ${toMove} to mate in 1. (${puzzle.theme})`;
+  } else if (gameResult) {
     statusText =
       gameResult.type === 'checkmate'
         ? `Checkmate — ${gameResult.winner === 'white' ? 'White' : 'Black'} wins`
@@ -462,32 +537,49 @@ export default function ChessGame() {
                   customBoardStyle={{ borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.18)' }}
                   customDarkSquareStyle={{ backgroundColor: 'var(--sq-dark)' }}
                   customLightSquareStyle={{ backgroundColor: 'var(--sq-light)' }}
-                  arePiecesDraggable={humanToMove}
+                  arePiecesDraggable={canInteract}
                 />
               </div>
 
-              <div className="flex flex-wrap gap-2 justify-center mt-4">
-                <button onClick={() => startGame()} className="px-4 py-2 rounded-lg font-body text-sm panel">
-                  New Game
-                </button>
-                <button
-                  onClick={undo}
-                  disabled={!board.canUndo() || isThinking}
-                  className="px-4 py-2 rounded-lg font-body text-sm panel disabled:opacity-40"
-                >
-                  Undo
-                </button>
-                <button onClick={flip} className="px-4 py-2 rounded-lg font-body text-sm panel">
-                  Flip
-                </button>
-                <button
-                  onClick={resign}
-                  disabled={gameOver}
-                  className="px-4 py-2 rounded-lg font-body text-sm panel disabled:opacity-40"
-                >
-                  Resign
-                </button>
-              </div>
+              {puzzleMode ? (
+                <div className="flex flex-wrap gap-2 justify-center mt-4">
+                  <button onClick={retryPuzzle} className="px-4 py-2 rounded-lg font-body text-sm panel">
+                    Reset puzzle
+                  </button>
+                  <button onClick={nextPuzzle} className="px-4 py-2 rounded-lg font-body text-sm panel">
+                    Next puzzle &rarr;
+                  </button>
+                  <button onClick={() => startGame()} className="px-4 py-2 rounded-lg font-body text-sm panel">
+                    Exit puzzles
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap gap-2 justify-center mt-4">
+                  <button onClick={() => startGame()} className="px-4 py-2 rounded-lg font-body text-sm panel">
+                    New Game
+                  </button>
+                  <button
+                    onClick={undo}
+                    disabled={!board.canUndo() || isThinking}
+                    className="px-4 py-2 rounded-lg font-body text-sm panel disabled:opacity-40"
+                  >
+                    Undo
+                  </button>
+                  <button onClick={flip} className="px-4 py-2 rounded-lg font-body text-sm panel">
+                    Flip
+                  </button>
+                  <button
+                    onClick={resign}
+                    disabled={gameOver}
+                    className="px-4 py-2 rounded-lg font-body text-sm panel disabled:opacity-40"
+                  >
+                    Resign
+                  </button>
+                  <button onClick={startPuzzles} className="px-4 py-2 rounded-lg font-body text-sm panel">
+                    Puzzles
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="space-y-4">
