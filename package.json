@@ -4,8 +4,10 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "chess.js": "^1.4.0",
     "onnxruntime-web": "^1.24.1",
     "react": "^18.2.0",
+    "react-chessboard": "^4.7.3",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.28.0",
     "react-scripts": "5.0.1"

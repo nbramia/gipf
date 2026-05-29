@@ -14,6 +14,12 @@ const games = [
     description: 'Capture marbles by jumping. Isolate rings to claim pieces. Pure strategy for two.',
     accent: '#A8A29E',
   },
+  {
+    name: 'CHESS',
+    path: '/chess',
+    description: 'Play against Stockfish with a built-in coach that explains every move — yours and its.',
+    accent: '#818CF8',
+  },
 ];
 
 export default function LandingPage() {

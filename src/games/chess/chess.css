@@ -1,0 +1,82 @@
+/* chess.css — scoped styling + animations for the Chess game.
+ * All variables live under .game-chess / .game-chess.dark so they never leak
+ * into Yinsh, Zertz, or the shared landing page (suite CSS-isolation rule). */
+
+.game-chess {
+  --color-bg-page: #f5f5f4;
+  --color-bg-panel: #ffffff;
+  --color-border: #e7e5e4;
+  --color-text-primary: #1c1917;
+  --color-text-secondary: #57534e;
+  --color-text-muted: #a8a29e;
+  --color-accent: #6366f1;
+  --color-accent-soft: rgba(99, 102, 241, 0.12);
+
+  /* Board colors */
+  --sq-light: #ebecd0;
+  --sq-dark: #779556;
+  --sq-highlight: rgba(255, 213, 79, 0.55); /* last move */
+  --sq-select: rgba(99, 102, 241, 0.45);    /* selected square */
+  --sq-check: rgba(229, 57, 53, 0.65);      /* king in check */
+  --sq-legal: rgba(30, 30, 30, 0.22);       /* legal-move dot */
+
+  /* Move-quality tones (coaching) */
+  --tone-great: #16a34a;
+  --tone-good: #65a30d;
+  --tone-warn: #d97706;
+  --tone-bad: #dc2626;
+
+  min-height: 100vh;
+  background-color: var(--color-bg-page);
+  color: var(--color-text-primary);
+}
+
+.game-chess.dark {
+  --color-bg-page: #1c1917;
+  --color-bg-panel: #292524;
+  --color-border: #44403c;
+  --color-text-primary: #f5f5f4;
+  --color-text-secondary: #d6d3d1;
+  --color-text-muted: #78716c;
+  --color-accent: #818cf8;
+  --color-accent-soft: rgba(129, 140, 248, 0.18);
+
+  --sq-light: #b3b8a8;
+  --sq-dark: #5c7245;
+  --sq-highlight: rgba(255, 213, 79, 0.45);
+  --sq-select: rgba(129, 140, 248, 0.5);
+  --sq-check: rgba(239, 83, 80, 0.7);
+  --sq-legal: rgba(245, 245, 244, 0.28);
+}
+
+/* Legal-move indicator dot rendered as a square overlay. */
+.game-chess .legal-dot {
+  background: radial-gradient(circle, var(--sq-legal) 22%, transparent 24%);
+  border-radius: 50%;
+}
+.game-chess .legal-capture {
+  background: radial-gradient(circle, transparent 78%, var(--sq-legal) 80%);
+}
+
+/* Panel + controls */
+.game-chess .panel {
+  background-color: var(--color-bg-panel);
+  border: 1px solid var(--color-border);
+}
+
+/* Coaching transcript entry fade-in (respect reduced motion). */
+@keyframes chess-entry-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.game-chess .coach-entry {
+  animation: chess-entry-fade-in 220ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .game-chess .coach-entry { animation: none; }
+}
+
+.game-chess .tone-great { color: var(--tone-great); }
+.game-chess .tone-good { color: var(--tone-good); }
+.game-chess .tone-warn { color: var(--tone-warn); }
+.game-chess .tone-bad { color: var(--tone-bad); }
