@@ -12,6 +12,7 @@ import ChessBoard from './ChessBoard.js';
 import useStockfish from './hooks/useStockfish.js';
 import { DIFFICULTY_TIERS, DEFAULT_TIER_KEY } from './engine/difficulty.js';
 import { buildMovePayload } from './coach/analyzeMove.js';
+import { detectOpening } from './coach/openings.js';
 import { requestCommentary, setApiKey, hasApiKey } from './coach/coachClient.js';
 import './chess.css';
 
@@ -115,9 +116,10 @@ export default function ChessGame() {
         const applied = board.move(mv.from, mv.to, mv.promotion || 'q');
         if (applied) {
           const fenAfter = board.fen();
-          const ply = board.sanHistory().length;
+          const sanAfter = board.sanHistory();
+          const ply = sanAfter.length;
           setBoard(board.clone());
-          coachOnMove(fenBefore, fenAfter, applied.san, applied.color, 'ai-move', ply);
+          coachOnMove(fenBefore, fenAfter, applied.san, applied.color, 'ai-move', ply, sanAfter);
         }
       })
       .catch(() => {
@@ -137,9 +139,10 @@ export default function ChessGame() {
   // analyses (position before + after the move) so commentary is engine-true,
   // then asks the coach (Claude or template fallback) to phrase it.
   const coachOnMove = useCallback(
-    async (fenBefore, fenAfter, movePlayedSan, moverColor, kind, ply) => {
+    async (fenBefore, fenAfter, movePlayedSan, moverColor, kind, ply, sanAfter) => {
       const seq = coachSeqRef.current;
       const entryId = `${ply}-${kind}`;
+      const opening = detectOpening(sanAfter || []);
       // Insert a pending entry immediately for responsive UX.
       setDialogue((d) => [
         ...d,
@@ -162,6 +165,9 @@ export default function ChessGame() {
           kind,
           learningGoal,
         });
+        // Attach opening context (#15) so the coach can name it / flag leaving book.
+        if (opening.name) payload.opening = opening.name;
+        if (opening.leftBookAtPly === ply) payload.leftBook = true;
         const { text, source } = await requestCommentary(payload);
         if (seq !== coachSeqRef.current) return;
         const tone =
@@ -175,7 +181,16 @@ export default function ChessGame() {
         setDialogue((d) =>
           d.map((e) =>
             e.id === entryId
-              ? { ...e, tone, label: kind === 'player-move' ? payload.classification : 'engine', text, source, pending: false }
+              ? {
+                  ...e,
+                  tone,
+                  label: kind === 'player-move' ? payload.classification : 'engine',
+                  text,
+                  source,
+                  opening: opening.name || null,
+                  leftBook: opening.leftBookAtPly === ply,
+                  pending: false,
+                }
               : e
           )
         );
@@ -228,10 +243,11 @@ export default function ChessGame() {
       const mv = board.move(from, to, promotion || 'q');
       if (!mv) return false;
       const fenAfter = board.fen();
-      const ply = board.sanHistory().length;
+      const sanAfter = board.sanHistory();
+      const ply = sanAfter.length;
       setSelected(null);
       setBoard(board.clone());
-      coachOnMove(fenBefore, fenAfter, mv.san, mv.color, 'player-move', ply);
+      coachOnMove(fenBefore, fenAfter, mv.san, mv.color, 'player-move', ply, sanAfter);
       return true;
     },
     [board, humanToMove, coachOnMove]
@@ -444,6 +460,12 @@ export default function ChessGame() {
                           {e.label && e.label !== 'engine' && (
                             <span className={`text-xs font-semibold ${TONE_CLASS[e.tone] || ''}`}>
                               {e.label}
+                            </span>
+                          )}
+                          {e.opening && (
+                            <span className="text-xs" style={{ color: 'var(--color-accent)' }}>
+                              {e.opening}
+                              {e.leftBook ? ' (left book)' : ''}
                             </span>
                           )}
                         </div>

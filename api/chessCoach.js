@@ -38,6 +38,8 @@ function buildPrompt(body) {
     classification,
     bestMove,
     learningGoal,
+    opening,
+    leftBook,
   } = body;
 
   const lines = [];
@@ -56,6 +58,7 @@ function buildPrompt(body) {
       lines.push(`  ${i + 1}. ${c.san} — eval ${c.eval}${c.pv ? `, line ${c.pv.join(' ')}` : ''}`);
     });
   }
+  if (opening) lines.push(`Opening: ${opening}${leftBook ? ' (this move leaves known theory)' : ''}`);
 
   const task =
     kind === 'player-move'
