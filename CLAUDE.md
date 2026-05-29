@@ -177,6 +177,23 @@ Before modifying game logic for either game:
 | `zertz.css` | Scoped CSS variables (`.game-zertz`) + animations |
 | `ZertzBoard.test.js` | Jest tests covering all zertz game logic |
 
+### Chess (`src/games/chess/`)
+
+| File | Purpose |
+|------|---------|
+| `ChessBoard.js` | Pure game logic over chess.js -- moves, draws, undo/redo, PGN, clone (no React) |
+| `ChessGame.jsx` | React UI (react-chessboard) -- play, coaching panel, puzzles, PGN, accuracy |
+| `chess.css` | Scoped CSS variables (`.game-chess`) + animations |
+| `ChessBoard.test.js` | Jest tests for chess game logic |
+| `engine/stockfishLoader.js` | Loads Stockfish from a CDN in a Blob Web Worker (no bundled binary) |
+| `engine/uci.js` | Pure UCI parsing (info / bestmove / MultiPV) |
+| `engine/difficulty.js` | Named tiers -> UCI_Elo |
+| `hooks/useStockfish.js` | Engine lifecycle; `getMove()` (opponent) + `analyze()` (coaching), serialized |
+| `coach/*.js` | classify, analyzeMove, templates, coachClient, openings, pgn, accuracy, puzzles, material, sound |
+| `api/chessCoach.js` | Vercel serverless coach (Claude API, **bring-your-own key**, no server fallback) |
+
+See [docs/chess.md](docs/chess.md) for the engine + coaching pipeline and the BYO-key security model.
+
 ### Infrastructure
 
 | File | Purpose |
@@ -208,6 +225,7 @@ Before modifying game logic for either game:
 /           -> LandingPage (always in main bundle)
 /yinsh      -> YinshGame (lazy-loaded chunk)
 /zertz      -> ZertzGame (lazy-loaded chunk)
+/chess      -> ChessGame (lazy-loaded chunk)
 ```
 
 `React.lazy()` with `<Suspense>` ensures code splitting. Visiting `/zertz` does NOT load the yinsh MCTS engine bundle. The `vercel.json` catch-all rewrite ensures direct URL access works.
@@ -284,6 +302,13 @@ yinshEvaluationMode
 **Zertz:**
 ```
 zertzDarkMode, zertzShowMoves
+```
+
+**Chess:**
+
+```
+chessDarkMode, chessShowMoves, chessDifficulty, chessLearningGoal,
+chessShowEvalBar, chessSound, chessApiKey
 ```
 
 Never rename or restructure these without migration logic.
