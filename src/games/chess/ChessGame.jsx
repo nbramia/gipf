@@ -13,6 +13,7 @@ import useStockfish from './hooks/useStockfish.js';
 import { DIFFICULTY_TIERS, DEFAULT_TIER_KEY } from './engine/difficulty.js';
 import { buildMovePayload } from './coach/analyzeMove.js';
 import { detectOpening } from './coach/openings.js';
+import { withHeaders, downloadPgn, readPgnFile, looksLikePgn } from './coach/pgn.js';
 import { requestCommentary, setApiKey, hasApiKey } from './coach/coachClient.js';
 import './chess.css';
 
@@ -68,6 +69,8 @@ export default function ChessGame() {
   const thinkingRef = useRef(false);
   const coachSeqRef = useRef(0); // ignores stale coaching results after new game/undo
   const transcriptRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const [pgnError, setPgnError] = useState('');
 
   useEffect(() => {
     localStorage.setItem('chessDarkMode', JSON.stringify(darkMode));
@@ -334,6 +337,47 @@ export default function ChessGame() {
     setShowKeyField(false);
   };
 
+  const exportPgn = () => {
+    const text = withHeaders(board.pgn(), {
+      white: humanColor === 'w' ? 'Human' : 'Stockfish',
+      black: humanColor === 'w' ? 'Stockfish' : 'Human',
+    });
+    downloadPgn(text, 'gipf-chess.pgn');
+  };
+
+  const importPgn = async (e) => {
+    setPgnError('');
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await readPgnFile(file);
+      if (!looksLikePgn(text)) {
+        setPgnError("That file doesn't look like a PGN game.");
+        return;
+      }
+      const next = new ChessBoard();
+      if (!next.loadPgn(text)) {
+        setPgnError('Could not parse that PGN.');
+        return;
+      }
+      coachSeqRef.current += 1; // invalidate in-flight coaching
+      setDialogue([]);
+      setCoaching(false);
+      setSelected(null);
+      setResigned(null);
+      thinkingRef.current = false;
+      setIsThinking(false);
+      // Imported games are reviewed against Stockfish; default human = White.
+      setHumanColor('w');
+      setOrientation('white');
+      setBoard(next);
+    } catch (_) {
+      setPgnError('Failed to read that file.');
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   const flip = () => setOrientation((o) => (o === 'white' ? 'black' : 'white'));
   const resign = () => {
     if (!gameOver) setResigned(humanColor);
@@ -573,9 +617,33 @@ export default function ChessGame() {
               </div>
 
               <div className="panel rounded-xl p-4">
-                <h2 className="font-heading text-sm font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>
-                  Moves
-                </h2>
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="font-heading text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+                    Moves
+                  </h2>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={exportPgn}
+                      disabled={movePairs.length === 0}
+                      className="px-2 py-1 rounded font-body text-xs panel disabled:opacity-40"
+                    >
+                      Export
+                    </button>
+                    <button onClick={() => fileInputRef.current && fileInputRef.current.click()} className="px-2 py-1 rounded font-body text-xs panel">
+                      Import
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pgn,text/plain"
+                      onChange={importPgn}
+                      className="hidden"
+                    />
+                  </div>
+                </div>
+                {pgnError && (
+                  <p className="mb-2 font-body text-xs tone-bad">{pgnError}</p>
+                )}
                 <div className="max-h-56 overflow-y-auto font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
                   {movePairs.length === 0 ? (
                     <p style={{ color: 'var(--color-text-muted)' }}>No moves yet.</p>
