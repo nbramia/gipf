@@ -37,7 +37,7 @@ export const PUZZLES = [
 
   // --- Mate in 2 (solver-verified: shortest forced mate is exactly 3 plies,
   //     from a quiet position) ---
-  { id: 'm2-rook-opp', mateIn: 2, fen: '4k3/8/4K3/8/8/8/8/4R3 w - - 0 1', theme: 'King & rook (opposition)', hint: 'Take the opposition with the king, then the rook mates.' },
+  { id: 'm2-rook-c', mateIn: 2, fen: '8/8/8/4R3/k7/8/1K6/8 w - - 0 1', theme: 'King & rook (cut-off)', hint: 'The rook cuts the king off; bring the king up to mate.' },
   { id: 'm2-rook-b', mateIn: 2, fen: '1k6/8/1K6/8/8/8/8/2R5 w - - 0 1', theme: 'King & rook', hint: 'The kings face off — bring the rook down to mate.' },
   { id: 'm2-queen-a', mateIn: 2, fen: 'k7/8/2K5/8/8/8/8/3Q4 w - - 0 1', theme: 'King & queen (corner)', hint: 'Box the king into the corner, then deliver.' },
   { id: 'm2-queen-b', mateIn: 2, fen: '2k5/8/2K5/8/8/8/8/3Q4 w - - 0 1', theme: 'King & queen', hint: 'Use the king for support, then the queen mates.' },
