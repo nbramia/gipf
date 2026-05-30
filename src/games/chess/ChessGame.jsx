@@ -135,45 +135,6 @@ export default function ChessGame() {
   const checkedSquare = board.checkedKingSquare();
   const humanToMove = !gameOver && board.turn() === humanColor;
 
-  // Drive the AI: whenever it's the engine's turn and the game is live, ask it.
-  useEffect(() => {
-    if (puzzleMode) return; // no engine opponent while solving puzzles
-    if (gameOver) return;
-    if (board.turn() !== aiColor) return;
-    if (engineStatus !== 'ready') return;
-    if (thinkingRef.current) return;
-
-    thinkingRef.current = true;
-    setIsThinking(true);
-    let cancelled = false;
-
-    const fenBefore = board.fen();
-    getMove(board.fen(), difficulty)
-      .then((mv) => {
-        if (cancelled || !mv) return;
-        const applied = board.move(mv.from, mv.to, mv.promotion || 'q');
-        if (applied) {
-          const fenAfter = board.fen();
-          const sanAfter = board.sanHistory();
-          const ply = sanAfter.length;
-          if (soundRef.current) playSound(moveSoundKind(applied, board.isCheck(), board.isGameOver()));
-          setBoard(board.clone());
-          coachOnMove(fenBefore, fenAfter, applied.san, applied.color, 'ai-move', ply, sanAfter);
-        }
-      })
-      .catch(() => {
-        /* surfaced via engineStatus; leave turn to the human to retry */
-      })
-      .finally(() => {
-        thinkingRef.current = false;
-        if (!cancelled) setIsThinking(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [board, aiColor, engineStatus, difficulty, gameOver, getMove, coachOnMove, puzzleMode]);
-
   // Produce coaching for a move that was just played. Runs two full-strength
   // analyses (position before + after the move) so commentary is engine-true,
   // then asks the coach (Claude or template fallback) to phrase it.
@@ -259,6 +220,46 @@ export default function ChessGame() {
     },
     [analyze, learningGoal]
   );
+
+  // Drive the AI: whenever it's the engine's turn and the game is live, ask it.
+  // Declared AFTER coachOnMove because it depends on it (avoid TDZ at render).
+  useEffect(() => {
+    if (puzzleMode) return; // no engine opponent while solving puzzles
+    if (gameOver) return;
+    if (board.turn() !== aiColor) return;
+    if (engineStatus !== 'ready') return;
+    if (thinkingRef.current) return;
+
+    thinkingRef.current = true;
+    setIsThinking(true);
+    let cancelled = false;
+
+    const fenBefore = board.fen();
+    getMove(board.fen(), difficulty)
+      .then((mv) => {
+        if (cancelled || !mv) return;
+        const applied = board.move(mv.from, mv.to, mv.promotion || 'q');
+        if (applied) {
+          const fenAfter = board.fen();
+          const sanAfter = board.sanHistory();
+          const ply = sanAfter.length;
+          if (soundRef.current) playSound(moveSoundKind(applied, board.isCheck(), board.isGameOver()));
+          setBoard(board.clone());
+          coachOnMove(fenBefore, fenAfter, applied.san, applied.color, 'ai-move', ply, sanAfter);
+        }
+      })
+      .catch(() => {
+        /* surfaced via engineStatus; leave turn to the human to retry */
+      })
+      .finally(() => {
+        thinkingRef.current = false;
+        if (!cancelled) setIsThinking(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [board, aiColor, engineStatus, difficulty, gameOver, getMove, coachOnMove, puzzleMode]);
 
   const squareStyles = useMemo(() => {
     const styles = {};
