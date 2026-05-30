@@ -24,11 +24,13 @@ src/games/chess/
     classify.js          # Eval-swing -> blunder..best; formatEval
     analyzeMove.js       # Build engine-grounded coaching payloads; pv -> SAN
     templates.js         # Deterministic fallback prose (never fabricates)
-    coachClient.js       # BYO key + POST /api/chessCoach + fallback
+    coachClient.js       # BYO key + POST /api/chessCoach + fallback + thread loop
+    analysisTools.js     # analyze_position tool: Claude-callable Stockfish
     openings.js          # ECO opening detection (#15)
     pgn.js               # PGN import/export glue (#16)
     accuracy.js          # Post-game accuracy summary (#17)
-    puzzles.js           # Mate-in-1 tactics + checker (#18)
+    puzzles.js           # Tiered mate-in-1/2 tactics + solver-based checker (#18)
+    mateSolver.js        # Exhaustive forced-mate search (vets puzzles)
     material.js          # Captured pieces + material balance (#21)
     sound.js             # WebAudio move cues (#21)
 api/chessCoach.js        # Vercel serverless coach endpoint
@@ -89,6 +91,37 @@ The app is open source and publicly shared, so there is **no maintainer key**:
 
 If no key is set, the board, engine, and built-in (template) coaching all still
 work.
+
+## Move-thread Q&A (tool-use)
+
+Any coached move can be expanded into a conversation ("Ask about this move").
+This uses Claude **tool use**: Claude is given an `analyze_position` tool and
+decides when it needs the engine, so it can check "what if" ideas live rather
+than guessing.
+
+Because Stockfish runs in the browser but Claude runs server-side, the loop is
+**client-orchestrated** (`coach/coachClient.js → runThreadTurn`):
+
+1. The client POSTs `{mode:'thread', context, messages, apiKey}` to
+   `/api/chessCoach`, which forwards the conversation + tool schema to Claude and
+   returns Claude's raw turn (`stop_reason` + `content`).
+2. If `stop_reason === 'tool_use'`, the client runs the requested
+   `analyze_position` call locally via `coach/analysisTools.js` (which applies any
+   "what if" moves with chess.js and runs `useStockfish().analyze()`), then POSTs
+   the `tool_result` back. This repeats (capped at a few rounds).
+3. When Claude returns `end_turn`, its text is the answer.
+
+`analyze_position` takes `{from: 'before'|'after', moves: [...], multipv}` — it
+analyzes the position the move was played from (or the resulting position),
+optionally after playing a short line. Every eval Claude cites therefore comes
+from a real Stockfish search it requested; it **cannot fabricate** one (the same
+#22 truthfulness guarantee, extended to the conversational layer). The system
+prompt explicitly forbids stating an eval or line not obtained from the tool.
+
+The full Anthropic message history (including tool calls/results) is kept on each
+move's dialogue entry so the conversation has continuity. Threads are a key-only
+feature — free-form Q&A has no template fallback. The endpoint marks the
+move-context block with prompt caching so multi-round threads stay cheap.
 
 ## Learning modes
 
