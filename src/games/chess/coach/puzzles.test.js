@@ -1,65 +1,92 @@
 import { Chess } from 'chess.js';
-import { PUZZLES, getPuzzle, checkSolution } from './puzzles';
+import {
+  PUZZLES,
+  getPuzzle,
+  puzzlesForDifficulty,
+  budgetPliesFor,
+  evaluatePuzzleMove,
+  DIFFICULTY_TO_MATE_IN,
+} from './puzzles';
+import { searchMate } from './mateSolver';
 
-describe('puzzles — data integrity', () => {
-  test('every bundled puzzle is a unique, legal mate-in-1', () => {
+describe('puzzles — data integrity (solver-verified)', () => {
+  test('every puzzle is a sound forced mate of its stated depth', () => {
     for (const p of PUZZLES) {
-      const game = new Chess(p.fen); // throws if FEN is illegal
-      // The stored solution must be legal and deliver mate.
-      const g = new Chess(p.fen);
-      const mv = g.move({
-        from: p.solution.slice(0, 2),
-        to: p.solution.slice(2, 4),
-        promotion: p.solution[4],
-      });
-      expect(mv).not.toBeNull();
-      expect(g.isCheckmate()).toBe(true);
-
-      // It must be the ONLY mate-in-1 in the position (unambiguous solve).
-      let mateCount = 0;
-      for (const cand of game.moves({ verbose: true })) {
-        const t = new Chess(p.fen);
-        t.move(cand);
-        if (t.isCheckmate()) mateCount += 1;
-      }
-      expect(mateCount).toBe(1);
+      const game = new Chess(p.fen); // throws on an illegal FEN
+      const res = searchMate(game, budgetPliesFor(p.mateIn));
+      expect(res).not.toBeNull();
+      // The shortest forced mate equals the stated length (in plies).
+      expect(res.dist).toBe(budgetPliesFor(p.mateIn));
     }
   });
 
-  test('ids are unique', () => {
+  test('ids are unique and the shipped tiers (1 and 2) are populated', () => {
     const ids = PUZZLES.map((p) => p.id);
     expect(new Set(ids).size).toBe(ids.length);
+    expect(PUZZLES.some((p) => p.mateIn === 1)).toBe(true);
+    expect(PUZZLES.some((p) => p.mateIn === 2)).toBe(true);
   });
 });
 
-describe('puzzles — checkSolution', () => {
-  test('accepts the correct mating move', () => {
-    const p = getPuzzle('back-rank');
-    const r = checkSolution(p, 'a1', 'a8');
-    expect(r).toMatchObject({ legal: true, solved: true, mate: true });
+describe('puzzles — difficulty mapping', () => {
+  test('maps each tier to a mate length and returns matching puzzles', () => {
+    expect(DIFFICULTY_TO_MATE_IN.beginner).toBe(1);
+    expect(DIFFICULTY_TO_MATE_IN.intermediate).toBe(2);
+    expect(DIFFICULTY_TO_MATE_IN.master).toBe(2);
+    expect(puzzlesForDifficulty('beginner').every((p) => p.mateIn === 1)).toBe(true);
+    expect(puzzlesForDifficulty('intermediate').every((p) => p.mateIn === 2)).toBe(true);
+    expect(puzzlesForDifficulty('master').length).toBeGreaterThan(0);
+  });
+});
+
+describe('puzzles — evaluatePuzzleMove (mate in 1)', () => {
+  const p = getPuzzle('m1-back-rank');
+
+  test('accepts the mating move', () => {
+    const r = evaluatePuzzleMove(p.fen, budgetPliesFor(1), 'a1', 'a8');
+    expect(r).toMatchObject({ legal: true, solved: true, correct: true });
     expect(r.played).toBe('Ra8#');
   });
 
-  test('rejects a legal but non-solving move', () => {
-    const p = getPuzzle('back-rank');
-    const r = checkSolution(p, 'g1', 'h1'); // legal king move, not the solution
+  test('rejects a legal non-mating move', () => {
+    const r = evaluatePuzzleMove(p.fen, budgetPliesFor(1), 'g1', 'h1');
     expect(r.legal).toBe(true);
     expect(r.solved).toBe(false);
-    expect(r.mate).toBe(false);
+    expect(r.correct).toBe(false);
   });
 
   test('reports illegal moves', () => {
-    const p = getPuzzle('back-rank');
-    const r = checkSolution(p, 'a1', 'a5'); // blocked? a-file is open; pick truly illegal
-    // a1a5 is actually legal (open file). Use a knight-style illegal rook move.
-    const r2 = checkSolution(p, 'a1', 'b3');
-    expect(r2.legal).toBe(false);
-    expect(r2.solved).toBe(false);
-    // sanity: the legal-but-not-solution still isn't a solve
+    const r = evaluatePuzzleMove(p.fen, budgetPliesFor(1), 'a1', 'b3');
+    expect(r.legal).toBe(false);
+  });
+});
+
+describe('puzzles — evaluatePuzzleMove (mate in 2 plays out)', () => {
+  const p = PUZZLES.find((x) => x.mateIn === 2);
+
+  test('a correct first move keeps the mate and the engine replies', () => {
+    const game = new Chess(p.fen);
+    const key = searchMate(game, budgetPliesFor(2)).key;
+    const r = evaluatePuzzleMove(p.fen, budgetPliesFor(2), key.from, key.to, key.promotion);
+    expect(r.legal).toBe(true);
+    expect(r.correct).toBe(true);
     expect(r.solved).toBe(false);
+    expect(r.reply).toBeTruthy(); // engine defended
+    expect(r.budgetPlies).toBe(budgetPliesFor(2) - 2);
+    // From the resulting position the player can finish in 1.
+    const g2 = new Chess(r.fenAfter);
+    expect(searchMate(g2, r.budgetPlies).dist).toBe(1);
   });
 
-  test('getPuzzle returns null for unknown id', () => {
-    expect(getPuzzle('nope')).toBeNull();
+  test('a move that throws away the forced mate is not solved', () => {
+    const game = new Chess(p.fen);
+    const key = searchMate(game, budgetPliesFor(2)).key;
+    const other = game
+      .moves({ verbose: true })
+      .find((m) => m.from !== key.from || m.to !== key.to);
+    if (other) {
+      const r = evaluatePuzzleMove(p.fen, budgetPliesFor(2), other.from, other.to, other.promotion);
+      expect(r.solved).toBe(false);
+    }
   });
 });
