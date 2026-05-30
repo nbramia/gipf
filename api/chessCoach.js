@@ -78,6 +78,107 @@ function buildPrompt(body) {
   );
 }
 
+// --- Threaded Q&A (tool-use) -------------------------------------------------
+//
+// A follow-up conversation about a move. The browser owns Stockfish, so the
+// engine "tool" is executed client-side; this endpoint is a thin pass-through
+// that forwards the conversation + tool schema to Claude and returns Claude's
+// raw response (stop_reason + content). The client runs the agentic loop:
+// when Claude asks for analyze_position, the client runs Stockfish and posts
+// back a tool_result, until Claude returns a final answer.
+//
+// The analyze_position tool schema is duplicated here (the serverless function
+// can't import from src/ in all setups). Keep in sync with
+// src/games/chess/coach/analysisTools.js.
+const ANALYZE_POSITION_TOOL = {
+  name: 'analyze_position',
+  description:
+    'Run the Stockfish chess engine to get an objective evaluation and the best ' +
+    'lines for a position related to the move being discussed. Use this whenever ' +
+    'you need an evaluation, a best move, or a principal variation — including to ' +
+    'check a "what if" idea. NEVER state an evaluation or concrete line you did ' +
+    'not get from this tool.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      from: { type: 'string', enum: ['before', 'after'] },
+      moves: { type: 'array', items: { type: 'string' } },
+      multipv: { type: 'number' },
+    },
+  },
+};
+
+function buildThreadSystem(context) {
+  const c = context || {};
+  const facts = [];
+  if (c.fenBefore) facts.push(`Position before the move (FEN): ${c.fenBefore}`);
+  if (c.fenAfter) facts.push(`Position after the move (FEN): ${c.fenAfter}`);
+  if (c.movePlayed) facts.push(`Move played: ${c.movePlayed}`);
+  if (c.classification) facts.push(`Engine classification: ${c.classification}`);
+  if (c.evalBefore) facts.push(`Eval before (White POV): ${c.evalBefore}`);
+  if (c.evalAfter) facts.push(`Eval after (White POV): ${c.evalAfter}`);
+  if (c.bestMove) facts.push(`Engine's best move here: ${c.bestMove}`);
+  if (c.opening) facts.push(`Opening: ${c.opening}`);
+  if (c.commentary) facts.push(`Your earlier comment on this move: ${c.commentary}`);
+
+  return (
+    'You are a chess coach having a follow-up conversation about one move in the ' +
+    "student's game. Be concise, friendly, and concrete.\n\n" +
+    'CRITICAL RULE: You must not state any evaluation, best move, or concrete line ' +
+    'unless you obtained it from the analyze_position tool in THIS conversation. ' +
+    'To discuss any idea or "what if", call analyze_position (optionally with a ' +
+    'moves line) and reason from its result. If you cannot or should not analyze ' +
+    'something, say so rather than guessing. Refer to moves in standard algebraic ' +
+    'notation.\n\nContext for the move under discussion:\n' +
+    facts.join('\n')
+  );
+}
+
+async function handleThread(req, res, body, apiKey) {
+  const messages = Array.isArray(body.messages) ? body.messages : null;
+  if (!messages || messages.length === 0) {
+    res.status(400).json({ error: 'bad_request', message: 'Missing conversation messages.' });
+    return;
+  }
+
+  const system = [
+    { type: 'text', text: buildThreadSystem(body.context), cache_control: { type: 'ephemeral' } },
+  ];
+
+  const upstream = await fetch(ANTHROPIC_URL, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model: body.model || DEFAULT_MODEL,
+      max_tokens: 700,
+      system,
+      tools: [ANALYZE_POSITION_TOOL],
+      messages,
+    }),
+  });
+
+  if (!upstream.ok) {
+    const status = upstream.status === 401 ? 401 : 502;
+    let detail = 'Upstream error.';
+    try {
+      const j = await upstream.json();
+      detail = (j && j.error && j.error.message) || detail;
+    } catch (_) {
+      /* ignore */
+    }
+    res.status(status).json({ error: 'upstream_error', message: detail });
+    return;
+  }
+
+  const data = await upstream.json();
+  // Return the raw assistant turn so the client can run the tool loop.
+  res.status(200).json({ stop_reason: data.stop_reason, content: data.content || [] });
+}
+
 export default async function handler(req, res) {
   applyCors(req, res);
 
@@ -100,6 +201,13 @@ export default async function handler(req, res) {
       res.status(401).json({ error: 'missing_api_key', message: 'No API key provided.' });
       return;
     }
+
+    // Threaded Q&A path (tool-use) vs. the original single-shot commentary path.
+    if (body.mode === 'thread') {
+      await handleThread(req, res, body, apiKey);
+      return;
+    }
+
     if (!body.fen) {
       res.status(400).json({ error: 'bad_request', message: 'Missing position.' });
       return;

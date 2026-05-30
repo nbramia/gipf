@@ -19,7 +19,7 @@ import { puzzlesForDifficulty, budgetPliesFor, evaluatePuzzleMove } from './coac
 import { capturedPieces, materialBalance } from './coach/material.js';
 import { playSound, moveSoundKind } from './coach/sound.js';
 import { formatEval } from './coach/classify.js';
-import { requestCommentary, setApiKey, hasApiKey } from './coach/coachClient.js';
+import { requestCommentary, runThreadTurn, setApiKey, hasApiKey } from './coach/coachClient.js';
 import './chess.css';
 
 const PIECE_GLYPH = { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛', k: '♚' };
@@ -102,6 +102,13 @@ export default function ChessGame() {
   const [puzzleBudget, setPuzzleBudget] = useState(1);
   const [puzzleState, setPuzzleState] = useState('idle'); // idle | solving | solved | wrong
   const [puzzleMsg, setPuzzleMsg] = useState('');
+
+  // Move-thread Q&A modal: the entry id whose conversation is open, the draft
+  // question, busy state, and a live "analyzing …" status from tool calls.
+  const [threadEntryId, setThreadEntryId] = useState(null);
+  const [threadInput, setThreadInput] = useState('');
+  const [threadBusy, setThreadBusy] = useState(false);
+  const [threadStatus, setThreadStatus] = useState('');
 
   useEffect(() => {
     localStorage.setItem('chessDarkMode', JSON.stringify(darkMode));
@@ -204,6 +211,21 @@ export default function ChessGame() {
                   opening: opening.name || null,
                   leftBook: opening.leftBookAtPly === ply,
                   pending: false,
+                  // Context for follow-up Q&A threads (tool-use grounding).
+                  analysis: {
+                    fenBefore,
+                    fenAfter,
+                    movePlayed: payload.movePlayed && payload.movePlayed.san,
+                    classification: payload.classification,
+                    evalBefore: payload.evalBefore,
+                    evalAfter: payload.evalAfter,
+                    bestMove: payload.bestMove
+                      ? `${payload.bestMove.san} (${payload.bestMove.eval})`
+                      : undefined,
+                    opening: opening.name || undefined,
+                    commentary: text,
+                  },
+                  thread: [], // Anthropic message history for this move's conversation
                 }
               : e
           )
@@ -478,6 +500,64 @@ export default function ChessGame() {
     setKeySet(false);
     setShowKeyField(false);
   };
+
+  // --- Move-thread Q&A (tool-use) ---
+  const threadEntry = dialogue.find((e) => e.id === threadEntryId) || null;
+
+  const sendThreadQuestion = useCallback(async () => {
+    const question = threadInput.trim();
+    if (!question || threadBusy) return;
+    const entry = dialogue.find((e) => e.id === threadEntryId);
+    if (!entry || !entry.analysis) return;
+
+    setThreadBusy(true);
+    setThreadStatus('');
+    setThreadInput('');
+    // Optimistically show the user's question in the thread.
+    setDialogue((d) =>
+      d.map((e) =>
+        e.id === threadEntryId
+          ? { ...e, thread: [...(e.thread || []), { role: 'user', content: question }] }
+          : e
+      )
+    );
+
+    const result = await runThreadTurn({
+      context: entry.analysis,
+      history: entry.threadApi || [],
+      question,
+      analyze,
+      onToolCall: (input) => {
+        const where = input && input.from === 'after' ? 'resulting position' : 'this position';
+        const line = input && input.moves && input.moves.length ? input.moves.join(' ') : '';
+        setThreadStatus(`Analyzing ${line ? line + ' from ' : ''}${where}…`);
+      },
+    });
+
+    setDialogue((d) =>
+      d.map((e) =>
+        e.id === threadEntryId
+          ? {
+              ...e,
+              thread: [...(e.thread || []), { role: 'assistant', content: result.text }],
+              threadApi: result.messages || e.threadApi, // full Anthropic history for continuity
+            }
+          : e
+      )
+    );
+    setThreadStatus('');
+    setThreadBusy(false);
+  }, [threadInput, threadBusy, dialogue, threadEntryId, analyze]);
+
+  // Close the thread modal on Escape.
+  useEffect(() => {
+    if (!threadEntryId) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setThreadEntryId(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [threadEntryId]);
 
   const exportPgn = () => {
     const text = withHeaders(board.pgn(), {
@@ -930,6 +1010,97 @@ export default function ChessGame() {
           </div>
         </div>
       </div>
+
+      {/* Move-thread Q&A modal (tool-use, Stockfish-grounded) */}
+      {threadEntry && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+          onClick={() => setThreadEntryId(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="panel rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            <div className="flex items-start justify-between p-4 border-b" style={{ borderColor: 'var(--color-border)' }}>
+              <div>
+                <h3 className="font-heading text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+                  {Math.ceil(threadEntry.ply / 2)}.{threadEntry.kind === 'ai-move' ? '..' : ''} {threadEntry.san}
+                </h3>
+                <p className="font-body text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                  Ask follow-ups — answers are checked against Stockfish live.
+                </p>
+              </div>
+              <button
+                onClick={() => setThreadEntryId(null)}
+                aria-label="Close"
+                className="px-2 py-1 rounded font-body text-sm panel"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+              <div className="coach-entry font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                {threadEntry.text}
+              </div>
+              {(threadEntry.thread || []).map((m, i) => (
+                <div
+                  key={i}
+                  className="font-body text-sm rounded-lg px-3 py-2"
+                  style={
+                    m.role === 'user'
+                      ? { backgroundColor: 'var(--color-accent-soft)', color: 'var(--color-text-primary)' }
+                      : { color: 'var(--color-text-secondary)' }
+                  }
+                >
+                  {m.content}
+                </div>
+              ))}
+              {threadBusy && (
+                <div className="font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                  {threadStatus || 'Thinking…'}
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t" style={{ borderColor: 'var(--color-border)' }}>
+              {keySet ? (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={threadInput}
+                    onChange={(ev) => setThreadInput(ev.target.value)}
+                    onKeyDown={(ev) => {
+                      if (ev.key === 'Enter' && !ev.shiftKey) {
+                        ev.preventDefault();
+                        sendThreadQuestion();
+                      }
+                    }}
+                    placeholder="e.g. What if I'd played Nf3 instead?"
+                    disabled={threadBusy}
+                    className="flex-1 min-w-0 px-3 py-2 rounded-lg font-body text-sm panel"
+                    style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
+                  />
+                  <button
+                    onClick={sendThreadQuestion}
+                    disabled={threadBusy || !threadInput.trim()}
+                    className="px-3 py-2 rounded-lg font-body text-sm panel disabled:opacity-40"
+                  >
+                    Ask
+                  </button>
+                </div>
+              ) : (
+                <p className="font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                  Add your Anthropic API key in Settings to ask questions about moves.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
