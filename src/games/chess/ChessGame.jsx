@@ -15,7 +15,7 @@ import { buildMovePayload } from './coach/analyzeMove.js';
 import { detectOpening } from './coach/openings.js';
 import { withHeaders, downloadPgn, readPgnFile, looksLikePgn } from './coach/pgn.js';
 import { summarizeAccuracy } from './coach/accuracy.js';
-import { PUZZLES, checkSolution } from './coach/puzzles.js';
+import { puzzlesForDifficulty, budgetPliesFor, evaluatePuzzleMove } from './coach/puzzles.js';
 import { capturedPieces, materialBalance } from './coach/material.js';
 import { playSound, moveSoundKind } from './coach/sound.js';
 import { formatEval } from './coach/classify.js';
@@ -94,9 +94,12 @@ export default function ChessGame() {
   const fileInputRef = useRef(null);
   const [pgnError, setPgnError] = useState('');
 
-  // Puzzle mode (#18).
+  // Puzzle mode (#18). The pool is chosen by difficulty (mate-in-1/2/3); budget
+  // is the remaining plies to force mate and shrinks as a multi-move puzzle plays.
   const [puzzleMode, setPuzzleMode] = useState(false);
+  const [puzzlePool, setPuzzlePool] = useState([]);
   const [puzzleIndex, setPuzzleIndex] = useState(0);
+  const [puzzleBudget, setPuzzleBudget] = useState(1);
   const [puzzleState, setPuzzleState] = useState('idle'); // idle | solving | solved | wrong
   const [puzzleMsg, setPuzzleMsg] = useState('');
 
@@ -287,30 +290,52 @@ export default function ChessGame() {
     return styles;
   }, [board, selected, showMoves, lastMove, checkedSquare]);
 
-  // Attempt the current puzzle's solution with the given move.
+  // Attempt the current puzzle. A move is correct if it keeps a forced mate
+  // within the remaining budget; the engine then plays its toughest defense and
+  // the player continues until mate. Coaching runs on each successful move.
   const tryPuzzleMove = useCallback(
     (from, to, promotion) => {
-      const puzzle = PUZZLES[puzzleIndex];
-      const res = checkSolution(puzzle, from, to, promotion || 'q');
+      if (puzzleState === 'solved') return false;
+      const puzzle = puzzlePool[puzzleIndex];
+      if (!puzzle) return false;
+
+      const fenBefore = board.fen();
+      const res = evaluatePuzzleMove(fenBefore, puzzleBudget, from, to, promotion || 'q');
       if (!res.legal) return false; // snap the piece back
       setSelected(null);
+
+      if (!res.correct) {
+        // Legal, but it lets the forced mate slip — snap back and hint.
+        setPuzzleState('wrong');
+        setPuzzleMsg(`${res.played} lets the win slip — ${puzzle.hint}`);
+        return true;
+      }
+
+      // Correct: play the player's move on the real board.
+      const mv = board.move(from, to, promotion || 'q');
+      const fenAfterPlayer = board.fen();
+      const ply = board.sanHistory().length;
+      if (soundRef.current) playSound(moveSoundKind(mv, board.isCheck(), board.isGameOver()));
+
       if (res.solved) {
-        // Show the solving move on the board, then mark solved.
-        board.move(from, to, promotion || 'q');
         setBoard(board.clone());
         setPuzzleState('solved');
-        setPuzzleMsg(`Correct — ${res.played}. ${puzzle.theme}.`);
-      } else {
-        setPuzzleState('wrong');
-        setPuzzleMsg(
-          res.mate
-            ? `${res.played} is mate too, but the intended key was different — try again.`
-            : `${res.played} doesn't finish the job. ${puzzle.hint}`
-        );
+        setPuzzleMsg(`Solved — ${res.played}! ${puzzle.theme}.`);
+        coachOnMove(fenBefore, fenAfterPlayer, mv.san, mv.color, 'player-move', ply, board.sanHistory());
+        return true;
       }
+
+      // Not mate yet: engine plays its longest-resisting defense; keep solving.
+      const rmv = board.move(res.reply.from, res.reply.to, res.reply.promotion);
+      if (soundRef.current && rmv) playSound(moveSoundKind(rmv, board.isCheck(), false));
+      setPuzzleBudget(res.budgetPlies);
+      setPuzzleState('solving');
+      setPuzzleMsg(`Good — ${res.played}. Now find the finish.`);
+      setBoard(board.clone());
+      coachOnMove(fenBefore, fenAfterPlayer, mv.san, mv.color, 'player-move', ply, board.sanHistory());
       return true;
     },
-    [board, puzzleIndex]
+    [board, puzzlePool, puzzleIndex, puzzleBudget, puzzleState, coachOnMove]
   );
 
   const tryHumanMove = useCallback(
@@ -396,14 +421,18 @@ export default function ChessGame() {
     setBoard(new ChessBoard());
   };
 
-  // Puzzle mode (#18): load a puzzle position; the solver plays the side to move.
+  // Puzzle mode (#18): the pool is chosen by the difficulty tier, so the
+  // difficulty selector controls puzzle hardness (mate-in-1/2/3).
   const loadPuzzle = (index) => {
-    const i = ((index % PUZZLES.length) + PUZZLES.length) % PUZZLES.length;
-    const puzzle = PUZZLES[i];
+    const pool = puzzlesForDifficulty(difficulty);
+    const i = ((index % pool.length) + pool.length) % pool.length;
+    const puzzle = pool[i];
     const next = new ChessBoard(puzzle.fen);
     coachSeqRef.current += 1;
+    setPuzzlePool(pool);
     setPuzzleMode(true);
     setPuzzleIndex(i);
+    setPuzzleBudget(budgetPliesFor(puzzle.mateIn));
     setPuzzleState('solving');
     setPuzzleMsg('');
     setSelected(null);
@@ -512,14 +541,15 @@ export default function ChessGame() {
 
   let statusText;
   if (puzzleMode) {
-    const puzzle = PUZZLES[puzzleIndex];
+    const puzzle = puzzlePool[puzzleIndex];
     const toMove = board.turn() === 'w' ? 'White' : 'Black';
+    const movesLeft = Math.max(1, Math.ceil(puzzleBudget / 2));
     statusText =
       puzzleState === 'solved'
         ? `✓ ${puzzleMsg}`
         : puzzleState === 'wrong'
           ? puzzleMsg
-          : `Puzzle ${puzzleIndex + 1}/${PUZZLES.length}: ${toMove} to mate in 1. (${puzzle.theme})`;
+          : `Puzzle ${puzzleIndex + 1}/${puzzlePool.length}: ${toMove} to play, mate in ${movesLeft}.${puzzle ? ` (${puzzle.theme})` : ''}`;
   } else if (gameResult) {
     statusText =
       gameResult.type === 'checkmate'
