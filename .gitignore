@@ -65,3 +65,6 @@ training/.venv/
 
 # Screenshots
 *.png
+
+# Harness scheduled-tasks lock (ephemeral per-session state)
+.claude/scheduled_tasks.lock
