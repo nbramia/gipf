@@ -39,7 +39,7 @@ Opens at `http://localhost:3000` with a landing page. Navigate to `/yinsh`, `/ze
 
 ```bash
 npm start                 # Dev server with hot reload
-CI=true npm test          # Run full test suite (305 tests)
+CI=true npm test          # Run the full test suite
 npm run test:engine       # Yinsh MCTS engine tests
 npm run build             # Production build
 ```

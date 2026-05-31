@@ -38,7 +38,7 @@ Both `YinshBoard` and `ZertzBoard` are ES module classes. Zero React dependency.
 1. **Read the existing code** around your change area
 2. **Write a failing test first** in the game's test file
 3. **Make the minimal change** in the Board class
-4. **Run `CI=true npm test`** -- all 305 tests must pass
+4. **Run `CI=true npm test`** -- the full suite must pass
 5. **Verify `npm run build`** -- catches import/syntax issues
 
 ### Patterns to Follow
@@ -242,7 +242,7 @@ node scripts/self-play.mjs --games 10 --sims 100
 1. Read the relevant Board class
 2. Write a test that reproduces the bug
 3. Fix the bug
-4. Verify: `CI=true npm test` (all 305 pass)
+4. Verify: `CI=true npm test` (full suite passes)
 5. Verify: `npm run build`
 
 ### "Add a new UI feature"
@@ -266,7 +266,7 @@ node scripts/self-play.mjs --games 10 --sims 100
 5. Verify: `CI=true npm test` and `npm run build`
 
 ### "Deploy changes"
-1. `CI=true npm test` -- all 305 pass
+1. `CI=true npm test` -- full suite passes
 2. `npm run build` -- no errors
 3. Manual play-through if game logic changed
 4. `git push origin main` -- Vercel auto-deploys

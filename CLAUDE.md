@@ -21,7 +21,7 @@ GIPF Project is a multi-game React application hosting browser-based implementat
 - MCTS AI engines: YINSH and ZERTZ use game-tree MCTS; CATAN uses root-focused MCTS with heuristic rollouts
 - Neural network: PyTorch training pipeline -> ONNX export -> onnxruntime-web browser inference
 - Vercel serverless functions for API-mode AI
-- Jest + React Testing Library (305 tests across 5 suites)
+- Jest + React Testing Library (full suite auto-discovered across all game subdirs)
 
 **Documentation:**
 - [README.md](README.md) - Project overview for external users
@@ -36,7 +36,7 @@ GIPF Project is a multi-game React application hosting browser-based implementat
 # Development Workflow
 
 1. **Edit code**
-2. **Test**: `CI=true npm test` (all 305 tests must pass)
+2. **Test**: `CI=true npm test` (the full suite must pass)
 3. **Build**: `npm run build` (must complete without errors)
 4. **Manual test**: Play through game in browser (`npm start`)
 5. **Deploy**: `git push origin main` (Vercel auto-deploys)
@@ -223,7 +223,7 @@ See [docs/catan.md](docs/catan.md) for rule coverage and AI/training details.
 | Command | Purpose |
 |---------|---------|
 | `npm start` | Dev server on localhost:3000 |
-| `CI=true npm test` | Full test suite (305 tests, must all pass) |
+| `CI=true npm test` | Full test suite (must all pass) |
 | `npm run test:engine` | MCTS-specific engine tests |
 | `npm run build` | Production build |
 | `npm run generate-data` | Generate self-play training data (NDJSON) |
@@ -338,13 +338,13 @@ Never rename or restructure these without migration logic.
 ## Testing
 
 ```bash
-CI=true npm test              # Full suite -- all 305 must pass
+CI=true npm test              # Full suite -- all tests must pass
 npm test -- --watch           # Watch mode for development
 npm run test:engine           # MCTS engine tests
 ```
 
 **Before any deployment, ALL of these must be true:**
-- [ ] `CI=true npm test` -- 305 tests passing
+- [ ] `CI=true npm test` -- full suite passing
 - [ ] `npm run build` -- completes without errors
 - [ ] Manual play-through of modified game(s) in browser
 

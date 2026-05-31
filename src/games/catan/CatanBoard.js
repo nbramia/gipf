@@ -381,6 +381,10 @@ export default class CatanBoard {
     this.lastAction = 'Place your first settlement.';
     this.pendingAfterRobberPhase = null;
     this.freeRoadsRemaining = 0;
+    this.discardQueue = [];
+    this.pendingTrade = null;
+    this.tradeProposalsThisTurn = 0;
+    this.maxTradeProposalsPerTurn = 2;
     this.longestRoadHolder = null;
     this.largestArmyHolder = null;
     this.winner = null;
@@ -589,10 +593,20 @@ export default class CatanBoard {
     this.lastRoll = diceTotal;
 
     if (diceTotal === 7) {
-      this._discardForRobber();
-      this.phase = 'robber';
       this.pendingAfterRobberPhase = 'action';
-      this.lastAction = `${this.players[this.currentPlayer].name} rolled 7. Move the robber.`;
+      this.discardLog = [];
+      this.discardQueue = this.getPlayerIds()
+        .filter(player => this.getPlayerResourceTotal(player) > 7)
+        .map(player => ({ player, remaining: Math.floor(this.getPlayerResourceTotal(player) / 2) }));
+
+      if (this.discardQueue.length > 0) {
+        this.phase = 'discard';
+        this.currentPlayer = this.discardQueue[0].player;
+        this.lastAction = `${this.players[this.currentPlayer].name} must discard ${this.discardQueue[0].remaining} cards.`;
+      } else {
+        this.phase = 'robber';
+        this.lastAction = `${this.players[this.currentPlayer].name} rolled 7. Move the robber.`;
+      }
       this._captureState();
       return true;
     }
@@ -637,30 +651,44 @@ export default class CatanBoard {
     });
   }
 
-  _discardForRobber() {
-    this.discardLog = [];
-    for (const player of this.getPlayerIds()) {
-      const total = this.getPlayerResourceTotal(player);
-      if (total <= 7) continue;
-      const discardCount = Math.floor(total / 2);
-      const discarded = this._discardResources(player, discardCount);
-      this.discardLog.push({ player, resources: discarded });
-    }
-  }
+  // Discard a single card for the player at the head of the discard queue.
+  // Players over seven cards each drop one card at a time (a real decision)
+  // before the roller moves the robber.
+  discardCard(resource) {
+    if (this.phase !== 'discard') return false;
+    const head = this.discardQueue[0];
+    if (!head || head.player !== this.currentPlayer) return false;
+    const player = this.players[this.currentPlayer];
+    if (!RESOURCES.includes(resource) || player.resources[resource] <= 0) return false;
 
-  _discardResources(playerId, count) {
-    const player = this.players[playerId];
-    const discarded = emptyResources();
-    for (let i = 0; i < count; i++) {
-      const resource = RESOURCES
-        .filter(r => player.resources[r] > 0)
-        .sort((a, b) => player.resources[b] - player.resources[a])[0];
-      if (!resource) break;
-      player.resources[resource]--;
-      this.bank[resource]++;
-      discarded[resource]++;
+    player.resources[resource]--;
+    this.bank[resource]++;
+    head.remaining--;
+
+    let logEntry = this.discardLog.find(entry => entry.player === head.player);
+    if (!logEntry) {
+      logEntry = { player: head.player, resources: emptyResources() };
+      this.discardLog.push(logEntry);
     }
-    return discarded;
+    logEntry.resources[resource]++;
+
+    if (head.remaining <= 0) {
+      this.discardQueue.shift();
+    }
+
+    if (this.discardQueue.length > 0) {
+      const next = this.discardQueue[0];
+      this.currentPlayer = next.player;
+      this.phase = 'discard';
+      this.lastAction = `${this.players[next.player].name} must discard ${next.remaining} cards.`;
+    } else {
+      this.currentPlayer = this.primaryTurnPlayer;
+      this.phase = 'robber';
+      this.lastAction = `${this.players[this.currentPlayer].name} must move the robber.`;
+    }
+
+    this._captureState();
+    return true;
   }
 
   moveRobber(tileId, stealPlayerId = null) {
@@ -847,6 +875,94 @@ export default class CatanBoard {
     return true;
   }
 
+  _bundleTotal(bundle) {
+    return Object.values(bundle || {}).reduce((sum, amount) => sum + (amount || 0), 0);
+  }
+
+  _hasBundle(playerId, bundle) {
+    return Object.entries(bundle || {}).every(([resource, amount]) =>
+      RESOURCES.includes(resource) && this.players[playerId].resources[resource] >= amount);
+  }
+
+  _transferBundle(fromPlayerId, toPlayerId, bundle) {
+    for (const [resource, amount] of Object.entries(bundle)) {
+      this.players[fromPlayerId].resources[resource] -= amount;
+      this.players[toPlayerId].resources[resource] += amount;
+    }
+  }
+
+  // Offer give-bundle for receive-bundle to one or more opponents. Bundles may
+  // contain multiple resource types. Targeted opponents respond in order; the
+  // first to accept completes the trade. Arbitrary bundles/targets are accepted
+  // so the human UI has full freedom; the AI enumerates a curated subset.
+  proposeTrade(give, receive, targets) {
+    if (!this._isActionPhase()) return false;
+    const proposer = this.currentPlayer;
+    const targetList = (Array.isArray(targets) ? targets : [targets])
+      .filter(id => id !== proposer && this.players[id]);
+    if (targetList.length === 0) return false;
+    if (this._bundleTotal(give) === 0 || this._bundleTotal(receive) === 0) return false;
+    if (!this._validBundle(give) || !this._validBundle(receive)) return false;
+    if (!this._hasBundle(proposer, give)) return false;
+    if (this.tradeProposalsThisTurn >= this.maxTradeProposalsPerTurn) return false;
+
+    this.tradeProposalsThisTurn++;
+    this.pendingTrade = {
+      proposer,
+      give: { ...give },
+      receive: { ...receive },
+      targets: [...targetList],
+      index: 0,
+      returnPhase: this.phase,
+    };
+    this.currentPlayer = targetList[0];
+    this.phase = 'trade-response';
+    this.lastAction = `${this.players[proposer].name} proposed a trade.`;
+    this._captureState();
+    return true;
+  }
+
+  _validBundle(bundle) {
+    return Object.entries(bundle || {}).every(([resource, amount]) =>
+      RESOURCES.includes(resource) && Number.isInteger(amount) && amount > 0);
+  }
+
+  respondTrade(accept) {
+    if (this.phase !== 'trade-response' || !this.pendingTrade) return false;
+    const trade = this.pendingTrade;
+    const responder = trade.targets[trade.index];
+    if (responder !== this.currentPlayer) return false;
+
+    const canAccept = accept && this._hasBundle(responder, trade.receive);
+    if (canAccept) {
+      this._transferBundle(trade.proposer, responder, trade.give);
+      this._transferBundle(responder, trade.proposer, trade.receive);
+      this.lastAction = `${this.players[responder].name} accepted ${this.players[trade.proposer].name}'s trade.`;
+      this._finishTrade();
+      return true;
+    }
+
+    trade.index++;
+    if (trade.index < trade.targets.length) {
+      this.currentPlayer = trade.targets[trade.index];
+      this.lastAction = `${this.players[responder].name} declined the trade.`;
+      this._captureState();
+      return true;
+    }
+
+    this.lastAction = `${this.players[trade.proposer].name}'s trade was declined.`;
+    this._finishTrade();
+    return true;
+  }
+
+  _finishTrade() {
+    const trade = this.pendingTrade;
+    this.currentPlayer = trade.proposer;
+    this.phase = trade.returnPhase || 'action';
+    this.pendingTrade = null;
+    this._captureState();
+  }
+
   endTurn() {
     if (!this._isActionPhase()) return false;
     const endingPhase = this.phase;
@@ -857,6 +973,8 @@ export default class CatanBoard {
     }
     player.playedDevThisTurn = false;
     this.freeRoadsRemaining = 0;
+    this.tradeProposalsThisTurn = 0;
+    this.pendingTrade = null;
     this.dice = null;
 
     if (this.pairedPlayers && endingPhase === 'action') {
@@ -904,7 +1022,8 @@ export default class CatanBoard {
     return options;
   }
 
-  getLegalMoves() {
+  getLegalMoves(options = {}) {
+    const rollout = options.rollout === true;
     if (this.phase === 'game-over') return [];
 
     if (this.phase === 'setup-settlement') {
@@ -921,14 +1040,34 @@ export default class CatanBoard {
       return [{ type: 'roll' }];
     }
 
+    if (this.phase === 'discard') {
+      const player = this.players[this.currentPlayer];
+      return RESOURCES
+        .filter(resource => player.resources[resource] > 0)
+        .map(resource => ({ type: 'discard', resource }));
+    }
+
     if (this.phase === 'robber') {
-      return this.tiles
-        .filter(tile => tile.id !== this.robberTileId)
-        .map(tile => ({
-          type: 'move-robber',
-          tileId: tile.id,
-          stealPlayerId: this._bestRobberVictim(tile.id),
-        }));
+      const moves = [];
+      for (const tile of this.tiles) {
+        if (tile.id === this.robberTileId) continue;
+        const victims = this.getRobberVictims(tile.id).filter(playerId => playerId !== this.currentPlayer);
+        if (victims.length === 0) {
+          moves.push({ type: 'move-robber', tileId: tile.id, stealPlayerId: null });
+        } else {
+          for (const victim of victims) {
+            moves.push({ type: 'move-robber', tileId: tile.id, stealPlayerId: victim });
+          }
+        }
+      }
+      return moves;
+    }
+
+    if (this.phase === 'trade-response') {
+      return [
+        { type: 'respond-trade', accept: true },
+        { type: 'respond-trade', accept: false },
+      ];
     }
 
     if (!this._isActionPhase()) return [];
@@ -949,17 +1088,90 @@ export default class CatanBoard {
       if (player.devCards.knight > 0) moves.push({ type: 'play-knight' });
       if (player.devCards.roadBuilding > 0 && player.roads.length < this.pieceLimits.roads) moves.push({ type: 'play-road-building' });
       if (player.devCards.yearOfPlenty > 0) {
-        const desired = this._mostNeededResources(this.currentPlayer);
-        moves.push({ type: 'play-year-of-plenty', resourceA: desired[0], resourceB: desired[1] || desired[0] });
+        for (const [resourceA, resourceB] of this._yearOfPlentyPairs()) {
+          moves.push({ type: 'play-year-of-plenty', resourceA, resourceB });
+        }
       }
       if (player.devCards.monopoly > 0) {
-        moves.push({ type: 'play-monopoly', resource: this._bestMonopolyResource(this.currentPlayer) });
+        for (const resource of RESOURCES) {
+          moves.push({ type: 'play-monopoly', resource });
+        }
       }
     }
 
-    this.getStrategicTradeOptions(this.currentPlayer).forEach(move => moves.push(move));
+    // In rollout (cheap) mode, skip the expensive full bank-trade and
+    // propose-trade enumeration: keep only a few highest-need bank trades and no
+    // player-to-player proposals. The default (non-rollout) path returns the
+    // complete set unchanged so the test suite and real root decisions are intact.
+    if (rollout) {
+      this.getStrategicTradeOptions(this.currentPlayer, 4).forEach(move => moves.push(move));
+    } else {
+      this.getTradeOptions(this.currentPlayer).forEach(move => moves.push(move));
+      this._proposeTradeOptions(this.currentPlayer).forEach(move => moves.push(move));
+    }
     if (this.freeRoadsRemaining === 0 || roadEdges.length === 0) moves.push({ type: 'end-turn' });
     return moves;
+  }
+
+  // Unordered resource pairs (including two-of-the-same) the bank can currently supply.
+  _yearOfPlentyPairs() {
+    const pairs = [];
+    for (let i = 0; i < RESOURCES.length; i++) {
+      for (let j = i; j < RESOURCES.length; j++) {
+        const a = RESOURCES[i];
+        const b = RESOURCES[j];
+        const needed = a === b ? 2 : 1;
+        if (this.bank[a] >= (a === b ? needed : 1) && this.bank[b] >= 1 && (a !== b || this.bank[a] >= 2)) {
+          pairs.push([a, b]);
+        }
+      }
+    }
+    return pairs;
+  }
+
+  // Bounded set of player-to-player trade proposals for the AI: give 1-2 of a
+  // single surplus resource for 1 of a single needed resource, offered to each
+  // opponent individually and to all opponents at once. The engine itself
+  // (proposeTrade) accepts arbitrary multi-resource bundles for human use; this
+  // only curates what the search/NN enumerates so the action space stays small.
+  _proposeTradeOptions(playerId = this.currentPlayer, limit = 10) {
+    if (this.pairedPlayers) return [];
+    const player = this.players[playerId];
+    const opponents = this.getPlayerIds().filter(id => id !== playerId);
+    if (opponents.length === 0) return [];
+    if ((this.tradeProposalsThisTurn || 0) >= this.maxTradeProposalsPerTurn) return [];
+
+    const surplus = RESOURCES.filter(resource => player.resources[resource] > 0);
+    const needs = this._mostNeededResources(playerId)
+      .filter(resource => this._resourceNeedScore(playerId, resource) > 0)
+      .slice(0, 2);
+    if (needs.length === 0) return [];
+
+    const targetSets = [...opponents.map(id => [id]), opponents];
+    const options = [];
+    for (const give of surplus) {
+      for (const receive of needs) {
+        if (give === receive) continue;
+        const giveAmount = player.resources[give] >= 2 ? 2 : 1;
+        for (const targets of targetSets) {
+          options.push({
+            type: 'propose-trade',
+            give: { [give]: giveAmount },
+            receive: { [receive]: 1 },
+            targets: [...targets],
+          });
+        }
+      }
+    }
+
+    return options
+      .map(move => ({
+        move,
+        score: this._resourceNeedScore(playerId, Object.keys(move.receive)[0]) - move.targets.length * 0.05,
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .map(entry => entry.move);
   }
 
   getStrategicTradeOptions(playerId = this.currentPlayer, limit = 12) {
@@ -979,8 +1191,14 @@ export default class CatanBoard {
         return this.placeSetupRoad(move.edgeId);
       case 'roll':
         return this.rollDice(move.total || null);
+      case 'discard':
+        return this.discardCard(move.resource);
       case 'move-robber':
         return this.moveRobber(move.tileId, move.stealPlayerId || null);
+      case 'propose-trade':
+        return this.proposeTrade(move.give, move.receive, move.targets);
+      case 'respond-trade':
+        return this.respondTrade(move.accept);
       case 'build-road':
         return this.buildRoad(move.edgeId, { free: !!move.free });
       case 'build-settlement':
@@ -1004,12 +1222,6 @@ export default class CatanBoard {
       default:
         return false;
     }
-  }
-
-  _bestRobberVictim(tileId) {
-    const victims = this.getRobberVictims(tileId).filter(playerId => playerId !== this.currentPlayer);
-    if (victims.length === 0) return null;
-    return victims.sort((a, b) => this.getPlayerResourceTotal(b) - this.getPlayerResourceTotal(a))[0];
   }
 
   _bestMonopolyResource(playerId) {
@@ -1242,6 +1454,17 @@ export default class CatanBoard {
       lastAction: this.lastAction,
       pendingAfterRobberPhase: this.pendingAfterRobberPhase,
       freeRoadsRemaining: this.freeRoadsRemaining,
+      discardQueue: this.discardQueue.map(entry => ({ ...entry })),
+      pendingTrade: this.pendingTrade
+        ? {
+            ...this.pendingTrade,
+            give: { ...this.pendingTrade.give },
+            receive: { ...this.pendingTrade.receive },
+            targets: [...this.pendingTrade.targets],
+          }
+        : null,
+      tradeProposalsThisTurn: this.tradeProposalsThisTurn,
+      maxTradeProposalsPerTurn: this.maxTradeProposalsPerTurn,
       longestRoadHolder: this.longestRoadHolder,
       largestArmyHolder: this.largestArmyHolder,
       winner: this.winner,
@@ -1310,6 +1533,17 @@ export default class CatanBoard {
     board.lastAction = state.lastAction;
     board.pendingAfterRobberPhase = state.pendingAfterRobberPhase;
     board.freeRoadsRemaining = state.freeRoadsRemaining || 0;
+    board.discardQueue = (state.discardQueue || []).map(entry => ({ ...entry }));
+    board.pendingTrade = state.pendingTrade
+      ? {
+          ...state.pendingTrade,
+          give: { ...state.pendingTrade.give },
+          receive: { ...state.pendingTrade.receive },
+          targets: [...state.pendingTrade.targets],
+        }
+      : null;
+    board.tradeProposalsThisTurn = state.tradeProposalsThisTurn || 0;
+    board.maxTradeProposalsPerTurn = state.maxTradeProposalsPerTurn ?? 2;
     board.longestRoadHolder = state.longestRoadHolder;
     board.largestArmyHolder = state.largestArmyHolder;
     board.winner = state.winner;

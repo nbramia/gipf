@@ -281,7 +281,11 @@ export default function CatanGame() {
   const [showSettings, setShowSettings] = useState(false);
   const [showRules, setShowRules] = useState(false);
   const [lastMove, setLastMove] = useState(null);
+  const [showTradeBuilder, setShowTradeBuilder] = useState(false);
   const [confirmNew, setConfirmNew] = useState(false);
+  const [tradeGive, setTradeGive] = useState({ brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 });
+  const [tradeReceive, setTradeReceive] = useState({ brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 });
+  const [tradeTargets, setTradeTargets] = useState([]);
   const aiTimerRef = useRef(null);
   const { computeMove, isSupported: workerSupported } = useAIWorker();
 
@@ -336,6 +340,24 @@ export default function CatanGame() {
     if (board.phase === 'game-over') setShowModal(true);
     return true;
   }, [board]);
+
+  const openTradeBuilder = useCallback(() => {
+    const empty = { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 };
+    setTradeGive({ ...empty });
+    setTradeReceive({ ...empty });
+    setTradeTargets(playerIds.filter(id => id !== HUMAN_PLAYER));
+    setShowTradeBuilder(true);
+  }, [playerIds]);
+
+  const submitTrade = useCallback(() => {
+    const give = Object.fromEntries(Object.entries(tradeGive).filter(([, amount]) => amount > 0));
+    const receive = Object.fromEntries(Object.entries(tradeReceive).filter(([, amount]) => amount > 0));
+    const targets = tradeTargets.filter(id => id !== HUMAN_PLAYER);
+    if (Object.keys(give).length === 0 || Object.keys(receive).length === 0 || targets.length === 0) return;
+    if (applyMove({ type: 'propose-trade', give, receive, targets })) {
+      setShowTradeBuilder(false);
+    }
+  }, [applyMove, tradeGive, tradeReceive, tradeTargets]);
 
   const computeAIMove = useCallback(() => {
     if (isAiThinking || board.phase === 'game-over') return;
@@ -487,6 +509,8 @@ export default function CatanGame() {
     if (board.phase === 'setup-settlement') return `${currentPlayer.name}: settlement`;
     if (board.phase === 'setup-road') return `${currentPlayer.name}: road`;
     if (board.phase === 'roll') return `${currentPlayer.name}: roll`;
+    if (board.phase === 'discard') return `${currentPlayer.name}: discard`;
+    if (board.phase === 'trade-response') return `${currentPlayer.name}: respond to trade`;
     if (board.phase === 'robber') return `${currentPlayer.name}: robber`;
     if (board.phase === 'paired-action') return `${currentPlayer.name}: paired build`;
     return `${currentPlayer.name}: build or trade`;
@@ -510,6 +534,78 @@ export default function CatanGame() {
         <button className="catan-primary-btn w-full" onClick={() => applyMove({ type: 'roll' })}>
           Roll Dice
         </button>
+      );
+    }
+
+    if (board.phase === 'discard') {
+      const remaining = board.discardQueue[0]?.remaining || 0;
+      return (
+        <div className="space-y-3">
+          <p className="text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
+            You rolled into a 7 and hold too many cards. Discard <strong>{remaining}</strong> more {remaining === 1 ? 'card' : 'cards'} by clicking them.
+          </p>
+          <div className="grid grid-cols-5 gap-1">
+            {RESOURCES.map(resource => {
+              const count = human.resources[resource];
+              return (
+                <button
+                  key={resource}
+                  className={`catan-resource-pill resource-${resource} catan-discard-pill`}
+                  disabled={count <= 0}
+                  title={`Discard 1 ${RESOURCE_LABELS[resource]}`}
+                  onClick={() => applyMove({ type: 'discard', resource })}
+                >
+                  <span>{resource[0].toUpperCase()}</span>
+                  <strong>{count}</strong>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    if (board.phase === 'trade-response') {
+      const trade = board.pendingTrade;
+      if (!trade) {
+        return <p className="text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>Resolving trade...</p>;
+      }
+      const proposerName = board.players[trade.proposer]?.name || 'Opponent';
+      const youReceive = Object.entries(trade.give).filter(([, amount]) => amount > 0);
+      const youGive = Object.entries(trade.receive).filter(([, amount]) => amount > 0);
+      const canAfford = youGive.every(([resource, amount]) => human.resources[resource] >= amount);
+      const bundle = (entries) => entries.length === 0
+        ? 'nothing'
+        : entries.map(([resource, amount]) => `${amount} ${RESOURCE_LABELS[resource]}`).join(', ');
+      return (
+        <div className="space-y-3">
+          <div className="catan-trade-offer">
+            <div className="catan-panel-label mb-1">{proposerName} offers a trade</div>
+            <div className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
+              You receive: <strong>{bundle(youReceive)}</strong>
+            </div>
+            <div className="text-sm" style={{ color: 'var(--color-text-primary)' }}>
+              You give: <strong>{bundle(youGive)}</strong>
+            </div>
+            {!canAfford && (
+              <div className="mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                You cannot afford this trade.
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              className="catan-primary-btn"
+              disabled={!canAfford}
+              onClick={() => applyMove({ type: 'respond-trade', accept: true })}
+            >
+              Accept
+            </button>
+            <button className="catan-tool-btn" onClick={() => applyMove({ type: 'respond-trade', accept: false })}>
+              Decline
+            </button>
+          </div>
+        </div>
       );
     }
 
@@ -580,6 +676,14 @@ export default function CatanGame() {
             ))}
           </div>
         )}
+
+        <button
+          className="catan-tool-btn w-full"
+          disabled={resourceTotal(human.resources) === 0 || board.tradeProposalsThisTurn >= board.maxTradeProposalsPerTurn}
+          onClick={openTradeBuilder}
+        >
+          Propose Trade to Players
+        </button>
 
         {trades.length > 0 && (
           <div>
@@ -987,7 +1091,8 @@ export default function CatanGame() {
             <div className="space-y-4 text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
               <p>Active game: {activeRuleset.name}, {activeScenario?.name || 'Random Island'}, {board.playerCount} players, {board.victoryTarget} VP target.</p>
               <p>Setup uses snake order. The second settlement pays starting resources from adjacent non-desert tiles.</p>
-              <p>Roll 7 to move the robber. Players above 7 cards discard automatically, then the robber blocks one tile and steals from an adjacent opponent.</p>
+              <p>Roll 7 to move the robber. Each player holding more than 7 cards chooses which cards to discard (down to half), one at a time, then the roller moves the robber to block one tile and steals from an adjacent opponent.</p>
+              <p>On your turn you can propose a trade to one or more opponents: pick the resources you give and the resources you want in return, then choose who to offer it to.</p>
               {board.pairedPlayers && (
                 <p>5-6 player mode uses a paired-player build phase after the rolling player ends their action phase.</p>
               )}
@@ -1016,6 +1121,126 @@ export default function CatanGame() {
             <div className="mt-6 flex gap-3">
               <button className="catan-primary-btn flex-1" onClick={() => { setConfirmNew(false); newGame(); }}>New Game</button>
               <button className="catan-tool-btn flex-1" onClick={() => setConfirmNew(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTradeBuilder && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4" onClick={(e) => { if (e.target === e.currentTarget) setShowTradeBuilder(false); }}>
+          <div className="catan-modal max-h-[88vh] w-full max-w-lg overflow-y-auto p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>Propose Trade</h2>
+              <button className="text-2xl" style={{ color: 'var(--color-text-secondary)' }} onClick={() => setShowTradeBuilder(false)}>&times;</button>
+            </div>
+
+            <div className="space-y-5">
+              <div>
+                <div className="catan-panel-label mb-2">You give (you have)</div>
+                <div className="catan-trade-rows">
+                  {RESOURCES.map(resource => {
+                    const owned = human.resources[resource];
+                    const value = tradeGive[resource];
+                    return (
+                      <div key={resource} className="catan-trade-row">
+                        <span className={`catan-trade-chip resource-${resource}`}>{RESOURCE_LABELS[resource]}</span>
+                        <span className="catan-trade-have">{owned}</span>
+                        <div className="catan-stepper">
+                          <button
+                            className="catan-tool-btn px-2"
+                            disabled={value <= 0}
+                            onClick={() => setTradeGive(prev => ({ ...prev, [resource]: Math.max(0, prev[resource] - 1) }))}
+                          >
+                            &minus;
+                          </button>
+                          <strong>{value}</strong>
+                          <button
+                            className="catan-tool-btn px-2"
+                            disabled={value >= owned}
+                            onClick={() => setTradeGive(prev => ({ ...prev, [resource]: Math.min(owned, prev[resource] + 1) }))}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <div className="catan-panel-label mb-2">You receive</div>
+                <div className="catan-trade-rows">
+                  {RESOURCES.map(resource => {
+                    const value = tradeReceive[resource];
+                    return (
+                      <div key={resource} className="catan-trade-row">
+                        <span className={`catan-trade-chip resource-${resource}`}>{RESOURCE_LABELS[resource]}</span>
+                        <span className="catan-trade-have">&nbsp;</span>
+                        <div className="catan-stepper">
+                          <button
+                            className="catan-tool-btn px-2"
+                            disabled={value <= 0}
+                            onClick={() => setTradeReceive(prev => ({ ...prev, [resource]: Math.max(0, prev[resource] - 1) }))}
+                          >
+                            &minus;
+                          </button>
+                          <strong>{value}</strong>
+                          <button
+                            className="catan-tool-btn px-2"
+                            onClick={() => setTradeReceive(prev => ({ ...prev, [resource]: prev[resource] + 1 }))}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <div className="catan-panel-label mb-2">Offer to</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {playerIds.filter(id => id !== HUMAN_PLAYER).map(id => {
+                    const opponent = board.players[id];
+                    const selected = tradeTargets.includes(id);
+                    return (
+                      <button
+                        key={id}
+                        className={`catan-tool-btn ${selected ? 'active' : ''}`}
+                        onClick={() => setTradeTargets(prev => selected ? prev.filter(t => t !== id) : [...prev, id])}
+                      >
+                        <span className="mr-1 inline-block h-2.5 w-2.5 rounded-full align-middle" style={{ backgroundColor: opponent.color }} />
+                        {opponent.name}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    className="catan-tool-btn flex-1"
+                    onClick={() => setTradeTargets(playerIds.filter(id => id !== HUMAN_PLAYER))}
+                  >
+                    Select All
+                  </button>
+                  <button className="catan-tool-btn flex-1" onClick={() => setTradeTargets([])}>
+                    Clear
+                  </button>
+                </div>
+              </div>
+
+              <button
+                className="catan-primary-btn w-full"
+                disabled={
+                  resourceTotal(tradeGive) === 0 ||
+                  resourceTotal(tradeReceive) === 0 ||
+                  tradeTargets.filter(id => id !== HUMAN_PLAYER).length === 0
+                }
+                onClick={submitTrade}
+              >
+                Send Offer
+              </button>
             </div>
           </div>
         </div>

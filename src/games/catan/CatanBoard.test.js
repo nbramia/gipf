@@ -1,4 +1,4 @@
-import CatanBoard, { COSTS, resourceTotal } from './CatanBoard.js';
+import CatanBoard, { COSTS, RESOURCES, resourceTotal } from './CatanBoard.js';
 import { MCTS } from './engine/mcts.js';
 
 function placeNextSetupPair(board) {
@@ -125,7 +125,7 @@ describe('Catan production and robber', () => {
     expect(board.players[2].resources[tile.resource]).toBe(2);
   });
 
-  test('robber blocks production and discards players above seven cards', () => {
+  test('robber blocks production and forces players above seven cards to discard', () => {
     const board = new CatanBoard({ seed: 13, skipInitialHistory: true });
     const tile = board.tiles.find(t => t.resource !== 'desert' && t.number);
     const vertexId = tile.vertices[0];
@@ -137,8 +137,18 @@ describe('Catan production and robber', () => {
     board.currentPlayer = 1;
 
     expect(board.rollDice(7)).toBe(true);
+    // Discarding is now a real decision, not automatic.
+    expect(board.phase).toBe('discard');
+    expect(board.currentPlayer).toBe(1);
+    expect(board.getLegalMoves()).toEqual([{ type: 'discard', resource: 'brick' }]);
+
+    // Must drop floor(8/2) = 4 cards, one chosen card at a time.
+    for (let i = 0; i < 4; i++) {
+      expect(board.applyMove({ type: 'discard', resource: 'brick' })).toBe(true);
+    }
     expect(resourceTotal(board.players[1].resources)).toBe(4);
     expect(board.phase).toBe('robber');
+    expect(board.currentPlayer).toBe(1);
     expect(board.moveRobber(tile.id)).toBe(true);
 
     const beforeBlockedRoll = board.players[1].resources[tile.resource];
@@ -223,6 +233,167 @@ describe('Catan trade and development cards', () => {
     expect(board.players[1].devCards.knight).toBe(1);
     expect(board.playKnight()).toBe(true);
     expect(board.phase).toBe('robber');
+  });
+});
+
+describe('Catan complete action space', () => {
+  test('discard lets the player choose which cards to drop', () => {
+    const board = new CatanBoard({ seed: 21, skipInitialHistory: true });
+    board.phase = 'roll';
+    board.currentPlayer = 1;
+    giveResources(board, 1, { brick: 5, ore: 3 }); // total 8 -> discard 4
+
+    expect(board.rollDice(7)).toBe(true);
+    expect(board.phase).toBe('discard');
+    // Choose to dump ore and keep brick.
+    for (let i = 0; i < 3; i++) {
+      expect(board.applyMove({ type: 'discard', resource: 'ore' })).toBe(true);
+    }
+    expect(board.applyMove({ type: 'discard', resource: 'brick' })).toBe(true);
+
+    expect(board.players[1].resources.ore).toBe(0);
+    expect(board.players[1].resources.brick).toBe(4);
+    expect(board.phase).toBe('robber');
+    expect(board.currentPlayer).toBe(1);
+  });
+
+  test('robber move enumerates a steal option per victim and honors the choice', () => {
+    const board = new CatanBoard({ seed: 22, skipInitialHistory: true });
+    const tile = board.tiles.find(t => t.resource !== 'desert' && t.id !== board.robberTileId);
+    board.vertices[tile.vertices[0]].building = { player: 2, type: 'settlement' };
+    board.vertices[tile.vertices[2]].building = { player: 3, type: 'settlement' };
+    board.players[2].settlements.push(tile.vertices[0]);
+    board.players[3].settlements.push(tile.vertices[2]);
+    giveResources(board, 2, { brick: 1 });
+    giveResources(board, 3, { ore: 1 });
+    board.phase = 'robber';
+    board.currentPlayer = 1;
+    board.primaryTurnPlayer = 1;
+
+    const victims = board.getLegalMoves()
+      .filter(m => m.type === 'move-robber' && m.tileId === tile.id)
+      .map(m => m.stealPlayerId)
+      .sort();
+    expect(victims).toEqual([2, 3]);
+
+    // Steal specifically from player 3.
+    expect(board.applyMove({ type: 'move-robber', tileId: tile.id, stealPlayerId: 3 })).toBe(true);
+    expect(resourceTotal(board.players[3].resources)).toBe(0);
+    expect(board.players[1].resources.ore).toBe(1);
+  });
+
+  test('year of plenty enumerates every bank-suppliable resource pair', () => {
+    const board = new CatanBoard({ seed: 23, skipInitialHistory: true });
+    board.phase = 'action';
+    board.currentPlayer = 1;
+    board.players[1].devCards.yearOfPlenty = 1;
+
+    const pairs = board.getLegalMoves().filter(m => m.type === 'play-year-of-plenty');
+    expect(pairs.length).toBe(15); // 5 singles + 10 distinct pairs, bank has >=2 of each
+
+    expect(board.applyMove({ type: 'play-year-of-plenty', resourceA: 'ore', resourceB: 'grain' })).toBe(true);
+    expect(board.players[1].resources.ore).toBe(1);
+    expect(board.players[1].resources.grain).toBe(1);
+  });
+
+  test('monopoly enumerates one option per resource and collects that resource', () => {
+    const board = new CatanBoard({ seed: 24, skipInitialHistory: true });
+    board.phase = 'action';
+    board.currentPlayer = 1;
+    board.players[1].devCards.monopoly = 1;
+    giveResources(board, 2, { wool: 3 });
+    giveResources(board, 3, { wool: 2 });
+
+    const monos = board.getLegalMoves().filter(m => m.type === 'play-monopoly');
+    expect(monos.map(m => m.resource).sort()).toEqual([...RESOURCES].sort());
+
+    expect(board.applyMove({ type: 'play-monopoly', resource: 'wool' })).toBe(true);
+    expect(board.players[1].resources.wool).toBe(5);
+    expect(board.players[2].resources.wool).toBe(0);
+    expect(board.players[3].resources.wool).toBe(0);
+  });
+
+  test('bank trades are fully enumerated, not heuristically pruned', () => {
+    const board = new CatanBoard({ seed: 25, skipInitialHistory: true });
+    board.phase = 'action';
+    board.currentPlayer = 1;
+    giveResources(board, 1, { brick: 4 });
+
+    const trades = board.getLegalMoves().filter(m => m.type === 'trade');
+    expect(trades.length).toBe(4); // 4:1 brick for each of the other four resources
+    expect(trades.every(t => t.give === 'brick')).toBe(true);
+  });
+
+  test('player-to-player trade transfers multi-resource bundles on accept', () => {
+    const board = new CatanBoard({ seed: 26, skipInitialHistory: true });
+    board.phase = 'action';
+    board.currentPlayer = 1;
+    board.primaryTurnPlayer = 1;
+    giveResources(board, 1, { brick: 2, lumber: 1 });
+    giveResources(board, 2, { ore: 1, grain: 1 });
+
+    expect(board.proposeTrade({ brick: 2 }, { ore: 1, grain: 1 }, [2])).toBe(true);
+    expect(board.phase).toBe('trade-response');
+    expect(board.currentPlayer).toBe(2);
+
+    expect(board.respondTrade(true)).toBe(true);
+    expect(board.phase).toBe('action');
+    expect(board.currentPlayer).toBe(1);
+    expect(board.players[1].resources.brick).toBe(0);
+    expect(board.players[1].resources.ore).toBe(1);
+    expect(board.players[1].resources.grain).toBe(1);
+    expect(board.players[2].resources.brick).toBe(2);
+    expect(board.players[2].resources.ore).toBe(0);
+  });
+
+  test('trade offered to multiple opponents goes to the first able accepter', () => {
+    const board = new CatanBoard({ seed: 27, skipInitialHistory: true });
+    board.phase = 'action';
+    board.currentPlayer = 1;
+    board.primaryTurnPlayer = 1;
+    giveResources(board, 1, { brick: 1 });
+    giveResources(board, 3, { ore: 1 }); // player 2 cannot pay, player 3 can
+
+    expect(board.proposeTrade({ brick: 1 }, { ore: 1 }, [2, 3])).toBe(true);
+    expect(board.currentPlayer).toBe(2);
+    // Player 2 tries to accept but cannot afford -> treated as decline, advances to 3.
+    expect(board.respondTrade(true)).toBe(true);
+    expect(board.phase).toBe('trade-response');
+    expect(board.currentPlayer).toBe(3);
+
+    expect(board.respondTrade(true)).toBe(true);
+    expect(board.players[1].resources.ore).toBe(1);
+    expect(board.players[3].resources.brick).toBe(1);
+  });
+
+  test('a fully declined trade returns control to the proposer unchanged', () => {
+    const board = new CatanBoard({ seed: 28, skipInitialHistory: true });
+    board.phase = 'action';
+    board.currentPlayer = 1;
+    board.primaryTurnPlayer = 1;
+    giveResources(board, 1, { brick: 1 });
+
+    expect(board.proposeTrade({ brick: 1 }, { ore: 1 }, [2, 3])).toBe(true);
+    expect(board.respondTrade(false)).toBe(true);
+    expect(board.respondTrade(false)).toBe(true);
+    expect(board.phase).toBe('action');
+    expect(board.currentPlayer).toBe(1);
+    expect(board.players[1].resources.brick).toBe(1);
+  });
+
+  test('trade proposals are capped per turn to keep the action space finite', () => {
+    const board = new CatanBoard({ seed: 29, skipInitialHistory: true });
+    board.phase = 'action';
+    board.currentPlayer = 1;
+    board.primaryTurnPlayer = 1;
+    giveResources(board, 1, { brick: 5 });
+
+    expect(board.proposeTrade({ brick: 1 }, { ore: 1 }, [2])).toBe(true);
+    expect(board.respondTrade(false)).toBe(true);
+    expect(board.proposeTrade({ brick: 1 }, { ore: 1 }, [2])).toBe(true);
+    expect(board.respondTrade(false)).toBe(true);
+    // Third proposal exceeds the per-turn cap.
+    expect(board.proposeTrade({ brick: 1 }, { ore: 1 }, [2])).toBe(false);
   });
 });
 

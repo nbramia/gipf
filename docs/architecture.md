@@ -267,7 +267,7 @@ The Board class is the single source of truth. React state holds a clone for ren
 
 ### Testing
 
-305 tests across 5 suites, auto-discovered by `testMatch: ['**/*.test.js']`:
+The full suite is auto-discovered by `testMatch: ['**/*.test.js']`, including:
 - `YinshBoard.test.js` -- game logic
 - `ZertzBoard.test.js` -- game logic
 - `mcts.test.js` -- MCTS unit tests
@@ -275,5 +275,5 @@ The Board class is the single source of truth. React state holds a clone for ren
 - `mcts.benchmark.test.js` -- performance tests
 
 ```bash
-CI=true npm test          # All 305 must pass before deployment
+CI=true npm test          # Full suite must pass before deployment
 ```

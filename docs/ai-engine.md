@@ -229,7 +229,7 @@ For simulation, the AI clones the board with `board.clone()` to avoid mutating t
 ## Testing
 
 ```bash
-CI=true npm test          # Full suite (305 tests)
+CI=true npm test          # Full suite
 npm run test:engine       # MCTS-specific tests
 npm run tournament        # Compare heuristic vs NN
 ```

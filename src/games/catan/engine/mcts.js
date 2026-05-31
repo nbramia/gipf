@@ -36,11 +36,26 @@ function moveToKey(move) {
       return `monopoly:${move.resource}`;
     case 'trade':
       return `trade:${move.give}:${move.receive}:${move.ratio}`;
+    case 'discard':
+      return `discard:${move.resource}`;
+    case 'propose-trade':
+      return `propose:${bundleKey(move.give)}>${bundleKey(move.receive)}@${[...(move.targets || [])].sort((a, b) => a - b).join(',')}`;
+    case 'respond-trade':
+      return `respond:${move.accept ? 'y' : 'n'}`;
     case 'end-turn':
       return 'end';
     default:
       return JSON.stringify(move);
   }
+}
+
+// Canonical, order-independent serialization of a resource bundle. Must match
+// features.js bundleKey so policy targets for propose-trade moves line up.
+function bundleKey(bundle) {
+  return Object.entries(bundle || {})
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([resource, amount]) => `${resource}=${amount}`)
+    .join(',');
 }
 
 function applyMove(board, move) {
@@ -214,6 +229,36 @@ function scoreMove(board, move, playerId) {
         .reduce((sum, id) => sum + board.players[id].resources[move.resource], 0) * 80;
     case 'trade':
       return 95 + board._resourceNeedScore(playerId, move.receive) * 60 - move.ratio * 20;
+    case 'discard':
+      // Higher score = better card to drop. Prefer dropping low-need (surplus) cards.
+      return 200 - board._resourceNeedScore(playerId, move.resource) * 60;
+    case 'propose-trade': {
+      // Small positive only when the offer nets needed resources. Kept well below
+      // bank trades (95), building, and even end-turn (25) for marginal deals so a
+      // proposal never crowds out productive moves or stalls the game in
+      // propose/respond cycles. Capped so it can never dominate the search.
+      const gainNeed = Object.keys(move.receive)
+        .reduce((sum, res) => sum + board._resourceNeedScore(playerId, res), 0);
+      const giveNeed = Object.entries(move.give)
+        .reduce((sum, [res, amt]) => sum + board._resourceNeedScore(playerId, res) * amt, 0);
+      // Only a clearly favorable, needed-resource swap earns a small positive;
+      // everything else is negative so propose-trades are pruned out ahead of
+      // productive moves and the search does not stall in propose/respond cycles.
+      const net = gainNeed - giveNeed;
+      if (net <= 1) return -60;
+      return Math.min(20, (net - 1) * 6);
+    }
+    case 'respond-trade': {
+      const trade = board.pendingTrade;
+      if (!trade) return 0;
+      if (!move.accept) return 0; // declining is the neutral baseline
+      // The responder GAINS trade.give and LOSES trade.receive.
+      const gain = Object.entries(trade.give)
+        .reduce((sum, [res, amt]) => sum + board._resourceNeedScore(playerId, res) * amt, 0);
+      const loss = Object.entries(trade.receive)
+        .reduce((sum, [res, amt]) => sum + board._resourceNeedScore(playerId, res) * amt, 0);
+      return (gain - loss) * 80;
+    }
     case 'end-turn':
       return player.resources.brick + player.resources.lumber + player.resources.grain + player.resources.ore > 7 ? -40 : 25;
     default:
@@ -230,8 +275,8 @@ function pruneMoves(board, moves, playerId, maxChildren = DEFAULT_MAX_CHILDREN) 
     .map(entry => entry.move);
 }
 
-function selectMoveByHeuristic(board) {
-  const moves = board.getLegalMoves();
+function selectMoveByHeuristic(board, { rollout = false } = {}) {
+  const moves = board.getLegalMoves(rollout ? { rollout: true } : undefined);
   if (moves.length === 0) return null;
   if (moves.length === 1) return moves[0];
 
@@ -279,7 +324,7 @@ class MCTS {
 
     let steps = 0;
     while (simBoard.phase !== 'game-over' && steps < MAX_ROLLOUT_STEPS) {
-      const move = selectMoveByHeuristic(simBoard);
+      const move = selectMoveByHeuristic(simBoard, { rollout: true });
       if (!move) break;
       const applied = simBoard.applyMove(move);
       if (!applied) break;

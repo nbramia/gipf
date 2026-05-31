@@ -399,6 +399,74 @@
   color: var(--color-text-primary);
 }
 
+/* ========== Trade / Discard UI ========== */
+
+.game-catan .catan-discard-pill {
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: transform 0.12s ease, opacity 0.16s ease, box-shadow 0.16s ease;
+}
+
+.game-catan .catan-discard-pill:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(60, 42, 24, 0.18);
+}
+
+.game-catan .catan-discard-pill:disabled {
+  cursor: default;
+  opacity: 0.35;
+}
+
+.game-catan .catan-trade-offer {
+  border: 1px solid var(--color-border-panel);
+  border-radius: 8px;
+  background: var(--color-bg-soft);
+  padding: 10px 12px;
+}
+
+.game-catan .catan-trade-rows {
+  display: grid;
+  gap: 6px;
+}
+
+.game-catan .catan-trade-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.game-catan .catan-trade-chip {
+  flex: 0 0 64px;
+  border-radius: 6px;
+  padding: 4px 6px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.game-catan .catan-trade-have {
+  flex: 0 0 24px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+}
+
+.game-catan .catan-stepper {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.game-catan .catan-stepper strong {
+  min-width: 18px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--color-text-primary);
+}
+
 /* ========== Board Drawing ========== */
 
 .game-catan .catan-tile {
