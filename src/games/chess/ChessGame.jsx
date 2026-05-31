@@ -195,11 +195,13 @@ export default function ChessGame() {
         const inOpening = ply <= OPENING_MAX_PLY;
         if (inOpening) {
           payload.inOpening = true;
-          // A move within a generous band of best, in the opening, is "book" —
-          // never flag it as inaccuracy/mistake. (cpLoss is from the mover's POV.)
+          // A move is a sound "book" move — never inaccuracy/mistake — if EITHER
+          // it's a recognized opening in our ECO table (deterministic, no deps),
+          // OR it's within a generous eval band of best. (cpLoss is mover's POV.)
           const SOUND_OPENING_BAND = 90; // centipawns
+          const recognizedOpening = opening.inBook; // still in known theory after this move
           if (
-            (payload.cpLoss || 0) <= SOUND_OPENING_BAND &&
+            (recognizedOpening || (payload.cpLoss || 0) <= SOUND_OPENING_BAND) &&
             ['good', 'inaccuracy', 'mistake'].includes(payload.classification)
           ) {
             payload.classification = 'book';
