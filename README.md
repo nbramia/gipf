@@ -18,6 +18,12 @@ Capture marbles by jumping over them on a shrinking hex board. After placing a m
 
 Two-player game with full undo/redo and dark mode.
 
+### Catan
+
+Four-player base-game Catan against three local MCTS opponents. Build roads, settlements, and cities; trade through banks and ports; play development cards; move the robber; and race to 10 victory points.
+
+Features strong Web Worker AI opponents, randomized balanced boards, full undo/redo, and self-play training-data scripts.
+
 ## Quick Start
 
 ```bash
@@ -27,7 +33,7 @@ npm install
 npm start
 ```
 
-Opens at `http://localhost:3000` with a landing page. Navigate to `/yinsh` or `/zertz`.
+Opens at `http://localhost:3000` with a landing page. Navigate to `/yinsh`, `/zertz`, `/chess`, or `/catan`.
 
 ## Development
 
@@ -65,6 +71,10 @@ src/
       ZertzBoard.js        # Game logic (no React)
       ZertzGame.jsx        # React UI + SVG board
       zertz.css            # Scoped CSS variables + animations
+    catan/
+      CatanBoard.js        # Four-player Catan logic (no React)
+      CatanGame.jsx        # React UI + SVG board + AI turns
+      catan.css            # Scoped CSS variables + animations
 api/
   aiMove.js                # Vercel serverless function (Yinsh AI)
 scripts/                   # Training data generation, tournaments

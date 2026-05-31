@@ -5,6 +5,7 @@ import LandingPage from './LandingPage.jsx';
 const YinshGame = lazy(() => import('./games/yinsh/YinshGame.jsx'));
 const ZertzGame = lazy(() => import('./games/zertz/ZertzGame.jsx'));
 const ChessGame = lazy(() => import('./games/chess/ChessGame.jsx'));
+const CatanGame = lazy(() => import('./games/catan/CatanGame.jsx'));
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
           <Route path="/yinsh" element={<YinshGame />} />
           <Route path="/zertz" element={<ZertzGame />} />
           <Route path="/chess" element={<ChessGame />} />
+          <Route path="/catan" element={<CatanGame />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

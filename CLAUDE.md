@@ -6,7 +6,7 @@ Critical instructions for AI agents (Claude, Cursor, Copilot, etc.) working on t
 
 ## Project Overview
 
-GIPF Project is a multi-game React application hosting browser-based implementations of abstract strategy board games. Currently includes Yinsh (with AI) and Zertz. Games are code-split and served under a single deployment with client-side routing.
+GIPF Project is a multi-game React application hosting browser-based implementations of board games. Currently includes Yinsh, Zertz, Chess, and Catan. Games are code-split and served under a single deployment with client-side routing.
 
 **Key Concepts:**
 - **Multi-game monorepo**: Each game lives in `src/games/<name>/` with its own logic, UI, CSS, and tests
@@ -18,7 +18,7 @@ GIPF Project is a multi-game React application hosting browser-based implementat
 **Tech Stack:**
 - React 18 (CRA) + React Router 6 + Tailwind CSS
 - SVG rendering for hexagonal boards
-- MCTS AI engine with dual evaluation: heuristics or neural network (Yinsh only)
+- MCTS AI engines: YINSH and ZERTZ use game-tree MCTS; CATAN uses root-focused MCTS with heuristic rollouts
 - Neural network: PyTorch training pipeline -> ONNX export -> onnxruntime-web browser inference
 - Vercel serverless functions for API-mode AI
 - Jest + React Testing Library (305 tests across 5 suites)
@@ -26,7 +26,8 @@ GIPF Project is a multi-game React application hosting browser-based implementat
 **Documentation:**
 - [README.md](README.md) - Project overview for external users
 - [docs/architecture.md](docs/architecture.md) - Codebase architecture and design
-- [docs/ai-engine.md](docs/ai-engine.md) - AI system internals (Yinsh)
+- [docs/ai-engine.md](docs/ai-engine.md) - AI system internals
+- [docs/catan.md](docs/catan.md) - Catan rules coverage and AI/training details
 - [docs/notation.md](docs/notation.md) - Move notation specification (Yinsh)
 - [docs/agents.md](docs/agents.md) - Practical development guide for AI agents
 
@@ -194,6 +195,20 @@ Before modifying game logic for either game:
 
 See [docs/chess.md](docs/chess.md) for the engine + coaching pipeline and the BYO-key security model.
 
+### Catan (`src/games/catan/`)
+
+| File | Purpose |
+|------|---------|
+| `CatanBoard.js` | Pure four-player Catan rules engine -- setup, production, robber, builds, dev cards, awards |
+| `CatanGame.jsx` | React UI -- SVG board, player panels, controls, AI turn loop |
+| `catan.css` | Scoped CSS variables (`.game-catan`) + animations |
+| `engine/mcts.js` | Root-focused MCTS with heuristic rollouts |
+| `engine/features.js` | Self-play feature extraction and policy targets |
+| `hooks/useAIWorker.js` | React hook managing Catan MCTS Web Worker lifecycle |
+| `CatanBoard.test.js` | Jest tests covering core Catan logic and AI legality |
+
+See [docs/catan.md](docs/catan.md) for rule coverage and AI/training details.
+
 ### Infrastructure
 
 | File | Purpose |
@@ -214,6 +229,8 @@ See [docs/chess.md](docs/chess.md) for the engine + coaching pipeline and the BY
 | `npm run generate-data` | Generate self-play training data (NDJSON) |
 | `npm run tournament` | Head-to-head: heuristic vs NN MCTS |
 | `npm run self-play` | AI vs AI self-play evaluation |
+| `npm run catan:self-play` | Generate Catan self-play training data |
+| `npm run catan:tournament` | Strong-vs-baseline Catan AI evaluation |
 
 ---
 
@@ -226,6 +243,7 @@ See [docs/chess.md](docs/chess.md) for the engine + coaching pipeline and the BY
 /yinsh      -> YinshGame (lazy-loaded chunk)
 /zertz      -> ZertzGame (lazy-loaded chunk)
 /chess      -> ChessGame (lazy-loaded chunk)
+/catan      -> CatanGame (lazy-loaded chunk)
 ```
 
 `React.lazy()` with `<Suspense>` ensures code splitting. Visiting `/zertz` does NOT load the yinsh MCTS engine bundle. The `vercel.json` catch-all rewrite ensures direct URL access works.
@@ -238,6 +256,8 @@ Each game scopes its CSS variables under a wrapper class:
 .game-yinsh.dark { --color-bg-page: ...; }
 .game-zertz { --color-bg-page: ...; }
 .game-zertz.dark { --color-bg-page: ...; }
+.game-catan { --color-bg-page: ...; }
+.game-catan.dark { --color-bg-page: ...; }
 ```
 
 Animations are also prefixed (`yinsh-piece-fade-in`, `zertz-piece-fade-in`) and scoped (`.game-yinsh .piece-enter`). The shared `slide-in-right` keyframe lives in `index.css`.

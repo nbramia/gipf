@@ -13,6 +13,7 @@ src/
   games/
     yinsh/             # Complete Yinsh game (logic + UI + AI + CSS + tests)
     zertz/             # Complete Zertz game (logic + UI + CSS + tests)
+    catan/             # Four-player Catan game (logic + UI + AI + CSS + tests)
 api/                   # Vercel serverless functions
 scripts/               # CLI tools (self-play, training, tournaments)
 training/              # PyTorch training pipeline
@@ -26,6 +27,7 @@ public/models/         # ONNX neural network models
 ```jsx
 const YinshGame = lazy(() => import('./games/yinsh/YinshGame.jsx'));
 const ZertzGame = lazy(() => import('./games/zertz/ZertzGame.jsx'));
+const CatanGame = lazy(() => import('./games/catan/CatanGame.jsx'));
 ```
 
 This means visiting `/zertz` never loads the Yinsh MCTS engine or ONNX runtime. `LandingPage` is eagerly loaded since it's the entry point.
@@ -42,6 +44,7 @@ Both games define CSS custom properties with overlapping names (`--color-bg-page
 
 - Yinsh: `.game-yinsh` and `.game-yinsh.dark` (in `src/games/yinsh/yinsh.css`)
 - Zertz: `.game-zertz` and `.game-zertz.dark` (in `src/games/zertz/zertz.css`)
+- Catan: `.game-catan` and `.game-catan.dark` (in `src/games/catan/catan.css`)
 
 Animation keyframes are prefixed (`yinsh-piece-fade-in`, `zertz-piece-fade-in`) and animation classes are scoped (`.game-yinsh .piece-enter`). The only shared keyframe is `slide-in-right` in `src/index.css`.
 
@@ -225,9 +228,23 @@ zertzDarkMode, zertzShowMoves
 
 ---
 
+## Catan
+
+### Files
+
+| File | Responsibility |
+|------|----------------|
+| `src/games/catan/CatanBoard.js` | Pure rules engine -- topology, setup, production, robber, builds, dev cards, awards |
+| `src/games/catan/CatanGame.jsx` | React UI -- SVG board, player panels, action controls, AI integration |
+| `src/games/catan/engine/mcts.js` | Root-focused MCTS with heuristic rollouts for four-player play |
+| `src/games/catan/engine/features.js` | Feature extraction and policy target helpers for self-play data |
+| `scripts/catan/*.mjs` | Self-play data generation and tournament harness |
+
+See [catan.md](catan.md) for rule coverage and AI/training details.
+
 ## Shared Infrastructure
 
-### State Management (Both Games)
+### State Management (All Games)
 
 ```
 User Click

@@ -1,8 +1,23 @@
-# AI Engine (Yinsh)
+# AI Engine
+
+The project uses game-local AI engines. YINSH has the deepest trained neural-network pipeline; ZERTZ and CATAN follow the same MCTS/self-play shape with game-specific heuristics and feature extraction.
+
+## Catan
+
+CATAN uses a Web Worker MCTS opponent for players 2-4. Because the game is four-player and stochastic, the implementation in `src/games/catan/engine/mcts.js` keeps search focused on root actions, then evaluates candidates with heuristic rollouts where every player uses the same fast policy. This avoids modeling opponent turns as cooperative tree branches.
+
+The training-data path mirrors the YINSH/ZERTZ flow:
+
+```bash
+npm run catan:self-play -- --games 20 --sims 200
+npm run catan:tournament -- --games 8 --sims-a 500 --sims-b 180
+```
+
+Feature extraction lives in `src/games/catan/engine/features.js`; documentation is in [catan.md](catan.md).
+
+## Yinsh
 
 The Yinsh AI opponent uses Monte Carlo Tree Search (MCTS) with two evaluation modes: hand-crafted heuristics (default) or a trained neural network value estimator. The MCTS implementation is in `src/games/yinsh/engine/mcts.js`; the value network pipeline spans `src/games/yinsh/engine/features.js`, `src/games/yinsh/engine/valueNetwork.js`, and `training/`.
-
-> **Note:** This document covers the Yinsh AI only. Zertz does not currently have an AI opponent.
 
 ## Evaluation Modes
 

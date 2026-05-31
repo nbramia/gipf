@@ -1,0 +1,359 @@
+/* ========== Catan Color System ========== */
+
+.game-catan {
+  --color-bg-page: #E7EEF2;
+  --color-bg-panel: #FFFFFF;
+  --color-bg-board: #D3E5ED;
+  --color-bg-soft: #F1F5F4;
+  --color-bg-modal: #FFFFFF;
+  --color-text-primary: #18212B;
+  --color-text-secondary: #4B5B66;
+  --color-text-muted: #75838D;
+  --color-border-panel: #CCD7DD;
+  --color-border-strong: #8BA2AE;
+  --color-accent: #0F766E;
+  --color-accent-hover: #115E59;
+  --color-btn-primary-bg: #0F766E;
+  --color-btn-primary-text: #FFFFFF;
+  --color-toggle-active: #0F766E;
+  --color-toggle-inactive: #C8D3D9;
+  --color-toggle-knob: #FFFFFF;
+  --color-piece-stroke: rgba(24, 33, 43, 0.45);
+
+  --tile-brick: #B85B43;
+  --tile-lumber: #28744A;
+  --tile-wool: #8FB950;
+  --tile-grain: #E0B64B;
+  --tile-ore: #737983;
+  --tile-desert: #C99C63;
+  --tile-stroke: rgba(255, 255, 255, 0.65);
+  --road-empty: rgba(38, 54, 65, 0.15);
+  --road-valid: #0F766E;
+  --vertex-empty: rgba(255, 255, 255, 0.58);
+  --vertex-valid: #14B8A6;
+  --number-bg: #F8F0D7;
+  --number-hot: #FEE2E2;
+  --number-text: #25313A;
+  --number-hot-text: #B91C1C;
+}
+
+.game-catan.dark {
+  --color-bg-page: #18212B;
+  --color-bg-panel: #24313D;
+  --color-bg-board: #182F3D;
+  --color-bg-soft: #1B2933;
+  --color-bg-modal: #263441;
+  --color-text-primary: #F8FAFC;
+  --color-text-secondary: #C6D0D7;
+  --color-text-muted: #8FA0AA;
+  --color-border-panel: #3C4B57;
+  --color-border-strong: #647784;
+  --color-accent: #2DD4BF;
+  --color-accent-hover: #5EEAD4;
+  --color-btn-primary-bg: #0F766E;
+  --color-btn-primary-text: #FFFFFF;
+  --color-toggle-active: #0F766E;
+  --color-toggle-inactive: #41515D;
+  --color-toggle-knob: #FFFFFF;
+  --color-piece-stroke: rgba(248, 250, 252, 0.7);
+
+  --tile-brick: #9F513F;
+  --tile-lumber: #24633F;
+  --tile-wool: #769B45;
+  --tile-grain: #C79D3F;
+  --tile-ore: #646B76;
+  --tile-desert: #A77D52;
+  --tile-stroke: rgba(248, 250, 252, 0.22);
+  --road-empty: rgba(226, 232, 240, 0.16);
+  --road-valid: #2DD4BF;
+  --vertex-empty: rgba(226, 232, 240, 0.4);
+  --vertex-valid: #2DD4BF;
+  --number-bg: #E8D7AC;
+  --number-hot: #7F1D1D;
+  --number-text: #1F2937;
+  --number-hot-text: #FEE2E2;
+}
+
+/* ========== Layout ========== */
+
+.game-catan .catan-panel,
+.game-catan .catan-modal {
+  border: 1px solid var(--color-border-panel);
+  border-radius: 8px;
+  background: var(--color-bg-panel);
+  box-shadow: 0 10px 32px rgba(15, 23, 42, 0.08);
+}
+
+.game-catan .catan-modal {
+  background: var(--color-bg-modal);
+}
+
+.game-catan .catan-board-shell {
+  width: min(100%, 820px);
+  aspect-ratio: 720 / 670;
+  border: 1px solid var(--color-border-panel);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 50% 45%, rgba(255, 255, 255, 0.4), transparent 34%),
+    var(--color-bg-board);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22), 0 18px 48px rgba(15, 23, 42, 0.12);
+}
+
+.game-catan .catan-board-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.game-catan .catan-player-panel {
+  border: 1px solid var(--color-border-panel);
+  border-radius: 8px;
+  background: var(--color-bg-panel);
+  padding: 12px;
+  transition: border-color 0.16s ease, transform 0.16s ease;
+}
+
+.game-catan .catan-panel-label {
+  color: var(--color-text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ========== Controls ========== */
+
+.game-catan .catan-primary-btn,
+.game-catan .catan-tool-btn,
+.game-catan .catan-trade-btn {
+  min-height: 40px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, opacity 0.16s ease;
+}
+
+.game-catan .catan-primary-btn {
+  background: var(--color-btn-primary-bg);
+  color: var(--color-btn-primary-text);
+  padding: 10px 14px;
+}
+
+.game-catan .catan-primary-btn:hover {
+  background: var(--color-accent-hover);
+}
+
+.game-catan .catan-tool-btn,
+.game-catan .catan-trade-btn {
+  border: 1px solid var(--color-border-panel);
+  background: transparent;
+  color: var(--color-text-secondary);
+  padding: 8px 10px;
+}
+
+.game-catan .catan-tool-btn:hover:not(:disabled),
+.game-catan .catan-trade-btn:hover:not(:disabled),
+.game-catan .catan-tool-btn.active {
+  border-color: var(--color-accent);
+  background: rgba(15, 118, 110, 0.1);
+  color: var(--color-text-primary);
+}
+
+.game-catan .catan-tool-btn:disabled,
+.game-catan .catan-trade-btn:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+.game-catan .catan-trade-btn {
+  min-height: 34px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+/* ========== Resource UI ========== */
+
+.game-catan .catan-resource-pill,
+.game-catan .catan-dev-pill {
+  min-width: 0;
+  border-radius: 6px;
+  padding: 5px 3px;
+  text-align: center;
+  color: #111827;
+}
+
+.game-catan .catan-resource-pill span,
+.game-catan .catan-dev-pill span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+  font-weight: 700;
+  opacity: 0.76;
+}
+
+.game-catan .catan-resource-pill strong,
+.game-catan .catan-dev-pill strong {
+  display: block;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.game-catan .resource-brick { background: #E7A08E; }
+.game-catan .resource-lumber { background: #96C9A6; }
+.game-catan .resource-wool { background: #C9DFA2; }
+.game-catan .resource-grain { background: #F1D488; }
+.game-catan .resource-ore { background: #B7BDC6; }
+
+.game-catan .catan-dev-pill {
+  background: var(--color-bg-soft);
+  color: var(--color-text-primary);
+}
+
+/* ========== Board Drawing ========== */
+
+.game-catan .catan-tile {
+  stroke: var(--tile-stroke);
+  stroke-width: 2;
+  transition: filter 0.16s ease, opacity 0.16s ease, stroke-width 0.16s ease;
+}
+
+.game-catan .tile-brick { fill: var(--tile-brick); }
+.game-catan .tile-lumber { fill: var(--tile-lumber); }
+.game-catan .tile-wool { fill: var(--tile-wool); }
+.game-catan .tile-grain { fill: var(--tile-grain); }
+.game-catan .tile-ore { fill: var(--tile-ore); }
+.game-catan .tile-desert { fill: var(--tile-desert); }
+
+.game-catan .catan-tile.robber-target {
+  stroke: var(--color-accent);
+  stroke-width: 4;
+  filter: brightness(1.08);
+}
+
+.game-catan .catan-number-token {
+  fill: var(--number-bg);
+  stroke: rgba(24, 33, 43, 0.18);
+  stroke-width: 1;
+}
+
+.game-catan .catan-number-token.hot {
+  fill: var(--number-hot);
+}
+
+.game-catan .catan-number {
+  fill: var(--number-text);
+  font-family: Outfit, sans-serif;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.game-catan .catan-number-token.hot + .catan-number,
+.game-catan .catan-number.hot {
+  fill: var(--number-hot-text);
+}
+
+.game-catan .catan-pips {
+  fill: var(--number-hot-text);
+  font-size: 8px;
+  letter-spacing: 0;
+}
+
+.game-catan .catan-edge-hit {
+  stroke: transparent;
+  stroke-width: 22;
+}
+
+.game-catan .catan-road {
+  stroke: var(--road-empty);
+  stroke-linecap: round;
+  stroke-width: 7;
+  transition: stroke 0.16s ease, stroke-width 0.16s ease;
+}
+
+.game-catan .catan-road.valid {
+  stroke: var(--road-valid);
+  stroke-dasharray: 5 5;
+  stroke-width: 6;
+}
+
+.game-catan .catan-road.last {
+  stroke-width: 10;
+}
+
+.game-catan .catan-vertex {
+  fill: var(--vertex-empty);
+  stroke: rgba(24, 33, 43, 0.25);
+  stroke-width: 1.5;
+  transition: fill 0.16s ease, r 0.16s ease, stroke 0.16s ease;
+}
+
+.game-catan .catan-vertex.valid {
+  fill: var(--vertex-valid);
+  stroke: #FFFFFF;
+  stroke-width: 2;
+}
+
+.game-catan .catan-vertex.pending {
+  fill: #FDE68A;
+  stroke: #92400E;
+}
+
+.game-catan .catan-vertex.last {
+  stroke: #FFFFFF;
+  stroke-width: 3;
+}
+
+.game-catan .catan-port {
+  fill: var(--color-text-primary);
+  paint-order: stroke;
+  stroke: var(--color-bg-board);
+  stroke-width: 5px;
+  font-size: 9px;
+  font-weight: 800;
+  pointer-events: none;
+}
+
+.game-catan .catan-robber circle,
+.game-catan .catan-robber path {
+  fill: #1F2937;
+  stroke: rgba(255, 255, 255, 0.6);
+  stroke-width: 1;
+}
+
+.game-catan .catan-clickable {
+  cursor: pointer;
+}
+
+/* ========== Animation and Accessibility ========== */
+
+@keyframes catan-pulse {
+  0%, 100% { opacity: 0.85; }
+  50% { opacity: 1; }
+}
+
+.game-catan .catan-road.valid,
+.game-catan .catan-vertex.valid,
+.game-catan .catan-tile.robber-target {
+  animation: catan-pulse 1.4s ease-in-out infinite;
+}
+
+.game-catan .settings-panel {
+  animation: slide-in-right 0.2s ease-out;
+  border-color: var(--color-border-panel);
+}
+
+.game-catan button:focus-visible,
+.game-catan svg g[role="button"]:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1023px) {
+  .game-catan .catan-board-shell {
+    width: min(100%, 720px);
+  }
+}

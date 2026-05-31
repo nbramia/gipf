@@ -12,6 +12,7 @@ The codebase has five development areas:
 |------|-----------|--------------|
 | **Yinsh Game Logic** | `src/games/yinsh/YinshBoard.js`, `YinshNotation.js` | `CI=true npm test` |
 | **Zertz Game Logic** | `src/games/zertz/ZertzBoard.js` | `CI=true npm test` |
+| **Catan Game Logic** | `src/games/catan/CatanBoard.js`, `engine/mcts.js` | `CI=true npm test` |
 | **UI (either game)** | `src/games/<name>/<Name>Game.jsx` | `npm start` (manual) |
 | **Yinsh AI Engine** | `src/games/yinsh/engine/mcts.js`, `aiPlayer.js` | `npm run test:engine` |
 | **Routing / Landing** | `src/App.jsx`, `src/LandingPage.jsx` | `npm run build` |
@@ -29,6 +30,8 @@ Both `YinshBoard` and `ZertzBoard` are ES module classes. Zero React dependency.
 **Yinsh phases:** `setup` -> `play` -> `remove-row` -> `remove-ring` -> `play` (loop) -> `game-over`
 
 **Zertz phases:** `place-marble` -> `remove-ring` -> `capture` (if forced jumps exist) -> `place-marble` (next player) -> `game-over`
+
+**Catan phases:** `setup-settlement` -> `setup-road` (snake order) -> `roll` -> `robber` (on 7/knight) -> `action` -> `roll` (next player) -> `game-over`
 
 ### How to Modify
 
@@ -253,6 +256,13 @@ node scripts/self-play.mjs --games 10 --sims 100
 2. Make changes
 3. Verify: `npm run test:engine`
 4. Run tournament to measure improvement
+5. Verify: `CI=true npm test` and `npm run build`
+
+### "Improve the Catan AI"
+1. Read `src/games/catan/engine/mcts.js` and `docs/catan.md`
+2. Make heuristic/search changes
+3. Verify: `CI=true npm test -- --runTestsByPath src/games/catan/CatanBoard.test.js --watchAll=false`
+4. Run a tournament: `npm run catan:tournament -- --games 4 --sims-a 300 --sims-b 120`
 5. Verify: `CI=true npm test` and `npm run build`
 
 ### "Deploy changes"

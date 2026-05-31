@@ -20,6 +20,12 @@ const games = [
     description: 'Play against Stockfish with a built-in coach that explains every move — yours and its.',
     accent: '#818CF8',
   },
+  {
+    name: 'CATAN',
+    path: '/catan',
+    description: 'Build settlements, trade ports, and race three strong MCTS opponents to 10 points.',
+    accent: '#2DD4BF',
+  },
 ];
 
 export default function LandingPage() {
