@@ -70,6 +70,184 @@ function loadInitialConfig() {
   };
 }
 
+// ----- Terrain illustration helpers (purely decorative, pointer-events: none) -----
+// Motifs are authored in a -50..50 coordinate space centred on the tile, then
+// translated/scaled to the tile's on-screen radius. Silhouettes use black/white
+// alpha so they read correctly over both the light and dark resource base colours.
+const T_SHADOW = 'rgba(38,26,14,0.34)';
+const T_SHADOW_DEEP = 'rgba(28,18,10,0.52)';
+const T_LIGHT = 'rgba(255,255,255,0.30)';
+const T_FLEECE = 'rgba(255,255,255,0.86)';
+const T_SNOW = 'rgba(255,255,255,0.78)';
+const T_SUN = 'rgba(255,248,224,0.55)';
+
+function pine(key, x, base, s) {
+  const w = 17 * s;
+  const h = 25 * s;
+  const trunk = 6 * s;
+  const top = base - trunk;
+  return (
+    <g key={key}>
+      <rect x={x - 1.7 * s} y={top - 1} width={3.4 * s} height={trunk + 1.5} rx={1} fill={T_SHADOW_DEEP} />
+      <polygon points={`${x},${top - h} ${x - w / 2},${top} ${x + w / 2},${top}`} fill={T_SHADOW} />
+      <polygon points={`${x},${top - h} ${x - w * 0.3},${top - h * 0.46} ${x + w * 0.3},${top - h * 0.46}`} fill={T_LIGHT} />
+    </g>
+  );
+}
+
+function sheep(key, x, y, s) {
+  return (
+    <g key={key}>
+      <ellipse cx={x} cy={y} rx={11 * s} ry={8 * s} fill={T_FLEECE} />
+      <ellipse cx={x - 9 * s} cy={y - 2 * s} rx={4 * s} ry={4 * s} fill="rgba(36,26,18,0.72)" />
+      <rect x={x - 3 * s} y={y + 5 * s} width={2 * s} height={5 * s} fill="rgba(36,26,18,0.6)" />
+      <rect x={x + 3 * s} y={y + 5 * s} width={2 * s} height={5 * s} fill="rgba(36,26,18,0.6)" />
+    </g>
+  );
+}
+
+function stalk(key, x, base, h) {
+  const top = base - h;
+  return (
+    <g key={key}>
+      <line x1={x} y1={base} x2={x} y2={top} stroke={T_SHADOW} strokeWidth={1.6} />
+      <ellipse cx={x} cy={top - 1} rx={2.6} ry={5} fill={T_SHADOW} />
+      <ellipse cx={x - 0.8} cy={top - 2} rx={1} ry={3} fill={T_LIGHT} />
+    </g>
+  );
+}
+
+function tileTerrain(resource, cx, cy, r) {
+  const s = r / 50;
+  let motif = null;
+  switch (resource) {
+    case 'lumber':
+      motif = (
+        <>
+          {pine('p1', -24, 16, 1.0)}
+          {pine('p2', 22, 12, 1.0)}
+          {pine('p3', -10, -4, 0.78)}
+          {pine('p4', 10, 0, 0.82)}
+          {pine('p5', -2, 24, 1.35)}
+        </>
+      );
+      break;
+    case 'brick':
+      motif = (
+        <>
+          <path d="M-46 22 Q-22 -6 2 18 Q22 0 46 20 L46 32 L-46 32 Z" fill={T_SHADOW} />
+          {[0, 1, 2].map(row => {
+            const y = 4 + row * 7;
+            const offset = row % 2 ? 5 : 0;
+            return [0, 1, 2, 3].map(col => {
+              const x = -20 + offset + col * 10;
+              if (x > 22) return null;
+              return <rect key={`b${row}-${col}`} x={x} y={y} width={9} height={6} rx={1} fill={T_SHADOW_DEEP} stroke={T_LIGHT} strokeWidth={0.8} />;
+            });
+          })}
+        </>
+      );
+      break;
+    case 'wool':
+      motif = (
+        <>
+          <path d="M-46 24 Q0 4 46 24 L46 32 L-46 32 Z" fill={T_LIGHT} />
+          {sheep('s1', -16, 8, 1.1)}
+          {sheep('s2', 16, 18, 0.95)}
+          {sheep('s3', 4, -6, 0.78)}
+        </>
+      );
+      break;
+    case 'grain':
+      motif = (
+        <>
+          <path d="M-46 26 Q0 12 46 26 L46 32 L-46 32 Z" fill={T_SHADOW} />
+          {[-22, -14, -6, 2, 10, 18, 26].map((x, i) => stalk(`w${i}`, x, 27, 22 + (i % 2) * 6))}
+        </>
+      );
+      break;
+    case 'ore':
+      motif = (
+        <>
+          <polygon points="-20,-12 -42,24 2,24" fill={T_SHADOW_DEEP} />
+          <polygon points="22,-6 4,24 42,24" fill={T_SHADOW_DEEP} />
+          <polygon points="0,-30 -26,24 26,24" fill={T_SHADOW} />
+          <polygon points="0,-30 0,24 26,24" fill={T_LIGHT} />
+          <polygon points="0,-30 -8,-15 8,-15" fill={T_SNOW} />
+          <polygon points="-20,-12 -27,0 -13,0" fill={T_SNOW} />
+          <polygon points="22,-6 16,4 28,4" fill={T_SNOW} />
+        </>
+      );
+      break;
+    case 'desert':
+      motif = (
+        <>
+          <circle cx={26} cy={-22} r={9} fill={T_SUN} />
+          <path d="M-46 18 Q-20 6 4 16 Q26 24 46 12 L46 32 L-46 32 Z" fill={T_SHADOW} />
+          <path d="M-46 24 Q-16 16 8 24 Q28 30 46 22 L46 32 L-46 32 Z" fill={T_SHADOW_DEEP} />
+          <g fill={T_SHADOW_DEEP}>
+            <rect x={-12} y={-8} width={7} height={28} rx={3.5} />
+            <rect x={-18} y={2} width={5} height={12} rx={2.5} />
+            <rect x={-18} y={2} width={12} height={5} rx={2.5} />
+            <rect x={-4} y={-2} width={5} height={10} rx={2.5} />
+            <rect x={-7} y={-2} width={11} height={5} rx={2.5} />
+          </g>
+        </>
+      );
+      break;
+    default:
+      motif = null;
+  }
+  if (!motif) return null;
+  return <g transform={`translate(${cx}, ${cy}) scale(${s})`}>{motif}</g>;
+}
+
+// ----- Dice rendering -----
+const DIE_PIPS = {
+  1: [[50, 50]],
+  2: [[30, 30], [70, 70]],
+  3: [[30, 30], [50, 50], [70, 70]],
+  4: [[30, 30], [70, 30], [30, 70], [70, 70]],
+  5: [[30, 30], [70, 30], [50, 50], [30, 70], [70, 70]],
+  6: [[30, 26], [70, 26], [30, 50], [70, 50], [30, 74], [70, 74]],
+};
+
+// The board only records the dice TOTAL, so we render a representative pair that
+// sums to it (purely cosmetic — only the total ever drives gameplay).
+function splitDice(total) {
+  if (!total) return null;
+  const d1 = Math.min(6, Math.max(1, Math.ceil(total / 2)));
+  const d2 = total - d1;
+  if (d2 < 1 || d2 > 6) return null;
+  return [d1, d2];
+}
+
+function DieFace({ value, size = 40 }) {
+  const pips = DIE_PIPS[value] || [];
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" className="catan-die" role="img" aria-label={`Die showing ${value}`}>
+      <rect x="5" y="5" width="90" height="90" rx="20" />
+      {pips.map(([cx, cy], i) => <circle key={i} cx={cx} cy={cy} r="9" />)}
+    </svg>
+  );
+}
+
+// ----- Resource / dev card stack (the player's visible hand) -----
+function CardStack({ variant, count, label }) {
+  const layers = Math.min(Math.max(count - 1, 0), 2);
+  return (
+    <div className="catan-card-stack" title={`${count} ${label}`}>
+      {Array.from({ length: layers }).map((_, i) => (
+        <div key={i} className={`catan-card catan-card-layer catan-card-l${i + 1} card-${variant}`} aria-hidden="true" />
+      ))}
+      <div className={`catan-card catan-card-front card-${variant} ${count === 0 ? 'is-empty' : ''}`}>
+        <span className="catan-card-count">{count}</span>
+        <span className="catan-card-name">{label}</span>
+      </div>
+    </div>
+  );
+}
+
 function Toggle({ label, checked, onChange }) {
   return (
     <div className="flex items-center justify-between gap-4">
@@ -103,6 +281,7 @@ export default function CatanGame() {
   const [showSettings, setShowSettings] = useState(false);
   const [showRules, setShowRules] = useState(false);
   const [lastMove, setLastMove] = useState(null);
+  const [confirmNew, setConfirmNew] = useState(false);
   const aiTimerRef = useRef(null);
   const { computeMove, isSupported: workerSupported } = useAIWorker();
 
@@ -550,17 +729,40 @@ export default function CatanGame() {
         <filter id="catan-piece-shadow" x="-40%" y="-40%" width="180%" height="180%">
           <feDropShadow dx="0" dy="2" stdDeviation="2" floodOpacity="0.22" />
         </filter>
+        <radialGradient id="catan-tile-sheen" cx="38%" cy="30%" r="75%">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.34" />
+          <stop offset="55%" stopColor="#ffffff" stopOpacity="0" />
+        </radialGradient>
+        <radialGradient id="catan-tile-vignette" cx="50%" cy="54%" r="62%">
+          <stop offset="60%" stopColor="#000000" stopOpacity="0" />
+          <stop offset="100%" stopColor="#1a0f06" stopOpacity="0.28" />
+        </radialGradient>
+        <radialGradient id="catan-token" cx="38%" cy="32%" r="78%">
+          <stop offset="0%" stopColor="#FFFBEE" />
+          <stop offset="100%" stopColor="#E9D6A8" />
+        </radialGradient>
+        <radialGradient id="catan-token-hot" cx="38%" cy="32%" r="78%">
+          <stop offset="0%" stopColor="#FFEAE0" />
+          <stop offset="100%" stopColor="#F4BCA9" />
+        </radialGradient>
       </defs>
 
       {board.tiles.map(tile => {
-        const points = tile.vertices
-          .map(vertexId => screenPoint(board.vertices[vertexId]))
-          .map(({ x, y }) => `${x},${y}`)
-          .join(' ');
+        const screenVerts = tile.vertices.map(vertexId => screenPoint(board.vertices[vertexId]));
+        const points = screenVerts.map(({ x, y }) => `${x},${y}`).join(' ');
         const center = screenPoint(tile);
+        const tileR = Math.hypot(screenVerts[0].x - center.x, screenVerts[0].y - center.y);
         const isRobber = board.robberTileId === tile.id;
         const isRobberTarget = validRobberTiles.includes(tile.id);
         const pips = CatanBoard.getPipCount(tile.number);
+        const hot = tile.number === 6 || tile.number === 8;
+        // Token radius and pip dots scale with probability: a 5-pip (6/8) disc is
+        // noticeably larger than a 1-pip (2/12) disc.
+        const tokenR = 11 + pips * 2.2;
+        const dotR = Math.max(1.6, tokenR * 0.092);
+        const dotGap = dotR * 2.7;
+        const dotsY = center.y + tokenR * 0.5;
+        const dotsStartX = center.x - ((pips - 1) * dotGap) / 2;
         return (
           <g
             key={tile.id}
@@ -569,24 +771,45 @@ export default function CatanGame() {
             onClick={() => handleTileClick(tile.id)}
             className={isRobberTarget ? 'catan-clickable' : ''}
           >
+            <clipPath id={`catan-clip-${tile.id}`}>
+              <polygon points={points} />
+            </clipPath>
             <polygon
               points={points}
               className={`catan-tile tile-${tile.resource} ${isRobberTarget ? 'robber-target' : ''}`}
             />
+            <g className="catan-terrain" clipPath={`url(#catan-clip-${tile.id})`}>
+              {tileTerrain(tile.resource, center.x, center.y, tileR)}
+            </g>
+            <polygon points={points} className="catan-tile-sheen" />
+            <polygon points={points} className="catan-tile-vignette" />
             {tile.number && (
-              <g>
+              <g className="catan-token-group" filter="url(#catan-piece-shadow)">
                 <circle
                   cx={center.x}
                   cy={center.y}
-                  r="18"
-                  className={`catan-number-token ${tile.number === 6 || tile.number === 8 ? 'hot' : ''}`}
+                  r={tokenR}
+                  className={`catan-number-token ${hot ? 'hot' : ''}`}
                 />
-                <text x={center.x} y={center.y - 1} textAnchor="middle" dominantBaseline="central" className="catan-number">
+                <text
+                  x={center.x}
+                  y={center.y - tokenR * 0.16}
+                  textAnchor="middle"
+                  dominantBaseline="central"
+                  className={`catan-number ${hot ? 'hot' : ''}`}
+                  style={{ fontSize: `${10 + pips * 1.5}px` }}
+                >
                   {tile.number}
                 </text>
-                <text x={center.x} y={center.y + 12} textAnchor="middle" className="catan-pips">
-                  {'.'.repeat(pips)}
-                </text>
+                {Array.from({ length: pips }).map((_, i) => (
+                  <circle
+                    key={i}
+                    cx={dotsStartX + i * dotGap}
+                    cy={dotsY}
+                    r={dotR}
+                    className={`catan-pip-dot ${hot ? 'hot' : ''}`}
+                  />
+                ))}
               </g>
             )}
             {isRobber && (
@@ -603,9 +826,19 @@ export default function CatanGame() {
         const [a, b] = edge.vertices.map(vertexId => screenPoint(board.vertices[vertexId]));
         const isValid = validEdges.includes(edge.id);
         const isLast = lastMove?.edgeId === edge.id;
+        const owned = Boolean(edge.owner);
         return (
           <g key={edge.id} role="button" tabIndex={0} onClick={() => handleEdgeClick(edge.id)} className={isValid ? 'catan-clickable' : ''}>
             <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="catan-edge-hit" />
+            {owned && (
+              <line
+                x1={a.x}
+                y1={a.y}
+                x2={b.x}
+                y2={b.y}
+                className={`catan-road-casing ${isLast ? 'last' : ''}`}
+              />
+            )}
             <line
               x1={a.x}
               y1={a.y}
@@ -614,17 +847,31 @@ export default function CatanGame() {
               className={`catan-road ${isValid ? 'valid' : ''} ${isLast ? 'last' : ''}`}
               style={{ stroke: edge.owner ? board.players[edge.owner].color : undefined }}
             />
-            {edge.port && (
-              <text
-                x={(a.x + b.x) / 2}
-                y={(a.y + b.y) / 2}
-                className="catan-port"
-                textAnchor="middle"
-                dominantBaseline="central"
-              >
-                {edge.port === 'any' ? '3:1' : '2:1'}
-              </text>
-            )}
+            {edge.port && (() => {
+              const mx = (a.x + b.x) / 2;
+              const my = (a.y + b.y) / 2;
+              const dirX = mx - BOARD_VIEWBOX.width / 2;
+              const dirY = my - BOARD_VIEWBOX.height / 2;
+              const len = Math.hypot(dirX, dirY) || 1;
+              const bx = mx + (dirX / len) * 22;
+              const by = my + (dirY / len) * 22;
+              const isAny = edge.port === 'any';
+              return (
+                <g className="catan-port-group">
+                  <line x1={a.x} y1={a.y} x2={bx} y2={by} className="catan-port-pier" />
+                  <line x1={b.x} y1={b.y} x2={bx} y2={by} className="catan-port-pier" />
+                  <g filter="url(#catan-piece-shadow)">
+                    <rect x={bx - 15} y={by - 9} width="30" height="18" rx="6" className="catan-port-badge" />
+                    {!isAny && (
+                      <circle cx={bx} cy={by - 12} r="4.5" className={`catan-port-chip port-${edge.port}`} />
+                    )}
+                    <text x={bx} y={by + 0.5} textAnchor="middle" dominantBaseline="central" className="catan-port-label">
+                      {isAny ? '3:1' : '2:1'}
+                    </text>
+                  </g>
+                </g>
+              );
+            })()}
           </g>
         );
       })}
@@ -649,15 +896,17 @@ export default function CatanGame() {
                   <path
                     d={`M${point.x - 14} ${point.y + 10} L${point.x - 14} ${point.y - 4} L${point.x - 5} ${point.y - 13} L${point.x + 2} ${point.y - 6} L${point.x + 9} ${point.y - 13} L${point.x + 18} ${point.y - 4} L${point.x + 18} ${point.y + 10} Z`}
                     fill={board.players[building.player].color}
-                    stroke="var(--color-piece-stroke)"
-                    strokeWidth="2"
+                    stroke="var(--color-piece-outline)"
+                    strokeWidth="2.4"
+                    strokeLinejoin="round"
                   />
                 ) : (
                   <path
                     d={`M${point.x - 12} ${point.y + 9} L${point.x - 12} ${point.y - 3} L${point.x} ${point.y - 14} L${point.x + 12} ${point.y - 3} L${point.x + 12} ${point.y + 9} Z`}
                     fill={board.players[building.player].color}
-                    stroke="var(--color-piece-stroke)"
-                    strokeWidth="2"
+                    stroke="var(--color-piece-outline)"
+                    strokeWidth="2.4"
+                    strokeLinejoin="round"
                   />
                 )}
               </g>
@@ -757,6 +1006,21 @@ export default function CatanGame() {
         </div>
       )}
 
+      {confirmNew && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-4" onClick={(e) => { if (e.target === e.currentTarget) setConfirmNew(false); }}>
+          <div className="catan-modal w-full max-w-sm p-6">
+            <h2 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>Start a new game?</h2>
+            <p className="mt-2 text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
+              Your current game will be lost.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <button className="catan-primary-btn flex-1" onClick={() => { setConfirmNew(false); newGame(); }}>New Game</button>
+              <button className="catan-tool-btn flex-1" onClick={() => setConfirmNew(false)}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="mx-auto flex min-h-screen w-full max-w-[1500px] flex-col gap-4 px-4 py-4 lg:flex-row lg:px-6">
         <aside className="order-2 flex w-full flex-col gap-3 lg:order-1 lg:w-[330px]">
           <div className="catan-panel p-4">
@@ -771,9 +1035,21 @@ export default function CatanGame() {
               <button className="catan-tool-btn px-3" onClick={() => setShowSettings(true)}>Settings</button>
             </div>
             <div className="mt-4 rounded-lg px-3 py-2" style={{ backgroundColor: 'var(--color-bg-soft)' }}>
-              <div className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>{statusText()}</div>
-              <div className="mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                Turn {board.turnNumber}{board.lastRoll ? ` - Rolled ${board.lastRoll}` : ''}
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>{statusText()}</div>
+                  <div className="mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>Turn {board.turnNumber}</div>
+                </div>
+                {(() => {
+                  const dice = splitDice(board.lastRoll);
+                  if (!dice) return null;
+                  return (
+                    <div className="catan-dice-display" title={`Rolled ${board.lastRoll}`}>
+                      <DieFace value={dice[0]} />
+                      <DieFace value={dice[1]} />
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </div>
@@ -781,9 +1057,22 @@ export default function CatanGame() {
           {playerIds.map(renderPlayerPanel)}
         </aside>
 
-        <main className="order-1 flex min-h-[520px] flex-1 items-center justify-center lg:order-2">
+        <main className="order-1 flex min-h-[520px] flex-1 flex-col items-center justify-center gap-4 lg:order-2">
           <div className="catan-board-shell">
             {renderBoard()}
+          </div>
+          <div className="catan-hand">
+            <div className="catan-panel-label mb-2 text-center">Your Hand</div>
+            <div className="catan-card-tray">
+              {RESOURCES.map(resource => (
+                <CardStack key={resource} variant={resource} count={human.resources[resource]} label={RESOURCE_LABELS[resource]} />
+              ))}
+              {(() => {
+                const devTotal = Object.values(human.devCards).reduce((a, b) => a + b, 0)
+                  + Object.values(human.newDevCards).reduce((a, b) => a + b, 0);
+                return devTotal > 0 ? <CardStack variant="dev" count={devTotal} label="Dev" /> : null;
+              })()}
+            </div>
           </div>
         </main>
 
@@ -791,7 +1080,7 @@ export default function CatanGame() {
           <div className="catan-panel p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className="text-lg font-bold" style={{ color: 'var(--color-text-primary)' }}>Actions</h2>
-              <button className="catan-tool-btn px-3" onClick={newGame}>New</button>
+              <button className="catan-tool-btn px-3" onClick={() => setConfirmNew(true)}>New</button>
             </div>
             {renderActionButtons()}
           </div>

@@ -21,6 +21,7 @@
   --color-toggle-inactive: #D8CBBB;
   --color-toggle-knob: #FFFFFF;
   --color-piece-stroke: rgba(32, 26, 23, 0.48);
+  --color-piece-outline: #15110d;
 
   --tile-brick: #A94F37;
   --tile-lumber: #2F7D55;
@@ -60,6 +61,7 @@
   --color-toggle-inactive: #554A3F;
   --color-toggle-knob: #FFFFFF;
   --color-piece-stroke: rgba(248, 250, 252, 0.7);
+  --color-piece-outline: #15110d;
 
   --tile-brick: #974735;
   --tile-lumber: #2C6848;
@@ -98,10 +100,13 @@
   border: 1px solid var(--color-border-panel);
   border-radius: 8px;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.18), transparent 34%),
-    radial-gradient(circle at 50% 45%, rgba(255, 255, 255, 0.28), transparent 36%),
+    radial-gradient(ellipse at 32% 24%, rgba(255, 255, 255, 0.30), transparent 46%),
+    radial-gradient(ellipse at 50% 102%, rgba(0, 28, 40, 0.32), transparent 62%),
     var(--color-bg-board);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24), 0 18px 48px rgba(60, 42, 24, 0.14);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.16),
+    inset 0 0 64px rgba(0, 26, 38, 0.26),
+    0 18px 48px rgba(60, 42, 24, 0.16);
   overflow: hidden;
 }
 
@@ -409,6 +414,20 @@
 .game-catan .tile-ore { fill: var(--tile-ore); }
 .game-catan .tile-desert { fill: var(--tile-desert); }
 
+.game-catan .catan-terrain,
+.game-catan .catan-tile-sheen,
+.game-catan .catan-tile-vignette {
+  pointer-events: none;
+}
+
+.game-catan .catan-tile-sheen {
+  fill: url(#catan-tile-sheen);
+}
+
+.game-catan .catan-tile-vignette {
+  fill: url(#catan-tile-vignette);
+}
+
 .game-catan .catan-tile.robber-target {
   stroke: var(--color-accent);
   stroke-width: 4;
@@ -416,36 +435,47 @@
 }
 
 .game-catan .catan-number-token {
-  fill: var(--number-bg);
-  stroke: rgba(24, 33, 43, 0.18);
-  stroke-width: 1;
+  fill: url(#catan-token);
+  stroke: rgba(60, 42, 20, 0.4);
+  stroke-width: 1.2;
 }
 
 .game-catan .catan-number-token.hot {
-  fill: var(--number-hot);
+  fill: url(#catan-token-hot);
+  stroke: rgba(120, 32, 20, 0.45);
 }
 
 .game-catan .catan-number {
-  fill: var(--number-text);
+  fill: #2A1C10;
   font-family: Outfit, sans-serif;
-  font-size: 17px;
   font-weight: 800;
 }
 
-.game-catan .catan-number-token.hot + .catan-number,
 .game-catan .catan-number.hot {
-  fill: var(--number-hot-text);
+  fill: #B3261E;
 }
 
-.game-catan .catan-pips {
-  fill: var(--number-hot-text);
-  font-size: 8px;
-  letter-spacing: 0;
+.game-catan .catan-pip-dot {
+  fill: #5A4327;
+}
+
+.game-catan .catan-pip-dot.hot {
+  fill: #B3261E;
 }
 
 .game-catan .catan-edge-hit {
   stroke: transparent;
   stroke-width: 22;
+}
+
+.game-catan .catan-road-casing {
+  stroke: var(--color-piece-outline);
+  stroke-linecap: round;
+  stroke-width: 11;
+}
+
+.game-catan .catan-road-casing.last {
+  stroke-width: 14;
 }
 
 .game-catan .catan-road {
@@ -488,15 +518,40 @@
   stroke-width: 3;
 }
 
-.game-catan .catan-port {
-  fill: var(--color-text-primary);
-  paint-order: stroke;
-  stroke: var(--color-bg-board);
-  stroke-width: 5px;
-  font-size: 9px;
-  font-weight: 800;
+.game-catan .catan-port-group {
   pointer-events: none;
 }
+
+.game-catan .catan-port-pier {
+  stroke: var(--color-harbor);
+  stroke-width: 3;
+  stroke-linecap: round;
+  opacity: 0.5;
+}
+
+.game-catan .catan-port-badge {
+  fill: var(--color-harbor);
+  stroke: var(--color-piece-outline);
+  stroke-width: 1.5;
+}
+
+.game-catan .catan-port-label {
+  fill: #FFFFFF;
+  font-family: Outfit, sans-serif;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.game-catan .catan-port-chip {
+  stroke: var(--color-piece-outline);
+  stroke-width: 1.2;
+}
+
+.game-catan .catan-port-chip.port-brick { fill: var(--tile-brick); }
+.game-catan .catan-port-chip.port-lumber { fill: var(--tile-lumber); }
+.game-catan .catan-port-chip.port-wool { fill: var(--tile-wool); }
+.game-catan .catan-port-chip.port-grain { fill: var(--tile-grain); }
+.game-catan .catan-port-chip.port-ore { fill: var(--tile-ore); }
 
 .game-catan .catan-robber circle,
 .game-catan .catan-robber path {
@@ -508,6 +563,108 @@
 .game-catan .catan-clickable {
   cursor: pointer;
 }
+
+/* ========== Dice ========== */
+
+.game-catan .catan-dice-display {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.game-catan .catan-die rect {
+  fill: #FBF6EA;
+  stroke: var(--color-piece-outline);
+  stroke-width: 5;
+}
+
+.game-catan .catan-die circle {
+  fill: #2A1C10;
+}
+
+/* ========== Player hand (card stacks) ========== */
+
+.game-catan .catan-hand {
+  width: min(100%, 820px);
+}
+
+.game-catan .catan-card-tray {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 16px;
+  padding: 2px 8px 8px;
+}
+
+.game-catan .catan-card-stack {
+  position: relative;
+  width: 58px;
+  height: 82px;
+}
+
+.game-catan .catan-card {
+  position: absolute;
+  inset: 0;
+  border-radius: 9px;
+  border: 2px solid var(--color-piece-outline);
+  box-shadow: 0 4px 10px rgba(40, 28, 14, 0.22);
+}
+
+.game-catan .catan-card-layer {
+  box-shadow: none;
+}
+
+.game-catan .catan-card-l1 { transform: translate(4px, -4px); }
+.game-catan .catan-card-l2 { transform: translate(8px, -8px); }
+
+.game-catan .catan-card-front {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  overflow: hidden;
+}
+
+.game-catan .catan-card-front.is-empty {
+  opacity: 0.38;
+  filter: saturate(0.55);
+}
+
+.game-catan .catan-card-name {
+  background: rgba(20, 14, 8, 0.55);
+  color: #FFFFFF;
+  padding: 3px 2px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.game-catan .catan-card-count {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1.5px solid var(--color-piece-outline);
+  border-radius: 999px;
+  background: #FBF6EA;
+  color: #2A1C10;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.game-catan .card-brick { background: linear-gradient(160deg, #C56B4E, var(--tile-brick)); }
+.game-catan .card-lumber { background: linear-gradient(160deg, #3C9A6B, var(--tile-lumber)); }
+.game-catan .card-wool { background: linear-gradient(160deg, #ABD06E, var(--tile-wool)); }
+.game-catan .card-grain { background: linear-gradient(160deg, #ECCB6A, var(--tile-grain)); }
+.game-catan .card-ore { background: linear-gradient(160deg, #8C9099, var(--tile-ore)); }
+.game-catan .card-dev { background: linear-gradient(160deg, #7C5BA6, #573F77); }
 
 /* ========== Animation and Accessibility ========== */
 
