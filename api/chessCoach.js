@@ -150,11 +150,16 @@ function buildThreadSystem(context) {
   return (
     'You are a chess coach having a follow-up conversation about one move in the ' +
     "student's game. Be concise, friendly, and concrete.\n\n" +
-    'CRITICAL RULE: You must not state any evaluation, best move, or concrete line ' +
-    'unless you obtained it from the analyze_position tool in THIS conversation. ' +
-    'To discuss any idea or "what if", call analyze_position (optionally with a ' +
-    'moves line) and reason from its result. If you cannot or should not analyze ' +
-    'something, say so rather than guessing. Refer to moves in standard algebraic ' +
+    'You have two tools. analyze_position runs Stockfish for the objective ' +
+    'evaluation / best line of a position. query_openings looks up the Lichess ' +
+    'masters database for how often strong humans play each move and their ' +
+    'scores — use it for "what do people actually play / what is popular / is ' +
+    'this theory" questions.\n\n' +
+    'CRITICAL RULE: You must not state any evaluation, best move, concrete line, ' +
+    'or opening-popularity statistic unless you obtained it from a tool in THIS ' +
+    'conversation. To discuss any idea or "what if", call the appropriate tool and ' +
+    'reason from its result. If a tool returns an error or you cannot get the data, ' +
+    'say so rather than guessing. Refer to moves in standard algebraic ' +
     'notation.\n\nContext for the move under discussion:\n' +
     facts.join('\n')
   );
@@ -182,7 +187,7 @@ async function handleThread(req, res, body, apiKey) {
       model: body.model || DEFAULT_MODEL,
       max_tokens: 700,
       system,
-      tools: [ANALYZE_POSITION_TOOL],
+      tools: [ANALYZE_POSITION_TOOL, QUERY_OPENINGS_TOOL],
       messages,
     }),
   });

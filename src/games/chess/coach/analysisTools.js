@@ -15,6 +15,7 @@
 
 import { Chess } from 'chess.js';
 import { lineToCandidate } from './analyzeMove.js';
+import { fetchOpeningStats, summarizeBookMove } from './openingCoach.js';
 
 // Tool schema sent to Claude. Pure data — safe to import server-side.
 export const ANALYZE_POSITION_TOOL = {
@@ -48,6 +49,42 @@ export const ANALYZE_POSITION_TOOL = {
       multipv: {
         type: 'number',
         description: 'How many candidate lines to return (1–4). Defaults to 3.',
+      },
+    },
+  },
+};
+
+// Tool schema for querying the Lichess masters opening database. Pure data.
+// Lets the coach answer "what do strong humans actually play here?" with real
+// frequencies + win rates, complementing Stockfish's objective eval. Requires
+// the user's Lichess token (auth-gated endpoint); degrades to an error result
+// the model can relay if no token / out of book.
+export const QUERY_OPENINGS_TOOL = {
+  name: 'query_openings',
+  description:
+    'Look up how often strong human players (Lichess masters database) have ' +
+    'played each move in a position, with their win/draw/loss rates. Use this for ' +
+    'opening questions about what is popular, mainstream, or theory — i.e. what ' +
+    'humans actually play — as opposed to the objective engine evaluation from ' +
+    'analyze_position. Only works in opening/known positions; returns an error ' +
+    'if there is no master data or no Lichess token. NEVER invent popularity ' +
+    'percentages or move counts you did not get from this tool.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      from: {
+        type: 'string',
+        enum: ['before', 'after'],
+        description:
+          "Which position to query: 'before' = the position the player faced for " +
+          "this move; 'after' = the position after the move. Defaults to 'before'.",
+      },
+      moves: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Optional sequence of moves (SAN or UCI) to play from the chosen position ' +
+          'before querying, to ask about a specific resulting position.',
       },
     },
   },
@@ -128,8 +165,75 @@ export async function runAnalyzePosition({ ctx, input, analyze }) {
   };
 }
 
-// Dispatch a tool call by name. Currently only analyze_position.
-export async function runTool(name, input, { ctx, analyze }) {
+// Walk to the position the tool should query (shared by both tools): start from
+// the 'before' or 'after' anchor, optionally play a line. Returns { fen, played,
+// turn } or { error }.
+function resolvePosition(ctx, input) {
+  const from = input && input.from === 'after' ? 'after' : 'before';
+  const base = from === 'after' ? ctx.fenAfter : ctx.fenBefore;
+  if (!base) return { error: `No '${from}' position is available for this move.` };
+  const game = new Chess(base);
+  const played = [];
+  const moves = Array.isArray(input && input.moves) ? input.moves : [];
+  for (const mv of moves) {
+    const applied = applyMove(game, mv);
+    if (!applied) {
+      return {
+        error: `Move "${mv}" is not legal in this position` +
+          (played.length ? ` (after ${played.join(' ')})` : '') + '.',
+        legalSoFar: played,
+      };
+    }
+    played.push(applied.san);
+  }
+  return { from, fen: game.fen(), played, turn: game.turn() };
+}
+
+// Execute a query_openings tool call. Fetches the Lichess masters DB for the
+// resolved position and returns the moves played there with frequency + scores.
+//   getToken — () => string, the user's Lichess token (from openingCoach).
+export async function runQueryOpenings({ ctx, input, getToken }) {
+  const pos = resolvePosition(ctx, input);
+  if (pos.error) return pos;
+
+  const token = typeof getToken === 'function' ? getToken() : undefined;
+  if (!token) {
+    return { error: 'No Lichess token is set, so master opening data is unavailable.' };
+  }
+
+  let stats;
+  try {
+    stats = await fetchOpeningStats(pos.fen, token);
+  } catch (e) {
+    return { error: `Opening lookup failed: ${(e && e.message) || e}` };
+  }
+  if (!stats || !Array.isArray(stats.moves) || stats.moves.length === 0) {
+    return { error: 'No master games found for this position (likely out of book).' };
+  }
+
+  const moverColor = pos.turn; // side to move in the resolved position
+  const total = (stats.white || 0) + (stats.draws || 0) + (stats.black || 0);
+  // Reuse summarizeBookMove per move to get consistent share/score numbers.
+  const moves = stats.moves.slice(0, 8).map((m) => {
+    const b = summarizeBookMove(stats, m.san, moverColor);
+    return b
+      ? { move: m.san, sharePct: b.sharePct, scorePct: b.scorePct, games: b.games }
+      : { move: m.san, games: (m.white || 0) + (m.draws || 0) + (m.black || 0) };
+  });
+
+  return {
+    from: pos.from,
+    movesPlayed: pos.played,
+    sideToMove: moverColor === 'w' ? 'White' : 'Black',
+    totalMasterGames: total,
+    opening: stats.opening ? stats.opening.name : undefined,
+    moves,
+  };
+}
+
+// Dispatch a tool call by name.
+export async function runTool(name, input, { ctx, analyze, getToken }) {
   if (name === 'analyze_position') return runAnalyzePosition({ ctx, input, analyze });
+  if (name === 'query_openings') return runQueryOpenings({ ctx, input, getToken });
   return { error: `Unknown tool: ${name}` };
 }

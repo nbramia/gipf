@@ -82,3 +82,52 @@ describe('analysisTools — runTool dispatch', () => {
     expect(r.error).toMatch(/unknown tool/i);
   });
 });
+
+describe('analysisTools — QUERY_OPENINGS_TOOL', () => {
+  // eslint-disable-next-line global-require
+  const { QUERY_OPENINGS_TOOL, runQueryOpenings } = require('./analysisTools');
+  const realFetch = global.fetch;
+  afterEach(() => { global.fetch = realFetch; });
+
+  test('schema is valid and named query_openings', () => {
+    expect(QUERY_OPENINGS_TOOL.name).toBe('query_openings');
+    expect(QUERY_OPENINGS_TOOL.input_schema.type).toBe('object');
+  });
+
+  test('errors clearly when no Lichess token is set', async () => {
+    const r = await runQueryOpenings({ ctx, input: {}, getToken: () => '' });
+    expect(r.error).toMatch(/Lichess token/i);
+  });
+
+  test('returns master moves with share + score when token + data present', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        white: 100, draws: 100, black: 100,
+        opening: { name: 'Test Opening' },
+        moves: [
+          { san: 'e5', white: 40, draws: 40, black: 40 },
+          { san: 'c5', white: 30, draws: 30, black: 30 },
+        ],
+      }),
+    });
+    const r = await runQueryOpenings({ ctx, input: { from: 'before' }, getToken: () => 'lip_x' });
+    expect(r.error).toBeUndefined();
+    expect(r.sideToMove).toBe('White');
+    expect(r.moves[0].move).toBe('e5');
+    expect(typeof r.moves[0].sharePct).toBe('number');
+    expect(typeof r.moves[0].scorePct).toBe('number');
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  test('errors when the position has no master data', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ moves: [] }) });
+    const r = await runQueryOpenings({ ctx, input: {}, getToken: () => 'lip_x' });
+    expect(r.error).toMatch(/no master games|out of book/i);
+  });
+
+  test('runTool routes query_openings', async () => {
+    const r = await runTool('query_openings', {}, { ctx, analyze: fakeAnalyze, getToken: () => '' });
+    expect(r.error).toMatch(/Lichess token/i);
+  });
+});

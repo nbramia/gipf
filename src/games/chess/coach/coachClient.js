@@ -7,6 +7,7 @@
 
 import { describeAiMove, describePlayerMove } from './templates.js';
 import { runTool } from './analysisTools.js';
+import { getLichessToken } from './openingCoach.js';
 
 const KEY_STORAGE = 'chessApiKey';
 
@@ -129,7 +130,7 @@ export async function runThreadTurn({ context, history, question, analyze, onToo
     for (const tu of toolUses) {
       if (onToolCall) onToolCall(tu.input || {});
       // eslint-disable-next-line no-await-in-loop
-      const result = await runTool(tu.name, tu.input || {}, { ctx: context, analyze });
+      const result = await runTool(tu.name, tu.input || {}, { ctx: context, analyze, getToken: getLichessToken });
       toolCalls.push({ input: tu.input || {}, result });
       toolResults.push({
         type: 'tool_result',
