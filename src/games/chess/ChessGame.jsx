@@ -1017,6 +1017,42 @@ export default function ChessGame() {
                     Stored only in your browser. Never sent anywhere but Anthropic. Coaching works without it using built-in analysis.
                   </p>
                 </div>
+
+                <div>
+                  <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+                    Lichess token (for master opening stats)
+                  </label>
+                  {lichessSet && !showLichessField ? (
+                    <div className="flex items-center gap-2">
+                      <span className="font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                        Token saved ✓
+                      </span>
+                      <button onClick={() => setShowLichessField(true)} className="px-2 py-1 rounded font-body text-xs panel">
+                        Change
+                      </button>
+                      <button onClick={removeLichess} className="px-2 py-1 rounded font-body text-xs panel">
+                        Remove
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        value={lichessInput}
+                        onChange={(e) => setLichessInput(e.target.value)}
+                        placeholder="lip_…"
+                        className="flex-1 min-w-0 px-3 py-2 rounded-lg font-body text-sm panel"
+                        style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
+                      />
+                      <button onClick={saveLichess} disabled={!lichessInput.trim()} className="px-3 py-2 rounded-lg font-body text-sm panel disabled:opacity-40">
+                        Save
+                      </button>
+                    </div>
+                  )}
+                  <p className="mt-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                    Optional. Stored only in your browser, sent only to Lichess. Adds “masters play X% here” to opening moves. Get a free read-only token at lichess.org → Preferences → API access tokens. Without it you still get the “Book” label.
+                  </p>
+                </div>
               </div>
 
               <div className="panel rounded-xl p-4">
