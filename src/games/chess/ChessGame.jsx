@@ -116,6 +116,12 @@ export default function ChessGame() {
   const [puzzleState, setPuzzleState] = useState('idle'); // idle | solving | solved | wrong
   const [puzzleMsg, setPuzzleMsg] = useState('');
 
+  // Game/Settings panels auto-collapse once the first move is made, freeing the
+  // screen for the board + coach. Native <details> keeps them user-toggleable.
+  const [gamePanelOpen, setGamePanelOpen] = useState(true);
+  const [settingsPanelOpen, setSettingsPanelOpen] = useState(true);
+  const autoCollapsedRef = useRef(false);
+
   // Move-thread Q&A modal: the entry id whose conversation is open, the draft
   // question, busy state, and a live "analyzing …" status from tool calls.
   const [threadEntryId, setThreadEntryId] = useState(null);
@@ -148,6 +154,21 @@ export default function ChessGame() {
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
     }
   }, [dialogue]);
+
+  // Auto-collapse Game/Settings once the first move of a game is made; re-expand
+  // on a fresh game (no moves yet). User can still toggle manually in between.
+  const movesPlayedCount = board.sanHistory().length;
+  useEffect(() => {
+    if (movesPlayedCount >= 1 && !autoCollapsedRef.current) {
+      autoCollapsedRef.current = true;
+      setGamePanelOpen(false);
+      setSettingsPanelOpen(false);
+    } else if (movesPlayedCount === 0 && autoCollapsedRef.current) {
+      autoCollapsedRef.current = false;
+      setGamePanelOpen(true);
+      setSettingsPanelOpen(true);
+    }
+  }, [movesPlayedCount]);
 
   const aiColor = humanColor === 'w' ? 'b' : 'w';
   const gameResult = resigned
@@ -753,7 +774,7 @@ export default function ChessGame() {
             <div className="w-24" />
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
             <div>
               <div className="mb-3 font-body text-sm" style={{ color: 'var(--color-text-secondary)' }} aria-live="polite">
                 {statusText}
@@ -934,10 +955,15 @@ export default function ChessGame() {
                 </div>
               </div>
 
-              <div className="panel rounded-xl p-4 space-y-3">
-                <h2 className="font-heading text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+              <details
+                className="panel rounded-xl p-4"
+                open={gamePanelOpen}
+                onToggle={(e) => setGamePanelOpen(e.currentTarget.open)}
+              >
+                <summary className="font-heading text-sm font-semibold cursor-pointer select-none" style={{ color: 'var(--color-text-primary)' }}>
                   Game
-                </h2>
+                </summary>
+                <div className="space-y-3 mt-3">
                 <div>
                   <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
                     Difficulty
@@ -968,7 +994,8 @@ export default function ChessGame() {
                     </button>
                   </div>
                 </div>
-              </div>
+                </div>
+              </details>
 
               <div className="panel rounded-xl p-4 space-y-3">
                 <h2 className="font-heading text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
