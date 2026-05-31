@@ -11,6 +11,8 @@ export const CATEGORIES = {
   best: { label: 'Best', tone: 'great' },
   excellent: { label: 'Excellent', tone: 'great' },
   good: { label: 'Good', tone: 'good' },
+  // Neutral opening label: a recognized master move, not judged by eval loss.
+  book: { label: 'Book', tone: 'good' },
   inaccuracy: { label: 'Inaccuracy', tone: 'warn' },
   mistake: { label: 'Mistake', tone: 'bad' },
   blunder: { label: 'Blunder', tone: 'bad' },

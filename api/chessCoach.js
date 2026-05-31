@@ -40,6 +40,8 @@ function buildPrompt(body) {
     learningGoal,
     opening,
     leftBook,
+    openingStats,
+    inOpening,
   } = body;
 
   const lines = [];
@@ -59,6 +61,29 @@ function buildPrompt(body) {
     });
   }
   if (opening) lines.push(`Opening: ${opening}${leftBook ? ' (this move leaves known theory)' : ''}`);
+  if (openingStats) {
+    const alts = (openingStats.alternatives || [])
+      .map((a) => `${a.san} (${a.sharePct}%, scores ${a.scorePct}%)`)
+      .join(', ');
+    lines.push(
+      `Master-game practice (Lichess): this move is the #${openingStats.rank} choice, ` +
+        `played in ${openingStats.sharePct}% of master games (${openingStats.games} games), ` +
+        `scoring ${openingStats.scorePct}% for the side to move.` +
+        (alts ? ` Other popular moves here: ${alts}.` : '')
+    );
+  }
+
+  const openingNote = openingStats
+    ? '\n\nThis is an OPENING position with established theory. Do NOT call a recognized ' +
+      'master move a mistake or inaccuracy — many moves are viable here. Describe how ' +
+      'mainstream the move is using the master-game data, name the plans behind it, and ' +
+      'mention the other popular choices so the student sees there is no single right path.'
+    : inOpening
+      ? '\n\nThis is an OPENING position. Openings have many sound, viable paths, so do NOT ' +
+        'call a reasonable developing move a mistake or inaccuracy or imply there is one ' +
+        'correct move. Name the opening if you can, explain the plan behind the move ' +
+        '(center, development, king safety), and note that several choices are playable here.'
+      : '';
 
   const task =
     kind === 'player-move'
@@ -74,6 +99,7 @@ function buildPrompt(body) {
     `Here is the engine analysis — use ONLY these facts. Do NOT invent moves, lines, or evaluations beyond what is given.\n\n` +
     lines.join('\n') +
     goalNote +
+    openingNote +
     `\n\nRespond in 2–4 sentences of plain, instructive prose. Refer to moves in standard algebraic notation.`
   );
 }

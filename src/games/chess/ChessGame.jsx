@@ -13,6 +13,7 @@ import useStockfish from './hooks/useStockfish.js';
 import { DIFFICULTY_TIERS, DEFAULT_TIER_KEY } from './engine/difficulty.js';
 import { buildMovePayload } from './coach/analyzeMove.js';
 import { detectOpening } from './coach/openings.js';
+import { fetchOpeningStats, summarizeBookMove, OPENING_MAX_PLY } from './coach/openingCoach.js';
 import { withHeaders, downloadPgn, readPgnFile, looksLikePgn } from './coach/pgn.js';
 import { summarizeAccuracy } from './coach/accuracy.js';
 import { puzzlesForDifficulty, budgetPliesFor, evaluatePuzzleMove } from './coach/puzzles.js';
@@ -184,6 +185,38 @@ export default function ChessGame() {
         // Attach opening context (#15) so the coach can name it / flag leaving book.
         if (opening.name) payload.opening = opening.name;
         if (opening.leftBookAtPly === ply) payload.leftBook = true;
+
+        // Realistic opening coaching: openings have many sound paths, so don't
+        // judge them by eval-loss vs. the single engine top move. Two layers:
+        //  (1) Baseline (always available): if we're in the opening and the move
+        //      isn't a real eval blunder, treat it as a sound book move.
+        //  (2) Enhancement (when Lichess is reachable): attach real master-game
+        //      popularity + alternatives so the prose reflects what humans play.
+        const inOpening = ply <= OPENING_MAX_PLY;
+        if (inOpening) {
+          payload.inOpening = true;
+          // A move within a generous band of best, in the opening, is "book" —
+          // never flag it as inaccuracy/mistake. (cpLoss is from the mover's POV.)
+          const SOUND_OPENING_BAND = 90; // centipawns
+          if (
+            (payload.cpLoss || 0) <= SOUND_OPENING_BAND &&
+            ['good', 'inaccuracy', 'mistake'].includes(payload.classification)
+          ) {
+            payload.classification = 'book';
+          }
+          // Enhancement: real master practice (degrades to null if unreachable).
+          const stats = await fetchOpeningStats(fenBefore);
+          if (seq !== coachSeqRef.current) return;
+          const book = summarizeBookMove(stats, movePlayedSan, moverColor);
+          if (book) {
+            payload.openingStats = book;
+            // A recognized master move is book regardless of eval band.
+            if (['good', 'inaccuracy', 'mistake'].includes(payload.classification)) {
+              payload.classification = 'book';
+            }
+          }
+        }
+
         // Record per-move accuracy data (#17), replacing any prior entry at this ply.
         setMoveStats((s) => [
           ...s.filter((x) => x.ply !== ply),
@@ -198,7 +231,7 @@ export default function ChessGame() {
               ? 'warn'
               : payload.classification === 'best' || payload.classification === 'excellent'
                 ? 'great'
-                : 'good';
+                : 'good'; // includes 'book'
         setDialogue((d) =>
           d.map((e) =>
             e.id === entryId

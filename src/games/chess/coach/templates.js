@@ -6,6 +6,7 @@
 // line — it just reports what Stockfish actually found.
 
 import { CATEGORIES, formatEval } from './classify.js';
+import { describeBookMove } from './openingCoach.js';
 
 function pvLine(pv, max = 5) {
   if (!pv || !pv.length) return '';
@@ -40,9 +41,22 @@ export function describeAiMove(analysis) {
 // Commentary evaluating a move the PLAYER just made (issue #9 fallback).
 // analysis: { classification, movePlayed:{san}, playedEval, bestMove:{san,eval,pv} }
 export function describePlayerMove(analysis) {
-  const { classification, movePlayed, bestMove, playedEval } = analysis;
+  const { classification, movePlayed, bestMove, playedEval, openingStats, opening } = analysis;
   const cat = CATEGORIES[classification] || CATEGORIES.good;
   const san = movePlayed ? movePlayed.san : 'Your move';
+
+  // Opening: describe by master practice, not eval-loss vs. one "best" move.
+  if (classification === 'book') {
+    if (openingStats) return describeBookMove(san, opening, openingStats);
+    // No master-game data (Lichess unreachable): still treat it as a sound
+    // opening choice rather than judging it against a single "best" move.
+    const namePart = opening ? ` (${opening})` : '';
+    return (
+      `${san}${namePart} — Book. A sound opening move; openings have several ` +
+      `playable paths, so this is fine. Focus on developing your pieces and king safety.`
+    );
+  }
+
   const parts = [`${san} — ${cat.label}.`];
 
   if (classification === 'best') {
