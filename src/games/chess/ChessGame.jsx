@@ -763,7 +763,7 @@ export default function ChessGame() {
   return (
     <div className={`game-chess${darkMode ? ' dark' : ''}`}>
       <div className="min-h-screen px-4 sm:px-6 py-6">
-        <div className="max-w-5xl mx-auto">
+        <div className="max-w-[1400px] mx-auto">
           <div className="flex items-center justify-between mb-6">
             <Link to="/" className="font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
               &larr; GIPF Project
@@ -779,11 +779,11 @@ export default function ChessGame() {
               <div className="mb-3 font-body text-sm" style={{ color: 'var(--color-text-secondary)' }} aria-live="polite">
                 {statusText}
               </div>
-              <div className="flex gap-3 w-full max-w-[600px] mx-auto">
+              <div className="flex gap-3 w-full max-w-[680px] mx-auto">
                 {showEvalBar && !puzzleMode && (
                   <div
-                    className="w-3 sm:w-4 rounded overflow-hidden shrink-0 self-stretch flex flex-col"
-                    style={{ backgroundColor: '#3f3f46' }}
+                    className="w-3 sm:w-4 rounded overflow-hidden shrink-0 self-stretch flex flex-col border"
+                    style={{ backgroundColor: '#3f3f46', borderColor: 'var(--color-border)' }}
                     title={`Evaluation ${evalLabel}`}
                     aria-label={`Evaluation ${evalLabel}`}
                   >
@@ -861,9 +861,57 @@ export default function ChessGame() {
                   </button>
                 </div>
               )}
+
+              {/* Moves — below the board */}
+              <div className="panel rounded-xl p-4 mt-4 w-full max-w-[680px] mx-auto">
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="font-heading text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+                    Moves
+                  </h2>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={exportPgn}
+                      disabled={movePairs.length === 0}
+                      className="px-2 py-1 rounded font-body text-xs panel disabled:opacity-40"
+                    >
+                      Export
+                    </button>
+                    <button onClick={() => fileInputRef.current && fileInputRef.current.click()} className="px-2 py-1 rounded font-body text-xs panel">
+                      Import
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pgn,text/plain"
+                      onChange={importPgn}
+                      className="hidden"
+                    />
+                  </div>
+                </div>
+                {pgnError && (
+                  <p className="mb-2 font-body text-xs tone-bad">{pgnError}</p>
+                )}
+                <div className="max-h-56 overflow-y-auto font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                  {movePairs.length === 0 ? (
+                    <p style={{ color: 'var(--color-text-muted)' }}>No moves yet.</p>
+                  ) : (
+                    <ol className="space-y-0.5">
+                      {movePairs.map((pair, i) => (
+                        <li key={i} className="flex gap-3">
+                          <span style={{ color: 'var(--color-text-muted)' }} className="w-6 text-right">
+                            {i + 1}.
+                          </span>
+                          <span className="w-16">{pair[0]}</span>
+                          <span className="w-16">{pair[1] || ''}</span>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </div>
+              </div>
             </div>
 
-            <div className="space-y-4">
+            <div className="flex flex-col gap-4 lg:min-h-[calc(100vh-7rem)]">
               {/* Post-game accuracy summary (#17) */}
               {accuracyReport && (
                 <div className="panel rounded-xl p-4">
@@ -896,8 +944,8 @@ export default function ChessGame() {
                 </div>
               )}
 
-              {/* Coaching dialogue (#8 / #10) */}
-              <div className="panel rounded-xl p-4">
+              {/* Coaching dialogue (#8 / #10) — grows to fill remaining height */}
+              <div className="panel rounded-xl p-4 flex flex-col flex-1 min-h-0">
                 <div className="flex items-center justify-between mb-2">
                   <h2 className="font-heading text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                     Coach
@@ -908,7 +956,7 @@ export default function ChessGame() {
                 </div>
                 <div
                   ref={transcriptRef}
-                  className="max-h-72 overflow-y-auto pr-1 space-y-2"
+                  className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-2 max-h-[55vh] lg:max-h-none"
                   aria-live="polite"
                 >
                   {dialogue.length === 0 ? (
@@ -1098,53 +1146,6 @@ export default function ChessGame() {
                 </div>
                 </div>
               </details>
-
-              <div className="panel rounded-xl p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <h2 className="font-heading text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-                    Moves
-                  </h2>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={exportPgn}
-                      disabled={movePairs.length === 0}
-                      className="px-2 py-1 rounded font-body text-xs panel disabled:opacity-40"
-                    >
-                      Export
-                    </button>
-                    <button onClick={() => fileInputRef.current && fileInputRef.current.click()} className="px-2 py-1 rounded font-body text-xs panel">
-                      Import
-                    </button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".pgn,text/plain"
-                      onChange={importPgn}
-                      className="hidden"
-                    />
-                  </div>
-                </div>
-                {pgnError && (
-                  <p className="mb-2 font-body text-xs tone-bad">{pgnError}</p>
-                )}
-                <div className="max-h-56 overflow-y-auto font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-                  {movePairs.length === 0 ? (
-                    <p style={{ color: 'var(--color-text-muted)' }}>No moves yet.</p>
-                  ) : (
-                    <ol className="space-y-0.5">
-                      {movePairs.map((pair, i) => (
-                        <li key={i} className="flex gap-3">
-                          <span style={{ color: 'var(--color-text-muted)' }} className="w-6 text-right">
-                            {i + 1}.
-                          </span>
-                          <span className="w-16">{pair[0]}</span>
-                          <span className="w-16">{pair[1] || ''}</span>
-                        </li>
-                      ))}
-                    </ol>
-                  )}
-                </div>
-              </div>
             </div>
           </div>
         </div>
