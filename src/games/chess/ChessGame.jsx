@@ -917,6 +917,17 @@ export default function ChessGame() {
                         <p style={{ color: 'var(--color-text-secondary)' }}>
                           {e.pending ? 'Analyzing…' : e.text}
                         </p>
+                        {!e.pending && e.analysis && (
+                          <button
+                            onClick={() => setThreadEntryId(e.id)}
+                            className="mt-1 text-xs font-body"
+                            style={{ color: 'var(--color-accent)' }}
+                          >
+                            {e.thread && e.thread.length
+                              ? `Continue (${e.thread.filter((m) => m.role === 'user').length})`
+                              : 'Ask about this move'} →
+                          </button>
+                        )}
                       </div>
                     ))
                   )}
