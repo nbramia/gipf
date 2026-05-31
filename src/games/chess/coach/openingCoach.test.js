@@ -1,4 +1,12 @@
-import { summarizeBookMove, describeBookMove, OPENING_MAX_PLY } from './openingCoach';
+import {
+  summarizeBookMove,
+  describeBookMove,
+  OPENING_MAX_PLY,
+  getLichessToken,
+  setLichessToken,
+  hasLichessToken,
+  fetchOpeningStats,
+} from './openingCoach';
 
 // Sample shaped like the Lichess masters explorer response after 1.e4
 // (Black to move). Numbers are illustrative but in the real format.
@@ -101,7 +109,14 @@ describe('openingCoach — describeBookMove', () => {
 });
 
 describe('openingCoach — Lichess token (BYO, localStorage)', () => {
-  afterEach(() => setLichessToken(''));
+  const realFetch = global.fetch;
+  beforeEach(() => {
+    setLichessToken('');
+  });
+  afterEach(() => {
+    setLichessToken('');
+    global.fetch = realFetch; // restore (may be undefined in jsdom)
+  });
 
   test('set / get / has round-trip', () => {
     expect(hasLichessToken()).toBe(false);
@@ -113,23 +128,24 @@ describe('openingCoach — Lichess token (BYO, localStorage)', () => {
   });
 
   test('fetchOpeningStats short-circuits to null without a token (no request)', async () => {
-    const spy = jest.spyOn(global, 'fetch');
+    // Assign directly — CRA's jsdom may not define global.fetch to spy on.
+    const fn = jest.fn();
+    global.fetch = fn;
     const r = await fetchOpeningStats('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
     expect(r).toBeNull();
-    expect(spy).not.toHaveBeenCalled();
-    spy.mockRestore();
+    expect(fn).not.toHaveBeenCalled();
   });
 
   test('fetchOpeningStats sends a Bearer token when one is provided', async () => {
-    const spy = jest.spyOn(global, 'fetch').mockResolvedValue({
+    const fn = jest.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ white: 1, draws: 0, black: 0, moves: [] }),
     });
+    global.fetch = fn;
     await fetchOpeningStats('somefen', 'lip_abc');
-    expect(spy).toHaveBeenCalledTimes(1);
-    const [, opts] = spy.mock.calls[0];
+    expect(fn).toHaveBeenCalledTimes(1);
+    const [, opts] = fn.mock.calls[0];
     expect(opts.headers.Authorization).toBe('Bearer lip_abc');
-    spy.mockRestore();
   });
 });
 
