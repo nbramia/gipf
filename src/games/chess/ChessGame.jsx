@@ -997,10 +997,15 @@ export default function ChessGame() {
                 </div>
               </details>
 
-              <div className="panel rounded-xl p-4 space-y-3">
-                <h2 className="font-heading text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+              <details
+                className="panel rounded-xl p-4"
+                open={settingsPanelOpen}
+                onToggle={(e) => setSettingsPanelOpen(e.currentTarget.open)}
+              >
+                <summary className="font-heading text-sm font-semibold cursor-pointer select-none" style={{ color: 'var(--color-text-primary)' }}>
                   Settings
-                </h2>
+                </summary>
+                <div className="space-y-3 mt-3">
                 <Toggle label="Dark mode" checked={darkMode} onChange={() => setDarkMode((v) => !v)} />
                 <Toggle label="Show legal moves" checked={showMoves} onChange={() => setShowMoves((v) => !v)} />
                 <Toggle label="Evaluation bar" checked={showEvalBar} onChange={() => setShowEvalBar((v) => !v)} />
@@ -1091,7 +1096,8 @@ export default function ChessGame() {
                     Optional. Stored only in your browser, sent only to Lichess. Adds “masters play X% here” to opening moves. Get a free read-only token at lichess.org → Preferences → API access tokens. Without it you still get the “Book” label.
                   </p>
                 </div>
-              </div>
+                </div>
+              </details>
 
               <div className="panel rounded-xl p-4">
                 <div className="flex items-center justify-between mb-2">
