@@ -3,14 +3,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import CatanBoard, { RESOURCES, COSTS, resourceTotal } from './CatanBoard.js';
+import { CATAN_RULESETS, RULESET_GROUPS, getDefaultScenario, getRuleset, normalizePlayerCount } from './catanRulesets.js';
 import useAIWorker from './hooks/useAIWorker.js';
 import { MCTS } from './engine/mcts.js';
 import { applyAIMove } from './engine/aiPlayer.js';
 import './catan.css';
 
 const HUMAN_PLAYER = 1;
-const BOARD_SCALE = 58;
-const BOARD_CENTER = { x: 360, y: 335 };
+const BOARD_VIEWBOX = { width: 760, height: 720, pad: 56 };
 
 const DIFFICULTY_CONFIG = {
   strong: { simulations: 260, maxChildren: 34 },
@@ -40,17 +40,34 @@ const ACTIONS = [
   { id: 'city', label: 'City', cost: COSTS.city },
 ];
 
-function screenPoint(point) {
-  return {
-    x: point.x * BOARD_SCALE + BOARD_CENTER.x,
-    y: point.y * BOARD_SCALE + BOARD_CENTER.y,
-  };
-}
-
 function formatCost(cost) {
   return Object.entries(cost)
     .map(([resource, amount]) => `${amount} ${RESOURCE_LABELS[resource]}`)
     .join(', ');
+}
+
+function getStoredRulesetId() {
+  const stored = localStorage.getItem('catanRulesetId') || 'base-classic';
+  return getRuleset(stored).id;
+}
+
+function getStoredPlayerCount(ruleset) {
+  return normalizePlayerCount(ruleset, localStorage.getItem('catanPlayerCount') || ruleset.defaultPlayerCount);
+}
+
+function getStoredScenarioId(ruleset) {
+  const stored = localStorage.getItem('catanScenarioId');
+  if (stored && ruleset.scenarios?.some(scenario => scenario.id === stored)) return stored;
+  return getDefaultScenario(ruleset)?.id || null;
+}
+
+function loadInitialConfig() {
+  const ruleset = getRuleset(getStoredRulesetId());
+  return {
+    rulesetId: ruleset.id,
+    playerCount: getStoredPlayerCount(ruleset),
+    scenarioId: getStoredScenarioId(ruleset),
+  };
 }
 
 function Toggle({ label, checked, onChange }) {
@@ -75,7 +92,8 @@ function Toggle({ label, checked, onChange }) {
 }
 
 export default function CatanGame() {
-  const [board, setBoard] = useState(() => new CatanBoard({ seed: Date.now() }));
+  const [gameConfig, setGameConfig] = useState(loadInitialConfig);
+  const [board, setBoard] = useState(() => new CatanBoard({ seed: Date.now(), ...loadInitialConfig() }));
   const [darkMode, setDarkMode] = useState(() => JSON.parse(localStorage.getItem('catanDarkMode') || 'false'));
   const [showPossibleMoves, setShowPossibleMoves] = useState(() => JSON.parse(localStorage.getItem('catanShowMoves') || 'true'));
   const [difficulty, setDifficulty] = useState(() => localStorage.getItem('catanDifficulty') || 'expert');
@@ -91,11 +109,44 @@ export default function CatanGame() {
   useEffect(() => localStorage.setItem('catanDarkMode', JSON.stringify(darkMode)), [darkMode]);
   useEffect(() => localStorage.setItem('catanShowMoves', JSON.stringify(showPossibleMoves)), [showPossibleMoves]);
   useEffect(() => localStorage.setItem('catanDifficulty', difficulty), [difficulty]);
+  useEffect(() => localStorage.setItem('catanRulesetId', gameConfig.rulesetId), [gameConfig.rulesetId]);
+  useEffect(() => localStorage.setItem('catanPlayerCount', String(gameConfig.playerCount)), [gameConfig.playerCount]);
+  useEffect(() => {
+    if (gameConfig.scenarioId) localStorage.setItem('catanScenarioId', gameConfig.scenarioId);
+  }, [gameConfig.scenarioId]);
 
   const isHumanTurn = board.currentPlayer === HUMAN_PLAYER && board.phase !== 'game-over';
   const currentPlayer = board.players[board.currentPlayer];
   const human = board.players[HUMAN_PLAYER];
-  const config = DIFFICULTY_CONFIG[difficulty] || DIFFICULTY_CONFIG.expert;
+  const difficultyConfig = DIFFICULTY_CONFIG[difficulty] || DIFFICULTY_CONFIG.expert;
+  const selectedRuleset = getRuleset(gameConfig.rulesetId);
+  const selectedScenario = selectedRuleset.scenarios?.find(scenario => scenario.id === gameConfig.scenarioId) || getDefaultScenario(selectedRuleset);
+  const activeRuleset = getRuleset(board.rulesetId);
+  const activeScenario = activeRuleset.scenarios?.find(scenario => scenario.id === board.scenarioId) || getDefaultScenario(activeRuleset);
+  const playerIds = board.getPlayerIds();
+  const boardLayout = useMemo(() => {
+    const points = Object.values(board.vertices);
+    const minX = Math.min(...points.map(point => point.x));
+    const maxX = Math.max(...points.map(point => point.x));
+    const minY = Math.min(...points.map(point => point.y));
+    const maxY = Math.max(...points.map(point => point.y));
+    const width = Math.max(1, maxX - minX);
+    const height = Math.max(1, maxY - minY);
+    const scale = Math.min(
+      (BOARD_VIEWBOX.width - BOARD_VIEWBOX.pad * 2) / width,
+      (BOARD_VIEWBOX.height - BOARD_VIEWBOX.pad * 2) / height
+    );
+
+    return {
+      scale,
+      offsetX: (BOARD_VIEWBOX.width - width * scale) / 2 - minX * scale,
+      offsetY: (BOARD_VIEWBOX.height - height * scale) / 2 - minY * scale,
+    };
+  }, [board.vertices]);
+  const screenPoint = useCallback((point) => ({
+    x: point.x * boardLayout.scale + boardLayout.offsetX,
+    y: point.y * boardLayout.scale + boardLayout.offsetY,
+  }), [boardLayout]);
 
   const applyMove = useCallback((move) => {
     const applied = board.applyMove(move);
@@ -123,8 +174,8 @@ export default function CatanGame() {
     const onError = (error) => {
       console.warn('Catan AI error:', error);
       setIsAiThinking(false);
-      const fallback = new MCTS({ maxChildren: config.maxChildren });
-      fallback.getBestMove(board, Math.max(60, Math.floor(config.simulations / 4)))
+      const fallback = new MCTS({ maxChildren: difficultyConfig.maxChildren });
+      fallback.getBestMove(board, Math.max(60, Math.floor(difficultyConfig.simulations / 4)))
         .then((move) => {
           if (!move) return;
           applyAIMove(board, move);
@@ -138,16 +189,16 @@ export default function CatanGame() {
     if (workerSupported) {
       computeMove(
         board.serializeState(),
-        config.simulations,
+        difficultyConfig.simulations,
         onSuccess,
         onError,
-        config.maxChildren
+        difficultyConfig.maxChildren
       );
     } else {
-      const mcts = new MCTS({ maxChildren: config.maxChildren });
-      mcts.getBestMove(board, config.simulations).then(onSuccess).catch(onError);
+      const mcts = new MCTS({ maxChildren: difficultyConfig.maxChildren });
+      mcts.getBestMove(board, difficultyConfig.simulations).then(onSuccess).catch(onError);
     }
-  }, [applyAIMove, board, computeMove, config.maxChildren, config.simulations, isAiThinking, workerSupported]);
+  }, [applyAIMove, board, computeMove, difficultyConfig.maxChildren, difficultyConfig.simulations, isAiThinking, workerSupported]);
 
   useEffect(() => {
     if (showModal || isHumanTurn || isAiThinking || board.phase === 'game-over') return;
@@ -216,8 +267,34 @@ export default function CatanGame() {
     });
   };
 
-  const newGame = () => {
-    const next = new CatanBoard({ seed: Date.now() });
+  const updateRuleset = (rulesetId) => {
+    const ruleset = getRuleset(rulesetId);
+    setGameConfig((previous) => ({
+      rulesetId: ruleset.id,
+      playerCount: normalizePlayerCount(ruleset, previous.playerCount),
+      scenarioId: ruleset.scenarios?.some(scenario => scenario.id === previous.scenarioId)
+        ? previous.scenarioId
+        : getDefaultScenario(ruleset)?.id || null,
+    }));
+  };
+
+  const updatePlayerCount = (playerCount) => {
+    setGameConfig((previous) => {
+      const ruleset = getRuleset(previous.rulesetId);
+      return {
+        ...previous,
+        playerCount: normalizePlayerCount(ruleset, playerCount),
+      };
+    });
+  };
+
+  const updateScenario = (scenarioId) => {
+    setGameConfig((previous) => ({ ...previous, scenarioId }));
+  };
+
+  const newGame = (nextConfig = gameConfig) => {
+    const resolvedConfig = nextConfig?.rulesetId ? nextConfig : gameConfig;
+    const next = new CatanBoard({ seed: Date.now(), ...resolvedConfig });
     setBoard(next);
     setSelectedAction(null);
     setLastMove(null);
@@ -232,6 +309,7 @@ export default function CatanGame() {
     if (board.phase === 'setup-road') return `${currentPlayer.name}: road`;
     if (board.phase === 'roll') return `${currentPlayer.name}: roll`;
     if (board.phase === 'robber') return `${currentPlayer.name}: robber`;
+    if (board.phase === 'paired-action') return `${currentPlayer.name}: paired build`;
     return `${currentPlayer.name}: build or trade`;
   };
 
@@ -342,7 +420,7 @@ export default function CatanGame() {
         )}
 
         <button className="catan-primary-btn w-full" onClick={() => applyMove({ type: 'end-turn' })}>
-          End Turn
+          {board.phase === 'paired-action' ? 'Finish Paired Phase' : 'End Turn'}
         </button>
       </div>
     );
@@ -402,8 +480,72 @@ export default function CatanGame() {
     );
   };
 
+  const renderRulesetPicker = ({ compact = false } = {}) => (
+    <div className="catan-config-stack">
+      <div className="catan-config-section">
+        <div className="catan-panel-label mb-2">Rule Set</div>
+        <div className={compact ? 'catan-ruleset-grid compact' : 'catan-ruleset-grid'}>
+          {RULESET_GROUPS.flatMap(group =>
+            CATAN_RULESETS.filter(ruleset => ruleset.group === group).map(ruleset => (
+              <button
+                key={ruleset.id}
+                type="button"
+                className={`catan-ruleset-card ${gameConfig.rulesetId === ruleset.id ? 'active' : ''}`}
+                onClick={() => updateRuleset(ruleset.id)}
+              >
+                <span className="catan-ruleset-kicker">{ruleset.group}</span>
+                <strong>{ruleset.name}</strong>
+                <span>{ruleset.edition}</span>
+                <em>{ruleset.engineLevel}</em>
+              </button>
+            ))
+          )}
+        </div>
+      </div>
+
+      <div className="catan-config-section">
+        <div className="catan-panel-label mb-2">Players</div>
+        <div className="catan-segmented">
+          {selectedRuleset.playerCounts.map(count => (
+            <button
+              key={count}
+              type="button"
+              className={gameConfig.playerCount === count ? 'active' : ''}
+              onClick={() => updatePlayerCount(count)}
+            >
+              {count}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {selectedRuleset.scenarios?.length > 0 && (
+        <div className="catan-config-section">
+          <div className="catan-panel-label mb-2">Map / Scenario</div>
+          <div className="catan-scenario-list">
+            {selectedRuleset.scenarios.map(scenario => (
+              <button
+                key={scenario.id}
+                type="button"
+                className={gameConfig.scenarioId === scenario.id ? 'active' : ''}
+                onClick={() => updateScenario(scenario.id)}
+              >
+                <span>{scenario.name}</span>
+                <strong>{scenario.target} VP</strong>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <button className="catan-primary-btn w-full" onClick={() => newGame(gameConfig)}>
+        Start {selectedRuleset.name}
+      </button>
+    </div>
+  );
+
   const renderBoard = () => (
-    <svg className="catan-board-svg" viewBox="0 0 720 670" role="img" aria-label="Catan board">
+    <svg className="catan-board-svg" viewBox={`0 0 ${BOARD_VIEWBOX.width} ${BOARD_VIEWBOX.height}`} role="img" aria-label="Catan board">
       <defs>
         <filter id="catan-piece-shadow" x="-40%" y="-40%" width="180%" height="180%">
           <feDropShadow dx="0" dy="2" stdDeviation="2" floodOpacity="0.22" />
@@ -530,18 +672,21 @@ export default function CatanGame() {
     <div className={`game-catan min-h-screen bg-[var(--color-bg-page)] font-body ${darkMode ? 'dark' : ''}`}>
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={(e) => { if (e.target === e.currentTarget) setShowModal(false); }}>
-          <div className="catan-modal w-full max-w-md p-7">
+          <div className="catan-modal max-h-[90vh] w-full max-w-3xl overflow-y-auto p-7">
             <h2 className="text-2xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
               {board.phase === 'game-over' ? `${board.players[board.winner]?.name} wins` : 'CATAN'}
             </h2>
             <p className="mt-2 text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
               {board.phase === 'game-over'
                 ? `${board.winningPoints} victory points on turn ${board.turnNumber}.`
-                : 'Four-player base game against three MCTS opponents.'}
+                : `${selectedRuleset.name} - ${selectedScenario?.name || 'Random Island'} - ${gameConfig.playerCount} players.`}
             </p>
             <div className="mt-6 flex gap-3">
               <button className="catan-primary-btn flex-1" onClick={newGame}>New Game</button>
               <button className="catan-tool-btn flex-1" onClick={() => setShowModal(false)}>Continue</button>
+            </div>
+            <div className="mt-6">
+              {renderRulesetPicker({ compact: true })}
             </div>
             <div className="mt-6 space-y-4">
               <Toggle label="Dark Mode" checked={darkMode} onChange={() => setDarkMode(!darkMode)} />
@@ -574,6 +719,7 @@ export default function CatanGame() {
                   ))}
                 </div>
               </div>
+              {renderRulesetPicker({ compact: true })}
               <Toggle label="Dark Mode" checked={darkMode} onChange={() => setDarkMode(!darkMode)} />
               <Toggle label="Show Legal Moves" checked={showPossibleMoves} onChange={() => setShowPossibleMoves(!showPossibleMoves)} />
               <button className="catan-tool-btn w-full" onClick={() => setShowRules(true)}>Rules</button>
@@ -590,10 +736,22 @@ export default function CatanGame() {
               <button className="text-2xl" style={{ color: 'var(--color-text-secondary)' }} onClick={() => setShowRules(false)}>&times;</button>
             </div>
             <div className="space-y-4 text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
-              <p>Reach 10 victory points through settlements, cities, development cards, largest army, and longest road.</p>
+              <p>Active game: {activeRuleset.name}, {activeScenario?.name || 'Random Island'}, {board.playerCount} players, {board.victoryTarget} VP target.</p>
               <p>Setup uses snake order. The second settlement pays starting resources from adjacent non-desert tiles.</p>
               <p>Roll 7 to move the robber. Players above 7 cards discard automatically, then the robber blocks one tile and steals from an adjacent opponent.</p>
-              <p>Bank and port trades are supported. Opponent-to-opponent negotiation is intentionally omitted for fast solo play.</p>
+              {board.pairedPlayers && (
+                <p>5-6 player mode uses a paired-player build phase after the rolling player ends their action phase.</p>
+              )}
+              <div className="catan-rules-columns">
+                {CATAN_RULESETS.map(ruleset => (
+                  <div key={ruleset.id}>
+                    <h3>{ruleset.name}</h3>
+                    <ul>
+                      {ruleset.modules.map(module => <li key={module}>{module}</li>)}
+                    </ul>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
@@ -605,7 +763,10 @@ export default function CatanGame() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <Link to="/" className="catan-panel-label hover:opacity-80">GIPF Project</Link>
-                <h1 className="mt-1 font-display text-3xl font-bold tracking-wide" style={{ color: 'var(--color-text-primary)' }}>CATAN</h1>
+                <h1 className="mt-1 font-display text-3xl font-bold" style={{ color: 'var(--color-text-primary)' }}>CATAN</h1>
+                <p className="mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                  {activeRuleset.name} / {board.mapName}
+                </p>
               </div>
               <button className="catan-tool-btn px-3" onClick={() => setShowSettings(true)}>Settings</button>
             </div>
@@ -617,7 +778,7 @@ export default function CatanGame() {
             </div>
           </div>
 
-          {[1, 2, 3, 4].map(renderPlayerPanel)}
+          {playerIds.map(renderPlayerPanel)}
         </aside>
 
         <main className="order-1 flex min-h-[520px] flex-1 items-center justify-center lg:order-2">
@@ -638,6 +799,14 @@ export default function CatanGame() {
           <div className="catan-panel p-4">
             <div className="catan-panel-label mb-2">Board</div>
             <div className="grid grid-cols-2 gap-2 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+              <span>Rule set</span>
+              <strong style={{ color: 'var(--color-text-primary)' }}>{activeRuleset.name}</strong>
+              <span>Scenario</span>
+              <strong style={{ color: 'var(--color-text-primary)' }}>{activeScenario?.name || 'Random'}</strong>
+              <span>Target</span>
+              <strong style={{ color: 'var(--color-text-primary)' }}>{board.victoryTarget} VP</strong>
+              <span>Players</span>
+              <strong style={{ color: 'var(--color-text-primary)' }}>{board.playerCount}</strong>
               <span>Longest road</span>
               <strong style={{ color: 'var(--color-text-primary)' }}>
                 {board.longestRoadHolder ? board.players[board.longestRoadHolder].name : 'None'}
@@ -650,6 +819,15 @@ export default function CatanGame() {
               <strong style={{ color: 'var(--color-text-primary)' }}>{board.devDeck.length}</strong>
               <span>Robber</span>
               <strong style={{ color: 'var(--color-text-primary)' }}>{board.getTile(board.robberTileId)?.resource}</strong>
+            </div>
+          </div>
+
+          <div className="catan-panel p-4">
+            <div className="catan-panel-label mb-2">Expansion Modules</div>
+            <div className="catan-module-list">
+              {activeRuleset.modules.map(module => (
+                <span key={module}>{module}</span>
+              ))}
             </div>
           </div>
         </aside>

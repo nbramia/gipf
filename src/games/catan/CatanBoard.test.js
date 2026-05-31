@@ -30,11 +30,30 @@ describe('Catan board generation', () => {
     expect(board.getTile(board.robberTileId).resource).toBe('desert');
   });
 
+  test('creates the enlarged 5-6 player island profile', () => {
+    const board = new CatanBoard({ seed: 7, rulesetId: 'base-5-6', playerCount: 6 });
+
+    expect(board.tiles).toHaveLength(30);
+    expect(Object.keys(board.vertices)).toHaveLength(80);
+    expect(Object.keys(board.edges)).toHaveLength(109);
+    expect(board.tiles.filter(tile => tile.resource === 'desert')).toHaveLength(2);
+    expect(board.getPlayerIds()).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(board.setupOrder).toEqual([1, 2, 3, 4, 5, 6, 6, 5, 4, 3, 2, 1]);
+  });
+
   test('assigns nine ports to coastal edges', () => {
     const board = new CatanBoard({ seed: 8 });
     const portEdges = Object.values(board.edges).filter(edge => edge.port);
 
     expect(portEdges).toHaveLength(9);
+    expect(portEdges.every(edge => edge.tileIds.length === 1)).toBe(true);
+  });
+
+  test('assigns eleven ports on the 5-6 player map', () => {
+    const board = new CatanBoard({ seed: 8, rulesetId: 'base-5-6', playerCount: 6 });
+    const portEdges = Object.values(board.edges).filter(edge => edge.port);
+
+    expect(portEdges).toHaveLength(11);
     expect(portEdges.every(edge => edge.tileIds.length === 1)).toBe(true);
   });
 });
@@ -67,6 +86,23 @@ describe('Catan setup', () => {
     const adjacentId = board.vertices[vertexId].adjacent[0];
 
     expect(board.getValidSettlementVertices(1, true)).not.toContain(adjacentId);
+  });
+
+  test('5-6 player mode adds paired build phases after the active turn', () => {
+    const board = new CatanBoard({ seed: 12, rulesetId: 'base-5-6', playerCount: 6, skipInitialHistory: true });
+
+    board.phase = 'action';
+    board.currentPlayer = 1;
+    board.primaryTurnPlayer = 1;
+
+    expect(board.endTurn()).toBe(true);
+    expect(board.phase).toBe('paired-action');
+    expect(board.currentPlayer).toBe(4);
+
+    expect(board.endTurn()).toBe(true);
+    expect(board.phase).toBe('roll');
+    expect(board.currentPlayer).toBe(2);
+    expect(board.primaryTurnPlayer).toBe(2);
   });
 });
 

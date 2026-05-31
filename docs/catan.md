@@ -1,26 +1,29 @@
 # Catan
 
-The Catan implementation is a four-player base-game variant at `/catan`. The human plays as Player 1 against three local AI opponents.
+The Catan implementation lives at `/catan`. The human plays as Player 1 against local MCTS opponents, with selectable Catan rule families and player counts.
 
 ## Rules Coverage
 
 Implemented:
 
-- 19 hexes, 54 intersections, 72 roads, randomized balanced resource/number layout
-- 4 players with snake setup order
+- 19-hex classic island and 30-hex 5-6 player island profiles
+- 3-6 player base-game play with snake setup order
+- 5-6 player paired build phase after the rolling player's action phase
 - Initial resource payout from the second settlement
 - Dice production with settlement/city payouts and bank limits
 - Robber on 7, automatic discard for players above seven cards, robber steal
 - Roads, settlements, cities, bank trades, 3:1 and 2:1 ports
 - Development cards: knight, victory point, road building, year of plenty, monopoly
 - Largest army and longest road awards
-- 10-point win condition
+- Ruleset/scenario catalog for the core game, Seafarers, Cities & Knights, Traders & Barbarians, Explorers & Pirates, and 5-6 player extensions
+- Ruleset-specific victory target metadata
 - Undo/redo support through the same board-state snapshot pattern used by the other games
 
 Intentionally omitted for solo speed:
 
 - Player-to-player trade negotiation
 - Manual discard selection when a 7 is rolled
+- Full special-piece mechanics for non-base expansions such as ships, commodities, barbarians, wagons, and exploration missions. These are represented in the rules/scenario catalog for selection and reference, while the playable engine remains the base-game rules engine plus 5-6 support.
 
 ## Architecture
 
@@ -29,6 +32,7 @@ Files:
 | File | Purpose |
 |------|---------|
 | `src/games/catan/CatanBoard.js` | Pure game logic and rule enforcement |
+| `src/games/catan/catanRulesets.js` | Rule family, scenario, map, player-count, and victory-target metadata |
 | `src/games/catan/CatanGame.jsx` | React UI, SVG board, controls, AI turn loop |
 | `src/games/catan/catan.css` | Scoped `.game-catan` variables and board styling |
 | `src/games/catan/engine/mcts.js` | Root-focused MCTS with heuristic rollouts |

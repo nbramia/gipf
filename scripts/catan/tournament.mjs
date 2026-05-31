@@ -37,7 +37,7 @@ async function playGame(index, strongSeat) {
   return {
     winner: board.winner,
     moves,
-    scores: [1, 2, 3, 4].map(player => board.getVictoryPoints(player)),
+    scores: board.getPlayerIds().map(player => board.getVictoryPoints(player)),
   };
 }
 

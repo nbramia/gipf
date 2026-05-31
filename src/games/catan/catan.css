@@ -1,66 +1,70 @@
 /* ========== Catan Color System ========== */
 
 .game-catan {
-  --color-bg-page: #E7EEF2;
-  --color-bg-panel: #FFFFFF;
-  --color-bg-board: #D3E5ED;
-  --color-bg-soft: #F1F5F4;
+  --color-bg-page: #ECE7DC;
+  --color-bg-panel: #FFFDF7;
+  --color-bg-board: #82B5C2;
+  --color-bg-soft: #F2EAD9;
   --color-bg-modal: #FFFFFF;
-  --color-text-primary: #18212B;
-  --color-text-secondary: #4B5B66;
-  --color-text-muted: #75838D;
-  --color-border-panel: #CCD7DD;
-  --color-border-strong: #8BA2AE;
-  --color-accent: #0F766E;
-  --color-accent-hover: #115E59;
-  --color-btn-primary-bg: #0F766E;
+  --color-text-primary: #201A17;
+  --color-text-secondary: #5F5147;
+  --color-text-muted: #8A796A;
+  --color-border-panel: #D7C9B8;
+  --color-border-strong: #A88D73;
+  --color-accent: #B4532A;
+  --color-accent-hover: #8F3F1E;
+  --color-accent-soft: #F4D5BE;
+  --color-harbor: #1E6F82;
+  --color-btn-primary-bg: #B4532A;
   --color-btn-primary-text: #FFFFFF;
-  --color-toggle-active: #0F766E;
-  --color-toggle-inactive: #C8D3D9;
+  --color-toggle-active: #2F7D55;
+  --color-toggle-inactive: #D8CBBB;
   --color-toggle-knob: #FFFFFF;
-  --color-piece-stroke: rgba(24, 33, 43, 0.45);
+  --color-piece-stroke: rgba(32, 26, 23, 0.48);
 
-  --tile-brick: #B85B43;
-  --tile-lumber: #28744A;
-  --tile-wool: #8FB950;
-  --tile-grain: #E0B64B;
-  --tile-ore: #737983;
-  --tile-desert: #C99C63;
+  --tile-brick: #A94F37;
+  --tile-lumber: #2F7D55;
+  --tile-wool: #93B957;
+  --tile-grain: #DDBA55;
+  --tile-ore: #74777D;
+  --tile-desert: #C28B58;
   --tile-stroke: rgba(255, 255, 255, 0.65);
-  --road-empty: rgba(38, 54, 65, 0.15);
-  --road-valid: #0F766E;
+  --road-empty: rgba(49, 38, 30, 0.18);
+  --road-valid: #1E6F82;
   --vertex-empty: rgba(255, 255, 255, 0.58);
-  --vertex-valid: #14B8A6;
-  --number-bg: #F8F0D7;
+  --vertex-valid: #2F7D55;
+  --number-bg: #FFF3CC;
   --number-hot: #FEE2E2;
-  --number-text: #25313A;
+  --number-text: #2A2019;
   --number-hot-text: #B91C1C;
 }
 
 .game-catan.dark {
-  --color-bg-page: #18212B;
-  --color-bg-panel: #24313D;
-  --color-bg-board: #182F3D;
-  --color-bg-soft: #1B2933;
-  --color-bg-modal: #263441;
-  --color-text-primary: #F8FAFC;
-  --color-text-secondary: #C6D0D7;
-  --color-text-muted: #8FA0AA;
-  --color-border-panel: #3C4B57;
-  --color-border-strong: #647784;
-  --color-accent: #2DD4BF;
-  --color-accent-hover: #5EEAD4;
-  --color-btn-primary-bg: #0F766E;
+  --color-bg-page: #171A1C;
+  --color-bg-panel: #24211D;
+  --color-bg-board: #214552;
+  --color-bg-soft: #302A22;
+  --color-bg-modal: #29251F;
+  --color-text-primary: #FFF8EA;
+  --color-text-secondary: #D7C9B6;
+  --color-text-muted: #A89682;
+  --color-border-panel: #4D4439;
+  --color-border-strong: #8A735C;
+  --color-accent: #F08B52;
+  --color-accent-hover: #FDBA74;
+  --color-accent-soft: #4B2D1F;
+  --color-harbor: #6EC7D8;
+  --color-btn-primary-bg: #C75F2D;
   --color-btn-primary-text: #FFFFFF;
-  --color-toggle-active: #0F766E;
-  --color-toggle-inactive: #41515D;
+  --color-toggle-active: #3E9C6A;
+  --color-toggle-inactive: #554A3F;
   --color-toggle-knob: #FFFFFF;
   --color-piece-stroke: rgba(248, 250, 252, 0.7);
 
-  --tile-brick: #9F513F;
-  --tile-lumber: #24633F;
-  --tile-wool: #769B45;
-  --tile-grain: #C79D3F;
+  --tile-brick: #974735;
+  --tile-lumber: #2C6848;
+  --tile-wool: #789E48;
+  --tile-grain: #C59E42;
   --tile-ore: #646B76;
   --tile-desert: #A77D52;
   --tile-stroke: rgba(248, 250, 252, 0.22);
@@ -81,7 +85,7 @@
   border: 1px solid var(--color-border-panel);
   border-radius: 8px;
   background: var(--color-bg-panel);
-  box-shadow: 0 10px 32px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 10px 32px rgba(60, 42, 24, 0.08);
 }
 
 .game-catan .catan-modal {
@@ -90,13 +94,15 @@
 
 .game-catan .catan-board-shell {
   width: min(100%, 820px);
-  aspect-ratio: 720 / 670;
+  aspect-ratio: 760 / 720;
   border: 1px solid var(--color-border-panel);
   border-radius: 8px;
   background:
-    radial-gradient(circle at 50% 45%, rgba(255, 255, 255, 0.4), transparent 34%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.18), transparent 34%),
+    radial-gradient(circle at 50% 45%, rgba(255, 255, 255, 0.28), transparent 36%),
     var(--color-bg-board);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22), 0 18px 48px rgba(15, 23, 42, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24), 0 18px 48px rgba(60, 42, 24, 0.14);
+  overflow: hidden;
 }
 
 .game-catan .catan-board-svg {
@@ -117,7 +123,7 @@
   color: var(--color-text-muted);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -155,7 +161,7 @@
 .game-catan .catan-trade-btn:hover:not(:disabled),
 .game-catan .catan-tool-btn.active {
   border-color: var(--color-accent);
-  background: rgba(15, 118, 110, 0.1);
+  background: var(--color-accent-soft);
   color: var(--color-text-primary);
 }
 
@@ -171,6 +177,181 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11px;
+}
+
+.game-catan .catan-config-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.game-catan .catan-config-section {
+  min-width: 0;
+}
+
+.game-catan .catan-ruleset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.game-catan .catan-ruleset-grid.compact {
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+}
+
+.game-catan .catan-ruleset-card {
+  min-height: 104px;
+  border: 1px solid var(--color-border-panel);
+  border-radius: 8px;
+  background: var(--color-bg-soft);
+  padding: 10px;
+  text-align: left;
+  color: var(--color-text-secondary);
+  transition: border-color 0.16s ease, background-color 0.16s ease, transform 0.16s ease;
+}
+
+.game-catan .catan-ruleset-card strong,
+.game-catan .catan-ruleset-card span,
+.game-catan .catan-ruleset-card em {
+  display: block;
+}
+
+.game-catan .catan-ruleset-card strong {
+  margin-top: 4px;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.game-catan .catan-ruleset-card span {
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.game-catan .catan-ruleset-card em {
+  margin-top: 7px;
+  color: var(--color-accent);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.game-catan .catan-ruleset-card .catan-ruleset-kicker {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.game-catan .catan-ruleset-card:hover,
+.game-catan .catan-ruleset-card.active {
+  border-color: var(--color-accent);
+  background: var(--color-bg-panel);
+}
+
+.game-catan .catan-ruleset-card.active {
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+}
+
+.game-catan .catan-segmented {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(42px, 1fr));
+  gap: 6px;
+}
+
+.game-catan .catan-segmented button,
+.game-catan .catan-scenario-list button {
+  border: 1px solid var(--color-border-panel);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+  transition: border-color 0.16s ease, background-color 0.16s ease, color 0.16s ease;
+}
+
+.game-catan .catan-segmented button {
+  min-height: 36px;
+}
+
+.game-catan .catan-segmented button:hover,
+.game-catan .catan-segmented button.active,
+.game-catan .catan-scenario-list button:hover,
+.game-catan .catan-scenario-list button.active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-text-primary);
+}
+
+.game-catan .catan-scenario-list {
+  display: grid;
+  max-height: 176px;
+  gap: 6px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.game-catan .catan-scenario-list button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 7px 9px;
+  text-align: left;
+}
+
+.game-catan .catan-scenario-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-catan .catan-scenario-list strong {
+  color: var(--color-accent);
+  font-size: 10px;
+}
+
+.game-catan .catan-module-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.game-catan .catan-module-list span {
+  border: 1px solid var(--color-border-panel);
+  border-radius: 999px;
+  background: var(--color-bg-soft);
+  color: var(--color-text-secondary);
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.game-catan .catan-rules-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.game-catan .catan-rules-columns h3 {
+  margin-bottom: 6px;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.game-catan .catan-rules-columns ul {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.game-catan .catan-rules-columns li {
+  margin: 2px 0;
 }
 
 /* ========== Resource UI ========== */

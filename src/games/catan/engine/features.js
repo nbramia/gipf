@@ -2,8 +2,10 @@
 
 import CatanBoard, { RESOURCES } from '../CatanBoard.js';
 
-const NUM_TILE_FEATURES = 19 * 8;
-const NUM_PLAYER_FEATURES = 4 * 18;
+const MAX_TILES = 30;
+const MAX_PLAYERS = 6;
+const NUM_TILE_FEATURES = MAX_TILES * 8;
+const NUM_PLAYER_FEATURES = MAX_PLAYERS * 18;
 const NUM_META_FEATURES = 12;
 const POLICY_SIZE = 256;
 
@@ -27,8 +29,8 @@ function extractFeatures(board, perspectivePlayer = board.currentPlayer) {
 
   const playerOrder = [
     perspectivePlayer,
-    ...[1, 2, 3, 4].filter(player => player !== perspectivePlayer),
-  ];
+    ...board.getPlayerIds().filter(player => player !== perspectivePlayer),
+  ].slice(0, MAX_PLAYERS);
 
   playerOrder.forEach((playerId, index) => {
     const player = board.players[playerId];

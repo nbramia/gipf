@@ -29,6 +29,9 @@ yarn-error.log*
 *.swp
 *.swo
 
+# Local agent notes (untracked)
+CLAUDE.local.md
+
 # OS generated files
 .DS_Store
 .DS_Store?

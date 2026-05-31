@@ -1,5 +1,5 @@
 // MCTS engine for Catan AI.
-// Root-focused Monte Carlo search with heuristic rollouts for a four-player game.
+// Root-focused Monte Carlo search with heuristic rollouts for a multi-player game.
 
 import CatanBoard, { RESOURCES, COSTS, resourceTotal } from '../CatanBoard.js';
 
@@ -118,10 +118,10 @@ function evaluatePosition(board, perspectivePlayer) {
 
   const player = board.players[perspectivePlayer];
   const myPoints = board.getVictoryPoints(perspectivePlayer);
-  const opponentPoints = [1, 2, 3, 4]
+  const opponentPoints = board.getPlayerIds()
     .filter(id => id !== perspectivePlayer)
     .map(id => board.getVictoryPoints(id));
-  const bestOpponent = Math.max(...opponentPoints);
+  const bestOpponent = Math.max(0, ...opponentPoints);
   let score = (myPoints - bestOpponent) * 2600 + myPoints * 240;
 
   if (myPoints >= 8) score += (myPoints - 7) * 900;
@@ -161,7 +161,7 @@ function evaluatePosition(board, perspectivePlayer) {
     }
   }
 
-  for (let opponent = 1; opponent <= 4; opponent++) {
+  for (const opponent of board.getPlayerIds()) {
     if (opponent === perspectivePlayer) continue;
     const oppProfile = productionProfile(board, opponent);
     const oppProduction = RESOURCES.reduce((sum, resource) => sum + oppProfile[resource], 0);
@@ -209,7 +209,7 @@ function scoreMove(board, move, playerId) {
     case 'play-year-of-plenty':
       return 360 + board._resourceNeedScore(playerId, move.resourceA) + board._resourceNeedScore(playerId, move.resourceB);
     case 'play-monopoly':
-      return 260 + [1, 2, 3, 4]
+      return 260 + board.getPlayerIds()
         .filter(id => id !== playerId)
         .reduce((sum, id) => sum + board.players[id].resources[move.resource], 0) * 80;
     case 'trade':

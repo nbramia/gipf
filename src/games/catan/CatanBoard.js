@@ -1,21 +1,12 @@
 // CatanBoard.js
-// Pure rules/state engine for a four-player base-game Catan implementation.
+// Pure rules/state engine for Catan base play plus variant-aware maps.
+
+import { getDefaultScenario, getMapProfile, getRuleset, normalizePlayerCount } from './catanRulesets.js';
 
 const SQRT3 = Math.sqrt(3);
 const HEX_RADIUS = 2;
 
 const RESOURCES = ['brick', 'lumber', 'wool', 'grain', 'ore'];
-const RESOURCE_TILES = [
-  'brick', 'brick', 'brick',
-  'lumber', 'lumber', 'lumber', 'lumber',
-  'wool', 'wool', 'wool', 'wool',
-  'grain', 'grain', 'grain', 'grain',
-  'ore', 'ore', 'ore',
-  'desert',
-];
-const NUMBER_TOKENS = [2, 3, 3, 4, 4, 5, 5, 6, 6, 8, 8, 9, 9, 10, 10, 11, 11, 12];
-const PORTS = ['brick', 'lumber', 'wool', 'grain', 'ore', 'any', 'any', 'any', 'any'];
-
 const COSTS = {
   road: { brick: 1, lumber: 1 },
   settlement: { brick: 1, lumber: 1, wool: 1, grain: 1 },
@@ -36,6 +27,8 @@ const PLAYER_NAMES = {
   2: 'Ada',
   3: 'Linus',
   4: 'Grace',
+  5: 'Marie',
+  6: 'Nikola',
 };
 
 const PLAYER_COLORS = {
@@ -43,6 +36,8 @@ const PLAYER_COLORS = {
   2: '#2563EB',
   3: '#16A34A',
   4: '#F59E0B',
+  5: '#7C3AED',
+  6: '#0891B2',
 };
 
 function emptyResources() {
@@ -103,11 +98,32 @@ function edgeKey(a, b) {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
 }
 
-function makeTileCoords() {
+function makeRowCoords(rows) {
   const coords = [];
-  for (let q = -HEX_RADIUS; q <= HEX_RADIUS; q++) {
-    for (let r = -HEX_RADIUS; r <= HEX_RADIUS; r++) {
-      if (Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r)) <= HEX_RADIUS) {
+  const maxLength = Math.max(...rows);
+  const mid = Math.floor(rows.length / 2);
+
+  rows.forEach((length, rowIndex) => {
+    const r = rowIndex - mid;
+    const qStart = -Math.floor(maxLength / 2) + Math.max(0, mid - rowIndex);
+    for (let offset = 0; offset < length; offset++) {
+      coords.push({ q: qStart + offset, r });
+    }
+  });
+
+  return coords;
+}
+
+function makeTileCoords(mapProfile) {
+  if (mapProfile?.rows) {
+    return makeRowCoords(mapProfile.rows);
+  }
+
+  const radius = mapProfile?.radius ?? HEX_RADIUS;
+  const coords = [];
+  for (let q = -radius; q <= radius; q++) {
+    for (let r = -radius; r <= radius; r++) {
+      if (Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r)) <= radius) {
         coords.push({ q, r });
       }
     }
@@ -122,16 +138,16 @@ function axialToPoint(q, r) {
   };
 }
 
-function makeGeometry(seed = 1) {
+function makeGeometry(seed = 1, mapProfile = getMapProfile('classic')) {
   const random = mulberry32(seed);
-  const coords = makeTileCoords();
+  const coords = makeTileCoords(mapProfile);
   const vertexByPoint = new Map();
   const vertices = {};
   const edges = {};
   let vertexIndex = 0;
 
-  const resources = makeBalancedResources(seed);
-  const numbers = makeBalancedNumbers(resources, seed + 17);
+  const resources = makeBalancedResources(seed, mapProfile);
+  const numbers = makeBalancedNumbers(resources, coords, seed + 17, mapProfile);
   const tiles = coords.map((coord, tileIndex) => {
     const center = axialToPoint(coord.q, coord.r);
     const vertexIds = [];
@@ -198,18 +214,19 @@ function makeGeometry(seed = 1) {
     return tile;
   });
 
-  assignPorts(vertices, edges, random);
+  assignPorts(vertices, edges, random, mapProfile);
   const robberTileId = tiles.find(tile => tile.resource === 'desert')?.id || tiles[0].id;
 
   return { tiles, vertices, edges, robberTileId };
 }
 
-function makeBalancedResources(seed) {
+function makeBalancedResources(seed, mapProfile) {
   const random = mulberry32(seed);
-  const coords = makeTileCoords();
+  const coords = makeTileCoords(mapProfile);
+  const resourceTiles = mapProfile.resources || getMapProfile('classic').resources;
 
   for (let attempt = 0; attempt < 80; attempt++) {
-    const resources = shuffle(RESOURCE_TILES, random);
+    const resources = shuffle(resourceTiles, random);
     const desertIndex = resources.indexOf('desert');
     const desert = coords[desertIndex];
     if (Math.max(Math.abs(desert.q), Math.abs(desert.r), Math.abs(desert.q + desert.r)) <= 1) {
@@ -217,16 +234,17 @@ function makeBalancedResources(seed) {
     }
   }
 
-  const resources = shuffle(RESOURCE_TILES, mulberry32(seed + 101));
-  resources[resources.indexOf('desert')] = resources[9];
-  resources[9] = 'desert';
+  const resources = shuffle(resourceTiles, mulberry32(seed + 101));
+  const centerIndex = Math.floor(resources.length / 2);
+  resources[resources.indexOf('desert')] = resources[centerIndex];
+  resources[centerIndex] = 'desert';
   return resources;
 }
 
-function makeBalancedNumbers(resources, seed) {
+function makeBalancedNumbers(resources, coords, seed, mapProfile) {
   const random = mulberry32(seed);
-  const coords = makeTileCoords();
   const adjacency = new Map();
+  const numberTokens = mapProfile.numbers || getMapProfile('classic').numbers;
   coords.forEach((coord, i) => {
     adjacency.set(i, []);
     coords.forEach((other, j) => {
@@ -240,7 +258,7 @@ function makeBalancedNumbers(resources, seed) {
   });
 
   for (let attempt = 0; attempt < 100; attempt++) {
-    const tokens = shuffle(NUMBER_TOKENS, random);
+    const tokens = shuffle(numberTokens, random);
     const numbers = resources.map(resource => resource === 'desert' ? null : tokens.shift());
     let redAdjacent = false;
     numbers.forEach((number, i) => {
@@ -254,11 +272,11 @@ function makeBalancedNumbers(resources, seed) {
     if (!redAdjacent) return numbers;
   }
 
-  const tokens = [...NUMBER_TOKENS];
+  const tokens = [...numberTokens];
   return resources.map(resource => resource === 'desert' ? null : tokens.shift());
 }
 
-function assignPorts(vertices, edges, random) {
+function assignPorts(vertices, edges, random, mapProfile) {
   const boundaryEdges = Object.values(edges)
     .filter(edge => edge.tileIds.length === 1)
     .map(edge => {
@@ -272,7 +290,7 @@ function assignPorts(vertices, edges, random) {
     })
     .sort((a, b) => a.angle - b.angle);
 
-  const ports = shuffle(PORTS, random);
+  const ports = shuffle(mapProfile.ports || getMapProfile('classic').ports, random);
   const step = boundaryEdges.length / ports.length;
   const used = new Set();
 
@@ -296,18 +314,40 @@ export default class CatanBoard {
 
   constructor({
     seed = 1,
+    playerCount = 4,
+    rulesetId = 'base-classic',
+    scenarioId = null,
+    mapProfileId = null,
     skipInitialHistory = false,
   } = {}) {
     this.seed = seed;
     this.rngState = seed;
-    const geometry = makeGeometry(seed);
+    const ruleset = getRuleset(rulesetId);
+    const scenario = scenarioId
+      ? ruleset.scenarios?.find(entry => entry.id === scenarioId)
+      : getDefaultScenario(ruleset);
+    this.rulesetId = ruleset.id;
+    this.scenarioId = scenario?.id || null;
+    this.playerCount = normalizePlayerCount(ruleset, playerCount);
+    this.playerIds = Array.from({ length: this.playerCount }, (_, index) => index + 1);
+    this.mapProfileId = mapProfileId || ruleset.mapProfileId || (this.playerCount >= 5 ? 'extended' : 'classic');
+    if (this.playerCount >= 5 && this.mapProfileId === 'classic') {
+      this.mapProfileId = 'extended';
+    }
+    this.mapProfile = getMapProfile(this.mapProfileId);
+    this.mapName = this.mapProfile.name;
+    this.victoryTarget = scenario?.target || ruleset.victoryPoints || 10;
+    this.pairedPlayers = !!ruleset.pairedPlayers || this.playerCount >= 5;
+    this.pieceLimits = { ...this.mapProfile.pieceLimits };
+
+    const geometry = makeGeometry(seed, this.mapProfile);
     this.tiles = geometry.tiles;
     this.vertices = geometry.vertices;
     this.edges = geometry.edges;
     this.robberTileId = geometry.robberTileId;
 
     this.players = {};
-    for (let player = 1; player <= 4; player++) {
+    for (const player of this.playerIds) {
       this.players[player] = {
         id: player,
         name: PLAYER_NAMES[player],
@@ -325,12 +365,14 @@ export default class CatanBoard {
       };
     }
 
-    this.bank = { brick: 19, lumber: 19, wool: 19, grain: 19, ore: 19 };
+    const bankSize = this.mapProfile.bankSize || 19;
+    this.bank = { brick: bankSize, lumber: bankSize, wool: bankSize, grain: bankSize, ore: bankSize };
     this.devDeck = shuffle(DEV_DECK, mulberry32(seed + 31));
     this.discardLog = [];
     this.currentPlayer = 1;
+    this.primaryTurnPlayer = 1;
     this.phase = 'setup-settlement';
-    this.setupOrder = [1, 2, 3, 4, 4, 3, 2, 1];
+    this.setupOrder = [...this.playerIds, ...[...this.playerIds].reverse()];
     this.setupIndex = 0;
     this.pendingSetupSettlement = null;
     this.turnNumber = 1;
@@ -365,13 +407,41 @@ export default class CatanBoard {
   }
 
   startNewGame(seed = Date.now()) {
-    const next = new CatanBoard({ seed });
+    const next = new CatanBoard({
+      seed,
+      playerCount: this.playerCount,
+      rulesetId: this.rulesetId,
+      scenarioId: this.scenarioId,
+      mapProfileId: this.mapProfileId,
+    });
     Object.assign(this, next);
     this._captureState();
   }
 
   getCurrentPlayer() {
     return this.players[this.currentPlayer];
+  }
+
+  getPlayerIds() {
+    return this.playerIds || Object.keys(this.players).map(Number).sort((a, b) => a - b);
+  }
+
+  _nextPlayerId(playerId = this.currentPlayer) {
+    const ids = this.getPlayerIds();
+    const index = ids.indexOf(playerId);
+    return ids[(index + 1) % ids.length] || ids[0];
+  }
+
+  _pairedPlayerFor(playerId = this.primaryTurnPlayer) {
+    if (!this.pairedPlayers || this.playerCount < 5) return null;
+    const ids = this.getPlayerIds();
+    const index = ids.indexOf(playerId);
+    if (index < 0) return null;
+    return ids[(index + 3) % ids.length];
+  }
+
+  _isActionPhase() {
+    return this.phase === 'action' || this.phase === 'paired-action';
   }
 
   getTile(tileId) {
@@ -405,7 +475,7 @@ export default class CatanBoard {
 
   getPublicScores() {
     const scores = {};
-    for (let player = 1; player <= 4; player++) {
+    for (const player of this.getPlayerIds()) {
       const p = this.players[player];
       scores[player] = (
         p.settlements.length +
@@ -419,7 +489,7 @@ export default class CatanBoard {
 
   getValidSettlementVertices(playerId = this.currentPlayer, setup = false) {
     const player = this.players[playerId];
-    if (!setup && (player.settlements.length >= 5 || !this.canAfford(playerId, COSTS.settlement))) {
+    if (!setup && (player.settlements.length >= this.pieceLimits.settlements || !this.canAfford(playerId, COSTS.settlement))) {
       return [];
     }
 
@@ -432,7 +502,7 @@ export default class CatanBoard {
 
   getValidCityVertices(playerId = this.currentPlayer) {
     const player = this.players[playerId];
-    if (player.cities.length >= 4 || !this.canAfford(playerId, COSTS.city)) return [];
+    if (player.cities.length >= this.pieceLimits.cities || !this.canAfford(playerId, COSTS.city)) return [];
     return player.settlements.filter(vertexId => this.vertices[vertexId].building?.player === playerId);
   }
 
@@ -443,7 +513,7 @@ export default class CatanBoard {
 
   getValidRoadEdges(playerId = this.currentPlayer, free = false) {
     const player = this.players[playerId];
-    if (player.roads.length >= 15) return [];
+    if (player.roads.length >= this.pieceLimits.roads) return [];
     if (!free && !this.canAfford(playerId, COSTS.road)) return [];
 
     return Object.values(this.edges)
@@ -481,7 +551,7 @@ export default class CatanBoard {
     this.edges[edgeId].owner = playerId;
     this.players[playerId].roads.push(edgeId);
 
-    if (this.setupIndex >= 4) {
+    if (this.setupIndex >= this.playerCount) {
       this._grantInitialResources(playerId, this.pendingSetupSettlement);
     }
 
@@ -491,6 +561,7 @@ export default class CatanBoard {
 
     if (this.setupIndex >= this.setupOrder.length) {
       this.currentPlayer = 1;
+      this.primaryTurnPlayer = 1;
       this.phase = 'roll';
       this.lastAction = 'Setup complete. Player 1 rolls first.';
     } else {
@@ -512,6 +583,7 @@ export default class CatanBoard {
 
   rollDice(total = null) {
     if (this.phase !== 'roll') return false;
+    this.primaryTurnPlayer = this.currentPlayer;
     const diceTotal = total || (1 + Math.floor(this._random() * 6)) + (1 + Math.floor(this._random() * 6));
     this.dice = diceTotal;
     this.lastRoll = diceTotal;
@@ -567,7 +639,7 @@ export default class CatanBoard {
 
   _discardForRobber() {
     this.discardLog = [];
-    for (let player = 1; player <= 4; player++) {
+    for (const player of this.getPlayerIds()) {
       const total = this.getPlayerResourceTotal(player);
       if (total <= 7) continue;
       const discardCount = Math.floor(total / 2);
@@ -630,7 +702,7 @@ export default class CatanBoard {
   }
 
   buildRoad(edgeId, { free = false } = {}) {
-    if (this.phase !== 'action') return false;
+    if (!this._isActionPhase()) return false;
     if (!this.edges[edgeId] || this.edges[edgeId].owner) return false;
     if (!this.getValidRoadEdges(this.currentPlayer, free || this.freeRoadsRemaining > 0).includes(edgeId)) return false;
 
@@ -651,10 +723,10 @@ export default class CatanBoard {
   }
 
   buildSettlement(vertexId, { free = false } = {}) {
-    if (this.phase !== 'action') return false;
+    if (!this._isActionPhase()) return false;
     if (!this.getValidSettlementVertices(this.currentPlayer, false).includes(vertexId)) return false;
     const player = this.getCurrentPlayer();
-    if (player.settlements.length >= 5) return false;
+    if (player.settlements.length >= this.pieceLimits.settlements) return false;
     if (!free) this._payCost(this.currentPlayer, COSTS.settlement);
 
     this.vertices[vertexId].building = { player: this.currentPlayer, type: 'settlement' };
@@ -666,7 +738,7 @@ export default class CatanBoard {
   }
 
   buildCity(vertexId) {
-    if (this.phase !== 'action') return false;
+    if (!this._isActionPhase()) return false;
     if (!this.getValidCityVertices(this.currentPlayer).includes(vertexId)) return false;
 
     const player = this.getCurrentPlayer();
@@ -681,7 +753,7 @@ export default class CatanBoard {
   }
 
   buyDevelopmentCard() {
-    if (this.phase !== 'action') return false;
+    if (!this._isActionPhase()) return false;
     if (this.devDeck.length === 0 || !this.canAfford(this.currentPlayer, COSTS.dev)) return false;
 
     this._payCost(this.currentPlayer, COSTS.dev);
@@ -694,15 +766,16 @@ export default class CatanBoard {
   }
 
   playKnight() {
-    if (this.phase !== 'action') return false;
+    if (!this._isActionPhase()) return false;
     const player = this.getCurrentPlayer();
     if (player.playedDevThisTurn || player.devCards.knight <= 0) return false;
     player.devCards.knight--;
     player.knightsPlayed++;
     player.playedDevThisTurn = true;
     this._updateLargestArmy();
+    const returnPhase = this.phase;
     this.phase = 'robber';
-    this.pendingAfterRobberPhase = 'action';
+    this.pendingAfterRobberPhase = returnPhase;
     this.lastAction = `${player.name} played a knight.`;
     this._checkWin();
     this._captureState();
@@ -710,7 +783,7 @@ export default class CatanBoard {
   }
 
   playYearOfPlenty(resourceA, resourceB) {
-    if (this.phase !== 'action') return false;
+    if (!this._isActionPhase()) return false;
     const player = this.getCurrentPlayer();
     if (player.playedDevThisTurn || player.devCards.yearOfPlenty <= 0) return false;
     if (!RESOURCES.includes(resourceA) || !RESOURCES.includes(resourceB)) return false;
@@ -726,7 +799,7 @@ export default class CatanBoard {
   }
 
   playMonopoly(resource) {
-    if (this.phase !== 'action') return false;
+    if (!this._isActionPhase()) return false;
     const player = this.getCurrentPlayer();
     if (player.playedDevThisTurn || player.devCards.monopoly <= 0) return false;
     if (!RESOURCES.includes(resource)) return false;
@@ -734,7 +807,7 @@ export default class CatanBoard {
     player.devCards.monopoly--;
     player.playedDevThisTurn = true;
     let total = 0;
-    for (let opponent = 1; opponent <= 4; opponent++) {
+    for (const opponent of this.getPlayerIds()) {
       if (opponent === this.currentPlayer) continue;
       const amount = this.players[opponent].resources[resource];
       this.players[opponent].resources[resource] = 0;
@@ -747,19 +820,19 @@ export default class CatanBoard {
   }
 
   playRoadBuilding() {
-    if (this.phase !== 'action') return false;
+    if (!this._isActionPhase()) return false;
     const player = this.getCurrentPlayer();
     if (player.playedDevThisTurn || player.devCards.roadBuilding <= 0) return false;
     player.devCards.roadBuilding--;
     player.playedDevThisTurn = true;
-    this.freeRoadsRemaining = Math.min(2, 15 - player.roads.length);
+    this.freeRoadsRemaining = Math.min(2, this.pieceLimits.roads - player.roads.length);
     this.lastAction = `${player.name} played Road Building.`;
     this._captureState();
     return true;
   }
 
   tradeWithBank(give, receive, ratio = null) {
-    if (this.phase !== 'action') return false;
+    if (!this._isActionPhase()) return false;
     if (!RESOURCES.includes(give) || !RESOURCES.includes(receive) || give === receive) return false;
     const actualRatio = this.getTradeRatio(this.currentPlayer, give);
     const tradeRatio = ratio || actualRatio;
@@ -775,7 +848,8 @@ export default class CatanBoard {
   }
 
   endTurn() {
-    if (this.phase !== 'action') return false;
+    if (!this._isActionPhase()) return false;
+    const endingPhase = this.phase;
     const player = this.getCurrentPlayer();
     for (const card of Object.keys(player.newDevCards)) {
       player.devCards[card] += player.newDevCards[card];
@@ -784,8 +858,22 @@ export default class CatanBoard {
     player.playedDevThisTurn = false;
     this.freeRoadsRemaining = 0;
     this.dice = null;
-    this.currentPlayer = this.currentPlayer === 4 ? 1 : this.currentPlayer + 1;
-    if (this.currentPlayer === 1) this.turnNumber++;
+
+    if (this.pairedPlayers && endingPhase === 'action') {
+      const pairedPlayer = this._pairedPlayerFor(this.primaryTurnPlayer);
+      if (pairedPlayer && pairedPlayer !== this.currentPlayer) {
+        this.currentPlayer = pairedPlayer;
+        this.phase = 'paired-action';
+        this.lastAction = `${this.players[this.currentPlayer].name}'s paired build phase.`;
+        this._captureState();
+        return true;
+      }
+    }
+
+    const previousPrimary = this.primaryTurnPlayer || this.currentPlayer;
+    this.currentPlayer = this._nextPlayerId(previousPrimary);
+    this.primaryTurnPlayer = this.currentPlayer;
+    if (this.currentPlayer === this.getPlayerIds()[0]) this.turnNumber++;
     this.phase = 'roll';
     this.lastAction = `${this.players[this.currentPlayer].name}'s turn.`;
     this._captureState();
@@ -843,6 +931,8 @@ export default class CatanBoard {
         }));
     }
 
+    if (!this._isActionPhase()) return [];
+
     const moves = [];
     const freeRoad = this.freeRoadsRemaining > 0;
     this.getValidCityVertices(this.currentPlayer).forEach(vertexId => moves.push({ type: 'build-city', vertexId }));
@@ -857,7 +947,7 @@ export default class CatanBoard {
     const player = this.getCurrentPlayer();
     if (!player.playedDevThisTurn) {
       if (player.devCards.knight > 0) moves.push({ type: 'play-knight' });
-      if (player.devCards.roadBuilding > 0 && player.roads.length < 15) moves.push({ type: 'play-road-building' });
+      if (player.devCards.roadBuilding > 0 && player.roads.length < this.pieceLimits.roads) moves.push({ type: 'play-road-building' });
       if (player.devCards.yearOfPlenty > 0) {
         const desired = this._mostNeededResources(this.currentPlayer);
         moves.push({ type: 'play-year-of-plenty', resourceA: desired[0], resourceB: desired[1] || desired[0] });
@@ -927,7 +1017,7 @@ export default class CatanBoard {
     let bestCount = -1;
     for (const resource of RESOURCES) {
       let count = 0;
-      for (let player = 1; player <= 4; player++) {
+      for (const player of this.getPlayerIds()) {
         if (player !== playerId) count += this.players[player].resources[resource];
       }
       if (count > bestCount) {
@@ -1003,7 +1093,7 @@ export default class CatanBoard {
   _updateLargestArmy() {
     let bestPlayer = this.largestArmyHolder;
     let bestCount = bestPlayer ? this.players[bestPlayer].knightsPlayed : 2;
-    for (let player = 1; player <= 4; player++) {
+    for (const player of this.getPlayerIds()) {
       const count = this.players[player].knightsPlayed;
       if (count >= 3 && count > bestCount) {
         bestPlayer = player;
@@ -1011,7 +1101,7 @@ export default class CatanBoard {
       }
     }
 
-    for (let player = 1; player <= 4; player++) {
+    for (const player of this.getPlayerIds()) {
       this.players[player].largestArmy = player === bestPlayer;
     }
     this.largestArmyHolder = bestPlayer || null;
@@ -1019,13 +1109,13 @@ export default class CatanBoard {
 
   _updateLongestRoad() {
     const lengths = {};
-    for (let player = 1; player <= 4; player++) {
+    for (const player of this.getPlayerIds()) {
       lengths[player] = this._longestRoadForPlayer(player);
     }
 
     let bestPlayer = this.longestRoadHolder;
     let bestLength = bestPlayer ? lengths[bestPlayer] : 4;
-    for (let player = 1; player <= 4; player++) {
+    for (const player of this.getPlayerIds()) {
       if (lengths[player] >= 5 && lengths[player] > bestLength) {
         bestPlayer = player;
         bestLength = lengths[player];
@@ -1033,7 +1123,7 @@ export default class CatanBoard {
     }
 
     if (bestPlayer && lengths[bestPlayer] < 5) bestPlayer = null;
-    for (let player = 1; player <= 4; player++) {
+    for (const player of this.getPlayerIds()) {
       this.players[player].longestRoad = player === bestPlayer;
     }
     this.longestRoadHolder = bestPlayer || null;
@@ -1068,9 +1158,9 @@ export default class CatanBoard {
   }
 
   _checkWin() {
-    for (let player = 1; player <= 4; player++) {
+    for (const player of this.getPlayerIds()) {
       const points = this.getVictoryPoints(player);
-      if (points >= 10) {
+      if (points >= this.victoryTarget) {
         this.phase = 'game-over';
         this.winner = player;
         this.winningPoints = points;
@@ -1092,10 +1182,10 @@ export default class CatanBoard {
       .map(edge => `${edge.id}:${edge.owner}`)
       .sort()
       .join(';');
-    const resources = [1, 2, 3, 4]
+    const resources = this.getPlayerIds()
       .map(player => RESOURCES.map(r => Math.min(9, this.players[player].resources[r])).join(','))
       .join('|');
-    const devs = [1, 2, 3, 4]
+    const devs = this.getPlayerIds()
       .map(player => Object.values(this.players[player].devCards).join(','))
       .join('|');
     return `${this.phase}|${this.currentPlayer}|${this.robberTileId}|${vertices}|${edges}|${resources}|${devs}|${this.freeRoadsRemaining}`;
@@ -1105,6 +1195,15 @@ export default class CatanBoard {
     return {
       seed: this.seed,
       rngState: this.rngState,
+      rulesetId: this.rulesetId,
+      scenarioId: this.scenarioId,
+      playerCount: this.playerCount,
+      playerIds: [...this.getPlayerIds()],
+      mapProfileId: this.mapProfileId,
+      mapName: this.mapName,
+      victoryTarget: this.victoryTarget,
+      pairedPlayers: this.pairedPlayers,
+      pieceLimits: { ...this.pieceLimits },
       tiles: this.tiles.map(tile => ({ ...tile })),
       vertices: Object.fromEntries(Object.entries(this.vertices).map(([id, vertex]) => [id, {
         ...vertex,
@@ -1132,6 +1231,7 @@ export default class CatanBoard {
       devDeck: [...this.devDeck],
       discardLog: this.discardLog.map(entry => ({ player: entry.player, resources: cloneResources(entry.resources) })),
       currentPlayer: this.currentPlayer,
+      primaryTurnPlayer: this.primaryTurnPlayer,
       phase: this.phase,
       setupOrder: [...this.setupOrder],
       setupIndex: this.setupIndex,
@@ -1153,8 +1253,25 @@ export default class CatanBoard {
   }
 
   static fromSerializedState(state) {
-    const board = new CatanBoard({ seed: state.seed, skipInitialHistory: true });
+    const board = new CatanBoard({
+      seed: state.seed,
+      playerCount: state.playerCount || 4,
+      rulesetId: state.rulesetId || 'base-classic',
+      scenarioId: state.scenarioId || null,
+      mapProfileId: state.mapProfileId || null,
+      skipInitialHistory: true,
+    });
     board.rngState = state.rngState;
+    board.rulesetId = state.rulesetId || board.rulesetId;
+    board.scenarioId = state.scenarioId || board.scenarioId;
+    board.playerCount = state.playerCount || Object.keys(state.players || {}).length || board.playerCount;
+    board.playerIds = state.playerIds ? [...state.playerIds] : Array.from({ length: board.playerCount }, (_, index) => index + 1);
+    board.mapProfileId = state.mapProfileId || board.mapProfileId;
+    board.mapProfile = getMapProfile(board.mapProfileId);
+    board.mapName = state.mapName || board.mapProfile.name;
+    board.victoryTarget = state.victoryTarget || board.victoryTarget || 10;
+    board.pairedPlayers = state.pairedPlayers ?? board.pairedPlayers;
+    board.pieceLimits = { ...board.mapProfile.pieceLimits, ...(state.pieceLimits || {}) };
     board.tiles = state.tiles.map(tile => ({ ...tile, vertices: [...tile.vertices], edges: [...tile.edges] }));
     board.vertices = Object.fromEntries(Object.entries(state.vertices).map(([id, vertex]) => [id, {
       ...vertex,
@@ -1182,6 +1299,7 @@ export default class CatanBoard {
     board.devDeck = [...state.devDeck];
     board.discardLog = (state.discardLog || []).map(entry => ({ player: entry.player, resources: cloneResources(entry.resources) }));
     board.currentPlayer = state.currentPlayer;
+    board.primaryTurnPlayer = state.primaryTurnPlayer || state.currentPlayer || 1;
     board.phase = state.phase;
     board.setupOrder = [...state.setupOrder];
     board.setupIndex = state.setupIndex;
