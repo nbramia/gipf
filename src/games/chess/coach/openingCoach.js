@@ -61,14 +61,19 @@ export function summarizeBookMove(stats, playedSan, moverColor) {
     (stats.white || 0) + (stats.draws || 0) + (stats.black || 0);
   if (!totalGames) return null;
 
-  // Lichess returns moves sorted by frequency (most popular first).
-  const idx = stats.moves.findIndex((m) => m.san === playedSan);
+  // Sort by total games descending ourselves — the Lichess explorer does NOT
+  // reliably return moves in frequency order (verified: after 1.e4 it lists e5
+  // before c5 even though c5 has more games), so trusting the array index for
+  // "rank" would be wrong.
+  const ranked = [...stats.moves].sort((a, b) => gamesOf(b) - gamesOf(a));
+
+  const idx = ranked.findIndex((m) => m.san === playedSan);
   if (idx === -1) return null;
-  const entry = stats.moves[idx];
+  const entry = ranked[idx];
   const games = gamesOf(entry);
   if (games < MIN_BOOK_GAMES) return null;
 
-  const alternatives = stats.moves
+  const alternatives = ranked
     .filter((_, i) => i !== idx)
     .slice(0, 3)
     .map((m) => ({

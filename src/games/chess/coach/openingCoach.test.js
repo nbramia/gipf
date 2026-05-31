@@ -56,6 +56,22 @@ describe('openingCoach — summarizeBookMove', () => {
   });
 });
 
+describe('openingCoach — ranks by game count, not array order', () => {
+  // Mirrors real Lichess behavior: a more-popular move can appear later in the
+  // array (after 1.e4, e5 is listed before c5 despite c5 having more games).
+  const unsorted = {
+    white: 100, draws: 100, black: 100,
+    moves: [
+      { san: 'e5', white: 30, draws: 30, black: 30 }, // 90 games, listed first
+      { san: 'c5', white: 40, draws: 40, black: 40 }, // 120 games, listed second
+    ],
+  };
+  test('the higher-game-count move is rank 1 even if listed second', () => {
+    expect(summarizeBookMove(unsorted, 'c5', 'b').rank).toBe(1);
+    expect(summarizeBookMove(unsorted, 'e5', 'b').rank).toBe(2);
+  });
+});
+
 describe('openingCoach — score perspective', () => {
   test('white and black scores of the same move are complementary', () => {
     const stats = {
