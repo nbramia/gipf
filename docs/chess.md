@@ -139,8 +139,22 @@ move-context block with prompt caching so multi-round threads stay cheap.
 
 ```
 chessDarkMode, chessShowMoves, chessDifficulty, chessLearningGoal,
-chessShowEvalBar, chessSound, chessApiKey
+chessShowEvalBar, chessSound, chessApiKey, chessLichessToken
 ```
+
+## Opening coaching (master stats)
+
+Openings have many sound paths, so opening moves are not judged by eval-loss vs.
+the single engine best move. A move that stays in a known ECO line
+(`coach/openings.js`) — or is within a wide eval band — is labeled **Book**
+(neutral), never inaccuracy/mistake. This works with no network dependency.
+
+When a **Lichess token** is set (`coach/openingCoach.js`, BYO, stored only in
+`localStorage['chessLichessToken']`), the coach also fetches the Lichess masters
+opening explorer and reports real popularity — "the Nth most-common master move,
+played in X% of games, scoring Y%" — plus the other popular choices. The explorer
+is auth-gated (locked down after DDoS attacks), so it requires a free read-only
+token; without one, coaching degrades gracefully to the "Book" label.
 
 ## Tests
 

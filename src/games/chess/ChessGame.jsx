@@ -13,7 +13,14 @@ import useStockfish from './hooks/useStockfish.js';
 import { DIFFICULTY_TIERS, DEFAULT_TIER_KEY } from './engine/difficulty.js';
 import { buildMovePayload } from './coach/analyzeMove.js';
 import { detectOpening } from './coach/openings.js';
-import { fetchOpeningStats, summarizeBookMove, OPENING_MAX_PLY } from './coach/openingCoach.js';
+import {
+  fetchOpeningStats,
+  summarizeBookMove,
+  OPENING_MAX_PLY,
+  getLichessToken,
+  setLichessToken,
+  hasLichessToken,
+} from './coach/openingCoach.js';
 import { withHeaders, downloadPgn, readPgnFile, looksLikePgn } from './coach/pgn.js';
 import { summarizeAccuracy } from './coach/accuracy.js';
 import { puzzlesForDifficulty, budgetPliesFor, evaluatePuzzleMove } from './coach/puzzles.js';
@@ -73,6 +80,11 @@ export default function ChessGame() {
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [keySet, setKeySet] = useState(() => hasApiKey());
   const [showKeyField, setShowKeyField] = useState(false);
+
+  // BYO Lichess token for master opening stats (the explorer is now auth-gated).
+  const [lichessInput, setLichessInput] = useState('');
+  const [lichessSet, setLichessSet] = useState(() => hasLichessToken());
+  const [showLichessField, setShowLichessField] = useState(false);
 
   // Polish (#21): eval bar, sounds.
   const [showEvalBar, setShowEvalBar] = useState(() => {
@@ -534,6 +546,18 @@ export default function ChessGame() {
     setApiKey('');
     setKeySet(false);
     setShowKeyField(false);
+  };
+
+  const saveLichess = () => {
+    setLichessToken(lichessInput.trim());
+    setLichessSet(hasLichessToken());
+    setLichessInput('');
+    setShowLichessField(false);
+  };
+  const removeLichess = () => {
+    setLichessToken('');
+    setLichessSet(false);
+    setShowLichessField(false);
   };
 
   // --- Move-thread Q&A (tool-use) ---

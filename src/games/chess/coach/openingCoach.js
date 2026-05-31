@@ -21,12 +21,41 @@ const MIN_BOOK_GAMES = 5;
 // Only consult the opening book this deep; after this we're out of theory.
 export const OPENING_MAX_PLY = 24;
 
-// Fetch the masters explorer for a position (FEN before the move). Returns the
-// parsed JSON, or null on any failure / non-opening position. Never throws.
-export async function fetchOpeningStats(fen) {
+// The Lichess opening explorer now requires authentication (locked down after
+// DDoS attacks). The token is BRING-YOUR-OWN, stored only in the browser — never
+// hardcoded, since this is an open-source, public app. A free read-only token is
+// created at lichess.org → Preferences → API access tokens.
+const LICHESS_TOKEN_KEY = 'chessLichessToken';
+
+export function getLichessToken() {
+  try {
+    return localStorage.getItem(LICHESS_TOKEN_KEY) || '';
+  } catch (_) {
+    return '';
+  }
+}
+
+export function setLichessToken(token) {
+  try {
+    if (token) localStorage.setItem(LICHESS_TOKEN_KEY, token);
+    else localStorage.removeItem(LICHESS_TOKEN_KEY);
+  } catch (_) {
+    /* ignore storage failures */
+  }
+}
+
+export function hasLichessToken() {
+  return !!getLichessToken();
+}
+
+// Fetch the masters explorer for a position (FEN before the move). Requires a
+// Lichess token (the endpoint is auth-gated). Returns the parsed JSON, or null
+// on any failure / missing token / non-opening position. Never throws.
+export async function fetchOpeningStats(fen, token = getLichessToken()) {
+  if (!token) return null;
   try {
     const url = `${EXPLORER_URL}?fen=${encodeURIComponent(fen)}&moves=12&topGames=0`;
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok) return null;
     const data = await res.json();
     if (!data || !Array.isArray(data.moves)) return null;

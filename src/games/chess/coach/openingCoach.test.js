@@ -100,6 +100,39 @@ describe('openingCoach — describeBookMove', () => {
   });
 });
 
+describe('openingCoach — Lichess token (BYO, localStorage)', () => {
+  afterEach(() => setLichessToken(''));
+
+  test('set / get / has round-trip', () => {
+    expect(hasLichessToken()).toBe(false);
+    setLichessToken('lip_test123');
+    expect(getLichessToken()).toBe('lip_test123');
+    expect(hasLichessToken()).toBe(true);
+    setLichessToken('');
+    expect(hasLichessToken()).toBe(false);
+  });
+
+  test('fetchOpeningStats short-circuits to null without a token (no request)', async () => {
+    const spy = jest.spyOn(global, 'fetch');
+    const r = await fetchOpeningStats('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1');
+    expect(r).toBeNull();
+    expect(spy).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  test('fetchOpeningStats sends a Bearer token when one is provided', async () => {
+    const spy = jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ white: 1, draws: 0, black: 0, moves: [] }),
+    });
+    await fetchOpeningStats('somefen', 'lip_abc');
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [, opts] = spy.mock.calls[0];
+    expect(opts.headers.Authorization).toBe('Bearer lip_abc');
+    spy.mockRestore();
+  });
+});
+
 describe('openingCoach — constants', () => {
   test('opening depth is a sane ply count', () => {
     expect(OPENING_MAX_PLY).toBeGreaterThanOrEqual(16);
