@@ -384,7 +384,7 @@ export default class CatanBoard {
     this.discardQueue = [];
     this.pendingTrade = null;
     this.tradeProposalsThisTurn = 0;
-    this.maxTradeProposalsPerTurn = 2;
+    this.maxTradeProposalsPerTurn = 4;
     this.longestRoadHolder = null;
     this.largestArmyHolder = null;
     this.winner = null;
@@ -1574,7 +1574,7 @@ export default class CatanBoard {
         }
       : null;
     board.tradeProposalsThisTurn = state.tradeProposalsThisTurn || 0;
-    board.maxTradeProposalsPerTurn = state.maxTradeProposalsPerTurn ?? 2;
+    board.maxTradeProposalsPerTurn = state.maxTradeProposalsPerTurn ?? 4;
     board.longestRoadHolder = state.longestRoadHolder;
     board.largestArmyHolder = state.largestArmyHolder;
     board.winner = state.winner;

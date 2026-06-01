@@ -286,6 +286,10 @@ export default function CatanGame() {
   const [tradeGive, setTradeGive] = useState({ brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 });
   const [tradeReceive, setTradeReceive] = useState({ brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 });
   const [tradeTargets, setTradeTargets] = useState([]);
+  const [showMonopolyPicker, setShowMonopolyPicker] = useState(false);
+  const [showYopPicker, setShowYopPicker] = useState(false);
+  const [yopPick, setYopPick] = useState([]);
+  const [robberVictimPicker, setRobberVictimPicker] = useState(null);
   const [gameLog, setGameLog] = useState([]);
   const aiTimerRef = useRef(null);
   const lastLoggedActionRef = useRef(null);
@@ -380,6 +384,55 @@ export default function CatanGame() {
       setShowTradeBuilder(false);
     }
   }, [applyMove, tradeGive, tradeReceive, tradeTargets]);
+
+  const submitMonopoly = useCallback((resource) => {
+    if (applyMove({ type: 'play-monopoly', resource })) {
+      setShowMonopolyPicker(false);
+    }
+  }, [applyMove]);
+
+  // Only offer Year of Plenty pairs the bank can actually supply.
+  const yopLegalPairs = useMemo(
+    () => board.getLegalMoves().filter(move => move.type === 'play-year-of-plenty'),
+    [board]
+  );
+  const yopLegalKeys = useMemo(
+    () => new Set(yopLegalPairs.flatMap(({ resourceA, resourceB }) => [
+      `${resourceA}|${resourceB}`,
+      `${resourceB}|${resourceA}`,
+    ])),
+    [yopLegalPairs]
+  );
+
+  const openYopPicker = useCallback(() => {
+    setYopPick([]);
+    setShowYopPicker(true);
+  }, []);
+
+  // Toggle a resource into the (up to two) selected slots for Year of Plenty.
+  const toggleYopPick = useCallback((resource) => {
+    setYopPick(prev => {
+      if (prev.length >= 2) return [resource];
+      return [...prev, resource];
+    });
+  }, []);
+
+  const submitYop = useCallback(() => {
+    if (yopPick.length !== 2) return;
+    const [resourceA, resourceB] = yopPick;
+    if (applyMove({ type: 'play-year-of-plenty', resourceA, resourceB })) {
+      setShowYopPicker(false);
+      setYopPick([]);
+    }
+  }, [applyMove, yopPick]);
+
+  const chooseRobberVictim = useCallback((stealPlayerId) => {
+    const picker = robberVictimPicker;
+    if (!picker) return;
+    if (applyMove({ type: 'move-robber', tileId: picker.tileId, stealPlayerId })) {
+      setRobberVictimPicker(null);
+    }
+  }, [applyMove, robberVictimPicker]);
 
   const computeAIMove = useCallback(() => {
     if (isAiThinking || board.phase === 'game-over') return;
@@ -483,11 +536,13 @@ export default function CatanGame() {
 
   const handleTileClick = (tileId) => {
     if (!isHumanTurn || board.phase !== 'robber') return;
-    applyMove({
-      type: 'move-robber',
-      tileId,
-      stealPlayerId: board.getRobberVictims(tileId).filter(playerId => playerId !== HUMAN_PLAYER)[0] || null,
-    });
+    const victims = board.getRobberVictims(tileId).filter(playerId => playerId !== HUMAN_PLAYER);
+    if (victims.length > 1) {
+      // Multiple opponents touch this tile — let the human choose whom to rob.
+      setRobberVictimPicker({ tileId, victims });
+      return;
+    }
+    applyMove({ type: 'move-robber', tileId, stealPlayerId: victims[0] ?? null });
   };
 
   const updateRuleset = (rulesetId) => {
@@ -643,19 +698,10 @@ export default function CatanGame() {
 
     const trades = board.getStrategicTradeOptions(HUMAN_PLAYER, 8);
     const playableDev = human.playedDevThisTurn ? [] : [
-      human.devCards.knight > 0 && { type: 'play-knight', label: 'Knight' },
-      human.devCards.roadBuilding > 0 && { type: 'play-road-building', label: 'Road Building' },
-      human.devCards.yearOfPlenty > 0 && {
-        type: 'play-year-of-plenty',
-        label: 'Year of Plenty',
-        resourceA: board._mostNeededResources(HUMAN_PLAYER)[0],
-        resourceB: board._mostNeededResources(HUMAN_PLAYER)[1],
-      },
-      human.devCards.monopoly > 0 && {
-        type: 'play-monopoly',
-        label: 'Monopoly',
-        resource: board._bestMonopolyResource(HUMAN_PLAYER),
-      },
+      human.devCards.knight > 0 && { key: 'knight', label: 'Knight', onClick: () => applyMove({ type: 'play-knight' }) },
+      human.devCards.roadBuilding > 0 && { key: 'roadBuilding', label: 'Road Building', onClick: () => applyMove({ type: 'play-road-building' }) },
+      human.devCards.yearOfPlenty > 0 && { key: 'yearOfPlenty', label: 'Year of Plenty', onClick: openYopPicker },
+      human.devCards.monopoly > 0 && { key: 'monopoly', label: 'Monopoly', onClick: () => setShowMonopolyPicker(true) },
     ].filter(Boolean);
 
     return (
@@ -694,7 +740,7 @@ export default function CatanGame() {
         {playableDev.length > 0 && (
           <div className="grid grid-cols-2 gap-2">
             {playableDev.map(card => (
-              <button key={card.type} className="catan-tool-btn" onClick={() => applyMove(card)}>
+              <button key={card.key} className="catan-tool-btn" onClick={card.onClick}>
                 {card.label}
               </button>
             ))}
@@ -1265,6 +1311,113 @@ export default function CatanGame() {
               >
                 Send Offer
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showMonopolyPicker && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4" onClick={(e) => { if (e.target === e.currentTarget) setShowMonopolyPicker(false); }}>
+          <div className="catan-modal w-full max-w-sm p-6">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>Monopoly</h2>
+              <button className="text-2xl" style={{ color: 'var(--color-text-secondary)' }} onClick={() => setShowMonopolyPicker(false)}>&times;</button>
+            </div>
+            <p className="mb-4 text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
+              Choose a resource. Every opponent gives you all of theirs.
+            </p>
+            <div className="catan-picker-grid">
+              {RESOURCES.map(resource => (
+                <button
+                  key={resource}
+                  className={`catan-resource-pill resource-${resource} catan-picker-pill`}
+                  title={RESOURCE_LABELS[resource]}
+                  onClick={() => submitMonopoly(resource)}
+                >
+                  <span>{RESOURCE_LABELS[resource]}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showYopPicker && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4" onClick={(e) => { if (e.target === e.currentTarget) setShowYopPicker(false); }}>
+          <div className="catan-modal w-full max-w-sm p-6">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>Year of Plenty</h2>
+              <button className="text-2xl" style={{ color: 'var(--color-text-secondary)' }} onClick={() => setShowYopPicker(false)}>&times;</button>
+            </div>
+            <p className="mb-4 text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
+              Take two resources from the bank. Pick the same one twice for a double.
+            </p>
+            <div className="catan-picker-grid">
+              {RESOURCES.map(resource => {
+                const slots = yopPick.filter(pick => pick === resource).length;
+                // A resource is unselectable if no legal pair starts with it given
+                // the current first pick (handles the bank running low on a type).
+                const disabled = yopPick.length === 0
+                  ? !yopLegalKeys.has(`${resource}|${resource}`) && !RESOURCES.some(other => yopLegalKeys.has(`${resource}|${other}`))
+                  : !yopLegalKeys.has(`${yopPick[0]}|${resource}`);
+                return (
+                  <button
+                    key={resource}
+                    className={`catan-resource-pill resource-${resource} catan-picker-pill ${slots > 0 ? 'selected' : ''}`}
+                    disabled={disabled && slots === 0}
+                    title={RESOURCE_LABELS[resource]}
+                    onClick={() => toggleYopPick(resource)}
+                  >
+                    <span>{RESOURCE_LABELS[resource]}</span>
+                    {slots > 0 && <strong className="catan-picker-badge">{slots}</strong>}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <span className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                {yopPick.length}/2 selected
+              </span>
+              <button
+                className="catan-primary-btn flex-1"
+                disabled={yopPick.length !== 2 || !yopLegalKeys.has(`${yopPick[0]}|${yopPick[1]}`)}
+                onClick={submitYop}
+              >
+                Take Resources
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {robberVictimPicker && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4" onClick={(e) => { if (e.target === e.currentTarget) setRobberVictimPicker(null); }}>
+          <div className="catan-modal w-full max-w-sm p-6">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>Steal From</h2>
+              <button className="text-2xl" style={{ color: 'var(--color-text-secondary)' }} onClick={() => setRobberVictimPicker(null)}>&times;</button>
+            </div>
+            <p className="mb-4 text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
+              More than one opponent borders this tile. Choose whom to rob.
+            </p>
+            <div className="space-y-2">
+              {robberVictimPicker.victims.map(victimId => {
+                const opponent = board.players[victimId];
+                const cards = board.getPlayerResourceTotal(victimId);
+                return (
+                  <button
+                    key={victimId}
+                    className="catan-tool-btn flex w-full items-center justify-between"
+                    onClick={() => chooseRobberVictim(victimId)}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: opponent.color }} />
+                      {opponent.name}
+                    </span>
+                    <span style={{ color: 'var(--color-text-muted)' }}>{cards} {cards === 1 ? 'card' : 'cards'}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
