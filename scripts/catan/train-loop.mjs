@@ -32,6 +32,7 @@ const ROLLOUT = getInt('rollout', 30);
 const EPOCHS = getInt('epochs', 30);
 const GATE_GAMES = getInt('gate-games', 12);
 const GATE_SIMS = getInt('gate-sims', 80);
+const DATA_GENS = getInt('data-gens', 8);      // train on a sliding window of the last N gens (replay buffer)
 const MIN_GEN_SEC = getInt('min-gen', 900);    // need ~15min headroom to start a gen
 const PY = resolve(projectDir, 'training/.venv/bin/python');
 const RUN_ID = getArg('run-id', `run-${Date.now()}`);
@@ -74,7 +75,7 @@ async function main() {
 
   let bestModel = null;        // onnx of best gated gen (null => heuristic baseline); deployed at end
   let latestCheckpoint = null; // .pt to continually fine-tune from (always advances)
-  const dataShards = [];
+  const genShards = [];        // shards per generation; train on the last DATA_GENS
   let gen = 0;
   let promoted = 0;
 
@@ -95,8 +96,9 @@ async function main() {
     await run('node', spArgs, resolve(RUN_DIR, `${genTag}-selfplay.log`));
     const newShards = ndjsonShards(genDir);
     if (newShards.length === 0) { log(`no self-play data produced; stopping`); break; }
-    dataShards.push(...newShards);
-    log(`self-play ok: +${newShards.length} shards (total ${dataShards.length})`);
+    genShards.push(newShards);
+    const dataShards = genShards.slice(-DATA_GENS).flat();
+    log(`self-play ok: +${newShards.length} shards (training on last ${Math.min(genShards.length, DATA_GENS)} gens = ${dataShards.length} shards)`);
 
     // 2. train (fine-tune from best gated checkpoint, on all accumulated data)
     const ckpt = resolve(RUN_DIR, `${genTag}.pt`);
