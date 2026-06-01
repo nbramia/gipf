@@ -244,6 +244,23 @@ function normalizePlayerCount(ruleset, playerCount) {
   return ruleset.defaultPlayerCount;
 }
 
+// The base engine has no expansion VP sources (gold fields, metropolises,
+// mission VP), so a catalog scenario's headline target can exceed what's
+// reachable with base mechanics — settlement-spot contention caps the leader,
+// and more players means a lower ceiling. This is the playable victory target;
+// it's the single source of truth shared by the engine and the setup UI.
+function reachableTarget(playerCount) {
+  const pc = Number(playerCount) || 4;
+  return pc >= 6 ? 12
+    : pc >= 4 ? 13   // 4-5 players (spot contention caps the leader ~13)
+    : pc === 3 ? 14
+    : 15;            // 2 players
+}
+
+function effectiveTarget(scenarioTarget, playerCount) {
+  return Math.min(scenarioTarget, reachableTarget(playerCount));
+}
+
 export {
   CATAN_RULESETS,
   RULESET_GROUPS,
@@ -252,4 +269,6 @@ export {
   getMapProfile,
   getDefaultScenario,
   normalizePlayerCount,
+  reachableTarget,
+  effectiveTarget,
 };

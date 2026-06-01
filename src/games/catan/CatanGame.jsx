@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import CatanBoard, { RESOURCES, COSTS, resourceTotal } from './CatanBoard.js';
-import { CATAN_RULESETS, RULESET_GROUPS, getDefaultScenario, getRuleset, normalizePlayerCount } from './catanRulesets.js';
+import { CATAN_RULESETS, RULESET_GROUPS, getDefaultScenario, getRuleset, normalizePlayerCount, effectiveTarget } from './catanRulesets.js';
 import useAIWorker from './hooks/useAIWorker.js';
 import { MCTS } from './engine/mcts.js';
 import { applyAIMove } from './engine/aiPlayer.js';
@@ -880,18 +880,27 @@ export default function CatanGame() {
         <div className="catan-config-section">
           <div className="catan-panel-label mb-2">Map / Scenario</div>
           <div className="catan-scenario-list">
-            {selectedRuleset.scenarios.map(scenario => (
-              <button
-                key={scenario.id}
-                type="button"
-                className={gameConfig.scenarioId === scenario.id ? 'active' : ''}
-                onClick={() => updateScenario(scenario.id)}
-              >
-                <span>{scenario.name}</span>
-                <strong>{scenario.target} VP</strong>
-              </button>
-            ))}
+            {selectedRuleset.scenarios.map(scenario => {
+              const playable = effectiveTarget(scenario.target, gameConfig.playerCount);
+              const clamped = playable < scenario.target;
+              return (
+                <button
+                  key={scenario.id}
+                  type="button"
+                  className={gameConfig.scenarioId === scenario.id ? 'active' : ''}
+                  onClick={() => updateScenario(scenario.id)}
+                >
+                  <span>{scenario.name}</span>
+                  <strong title={clamped ? `${scenario.target} VP in the full expansion; capped to ${playable} on the base engine` : undefined}>
+                    {playable} VP{clamped ? '*' : ''}
+                  </strong>
+                </button>
+              );
+            })}
           </div>
+          {selectedRuleset.scenarios.some(s => effectiveTarget(s.target, gameConfig.playerCount) < s.target) && (
+            <p className="catan-config-note">*Target capped to what's reachable on the base engine at {gameConfig.playerCount} players.</p>
+          )}
         </div>
       )}
 

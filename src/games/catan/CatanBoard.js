@@ -1,10 +1,13 @@
 // CatanBoard.js
 // Pure rules/state engine for Catan base play plus variant-aware maps.
 
-import { getDefaultScenario, getMapProfile, getRuleset, normalizePlayerCount } from './catanRulesets.js';
+import { getDefaultScenario, getMapProfile, getRuleset, normalizePlayerCount, reachableTarget } from './catanRulesets.js';
 
 const SQRT3 = Math.sqrt(3);
 const HEX_RADIUS = 2;
+// Generous round cap; normal games end well before this. Only triggers on a
+// board whose reachable VP ceiling sits below the (clamped) target.
+const MAX_GAME_TURNS = 100;
 
 const RESOURCES = ['brick', 'lumber', 'wool', 'grain', 'ore'];
 const COSTS = {
@@ -336,7 +339,12 @@ export default class CatanBoard {
     }
     this.mapProfile = getMapProfile(this.mapProfileId);
     this.mapName = this.mapProfile.name;
-    this.victoryTarget = scenario?.target || ruleset.victoryPoints || 10;
+    // A catalog scenario's headline target can exceed what the base engine can
+    // reach (no expansion VP sources), so clamp it to a reachable ceiling (see
+    // reachableTarget). scenarioTarget is kept for reference; victoryTarget is
+    // what's actually played, and the setup UI shows the same clamped value.
+    this.scenarioTarget = scenario?.target || ruleset.victoryPoints || 10;
+    this.victoryTarget = Math.min(this.scenarioTarget, reachableTarget(this.playerCount));
     this.pairedPlayers = !!ruleset.pairedPlayers || this.playerCount >= 5;
     this.pieceLimits = { ...this.mapProfile.pieceLimits };
 
@@ -1020,6 +1028,21 @@ export default class CatanBoard {
     this.currentPlayer = this._nextPlayerId(previousPrimary);
     this.primaryTurnPlayer = this.currentPlayer;
     if (this.currentPlayer === this.firstPlayer) this.turnNumber++; // round boundary
+
+    // Safety net: a board's reachable VP ceiling can sit below the target (no
+    // expansion VP sources), which would never end. After an unreasonable number
+    // of rounds, award the win to the VP leader so every game terminates.
+    if (this.turnNumber > MAX_GAME_TURNS) {
+      const ids = this.getPlayerIds();
+      const leader = ids.reduce((best, p) => (this.getVictoryPoints(p) > this.getVictoryPoints(best) ? p : best), ids[0]);
+      this.phase = 'game-over';
+      this.winner = leader;
+      this.winningPoints = this.getVictoryPoints(leader);
+      this.lastAction = `${this.players[leader].name} wins on points (game-length limit).`;
+      this._captureState();
+      return true;
+    }
+
     this.phase = 'roll';
     this.lastAction = `${this.players[this.currentPlayer].name}'s turn.`;
     this._captureState();
@@ -1450,6 +1473,7 @@ export default class CatanBoard {
       mapProfileId: this.mapProfileId,
       mapName: this.mapName,
       victoryTarget: this.victoryTarget,
+      scenarioTarget: this.scenarioTarget,
       pairedPlayers: this.pairedPlayers,
       pieceLimits: { ...this.pieceLimits },
       tiles: this.tiles.map(tile => ({ ...tile })),
@@ -1530,6 +1554,7 @@ export default class CatanBoard {
     board.mapProfile = getMapProfile(board.mapProfileId);
     board.mapName = state.mapName || board.mapProfile.name;
     board.victoryTarget = state.victoryTarget || board.victoryTarget || 10;
+    board.scenarioTarget = state.scenarioTarget || board.scenarioTarget || board.victoryTarget;
     board.pairedPlayers = state.pairedPlayers ?? board.pairedPlayers;
     board.pieceLimits = { ...board.mapProfile.pieceLimits, ...(state.pieceLimits || {}) };
     board.tiles = state.tiles.map(tile => ({ ...tile, vertices: [...tile.vertices], edges: [...tile.edges] }));

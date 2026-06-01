@@ -270,7 +270,13 @@ function scoreMove(board, move, playerId) {
       // productive moves and the search does not stall in propose/respond cycles.
       const net = gainNeed - giveNeed;
       if (net <= 1) return -60;
-      return Math.min(20, (net - 1) * 6);
+      // Diminishing returns: the first couple of offers a turn are fine, but
+      // each further one is penalized so the AI makes its best deals and moves
+      // on instead of spamming the per-turn cap (which bloats games and buries
+      // the human in trade modals). Tuned gentle enough to keep beneficial
+      // trading (which helps strength). The human's own cap (4) is untouched.
+      const alreadyProposed = board.tradeProposalsThisTurn || 0;
+      return Math.min(20, (net - 1) * 6) - alreadyProposed * 14;
     }
     case 'respond-trade': {
       const trade = board.pendingTrade;

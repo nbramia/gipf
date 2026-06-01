@@ -16,7 +16,7 @@ Implemented:
 - Development cards: knight, victory point, road building, year of plenty, monopoly
 - Largest army and longest road awards
 - Ruleset/scenario catalog for the core game, Seafarers, Cities & Knights, Traders & Barbarians, Explorers & Pirates, and 5-6 player extensions
-- Ruleset-specific victory target metadata
+- Ruleset-specific victory target metadata, clamped to a base-engine-reachable ceiling (see below)
 - Undo/redo support through the same board-state snapshot pattern used by the other games
 
 Also implemented (the action space is complete and faithful so the AI learns every real decision):
@@ -29,6 +29,17 @@ Also implemented (the action space is complete and faithful so the AI learns eve
 Intentionally omitted:
 
 - Full special-piece mechanics for non-base expansions such as ships, commodities, barbarians, wagons, and exploration missions. These are represented in the rules/scenario catalog for selection and reference, while the playable engine remains the base-game rules engine plus 5-6 support.
+
+### Victory targets and termination
+
+Every ruleset × scenario × player-count combination is exercised by `scripts/catan/audit-rulesets.mjs` (construction + full-game termination). Because the playable engine is base-game rules, it has no expansion VP sources (gold fields, metropolises, mission VP), so a catalog scenario's headline target (up to 17) can exceed what's actually reachable — and an unreachable target would never end. Two guards keep every game finite:
+
+- **Reachable-target clamp** (`reachableTarget` in `catanRulesets.js`, the single source of truth for both engine and setup UI): the victory target is capped to what the leader can plausibly amass given settlement-spot contention — 15/14/13/12 VP at 2/3/4-5/6 players. The setup screen shows the clamped value (with a `*` note) so the picker and board agree.
+- **Game-length safety net**: on a pathological board whose reachable ceiling still sits below the clamped target, the game ends after `MAX_GAME_TURNS` (100) rounds and the VP leader wins, so it always terminates.
+
+### Trade discipline
+
+The AI's `propose-trade` prior carries diminishing returns within a turn (`mcts.js`): the first offer is scored normally, each further one is penalized, so the AI makes its best deals and moves on instead of spamming the per-turn cap — fewer trade modals for the human, slightly shorter games. The penalty is deliberately gentle (it still lets clearly-beneficial repeat trades through), and is tuned to be strength-neutral: head-to-head against the prior champion it scores 52.5% over 40 games (a clean tie). A harder penalty would shorten games further but costs a few points of AI-vs-AI strength, so it's kept conservative. The human's own 4-proposals-per-turn cap is unaffected.
 
 ## Architecture
 

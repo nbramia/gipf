@@ -132,6 +132,13 @@
   text-transform: uppercase;
 }
 
+.game-catan .catan-config-note {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  margin-top: 8px;
+}
+
 /* ========== Controls ========== */
 
 .game-catan .catan-primary-btn,
