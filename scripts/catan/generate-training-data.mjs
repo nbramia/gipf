@@ -98,6 +98,7 @@ async function main() {
         value: valueFor(board.winner, position.player),
         winnerSeat: winnerSeatFor(board, position.player),
         numPlayers: board.playerCount,
+        gameId: SEED_BASE + game,
       }) + '\n');
       totalPositions++;
     }
