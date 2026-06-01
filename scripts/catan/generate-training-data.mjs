@@ -21,6 +21,7 @@ function getArg(name, defaultValue) {
 const NUM_GAMES = parseInt(getArg('games', '20'), 10);
 const SIMS = parseInt(getArg('sims', '200'), 10);
 const ROLLOUT = parseInt(getArg('rollout', '30'), 10);
+const MODEL = getArg('model', null);
 const SEED_BASE = parseInt(getArg('seed', '0'), 10) || Date.now();
 const MAX_MOVES = parseInt(getArg('max-moves', '1200'), 10);
 const OUTPUT_DIR = getArg('output-dir', 'data/catan');
@@ -41,8 +42,14 @@ function winnerSeatFor(board, player) {
 
 async function main() {
   const { default: CatanBoard } = await import(resolve(projectDir, 'src/games/catan/CatanBoard.js'));
-  const { MCTS, applyMove, evaluatePosition } = await import(resolve(projectDir, 'src/games/catan/engine/mcts.js'));
+  const { MCTS, NNEvaluator, applyMove, evaluatePosition } = await import(resolve(projectDir, 'src/games/catan/engine/mcts.js'));
   const { extractFeatures, extractPolicyTarget } = await import(resolve(projectDir, 'src/games/catan/engine/features.js'));
+
+  let evaluator = null;
+  if (MODEL) {
+    const { default: CatanValueNetworkNode } = await import(resolve(projectDir, 'src/games/catan/engine/valueNetworkNode.js'));
+    evaluator = new NNEvaluator(await CatanValueNetworkNode.load(resolve(projectDir, MODEL)));
+  }
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const outputPath = OUTPUT
@@ -59,7 +66,9 @@ async function main() {
 
   for (let game = 0; game < NUM_GAMES; game++) {
     const board = new CatanBoard({ seed: SEED_BASE + game });
-    const mcts = new MCTS({ maxChildren: 44, rolloutSteps: ROLLOUT });
+    const mcts = evaluator
+      ? new MCTS({ maxChildren: 44, evaluator })
+      : new MCTS({ maxChildren: 44, rolloutSteps: ROLLOUT });
     const buffer = [];
     let moves = 0;
 

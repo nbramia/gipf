@@ -11,8 +11,18 @@
 //   node scripts/catan/tournament.mjs --games 20 --a-children 50 --b-children 28 --a-label wide --b-label narrow
 //   node scripts/catan/tournament.mjs --players 4 --games 16 --a-sims 600 --b-sims 200
 
+import { resolve } from 'node:path';
 import CatanBoard from '../../src/games/catan/CatanBoard.js';
-import { MCTS, applyMove } from '../../src/games/catan/engine/mcts.js';
+import { MCTS, NNEvaluator, applyMove } from '../../src/games/catan/engine/mcts.js';
+
+// Build an NN evaluator from a model path (e.g. --a-model public/models/catan-value-v1.onnx).
+// onnxruntime-node is imported lazily so a heuristic-only run never loads it.
+async function loadEvaluator(modelPath) {
+  if (!modelPath) return null;
+  const { default: CatanValueNetworkNode } = await import('../../src/games/catan/engine/valueNetworkNode.js');
+  const net = await CatanValueNetworkNode.load(resolve(modelPath));
+  return new NNEvaluator(net);
+}
 
 const args = process.argv.slice(2);
 function getArg(name, defaultValue) {
@@ -39,6 +49,7 @@ const variantA = {
   maxChildren: getInt('a-children', 50),
   mode: getArg('a-mode', 'tree'),
   rolloutSteps: getInt('a-rollout', 0),
+  model: getArg('a-model', null),
 };
 const variantB = {
   label: getArg('b-label', 'B'),
@@ -46,9 +57,13 @@ const variantB = {
   maxChildren: getInt('b-children', 28),
   mode: getArg('b-mode', 'tree'),
   rolloutSteps: getInt('b-rollout', 0),
+  model: getArg('b-model', null),
 };
 
 function makeEngine(variant) {
+  if (variant.evaluator) {
+    return new MCTS({ maxChildren: variant.maxChildren, evaluator: variant.evaluator });
+  }
   return new MCTS({ maxChildren: variant.maxChildren, mode: variant.mode, rolloutSteps: variant.rolloutSteps });
 }
 
@@ -91,9 +106,13 @@ async function main() {
   const wins = { [variantA.label]: 0, [variantB.label]: 0, none: 0 };
   const start = Date.now();
 
+  variantA.evaluator = await loadEvaluator(variantA.model);
+  variantB.evaluator = await loadEvaluator(variantB.model);
+  const describe = v => `mode=${v.evaluator ? `nn(${v.model})` : v.mode}, sims=${v.sims}, children=${v.maxChildren}${v.rolloutSteps ? `, rollout=${v.rolloutSteps}` : ''}`;
+
   console.log(`Catan A/B tournament: ${NUM_GAMES} games, ${PLAYERS} players`);
-  console.log(`  A "${variantA.label}": mode=${variantA.mode}, sims=${variantA.sims}, children=${variantA.maxChildren}`);
-  console.log(`  B "${variantB.label}": mode=${variantB.mode}, sims=${variantB.sims}, children=${variantB.maxChildren}`);
+  console.log(`  A "${variantA.label}": ${describe(variantA)}`);
+  console.log(`  B "${variantB.label}": ${describe(variantB)}`);
 
   for (let i = 0; i < NUM_GAMES; i++) {
     const result = await playGame(i);

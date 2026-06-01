@@ -2,6 +2,7 @@
 // Root-focused Monte Carlo search with heuristic rollouts for a multi-player game.
 
 import CatanBoard, { RESOURCES, COSTS, resourceTotal } from '../CatanBoard.js';
+import { extractFeatures, moveToPolicyIndex } from './features.js';
 
 const EXPLORATION_CONSTANT = 1.25;
 const MAX_ROLLOUT_STEPS = 90;
@@ -389,6 +390,51 @@ class HeuristicEvaluator {
   }
 }
 
+function softmaxArray(logits) {
+  const max = Math.max(...logits);
+  const exps = logits.map(v => Math.exp(v - max));
+  const sum = exps.reduce((a, b) => a + b, 0) || 1;
+  return exps.map(e => e / sum);
+}
+
+// Evaluator backed by a trained network. `net.predict(Float32Array[360])` resolves
+// to { value: Float32Array[6] logits, policy: Float32Array[483] logits }. Runtime-
+// agnostic: the net comes from valueNetworkNode.js (onnxruntime-node) or
+// valueNetwork.js (onnxruntime-web); this file never imports an ONNX runtime, so
+// the browser bundle is unaffected.
+class NNEvaluator {
+  constructor(net) {
+    this.net = net;
+  }
+
+  async evaluate(board, prunedMoves, players) {
+    const toMove = board.currentPlayer;
+    const features = extractFeatures(board, toMove);
+    const input = new Float32Array(features.tiles.length + features.players.length + features.meta.length);
+    input.set(features.tiles, 0);
+    input.set(features.players, features.tiles.length);
+    input.set(features.meta, features.tiles.length + features.players.length);
+
+    const { value, policy } = await this.net.predict(input);
+
+    // Value logits are in perspective-relative seat order (slot 0 = the to-move
+    // player), matching extractFeatures' player ordering.
+    const order = [toMove, ...players.filter(p => p !== toMove)];
+    const probs = softmaxArray(order.map((_, i) => value[i] ?? 0));
+    const values = {};
+    order.forEach((pid, i) => { values[pid] = probs[i]; });
+
+    const logits = prunedMoves.map(move => {
+      const idx = moveToPolicyIndex(move);
+      return idx >= 0 && idx < policy.length ? policy[idx] : -1e9;
+    });
+    const priorProbs = softmaxArray(logits);
+    const priors = prunedMoves.map((move, i) => ({ move, key: moveToKey(move), p: priorProbs[i] }));
+
+    return { values, priors };
+  }
+}
+
 function rollDiceTotal() {
   return (1 + Math.floor(Math.random() * 6)) + (1 + Math.floor(Math.random() * 6));
 }
@@ -404,7 +450,9 @@ class TreeNode {
   }
 }
 
-function expandNode(node, players, evaluator, maxChildren) {
+// async because an NN evaluator awaits an ONNX inference; the heuristic
+// evaluator returns synchronously and the await resolves immediately.
+async function expandNode(node, players, evaluator, maxChildren) {
   if (node.terminal) {
     node.value = terminalValueVector(node.board, players);
     node.expanded = true;
@@ -412,7 +460,7 @@ function expandNode(node, players, evaluator, maxChildren) {
   }
   const legal = node.board.getLegalMoves();
   const pruned = pruneMoves(node.board, legal, node.toMove, maxChildren);
-  const { values, priors } = evaluator.evaluate(node.board, pruned, players);
+  const { values, priors } = await evaluator.evaluate(node.board, pruned, players);
   node.value = values;
   node.edges = priors.map(pr => ({ move: pr.move, key: pr.key, p: pr.p, n: 0, w: 0, children: new Map() }));
   node.expanded = true;
@@ -441,9 +489,9 @@ function childFor(node, edge) {
   return child;
 }
 
-function simulateOnce(node, players, evaluator, maxChildren, c) {
+async function simulateOnce(node, players, evaluator, maxChildren, c) {
   if (node.terminal) return terminalValueVector(node.board, players);
-  if (!node.expanded) { expandNode(node, players, evaluator, maxChildren); return node.value; }
+  if (!node.expanded) { await expandNode(node, players, evaluator, maxChildren); return node.value; }
   if (node.edges.length === 0) return node.value;
 
   const totalN = node.edges.reduce((sum, edge) => sum + edge.n, 0);
@@ -458,7 +506,7 @@ function simulateOnce(node, players, evaluator, maxChildren, c) {
   }
 
   const child = childFor(node, best);
-  const value = simulateOnce(child, players, evaluator, maxChildren, c);
+  const value = await simulateOnce(child, players, evaluator, maxChildren, c);
   best.n++;
   best.w += value[node.toMove] ?? 0;
   return value;
@@ -522,12 +570,12 @@ class MCTS {
 
     const players = board.getPlayerIds();
     const root = new TreeNode(searchClone(board));
-    expandNode(root, players, this.evaluator, this.maxChildren);
+    await expandNode(root, players, this.evaluator, this.maxChildren);
     if (root.edges.length === 1) return root.edges[0].move;
 
     const budget = Math.max(root.edges.length, simulations);
     for (let i = 0; i < budget; i++) {
-      simulateOnce(root, players, this.evaluator, this.maxChildren, this.c);
+      await simulateOnce(root, players, this.evaluator, this.maxChildren, this.c);
     }
 
     let best = root.edges[0];
@@ -585,4 +633,4 @@ class MCTS {
   }
 }
 
-export { MCTS, HeuristicEvaluator, applyMove, evaluatePosition, moveToKey, scoreMove, selectMoveByHeuristic, vertexValue, productionProfile };
+export { MCTS, HeuristicEvaluator, NNEvaluator, applyMove, evaluatePosition, moveToKey, scoreMove, selectMoveByHeuristic, vertexValue, productionProfile };
