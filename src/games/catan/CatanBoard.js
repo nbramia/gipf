@@ -906,12 +906,6 @@ export default class CatanBoard {
     if (!this._hasBundle(proposer, give)) return false;
     if (this.tradeProposalsThisTurn >= this.maxTradeProposalsPerTurn) return false;
 
-    // Never ask an opponent who can't afford the requested bundle: filter the
-    // target list to affordable opponents only. If none can pay, the proposal
-    // simply doesn't happen.
-    targetList = targetList.filter(id => this._hasBundle(id, receive));
-    if (targetList.length === 0) return false;
-
     this.tradeProposalsThisTurn++;
     this.pendingTrade = {
       proposer,
@@ -921,11 +915,35 @@ export default class CatanBoard {
       index: 0,
       returnPhase: this.phase,
     };
-    this.currentPlayer = targetList[0];
     this.phase = 'trade-response';
     this.lastAction = `${this.players[proposer].name} proposed a trade.`;
+    // A target who can't afford the requested bundle is auto-skipped (never asked,
+    // so a human isn't forced to decline a trade they can't do). The proposal
+    // itself always stands as a valid action — important so an AI proposing on a
+    // determinized (imperfect-info) belief never makes an illegal move.
+    if (!this._advanceToAffordableResponder()) {
+      this.lastAction = `${this.players[proposer].name}'s trade found no taker.`;
+      this._finishTrade();
+      return true;
+    }
     this._captureState();
     return true;
+  }
+
+  // Advance the pending trade to the next target who can afford the requested
+  // bundle, auto-skipping those who can't. Returns true if an able responder is
+  // now current, false if the targets are exhausted.
+  _advanceToAffordableResponder() {
+    const trade = this.pendingTrade;
+    while (trade.index < trade.targets.length) {
+      const candidate = trade.targets[trade.index];
+      if (this._hasBundle(candidate, trade.receive)) {
+        this.currentPlayer = candidate;
+        return true;
+      }
+      trade.index++;
+    }
+    return false;
   }
 
   _validBundle(bundle) {
@@ -948,14 +966,13 @@ export default class CatanBoard {
       return true;
     }
 
+    // Decline: advance to the next able responder, skipping any who can't pay.
     trade.index++;
-    if (trade.index < trade.targets.length) {
-      this.currentPlayer = trade.targets[trade.index];
-      this.lastAction = `${this.players[responder].name} declined the trade.`;
+    this.lastAction = `${this.players[responder].name} declined the trade.`;
+    if (this._advanceToAffordableResponder()) {
       this._captureState();
       return true;
     }
-
     this.lastAction = `${this.players[trade.proposer].name}'s trade was declined.`;
     this._finishTrade();
     return true;
@@ -1303,10 +1320,14 @@ export default class CatanBoard {
 
   _stealResource(fromPlayerId, toPlayerId) {
     const from = this.players[fromPlayerId].resources;
-    const resource = RESOURCES
-      .filter(r => from[r] > 0)
-      .sort((a, b) => from[b] - from[a])[0];
-    if (!resource) return null;
+    // Steal a uniformly random card from the victim's hand (you don't get to
+    // pick the best one), drawn proportionally to what they hold.
+    const pool = [];
+    for (const resource of RESOURCES) {
+      for (let i = 0; i < from[resource]; i++) pool.push(resource);
+    }
+    if (pool.length === 0) return null;
+    const resource = pool[Math.floor(this._random() * pool.length)];
     from[resource]--;
     this.players[toPlayerId].resources[resource]++;
     return resource;

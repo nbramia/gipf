@@ -70,3 +70,7 @@ training/.venv/
 
 # Harness scheduled-tasks lock (ephemeral per-session state)
 .claude/scheduled_tasks.lock
+src/games/catan/engine/_mcts_champion.js
+
+# ONNX external-data sidecar files
+*.onnx.data

@@ -276,12 +276,17 @@ function scoreMove(board, move, playerId) {
       const trade = board.pendingTrade;
       if (!trade) return 0;
       if (!move.accept) return 0; // declining is the neutral baseline
-      // The responder GAINS trade.give and LOSES trade.receive.
+      // The responder GAINS trade.give and LOSES trade.receive (own-hand need).
       const gain = Object.entries(trade.give)
         .reduce((sum, [res, amt]) => sum + board._resourceNeedScore(playerId, res) * amt, 0);
       const loss = Object.entries(trade.receive)
         .reduce((sum, [res, amt]) => sum + board._resourceNeedScore(playerId, res) * amt, 0);
-      return (gain - loss) * 80;
+      // Accepting ALWAYS advances the proposer (they asked for it). Demand a clear
+      // margin before helping an opponent, and a bigger one when the proposer is
+      // near winning — don't hand resources to the leader. Proposer VP is public.
+      const proposerVP = board.getVictoryPoints(trade.proposer);
+      const helpMargin = 0.8 + Math.max(0, proposerVP - 4) * 0.5;
+      return (gain - loss - helpMargin) * 80;
     }
     case 'end-turn':
       return player.resources.brick + player.resources.lumber + player.resources.grain + player.resources.ore > 7 ? -40 : 25;
@@ -341,6 +346,38 @@ function searchClone(board) {
   clone._skipHistory = true;
   clone.stateHistory = [];
   clone.historyIndex = -1;
+  return clone;
+}
+
+// Fairness: the AI must not plan against opponents' real hands (X-ray vision).
+// Re-sample each opponent's resources to a hand the OBSERVER can't see — same
+// public card count, types drawn from a belief prior (their visible production
+// plus a uniform floor), and reshuffle the unseen dev deck. The observer's own
+// hand is left untouched. Search then plans on this believable guess; the real
+// board (untouched) resolves moves with the truth, exactly like a human.
+function determinizeForSearch(board, observerId) {
+  const clone = searchClone(board);
+  for (const pid of clone.getPlayerIds()) {
+    if (pid === observerId) continue;
+    const total = resourceTotal(clone.players[pid].resources);
+    if (total === 0) continue;
+    const profile = productionProfile(clone, pid);
+    const weights = RESOURCES.map(resource => profile[resource] + 1); // +1 floor so any card is possible
+    const weightSum = weights.reduce((a, b) => a + b, 0);
+    const hand = { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 };
+    for (let i = 0; i < total; i++) {
+      let x = Math.random() * weightSum;
+      let idx = 0;
+      while (idx < RESOURCES.length - 1 && x > weights[idx]) { x -= weights[idx]; idx++; }
+      hand[RESOURCES[idx]]++;
+    }
+    clone.players[pid].resources = hand;
+  }
+  // Reshuffle the unseen dev deck so the AI can't "know" the next card it draws.
+  for (let i = clone.devDeck.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [clone.devDeck[i], clone.devDeck[j]] = [clone.devDeck[j], clone.devDeck[i]];
+  }
   return clone;
 }
 
@@ -593,7 +630,8 @@ class MCTS {
     if (legalMoves.length === 1) return legalMoves[0];
 
     const players = board.getPlayerIds();
-    const root = new TreeNode(searchClone(board));
+    // Determinize hidden info from the to-move player's perspective (no X-ray).
+    const root = new TreeNode(determinizeForSearch(board, board.currentPlayer));
     await expandNode(root, players, this.evaluator, this.maxChildren);
     if (root.edges.length === 1) return root.edges[0].move;
 
