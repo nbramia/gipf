@@ -20,7 +20,7 @@ function getArg(name, defaultValue) {
 
 const NUM_GAMES = parseInt(getArg('games', '20'), 10);
 const SIMS = parseInt(getArg('sims', '200'), 10);
-const MAX_MOVES = parseInt(getArg('max-moves', '520'), 10);
+const MAX_MOVES = parseInt(getArg('max-moves', '1200'), 10);
 const OUTPUT_DIR = getArg('output-dir', 'data/catan');
 const OUTPUT = getArg('output', null);
 

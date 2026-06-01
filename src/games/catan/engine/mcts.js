@@ -295,6 +295,175 @@ function selectMoveByHeuristic(board, { rollout = false } = {}) {
   return best;
 }
 
+// ---------------------------------------------------------------------------
+// Tree search (PUCT) — real game-tree MCTS with a pluggable evaluator.
+//
+// Multi-player value model: each node carries a win-probability VECTOR over the
+// active players (maxⁿ). The to-move player at a node maximizes their OWN
+// component. Leaf value: terminal -> one-hot winner; otherwise the evaluator's
+// win-prob vector. The ONLY stochastic transition in the engine is the dice
+// roll, so roll edges sample an outcome each visit and key children by the
+// total -> the edge's Q averages over dice outcomes (a proper expectation).
+// The HeuristicEvaluator below is swappable for an NN evaluator with the same
+// { values, priors } interface (one forward pass yields both).
+// ---------------------------------------------------------------------------
+
+const PUCT_C = 1.6;
+const VALUE_TEMP = 0.4;   // softmax temperature over per-player position eval
+const PRIOR_TEMP = 180;   // softmax temperature over scoreMove (hundreds-scale)
+
+function searchClone(board) {
+  const clone = board.clone();
+  clone._skipHistory = true;
+  clone.stateHistory = [];
+  clone.historyIndex = -1;
+  return clone;
+}
+
+function softmaxOverPlayers(rawByPlayer, players, temp) {
+  const max = Math.max(...players.map(p => rawByPlayer[p]));
+  const exps = {};
+  let sum = 0;
+  for (const p of players) { const e = Math.exp((rawByPlayer[p] - max) / temp); exps[p] = e; sum += e; }
+  const out = {};
+  for (const p of players) out[p] = exps[p] / (sum || 1);
+  return out;
+}
+
+// Win-probability vector over players from the heuristic position eval.
+function heuristicValueVector(board, players) {
+  const raw = {};
+  for (const p of players) raw[p] = evaluatePosition(board, p);
+  return softmaxOverPlayers(raw, players, VALUE_TEMP);
+}
+
+// One-hot win vector at a terminal node (falls back to the heuristic if a search
+// somehow stops at a capped, winner-less terminal).
+function terminalValueVector(board, players) {
+  if (board.winner == null) return heuristicValueVector(board, players);
+  const out = {};
+  for (const p of players) out[p] = board.winner === p ? 1 : 0;
+  return out;
+}
+
+// Softmax priors over the (already pruned) legal moves from scoreMove.
+function heuristicPriors(board, moves, toMove) {
+  const scores = moves.map(move => scoreMove(board, move, toMove));
+  const max = Math.max(...scores);
+  let sum = 0;
+  const exps = scores.map(score => { const e = Math.exp((score - max) / PRIOR_TEMP); sum += e; return e; });
+  return moves.map((move, i) => ({ move, key: moveToKey(move), p: exps[i] / (sum || 1) }));
+}
+
+// Deep value estimate via a short heuristic rollout: play cheap-mode moves to a
+// terminal state or a step cap, then read a one-hot winner (if decided) or the
+// position-eval win-prob vector. Gives the tree a far stronger per-leaf signal
+// than a 1-ply eval at low simulation counts. The NN evaluator replaces this
+// with a direct value head (no rollout).
+function rolloutValueVector(board, players, steps) {
+  const sim = searchClone(board);
+  let i = 0;
+  while (sim.phase !== 'game-over' && i < steps) {
+    const move = selectMoveByHeuristic(sim, { rollout: true });
+    if (!move || !sim.applyMove(move)) break;
+    i++;
+  }
+  if (sim.phase === 'game-over' && sim.winner != null) {
+    const out = {};
+    for (const p of players) out[p] = sim.winner === p ? 1 : 0;
+    return out;
+  }
+  return heuristicValueVector(sim, players);
+}
+
+class HeuristicEvaluator {
+  constructor({ rolloutSteps = 0 } = {}) {
+    this.rolloutSteps = rolloutSteps;
+  }
+
+  evaluate(board, prunedMoves, players) {
+    const values = this.rolloutSteps > 0
+      ? rolloutValueVector(board, players, this.rolloutSteps)
+      : heuristicValueVector(board, players);
+    return { values, priors: heuristicPriors(board, prunedMoves, board.currentPlayer) };
+  }
+}
+
+function rollDiceTotal() {
+  return (1 + Math.floor(Math.random() * 6)) + (1 + Math.floor(Math.random() * 6));
+}
+
+class TreeNode {
+  constructor(board) {
+    this.board = board;
+    this.toMove = board.currentPlayer;
+    this.terminal = board.phase === 'game-over';
+    this.expanded = false;
+    this.value = null;   // { playerId: winProb }
+    this.edges = [];     // { move, key, p, n, w, children: Map<outcomeKey, TreeNode> }
+  }
+}
+
+function expandNode(node, players, evaluator, maxChildren) {
+  if (node.terminal) {
+    node.value = terminalValueVector(node.board, players);
+    node.expanded = true;
+    return;
+  }
+  const legal = node.board.getLegalMoves();
+  const pruned = pruneMoves(node.board, legal, node.toMove, maxChildren);
+  const { values, priors } = evaluator.evaluate(node.board, pruned, players);
+  node.value = values;
+  node.edges = priors.map(pr => ({ move: pr.move, key: pr.key, p: pr.p, n: 0, w: 0, children: new Map() }));
+  node.expanded = true;
+}
+
+function childFor(node, edge) {
+  if (edge.move.type === 'roll') {
+    const total = rollDiceTotal();
+    const key = `r${total}`;
+    let child = edge.children.get(key);
+    if (!child) {
+      const cb = searchClone(node.board);
+      cb.applyMove({ type: 'roll', total });
+      child = new TreeNode(cb);
+      edge.children.set(key, child);
+    }
+    return child;
+  }
+  let child = edge.children.get('_');
+  if (!child) {
+    const cb = searchClone(node.board);
+    cb.applyMove(edge.move);
+    child = new TreeNode(cb);
+    edge.children.set('_', child);
+  }
+  return child;
+}
+
+function simulateOnce(node, players, evaluator, maxChildren, c) {
+  if (node.terminal) return terminalValueVector(node.board, players);
+  if (!node.expanded) { expandNode(node, players, evaluator, maxChildren); return node.value; }
+  if (node.edges.length === 0) return node.value;
+
+  const totalN = node.edges.reduce((sum, edge) => sum + edge.n, 0);
+  const sqrtTotal = Math.sqrt(totalN + 1);
+  const fpu = node.value[node.toMove] ?? 0; // first-play urgency = node's own estimate
+  let best = node.edges[0];
+  let bestU = -Infinity;
+  for (const edge of node.edges) {
+    const q = edge.n > 0 ? edge.w / edge.n : fpu;
+    const u = q + c * edge.p * sqrtTotal / (1 + edge.n);
+    if (u > bestU) { bestU = u; best = edge; }
+  }
+
+  const child = childFor(node, best);
+  const value = simulateOnce(child, players, evaluator, maxChildren, c);
+  best.n++;
+  best.w += value[node.toMove] ?? 0;
+  return value;
+}
+
 class RootChild {
   constructor(move) {
     this.move = move;
@@ -313,8 +482,15 @@ class RootChild {
 class MCTS {
   constructor({
     maxChildren = DEFAULT_MAX_CHILDREN,
+    mode = 'tree',
+    evaluator = null,
+    rolloutSteps = 0,
+    c = PUCT_C,
   } = {}) {
     this.maxChildren = maxChildren;
+    this.mode = mode;
+    this.evaluator = evaluator || new HeuristicEvaluator({ rolloutSteps });
+    this.c = c;
   }
 
   _rollout(board, rootPlayer) {
@@ -335,6 +511,42 @@ class MCTS {
   }
 
   async getBestMove(board, simulations = 350) {
+    if (this.mode === 'bandit') return this._getBestMoveBandit(board, simulations);
+    return this._getBestMoveTree(board, simulations);
+  }
+
+  async _getBestMoveTree(board, simulations = 350) {
+    const legalMoves = board.getLegalMoves();
+    if (legalMoves.length === 0) return null;
+    if (legalMoves.length === 1) return legalMoves[0];
+
+    const players = board.getPlayerIds();
+    const root = new TreeNode(searchClone(board));
+    expandNode(root, players, this.evaluator, this.maxChildren);
+    if (root.edges.length === 1) return root.edges[0].move;
+
+    const budget = Math.max(root.edges.length, simulations);
+    for (let i = 0; i < budget; i++) {
+      simulateOnce(root, players, this.evaluator, this.maxChildren, this.c);
+    }
+
+    let best = root.edges[0];
+    for (const edge of root.edges) {
+      if (edge.n > best.n) best = edge;
+    }
+
+    const rootVisits = {};
+    for (const edge of root.edges) rootVisits[edge.key] = edge.n;
+    const legalMovesForTraining = root.edges.map(({ move }) => {
+      const { _rootVisits, _legalMoves, ...rest } = move;
+      return rest;
+    });
+    best.move._rootVisits = rootVisits;
+    best.move._legalMoves = legalMovesForTraining;
+    return best.move;
+  }
+
+  async _getBestMoveBandit(board, simulations = 350) {
     const legalMoves = board.getLegalMoves();
     if (legalMoves.length === 0) return null;
     if (legalMoves.length === 1) return legalMoves[0];
@@ -373,4 +585,4 @@ class MCTS {
   }
 }
 
-export { MCTS, applyMove, evaluatePosition, moveToKey, scoreMove, selectMoveByHeuristic, vertexValue, productionProfile };
+export { MCTS, HeuristicEvaluator, applyMove, evaluatePosition, moveToKey, scoreMove, selectMoveByHeuristic, vertexValue, productionProfile };

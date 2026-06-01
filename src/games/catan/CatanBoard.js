@@ -1555,6 +1555,9 @@ export default class CatanBoard {
   }
 
   _captureState() {
+    // Search clones set _skipHistory to avoid the per-move serialize cost; undo/
+    // redo history is irrelevant during MCTS rollouts and tree expansion.
+    if (this._skipHistory) return;
     const state = this.serializeState();
     state.stateHistory = [];
     state.historyIndex = -1;

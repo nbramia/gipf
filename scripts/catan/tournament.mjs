@@ -25,7 +25,9 @@ function getInt(name, defaultValue) {
 
 const NUM_GAMES = getInt('games', 12);
 const PLAYERS = getInt('players', 4);
-const MAX_MOVES = getInt('max-moves', 520);
+// Games now need ~700 moves to reach 10 VP (the expanded action space inflates
+// moves-per-turn), so the cap must clear that or games get truncated as draws.
+const MAX_MOVES = getInt('max-moves', 1200);
 const SEED = getInt('seed', 1000);
 
 // A variant is everything the harness needs to build an engine and pick a sim
@@ -35,15 +37,19 @@ const variantA = {
   label: getArg('a-label', 'A'),
   sims: getInt('a-sims', 500),
   maxChildren: getInt('a-children', 50),
+  mode: getArg('a-mode', 'tree'),
+  rolloutSteps: getInt('a-rollout', 0),
 };
 const variantB = {
   label: getArg('b-label', 'B'),
   sims: getInt('b-sims', 500),
   maxChildren: getInt('b-children', 28),
+  mode: getArg('b-mode', 'tree'),
+  rolloutSteps: getInt('b-rollout', 0),
 };
 
 function makeEngine(variant) {
-  return new MCTS({ maxChildren: variant.maxChildren });
+  return new MCTS({ maxChildren: variant.maxChildren, mode: variant.mode, rolloutSteps: variant.rolloutSteps });
 }
 
 // Assign each seat (1..PLAYERS) to variant A or B, alternating, with the
@@ -86,8 +92,8 @@ async function main() {
   const start = Date.now();
 
   console.log(`Catan A/B tournament: ${NUM_GAMES} games, ${PLAYERS} players`);
-  console.log(`  A "${variantA.label}": sims=${variantA.sims}, children=${variantA.maxChildren}`);
-  console.log(`  B "${variantB.label}": sims=${variantB.sims}, children=${variantB.maxChildren}`);
+  console.log(`  A "${variantA.label}": mode=${variantA.mode}, sims=${variantA.sims}, children=${variantA.maxChildren}`);
+  console.log(`  B "${variantB.label}": mode=${variantB.mode}, sims=${variantB.sims}, children=${variantB.maxChildren}`);
 
   for (let i = 0; i < NUM_GAMES; i++) {
     const result = await playGame(i);
