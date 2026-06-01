@@ -30,7 +30,7 @@ const GAMES_PER_GEN = getInt('games', 600);
 const SIMS = getInt('sims', 100);
 const ROLLOUT = getInt('rollout', 30);
 const EPOCHS = getInt('epochs', 30);
-const GATE_GAMES = getInt('gate-games', 12);
+const GATE_GAMES = getInt('gate-games', 20);
 const GATE_SIMS = getInt('gate-sims', 80);
 // Gate rollout: the heuristic baseline for gating. Default 0 = pure 1-ply eval
 // (fair comparison with the NN's value head). Set > 0 only once the net is
@@ -120,8 +120,11 @@ async function main() {
 
     // 2. train (fine-tune from best gated checkpoint, on all accumulated data)
     const ckpt = resolve(RUN_DIR, `${genTag}.pt`);
+    // Heuristic-first loss: distill the heuristic eval into the value head as the
+    // primary signal (dense, low-variance), with winner CE as secondary bootstrap.
     const trainArgs = ['training/catan/train.py', '--data', ...dataShards,
-      '--epochs', String(EPOCHS), '--output', ckpt, '--lr', latestCheckpoint ? '3e-4' : '1e-3'];
+      '--epochs', String(EPOCHS), '--output', ckpt, '--lr', latestCheckpoint ? '3e-4' : '1e-3',
+      '--value-weight', '0.5', '--heuristic-weight', '2.0'];
     if (latestCheckpoint) trainArgs.push('--checkpoint', latestCheckpoint);
     log(`train: ${EPOCHS} epochs on ${dataShards.length} shards${latestCheckpoint ? ' (fine-tune from latest)' : ' (fresh)'}`);
     const tr = await run(PY, trainArgs, resolve(RUN_DIR, `${genTag}-train.log`));

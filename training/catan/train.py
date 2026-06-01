@@ -72,10 +72,11 @@ def main():
     ap.add_argument("--checkpoint", default=None)
     ap.add_argument("--patience", type=int, default=8)
     ap.add_argument("--val-frac", type=float, default=0.1)
-    ap.add_argument("--value-weight", type=float, default=1.0)
+    ap.add_argument("--value-weight", type=float, default=0.5,
+                    help="Weight for winner CrossEntropy (secondary bootstrap signal)")
     ap.add_argument("--policy-weight", type=float, default=1.0)
-    ap.add_argument("--heuristic-weight", type=float, default=0.5,
-                    help="Weight for auxiliary heuristic regression (0=disabled)")
+    ap.add_argument("--heuristic-weight", type=float, default=2.0,
+                    help="Weight for heuristic regression (primary value signal; 0=disabled)")
     args = ap.parse_args()
 
     device = pick_device()

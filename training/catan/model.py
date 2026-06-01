@@ -39,7 +39,7 @@ class CatanPolicyValueNet(nn.Module):
     POLICY_SIZE = POLICY_SIZE
     VALUE_SIZE = VALUE_SIZE
 
-    def __init__(self, hidden=512, blocks=3, dropout=0.1):
+    def __init__(self, hidden=128, blocks=2, dropout=0.15):
         super().__init__()
         self.input_fc = nn.Linear(INPUT_SIZE, hidden)
         self.input_norm = nn.LayerNorm(hidden)
