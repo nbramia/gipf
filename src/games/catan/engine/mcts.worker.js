@@ -12,7 +12,7 @@ self.onmessage = async function (event) {
     const board = CatanBoard.fromSerializedState(boardState);
     // rollout-leaf keeps the heuristic tree clearly stronger than the old bandit
     // (NN evaluator drops in here later via a model URL).
-    const mcts = new MCTS({ maxChildren, rolloutSteps: rolloutSteps ?? 16 });
+    const mcts = new MCTS({ maxChildren, rolloutSteps: rolloutSteps ?? 24 });
     const move = await mcts.getBestMove(board, simulations);
 
     self.postMessage({

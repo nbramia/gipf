@@ -12,10 +12,13 @@ import './catan.css';
 const HUMAN_PLAYER = 1;
 const BOARD_VIEWBOX = { width: 760, height: 720, pad: 56 };
 
+// Deep search — the move-speed budget is generous (~up to 3s/move), and more
+// search is the reliable strength lever. rolloutSteps deepens the per-leaf
+// value estimate. (Benchmark: brutal ~2.5-3s/move.)
 const DIFFICULTY_CONFIG = {
-  strong: { simulations: 260, maxChildren: 34 },
-  expert: { simulations: 420, maxChildren: 42 },
-  brutal: { simulations: 650, maxChildren: 50 },
+  strong: { simulations: 1500, maxChildren: 44, rolloutSteps: 24 },
+  expert: { simulations: 3000, maxChildren: 50, rolloutSteps: 28 },
+  brutal: { simulations: 6000, maxChildren: 56, rolloutSteps: 32 },
 };
 
 const RESOURCE_LABELS = {
@@ -450,7 +453,7 @@ export default function CatanGame() {
     const onError = (error) => {
       console.warn('Catan AI error:', error);
       setIsAiThinking(false);
-      const fallback = new MCTS({ maxChildren: difficultyConfig.maxChildren, rolloutSteps: 16 });
+      const fallback = new MCTS({ maxChildren: difficultyConfig.maxChildren, rolloutSteps: difficultyConfig.rolloutSteps });
       fallback.getBestMove(board, Math.max(60, Math.floor(difficultyConfig.simulations / 4)))
         .then((move) => {
           if (!move) return;
@@ -468,13 +471,14 @@ export default function CatanGame() {
         difficultyConfig.simulations,
         onSuccess,
         onError,
-        difficultyConfig.maxChildren
+        difficultyConfig.maxChildren,
+        difficultyConfig.rolloutSteps
       );
     } else {
-      const mcts = new MCTS({ maxChildren: difficultyConfig.maxChildren, rolloutSteps: 16 });
+      const mcts = new MCTS({ maxChildren: difficultyConfig.maxChildren, rolloutSteps: difficultyConfig.rolloutSteps });
       mcts.getBestMove(board, difficultyConfig.simulations).then(onSuccess).catch(onError);
     }
-  }, [applyAIMove, board, computeMove, difficultyConfig.maxChildren, difficultyConfig.simulations, isAiThinking, workerSupported]);
+  }, [applyAIMove, board, computeMove, difficultyConfig.maxChildren, difficultyConfig.rolloutSteps, difficultyConfig.simulations, isAiThinking, workerSupported]);
 
   useEffect(() => {
     if (showModal || isHumanTurn || isAiThinking || board.phase === 'game-over') return;
