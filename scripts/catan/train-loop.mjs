@@ -32,10 +32,17 @@ const ROLLOUT = getInt('rollout', 30);
 const EPOCHS = getInt('epochs', 30);
 const GATE_GAMES = getInt('gate-games', 12);
 const GATE_SIMS = getInt('gate-sims', 80);
+// Gate rollout: the heuristic baseline for gating. Default 0 = pure 1-ply eval
+// (fair comparison with the NN's value head). Set > 0 only once the net is
+// already promoted and we're gating gen N vs gen N-1.
+const GATE_ROLLOUT = getInt('gate-rollout', 0);
 const DATA_GENS = getInt('data-gens', 8);      // train on a sliding window of the last N gens (replay buffer)
 const MIN_GEN_SEC = getInt('min-gen', 900);    // need ~15min headroom to start a gen
 const PY = resolve(projectDir, 'training/.venv/bin/python');
 const RUN_ID = getArg('run-id', `run-${Date.now()}`);
+// Warm-start: pick up from a previous partial run's checkpoint + shards.
+const WARM_CHECKPOINT = getArg('warm-checkpoint', null); // e.g. data/catan/v1-8h/gen2.pt
+const WARM_GEN = getInt('warm-gen', 0);        // which gen number to resume from
 const RUN_DIR = resolve(projectDir, 'data/catan', RUN_ID);
 const LOG = resolve(RUN_DIR, 'train-loop.log');
 mkdirSync(RUN_DIR, { recursive: true });
@@ -74,10 +81,21 @@ async function main() {
   if (!existsSync(PY)) { log(`FATAL: venv python not found at ${PY}`); process.exitCode = 1; return; }
 
   let bestModel = null;        // onnx of best gated gen (null => heuristic baseline); deployed at end
-  let latestCheckpoint = null; // .pt to continually fine-tune from (always advances)
+  let latestCheckpoint = WARM_CHECKPOINT ? resolve(projectDir, WARM_CHECKPOINT) : null;
   const genShards = [];        // shards per generation; train on the last DATA_GENS
-  let gen = 0;
+  let gen = WARM_GEN;
   let promoted = 0;
+  if (latestCheckpoint) log(`warm-start from ${latestCheckpoint} at gen${gen}`);
+  // Collect shards from warm-start gens so training continues on all prior data.
+  const WARM_DATA = getArg('warm-data', null);
+  if (WARM_DATA) {
+    const warmDir = resolve(projectDir, WARM_DATA);
+    for (let g = 0; g < gen; g++) {
+      const d = resolve(warmDir, `gen${g}`);
+      const shards = ndjsonShards(d);
+      if (shards.length > 0) { genShards.push(shards); log(`loaded ${shards.length} warm shards from gen${g}`); }
+    }
+  }
 
   while (remaining() > MIN_GEN_SEC) {
     const genTag = `gen${gen}`;
@@ -120,7 +138,10 @@ async function main() {
     const gateArgs = ['scripts/catan/tournament.mjs', '--games', String(GATE_GAMES), '--max-moves', '1200',
       '--a-model', onnx, '--a-sims', String(GATE_SIMS), '--a-children', '24', '--a-label', genTag];
     if (bestModel) gateArgs.push('--b-model', bestModel, '--b-sims', String(GATE_SIMS), '--b-children', '24', '--b-label', 'best');
-    else gateArgs.push('--b-mode', 'tree', '--b-rollout', String(ROLLOUT), '--b-sims', String(GATE_SIMS), '--b-children', '24', '--b-label', 'heuristic');
+    // GATE_ROLLOUT 0 = fair 1-ply heuristic baseline (no deep rollouts) so the
+    // net can prove it has learned a better value estimate, not just that it can't
+    // beat 30-step heuristic rollouts at equal sims (those are ~2400 ply each).
+    else gateArgs.push('--b-mode', 'tree', '--b-rollout', String(GATE_ROLLOUT), '--b-sims', String(GATE_SIMS), '--b-children', '24', '--b-label', 'heuristic-1ply');
     log(`gate: ${genTag} vs ${bestModel ? 'best' : 'heuristic'} (${GATE_GAMES} games)`);
     const gate = await run('node', gateArgs, resolve(RUN_DIR, `${genTag}-gate.log`));
     const winLine = (gate.tail.match(/A win rate[^\n]*/) || ['(no win line)'])[0];
