@@ -43,6 +43,9 @@ const RUN_ID = getArg('run-id', `run-${Date.now()}`);
 // Warm-start: pick up from a previous partial run's checkpoint + shards.
 const WARM_CHECKPOINT = getArg('warm-checkpoint', null); // e.g. data/catan/v1-8h/gen2.pt
 const WARM_GEN = getInt('warm-gen', 0);        // which gen number to resume from
+// Seed model: an already-trained ONNX to use as the initial bestModel so that
+// gen-0 self-play is NN-guided from the start and gating is NN-vs-NN (not NN-vs-heuristic).
+const SEED_MODEL = getArg('seed-model', null); // e.g. public/models/catan-scalar-seed.onnx
 const RUN_DIR = resolve(projectDir, 'data/catan', RUN_ID);
 const LOG = resolve(RUN_DIR, 'train-loop.log');
 mkdirSync(RUN_DIR, { recursive: true });
@@ -80,7 +83,7 @@ async function main() {
   log(`flywheel start  budget=${(BUDGET / 3600).toFixed(1)}h workers=${WORKERS} games/gen=${GAMES_PER_GEN} sims=${SIMS} epochs=${EPOCHS}`);
   if (!existsSync(PY)) { log(`FATAL: venv python not found at ${PY}`); process.exitCode = 1; return; }
 
-  let bestModel = null;        // onnx of best gated gen (null => heuristic baseline); deployed at end
+  let bestModel = SEED_MODEL ? resolve(projectDir, SEED_MODEL) : null; // start NN-vs-NN from gen-0 when seeded
   let latestCheckpoint = WARM_CHECKPOINT ? resolve(projectDir, WARM_CHECKPOINT) : null;
   const genShards = [];        // shards per generation; train on the last DATA_GENS
   let gen = WARM_GEN;
