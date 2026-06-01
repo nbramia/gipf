@@ -72,8 +72,8 @@ async function main() {
   log(`flywheel start  budget=${(BUDGET / 3600).toFixed(1)}h workers=${WORKERS} games/gen=${GAMES_PER_GEN} sims=${SIMS} epochs=${EPOCHS}`);
   if (!existsSync(PY)) { log(`FATAL: venv python not found at ${PY}`); process.exitCode = 1; return; }
 
-  let bestModel = null;        // onnx of best gated gen (null => heuristic baseline)
-  let bestCheckpoint = null;   // .pt to fine-tune from (best gated)
+  let bestModel = null;        // onnx of best gated gen (null => heuristic baseline); deployed at end
+  let latestCheckpoint = null; // .pt to continually fine-tune from (always advances)
   const dataShards = [];
   let gen = 0;
   let promoted = 0;
@@ -101,11 +101,12 @@ async function main() {
     // 2. train (fine-tune from best gated checkpoint, on all accumulated data)
     const ckpt = resolve(RUN_DIR, `${genTag}.pt`);
     const trainArgs = ['training/catan/train.py', '--data', ...dataShards,
-      '--epochs', String(EPOCHS), '--output', ckpt, '--lr', bestCheckpoint ? '3e-4' : '1e-3'];
-    if (bestCheckpoint) trainArgs.push('--checkpoint', bestCheckpoint);
-    log(`train: ${EPOCHS} epochs on ${dataShards.length} shards${bestCheckpoint ? ' (fine-tune)' : ' (fresh)'}`);
+      '--epochs', String(EPOCHS), '--output', ckpt, '--lr', latestCheckpoint ? '3e-4' : '1e-3'];
+    if (latestCheckpoint) trainArgs.push('--checkpoint', latestCheckpoint);
+    log(`train: ${EPOCHS} epochs on ${dataShards.length} shards${latestCheckpoint ? ' (fine-tune from latest)' : ' (fresh)'}`);
     const tr = await run(PY, trainArgs, resolve(RUN_DIR, `${genTag}-train.log`));
     if (tr.code !== 0 || !existsSync(ckpt)) { log(`train failed (code ${tr.code}); stopping`); break; }
+    latestCheckpoint = ckpt; // continually advance so the net keeps improving even before it clears the gate
 
     // 3. export ONNX
     const onnx = resolve(RUN_DIR, `catan-value-${genTag}.onnx`);
@@ -124,7 +125,6 @@ async function main() {
 
     if (gate.code === 0) {
       bestModel = onnx;
-      bestCheckpoint = ckpt;
       promoted++;
       log(`PROMOTED ${genTag} as new best -- ${winLine}`);
     } else {
