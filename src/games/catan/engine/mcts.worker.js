@@ -8,9 +8,11 @@ self.onmessage = async function (event) {
   if (type !== 'compute') return;
 
   try {
-    const { boardState, simulations, maxChildren } = data;
+    const { boardState, simulations, maxChildren, rolloutSteps } = data;
     const board = CatanBoard.fromSerializedState(boardState);
-    const mcts = new MCTS({ maxChildren });
+    // rollout-leaf keeps the heuristic tree clearly stronger than the old bandit
+    // (NN evaluator drops in here later via a model URL).
+    const mcts = new MCTS({ maxChildren, rolloutSteps: rolloutSteps ?? 16 });
     const move = await mcts.getBestMove(board, simulations);
 
     self.postMessage({

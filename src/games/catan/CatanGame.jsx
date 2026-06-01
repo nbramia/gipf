@@ -375,7 +375,7 @@ export default function CatanGame() {
     const onError = (error) => {
       console.warn('Catan AI error:', error);
       setIsAiThinking(false);
-      const fallback = new MCTS({ maxChildren: difficultyConfig.maxChildren });
+      const fallback = new MCTS({ maxChildren: difficultyConfig.maxChildren, rolloutSteps: 16 });
       fallback.getBestMove(board, Math.max(60, Math.floor(difficultyConfig.simulations / 4)))
         .then((move) => {
           if (!move) return;
@@ -396,7 +396,7 @@ export default function CatanGame() {
         difficultyConfig.maxChildren
       );
     } else {
-      const mcts = new MCTS({ maxChildren: difficultyConfig.maxChildren });
+      const mcts = new MCTS({ maxChildren: difficultyConfig.maxChildren, rolloutSteps: 16 });
       mcts.getBestMove(board, difficultyConfig.simulations).then(onSuccess).catch(onError);
     }
   }, [applyAIMove, board, computeMove, difficultyConfig.maxChildren, difficultyConfig.simulations, isAiThinking, workerSupported]);
