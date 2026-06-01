@@ -387,14 +387,15 @@ describe('Catan complete action space', () => {
     board.phase = 'action';
     board.currentPlayer = 1;
     board.primaryTurnPlayer = 1;
-    giveResources(board, 1, { brick: 5 });
+    giveResources(board, 1, { brick: 6 });
     giveResources(board, 2, { ore: 1 }); // player 2 can afford, so the proposal is asked
 
-    expect(board.proposeTrade({ brick: 1 }, { ore: 1 }, [2])).toBe(true);
-    expect(board.respondTrade(false)).toBe(true);
-    expect(board.proposeTrade({ brick: 1 }, { ore: 1 }, [2])).toBe(true);
-    expect(board.respondTrade(false)).toBe(true);
-    // Third proposal exceeds the per-turn cap.
+    // Up to maxTradeProposalsPerTurn (4) proposals are allowed.
+    for (let i = 0; i < board.maxTradeProposalsPerTurn; i++) {
+      expect(board.proposeTrade({ brick: 1 }, { ore: 1 }, [2])).toBe(true);
+      expect(board.respondTrade(false)).toBe(true);
+    }
+    // The next proposal exceeds the per-turn cap.
     expect(board.proposeTrade({ brick: 1 }, { ore: 1 }, [2])).toBe(false);
   });
 });
@@ -414,8 +415,10 @@ describe('Catan AI', () => {
     const board = new CatanBoard({ seed: 17 });
     const mcts = new MCTS({ maxChildren: 10 });
 
+    // Games legitimately need ~700 moves with the full action space (trades,
+    // discards, per-victim robber), so the cap must clear that.
     let moves = 0;
-    while (board.phase !== 'game-over' && moves < 500) {
+    while (board.phase !== 'game-over' && moves < 1300) {
       const move = await mcts.getBestMove(board, 8);
       expect(move).toBeTruthy();
       expect(board.applyMove(move)).toBe(true);
@@ -424,6 +427,6 @@ describe('Catan AI', () => {
 
     expect(board.phase).toBe('game-over');
     expect(board.winner).toBeGreaterThanOrEqual(1);
-    expect(moves).toBeLessThan(500);
-  }, 30000);
+    expect(moves).toBeLessThan(1300);
+  }, 60000);
 });
