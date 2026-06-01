@@ -138,10 +138,16 @@ function evaluatePosition(board, perspectivePlayer) {
     .filter(id => id !== perspectivePlayer)
     .map(id => board.getVictoryPoints(id));
   const bestOpponent = Math.max(0, ...opponentPoints);
+  const target = board.victoryTarget || 10;
   let score = (myPoints - bestOpponent) * 2600 + myPoints * 240;
 
-  if (myPoints >= 8) score += (myPoints - 7) * 900;
-  if (bestOpponent >= 8) score -= (bestOpponent - 7) * 1000;
+  // Endgame closing: the drive to finish must dominate once in striking range,
+  // so the AI converts a 7-9 VP lead into a win instead of stalling. Quadratic in
+  // the gap to target (1 VP away >> 2 away), strictly stronger than the prior
+  // linear weights at 8-9 VP.
+  if (myPoints >= target - 3) score += (myPoints - (target - 4)) ** 2 * 300;
+  // Symmetric, stronger urgency to deny an opponent about to win.
+  if (bestOpponent >= target - 3) score -= (bestOpponent - (target - 4)) ** 2 * 380;
 
   const profile = productionProfile(board, perspectivePlayer);
   const production = RESOURCES.reduce((sum, resource) => sum + profile[resource], 0);
@@ -188,6 +194,17 @@ function evaluatePosition(board, perspectivePlayer) {
   return Math.tanh(score / 6500);
 }
 
+// A move that reaches the victory target must always be chosen; one that gets
+// within striking range is strongly preferred. vpGain = VP this move adds.
+function winBonus(board, playerId, vpGain) {
+  const target = board.victoryTarget || 10;
+  const after = board.getVictoryPoints(playerId) + vpGain;
+  if (after >= target) return 100000;          // winning move — dominate everything
+  if (after >= target - 1) return 1400;         // one VP from winning
+  if (after >= target - 2) return 600;
+  return 0;
+}
+
 function scoreMove(board, move, playerId) {
   const player = board.players[playerId];
   switch (move.type) {
@@ -205,15 +222,21 @@ function scoreMove(board, move, playerId) {
         const building = board.vertices[vertexId].building;
         if (!building) continue;
         const pips = numberStrength(tile.number);
-        score += building.player === playerId ? -pips * 70 : pips * 55;
+        // Block the leader hardest: scale by how close the victim is to winning.
+        const vp = board.getVictoryPoints(building.player);
+        const leaderWeight = building.player === playerId ? 1 : 1 + Math.max(0, vp - 4) * 0.45;
+        score += building.player === playerId ? -pips * 70 : pips * 55 * leaderWeight;
       }
-      if (move.stealPlayerId) score += Math.min(7, board.getPlayerResourceTotal(move.stealPlayerId)) * 22;
+      if (move.stealPlayerId) {
+        score += Math.min(7, board.getPlayerResourceTotal(move.stealPlayerId)) * 22;
+        score += Math.max(0, board.getVictoryPoints(move.stealPlayerId) - 4) * 55; // prefer robbing the leader
+      }
       return score;
     }
     case 'build-city':
-      return 900 + vertexValue(board, move.vertexId, playerId) * 0.8;
+      return 900 + vertexValue(board, move.vertexId, playerId) * 0.8 + winBonus(board, playerId, 1);
     case 'build-settlement':
-      return 780 + vertexValue(board, move.vertexId, playerId);
+      return 780 + vertexValue(board, move.vertexId, playerId) + winBonus(board, playerId, 1);
     case 'build-road':
       return 140 + edgeExpansionValue(board, move.edgeId, playerId) + (move.free ? 60 : 0);
     case 'buy-dev':
