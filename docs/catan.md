@@ -35,8 +35,10 @@ Files:
 | `src/games/catan/catanRulesets.js` | Rule family, scenario, map, player-count, and victory-target metadata |
 | `src/games/catan/CatanGame.jsx` | React UI, SVG board, controls, AI turn loop |
 | `src/games/catan/catan.css` | Scoped `.game-catan` variables and board styling |
-| `src/games/catan/engine/mcts.js` | Root-focused MCTS with heuristic rollouts |
+| `src/games/catan/engine/mcts.js` | PUCT game-tree MCTS (maxⁿ value, dice chance nodes, heuristic-rollout/NN evaluator) |
 | `src/games/catan/engine/features.js` | Self-play feature extraction and policy targets |
+| `src/games/catan/engine/valueNetwork.js` / `valueNetworkNode.js` | ONNX inference (browser / Node) for the NN evaluator |
+| `training/catan/` | PyTorch policy+value model, dataset, train, ONNX export |
 | `src/games/catan/engine/mcts.worker.js` | Web Worker entrypoint for browser AI |
 | `src/games/catan/hooks/useAIWorker.js` | React worker lifecycle hook |
 | `scripts/catan/generate-training-data.mjs` | Self-play NDJSON generation |
@@ -46,7 +48,9 @@ The module follows the same Board/Game split as YINSH and ZERTZ: all rules live 
 
 ## AI
 
-The deployed opponents use MCTS in a Web Worker. Catan is multi-player and stochastic, so the search is root-focused: it samples legal root actions with UCB, then uses fast heuristic rollouts for the rest of the game. This avoids treating opponent turns as cooperative branches.
+The deployed opponents use a PUCT game-tree MCTS in a Web Worker. Catan is multi-player and stochastic, so the tree carries a per-node win-probability **vector** over players with maxⁿ backup (each node's to-move player maximizes their own component) rather than a single cooperative value. The dice roll — the engine's only stochastic transition — is handled as a chance node: roll edges sample an outcome each visit and key children by the total, so a roll edge's Q is a proper expectation over dice. Leaf evaluation is pluggable via an `Evaluator` seam: the deployed engine uses a short heuristic rollout at leaves (rollout-leaf); an NN evaluator (ONNX value+policy) can drop in behind the same interface.
+
+A neural-network training pipeline exists (`training/catan/`, `scripts/catan/`): self-play → policy/value net → ONNX → onnxruntime inference, with a tournament-gated self-play flywheel (`scripts/catan/train-loop.mjs`). The NN value head distills the heuristic eval (scalar regression); pushing strength past the heuristic requires a blended heuristic+outcome value target and is documented as future work. The heuristic rollout-leaf tree is the current deployed strength (it beats the prior flat-bandit engine ~83%).
 
 The heuristic values:
 

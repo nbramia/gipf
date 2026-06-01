@@ -18,7 +18,7 @@ GIPF Project is a multi-game React application hosting browser-based implementat
 **Tech Stack:**
 - React 18 (CRA) + React Router 6 + Tailwind CSS
 - SVG rendering for hexagonal boards
-- MCTS AI engines: YINSH and ZERTZ use game-tree MCTS; CATAN uses root-focused MCTS with heuristic rollouts
+- MCTS AI engines: YINSH and ZERTZ use game-tree MCTS; CATAN uses a PUCT game-tree MCTS (win-probability/maxⁿ value, dice chance nodes, pluggable heuristic-rollout or NN evaluator)
 - Neural network: PyTorch training pipeline -> ONNX export -> onnxruntime-web browser inference
 - Vercel serverless functions for API-mode AI
 - Jest + React Testing Library (full suite auto-discovered across all game subdirs)
@@ -202,7 +202,7 @@ See [docs/chess.md](docs/chess.md) for the engine + coaching pipeline and the BY
 | `CatanBoard.js` | Pure four-player Catan rules engine -- setup, production, robber, builds, dev cards, awards |
 | `CatanGame.jsx` | React UI -- SVG board, player panels, controls, AI turn loop |
 | `catan.css` | Scoped CSS variables (`.game-catan`) + animations |
-| `engine/mcts.js` | Root-focused MCTS with heuristic rollouts |
+| `engine/mcts.js` | PUCT game-tree MCTS (maxⁿ value, dice chance nodes, heuristic-rollout/NN evaluator) |
 | `engine/features.js` | Self-play feature extraction and policy targets |
 | `hooks/useAIWorker.js` | React hook managing Catan MCTS Web Worker lifecycle |
 | `CatanBoard.test.js` | Jest tests covering core Catan logic and AI legality |

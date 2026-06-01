@@ -236,7 +236,7 @@ zertzDarkMode, zertzShowMoves
 |------|----------------|
 | `src/games/catan/CatanBoard.js` | Pure rules engine -- topology, setup, production, robber, builds, dev cards, awards |
 | `src/games/catan/CatanGame.jsx` | React UI -- SVG board, player panels, action controls, AI integration |
-| `src/games/catan/engine/mcts.js` | Root-focused MCTS with heuristic rollouts for four-player play |
+| `src/games/catan/engine/mcts.js` | PUCT game-tree MCTS (maxⁿ value, dice chance nodes, heuristic-rollout/NN evaluator) for 3-6 player play |
 | `src/games/catan/engine/features.js` | Feature extraction and policy target helpers for self-play data |
 | `scripts/catan/*.mjs` | Self-play data generation and tournament harness |
 
