@@ -48,7 +48,9 @@ Thumbs.db
 __pycache__/
 *.pyc
 training/*.pt
+training/**/*.pt
 training/*.onnx
+training/**/*.onnx
 training/.venv/
 
 # Cache directories

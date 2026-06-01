@@ -20,6 +20,8 @@ function getArg(name, defaultValue) {
 
 const NUM_GAMES = parseInt(getArg('games', '20'), 10);
 const SIMS = parseInt(getArg('sims', '200'), 10);
+const ROLLOUT = parseInt(getArg('rollout', '30'), 10);
+const SEED_BASE = parseInt(getArg('seed', '0'), 10) || Date.now();
 const MAX_MOVES = parseInt(getArg('max-moves', '1200'), 10);
 const OUTPUT_DIR = getArg('output-dir', 'data/catan');
 const OUTPUT = getArg('output', null);
@@ -27,6 +29,14 @@ const OUTPUT = getArg('output', null);
 function valueFor(winner, player) {
   if (!winner) return 0;
   return winner === player ? 1 : -1;
+}
+
+// Perspective-relative seat of the winner (0 = the position's own player, else
+// its index in [self, ...others]) — the value-head target. -1 if undecided.
+function winnerSeatFor(board, player) {
+  if (!board.winner) return -1;
+  const order = [player, ...board.getPlayerIds().filter(p => p !== player)];
+  return order.indexOf(board.winner);
 }
 
 async function main() {
@@ -48,8 +58,8 @@ async function main() {
   const start = Date.now();
 
   for (let game = 0; game < NUM_GAMES; game++) {
-    const board = new CatanBoard({ seed: Date.now() + game });
-    const mcts = new MCTS({ maxChildren: 44 });
+    const board = new CatanBoard({ seed: SEED_BASE + game });
+    const mcts = new MCTS({ maxChildren: 44, rolloutSteps: ROLLOUT });
     const buffer = [];
     let moves = 0;
 
@@ -77,6 +87,8 @@ async function main() {
       stream.write(JSON.stringify({
         ...position,
         value: valueFor(board.winner, position.player),
+        winnerSeat: winnerSeatFor(board, position.player),
+        numPlayers: board.playerCount,
       }) + '\n');
       totalPositions++;
     }
