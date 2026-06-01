@@ -13,7 +13,7 @@ src/
   games/
     yinsh/             # Complete Yinsh game (logic + UI + AI + CSS + tests)
     zertz/             # Complete Zertz game (logic + UI + CSS + tests)
-    catan/             # Four-player Catan game (logic + UI + AI + CSS + tests)
+    catan/             # 3-6 player Catan game (logic + UI + AI + CSS + tests)
 api/                   # Vercel serverless functions
 scripts/               # CLI tools (self-play, training, tournaments)
 training/              # PyTorch training pipeline

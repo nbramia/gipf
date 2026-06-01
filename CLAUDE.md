@@ -199,7 +199,7 @@ See [docs/chess.md](docs/chess.md) for the engine + coaching pipeline and the BY
 
 | File | Purpose |
 |------|---------|
-| `CatanBoard.js` | Pure four-player Catan rules engine -- setup, production, robber, builds, dev cards, awards |
+| `CatanBoard.js` | Pure 3-6 player Catan rules engine -- setup, production, robber, builds, dev cards, P2P trades, discard, awards |
 | `CatanGame.jsx` | React UI -- SVG board, player panels, controls, AI turn loop |
 | `catan.css` | Scoped CSS variables (`.game-catan`) + animations |
 | `engine/mcts.js` | PUCT game-tree MCTS (maxⁿ value, dice chance nodes, heuristic-rollout/NN evaluator) |
