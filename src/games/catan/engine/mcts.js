@@ -304,6 +304,8 @@ function pruneMoves(board, moves, playerId, maxChildren = DEFAULT_MAX_CHILDREN) 
     .map(entry => entry.move);
 }
 
+const ROLLOUT_TEMP = 140; // softmax temperature for rollout move sampling
+
 function selectMoveByHeuristic(board, { rollout = false } = {}) {
   const moves = board.getLegalMoves(rollout ? { rollout: true } : undefined);
   if (moves.length === 0) return null;
@@ -311,17 +313,20 @@ function selectMoveByHeuristic(board, { rollout = false } = {}) {
 
   const playerId = board.currentPlayer;
   const pruned = pruneMoves(board, moves, playerId, 18);
-  let best = pruned[0];
-  let bestScore = -Infinity;
-  for (const move of pruned) {
-    const noise = Math.random() * 35;
-    const score = scoreMove(board, move, playerId) + noise;
-    if (score > bestScore) {
-      best = move;
-      bestScore = score;
-    }
+  const scores = pruned.map(move => scoreMove(board, move, playerId));
+
+  // Softmax-sample proportional to move quality instead of near-deterministic
+  // greedy. Stochastic-but-good rollouts give lower-bias Monte Carlo value
+  // estimates than always taking the single greedy move.
+  const max = Math.max(...scores);
+  let sum = 0;
+  const weights = scores.map(s => { const e = Math.exp((s - max) / ROLLOUT_TEMP); sum += e; return e; });
+  let r = Math.random() * sum;
+  for (let i = 0; i < pruned.length; i++) {
+    r -= weights[i];
+    if (r <= 0) return pruned[i];
   }
-  return best;
+  return pruned[pruned.length - 1];
 }
 
 // ---------------------------------------------------------------------------
