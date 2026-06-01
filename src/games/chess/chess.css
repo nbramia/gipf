@@ -76,6 +76,25 @@
   .game-chess .coach-entry { animation: none; }
 }
 
+/* Distinguish the player's moves from the opponent's in the coach feed.
+ * Keyed on who made the move (not board color), so it stays consistent
+ * regardless of board orientation. */
+.game-chess .coach-entry {
+  padding: 0.25rem 0.5rem;
+  border-left: 3px solid transparent;
+  border-radius: 0 0.375rem 0.375rem 0;
+}
+.game-chess .coach-entry--mine {
+  border-left-color: var(--color-accent);
+  background-color: var(--color-accent-soft);
+}
+.game-chess .coach-entry--opp {
+  border-left-color: var(--color-border);
+  background-color: var(--color-bg-page);
+}
+.game-chess .coach-entry--mine .coach-who { color: var(--color-accent); }
+.game-chess .coach-entry--opp .coach-who { color: var(--color-text-muted); }
+
 .game-chess .tone-great { color: var(--tone-great); }
 .game-chess .tone-good { color: var(--tone-good); }
 .game-chess .tone-warn { color: var(--tone-warn); }

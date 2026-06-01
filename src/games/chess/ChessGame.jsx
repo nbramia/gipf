@@ -148,10 +148,10 @@ export default function ChessGame() {
     localStorage.setItem('chessSound', JSON.stringify(soundOn));
   }, [soundOn]);
 
-  // Auto-scroll the transcript to the newest entry.
+  // Auto-scroll the transcript to the newest entry (now rendered at the top).
   useEffect(() => {
     if (transcriptRef.current) {
-      transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+      transcriptRef.current.scrollTop = 0;
     }
   }, [dialogue]);
 
@@ -812,6 +812,12 @@ export default function ChessGame() {
                     customBoardStyle={{ borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.18)' }}
                     customDarkSquareStyle={{ backgroundColor: 'var(--sq-dark)' }}
                     customLightSquareStyle={{ backgroundColor: 'var(--sq-light)' }}
+                    customNotationStyle={{
+                      color: '#ffffff',
+                      fontWeight: 700,
+                      textShadow:
+                        '0 0 2px rgba(0,0,0,0.85), 0 1px 1px rgba(0,0,0,0.7), 0 -1px 1px rgba(0,0,0,0.7)',
+                    }}
                     arePiecesDraggable={canInteract}
                     animationDuration={200}
                   />
@@ -965,9 +971,19 @@ export default function ChessGame() {
                       {!keySet && ' Add your Anthropic API key below for richer coaching.'}
                     </p>
                   ) : (
-                    dialogue.map((e) => (
-                      <div key={e.id} className="coach-entry font-body text-sm">
+                    dialogue.slice().reverse().map((e) => (
+                      <div
+                        key={e.id}
+                        className={`coach-entry font-body text-sm ${
+                          e.kind === 'ai-move' ? 'coach-entry--opp' : 'coach-entry--mine'
+                        }`}
+                      >
                         <div className="flex items-baseline gap-2">
+                          <span
+                            className="coach-who text-[10px] font-semibold uppercase tracking-wide"
+                          >
+                            {e.kind === 'ai-move' ? 'Opponent' : 'You'}
+                          </span>
                           <span style={{ color: 'var(--color-text-muted)' }} className="text-xs">
                             {Math.ceil(e.ply / 2)}.{e.kind === 'ai-move' ? '..' : ''} {e.san}
                           </span>
