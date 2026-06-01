@@ -4,11 +4,12 @@ Catan policy + value network (MLP over flat features).
 Input:  360 floats = tiles (30*8=240) + players (6*18=108) + meta (12),
         in that order (see src/games/catan/engine/features.js extractFeatures).
 Policy: 483 logits — must match engine/features.js POLICY_SIZE.
-Value:  6 logits = win-probability over PERSPECTIVE-RELATIVE seats
-        (slot 0 = the player to move). Trained on 4-player data, so seats 4-5
-        stay near zero; inference softmaxes over the active seats only.
+Value:  scalar tanh in [-1, 1], matching evaluatePosition(board, currentPlayer).
+        Trained with MSE regression to the heuristic eval score (behavioral
+        cloning / distillation). At inference the NNEvaluator converts it to a
+        player win-probability vector via (scalar+1)/2 for the to-move player.
 
-forward(x) -> (value_logits[B,6], policy_logits[B,483]).
+forward(x) -> (value_scalar[B,1], policy_logits[B,483]).
 """
 
 import torch
@@ -16,7 +17,6 @@ import torch.nn as nn
 
 INPUT_SIZE = 360
 POLICY_SIZE = 483
-VALUE_SIZE = 6  # MAX_PLAYERS
 
 
 class ResidualFC(nn.Module):
@@ -37,7 +37,6 @@ class ResidualFC(nn.Module):
 class CatanPolicyValueNet(nn.Module):
     INPUT_SIZE = INPUT_SIZE
     POLICY_SIZE = POLICY_SIZE
-    VALUE_SIZE = VALUE_SIZE
 
     def __init__(self, hidden=128, blocks=2, dropout=0.15):
         super().__init__()
@@ -47,8 +46,9 @@ class CatanPolicyValueNet(nn.Module):
         self.policy_head = nn.Sequential(
             nn.Linear(hidden, hidden), nn.ReLU(), nn.Linear(hidden, POLICY_SIZE)
         )
+        # Scalar value head: outputs tanh ∈ [-1,1] matching evaluatePosition range.
         self.value_head = nn.Sequential(
-            nn.Linear(hidden, 128), nn.ReLU(), nn.Linear(128, VALUE_SIZE)
+            nn.Linear(hidden, 64), nn.ReLU(), nn.Linear(64, 1), nn.Tanh()
         )
 
     def forward(self, x):

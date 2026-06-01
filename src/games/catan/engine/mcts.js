@@ -417,12 +417,13 @@ class NNEvaluator {
 
     const { value, policy } = await this.net.predict(input);
 
-    // Value logits are in perspective-relative seat order (slot 0 = the to-move
-    // player), matching extractFeatures' player ordering.
-    const order = [toMove, ...players.filter(p => p !== toMove)];
-    const probs = softmaxArray(order.map((_, i) => value[i] ?? 0));
+    // Value is a scalar tanh ∈ [-1,1] (heuristic distillation).
+    // Convert: own-player win-prob = (scalar + 1) / 2; others share the rest evenly.
+    const scalar = value[0] ?? 0;
+    const ownProb = (scalar + 1) / 2;
+    const othersProb = (1 - ownProb) / Math.max(1, players.length - 1);
     const values = {};
-    order.forEach((pid, i) => { values[pid] = probs[i]; });
+    for (const pid of players) values[pid] = pid === toMove ? ownProb : othersProb;
 
     const logits = prunedMoves.map(move => {
       const idx = moveToPolicyIndex(move);
