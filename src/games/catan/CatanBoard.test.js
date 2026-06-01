@@ -354,10 +354,9 @@ describe('Catan complete action space', () => {
     giveResources(board, 1, { brick: 1 });
     giveResources(board, 3, { ore: 1 }); // player 2 cannot pay, player 3 can
 
+    // Unaffordable targets are filtered out, so player 2 is never asked and the
+    // responder is player 3 directly.
     expect(board.proposeTrade({ brick: 1 }, { ore: 1 }, [2, 3])).toBe(true);
-    expect(board.currentPlayer).toBe(2);
-    // Player 2 tries to accept but cannot afford -> treated as decline, advances to 3.
-    expect(board.respondTrade(true)).toBe(true);
     expect(board.phase).toBe('trade-response');
     expect(board.currentPlayer).toBe(3);
 
@@ -372,6 +371,8 @@ describe('Catan complete action space', () => {
     board.currentPlayer = 1;
     board.primaryTurnPlayer = 1;
     giveResources(board, 1, { brick: 1 });
+    giveResources(board, 2, { ore: 1 }); // both targets can afford, so both are asked
+    giveResources(board, 3, { ore: 1 });
 
     expect(board.proposeTrade({ brick: 1 }, { ore: 1 }, [2, 3])).toBe(true);
     expect(board.respondTrade(false)).toBe(true);
@@ -387,6 +388,7 @@ describe('Catan complete action space', () => {
     board.currentPlayer = 1;
     board.primaryTurnPlayer = 1;
     giveResources(board, 1, { brick: 5 });
+    giveResources(board, 2, { ore: 1 }); // player 2 can afford, so the proposal is asked
 
     expect(board.proposeTrade({ brick: 1 }, { ore: 1 }, [2])).toBe(true);
     expect(board.respondTrade(false)).toBe(true);

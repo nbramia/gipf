@@ -286,7 +286,10 @@ export default function CatanGame() {
   const [tradeGive, setTradeGive] = useState({ brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 });
   const [tradeReceive, setTradeReceive] = useState({ brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 });
   const [tradeTargets, setTradeTargets] = useState([]);
+  const [gameLog, setGameLog] = useState([]);
   const aiTimerRef = useRef(null);
+  const lastLoggedActionRef = useRef(null);
+  const logEndRef = useRef(null);
   const { computeMove, isSupported: workerSupported } = useAIWorker();
 
   useEffect(() => localStorage.setItem('catanDarkMode', JSON.stringify(darkMode)), [darkMode]);
@@ -297,6 +300,25 @@ export default function CatanGame() {
   useEffect(() => {
     if (gameConfig.scenarioId) localStorage.setItem('catanScenarioId', gameConfig.scenarioId);
   }, [gameConfig.scenarioId]);
+
+  // Accumulate a human-readable game-log feed. The engine sets board.lastAction
+  // on every move and the AI loop re-renders after each step, so comparing it to
+  // the last-seen value (via a ref, to avoid loops) captures each distinct event.
+  useEffect(() => {
+    const action = board.lastAction;
+    if (!action || action === lastLoggedActionRef.current) return;
+    lastLoggedActionRef.current = action;
+    setGameLog(prev => {
+      if (prev.length > 0 && prev[prev.length - 1] === action) return prev;
+      const next = [...prev, action];
+      return next.length > 30 ? next.slice(next.length - 30) : next;
+    });
+  }, [board.lastAction]);
+
+  // Auto-scroll the feed to the newest entry.
+  useEffect(() => {
+    if (logEndRef.current) logEndRef.current.scrollTop = logEndRef.current.scrollHeight;
+  }, [gameLog]);
 
   const isHumanTurn = board.currentPlayer === HUMAN_PLAYER && board.phase !== 'game-over';
   const currentPlayer = board.players[board.currentPlayer];
@@ -501,6 +523,8 @@ export default function CatanGame() {
     setLastMove(null);
     setIsAiThinking(false);
     setShowModal(false);
+    lastLoggedActionRef.current = next.lastAction;
+    setGameLog(next.lastAction ? [next.lastAction] : []);
   };
 
   const statusText = () => {
@@ -1307,7 +1331,30 @@ export default function CatanGame() {
               <h2 className="text-lg font-bold" style={{ color: 'var(--color-text-primary)' }}>Actions</h2>
               <button className="catan-tool-btn px-3" onClick={() => setConfirmNew(true)}>New</button>
             </div>
+            <div className="catan-vp-indicator mb-3">
+              <span className="catan-vp-label">Your VP</span>
+              <span className="catan-vp-value">
+                <strong>{board.getVictoryPoints(HUMAN_PLAYER)}</strong>
+                <span className="catan-vp-sep">/</span>
+                {board.victoryTarget}
+              </span>
+            </div>
             {renderActionButtons()}
+          </div>
+
+          <div className="catan-panel p-4">
+            <div className="catan-panel-label mb-2">Game Log</div>
+            <div className="catan-log-feed" ref={logEndRef}>
+              {gameLog.length === 0 ? (
+                <p className="catan-log-empty">No moves yet.</p>
+              ) : (
+                gameLog.map((entry, index) => (
+                  <div key={`${index}-${entry}`} className="catan-log-entry">
+                    {entry}
+                  </div>
+                ))
+              )}
+            </div>
           </div>
 
           <div className="catan-panel p-4">

@@ -898,13 +898,19 @@ export default class CatanBoard {
   proposeTrade(give, receive, targets) {
     if (!this._isActionPhase()) return false;
     const proposer = this.currentPlayer;
-    const targetList = (Array.isArray(targets) ? targets : [targets])
+    let targetList = (Array.isArray(targets) ? targets : [targets])
       .filter(id => id !== proposer && this.players[id]);
     if (targetList.length === 0) return false;
     if (this._bundleTotal(give) === 0 || this._bundleTotal(receive) === 0) return false;
     if (!this._validBundle(give) || !this._validBundle(receive)) return false;
     if (!this._hasBundle(proposer, give)) return false;
     if (this.tradeProposalsThisTurn >= this.maxTradeProposalsPerTurn) return false;
+
+    // Never ask an opponent who can't afford the requested bundle: filter the
+    // target list to affordable opponents only. If none can pay, the proposal
+    // simply doesn't happen.
+    targetList = targetList.filter(id => this._hasBundle(id, receive));
+    if (targetList.length === 0) return false;
 
     this.tradeProposalsThisTurn++;
     this.pendingTrade = {
@@ -1153,11 +1159,15 @@ export default class CatanBoard {
       for (const receive of needs) {
         if (give === receive) continue;
         const giveAmount = player.resources[give] >= 2 ? 2 : 1;
+        const receiveBundle = { [receive]: 1 };
         for (const targets of targetSets) {
+          // Skip dead proposals: only offer if at least one targeted opponent
+          // can actually afford the requested bundle.
+          if (!targets.some(id => this._hasBundle(id, receiveBundle))) continue;
           options.push({
             type: 'propose-trade',
             give: { [give]: giveAmount },
-            receive: { [receive]: 1 },
+            receive: { ...receiveBundle },
             targets: [...targets],
           });
         }
