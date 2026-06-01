@@ -369,10 +369,15 @@ export default class CatanBoard {
     this.bank = { brick: bankSize, lumber: bankSize, wool: bankSize, grain: bankSize, ore: bankSize };
     this.devDeck = shuffle(DEV_DECK, mulberry32(seed + 31));
     this.discardLog = [];
-    this.currentPlayer = 1;
-    this.primaryTurnPlayer = 1;
+    // Randomize who goes first (seed-derived, so the human isn't always first).
+    // The setup snake and the round order both start from this player.
+    const firstIndex = Math.floor(mulberry32(seed + 53)() * this.playerCount);
+    this.firstPlayer = this.playerIds[firstIndex];
+    const order = [...this.playerIds.slice(firstIndex), ...this.playerIds.slice(0, firstIndex)];
+    this.currentPlayer = this.firstPlayer;
+    this.primaryTurnPlayer = this.firstPlayer;
     this.phase = 'setup-settlement';
-    this.setupOrder = [...this.playerIds, ...[...this.playerIds].reverse()];
+    this.setupOrder = [...order, ...[...order].reverse()];
     this.setupIndex = 0;
     this.pendingSetupSettlement = null;
     this.turnNumber = 1;
@@ -564,10 +569,10 @@ export default class CatanBoard {
     this._updateLongestRoad();
 
     if (this.setupIndex >= this.setupOrder.length) {
-      this.currentPlayer = 1;
-      this.primaryTurnPlayer = 1;
+      this.currentPlayer = this.firstPlayer;
+      this.primaryTurnPlayer = this.firstPlayer;
       this.phase = 'roll';
-      this.lastAction = 'Setup complete. Player 1 rolls first.';
+      this.lastAction = `Setup complete. ${this.players[this.firstPlayer].name} rolls first.`;
     } else {
       this.currentPlayer = this.setupOrder[this.setupIndex];
       this.phase = 'setup-settlement';
@@ -1014,7 +1019,7 @@ export default class CatanBoard {
     const previousPrimary = this.primaryTurnPlayer || this.currentPlayer;
     this.currentPlayer = this._nextPlayerId(previousPrimary);
     this.primaryTurnPlayer = this.currentPlayer;
-    if (this.currentPlayer === this.getPlayerIds()[0]) this.turnNumber++;
+    if (this.currentPlayer === this.firstPlayer) this.turnNumber++; // round boundary
     this.phase = 'roll';
     this.lastAction = `${this.players[this.currentPlayer].name}'s turn.`;
     this._captureState();
@@ -1477,6 +1482,7 @@ export default class CatanBoard {
       primaryTurnPlayer: this.primaryTurnPlayer,
       phase: this.phase,
       setupOrder: [...this.setupOrder],
+      firstPlayer: this.firstPlayer,
       setupIndex: this.setupIndex,
       pendingSetupSettlement: this.pendingSetupSettlement,
       turnNumber: this.turnNumber,
@@ -1556,6 +1562,7 @@ export default class CatanBoard {
     board.primaryTurnPlayer = state.primaryTurnPlayer || state.currentPlayer || 1;
     board.phase = state.phase;
     board.setupOrder = [...state.setupOrder];
+    board.firstPlayer = state.firstPlayer ?? board.setupOrder[0] ?? 1;
     board.setupIndex = state.setupIndex;
     board.pendingSetupSettlement = state.pendingSetupSettlement;
     board.turnNumber = state.turnNumber;

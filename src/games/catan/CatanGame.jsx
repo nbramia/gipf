@@ -992,8 +992,28 @@ export default function CatanGame() {
             )}
             {isRobber && (
               <g transform={`translate(${center.x}, ${center.y})`} className="catan-robber" filter="url(#catan-piece-shadow)">
-                <circle cx="0" cy="-6" r="8" />
-                <path d="M-11 17 C-8 2 8 2 11 17 Z" />
+                {/* ground shadow */}
+                <ellipse cx="0" cy="19" rx="12" ry="3" fill="rgba(0,0,0,0.32)" stroke="none" />
+                {/* hooded robe */}
+                <path
+                  d="M0 -19 C9 -18 13 -7 13 4 C13 13 8 19 0 19 C-8 19 -13 13 -13 4 C-13 -7 -9 -18 0 -19 Z"
+                  fill="#2a2e35"
+                  stroke="#121419"
+                  strokeWidth="1.3"
+                />
+                {/* hood rim highlight */}
+                <path
+                  d="M-8.5 -2 C-9 -12 -4 -17 0 -18 C4 -17 9 -12 8.5 -2"
+                  fill="none"
+                  stroke="#4a525e"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+                {/* shadowed face hollow */}
+                <ellipse cx="0" cy="-5" rx="5.2" ry="6.2" fill="#0a0c10" stroke="none" />
+                {/* menacing eyes */}
+                <circle cx="-2.1" cy="-6" r="1.15" fill="#ef4444" stroke="none" />
+                <circle cx="2.1" cy="-6" r="1.15" fill="#ef4444" stroke="none" />
               </g>
             )}
           </g>

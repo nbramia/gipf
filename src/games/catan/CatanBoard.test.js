@@ -38,7 +38,14 @@ describe('Catan board generation', () => {
     expect(Object.keys(board.edges)).toHaveLength(109);
     expect(board.tiles.filter(tile => tile.resource === 'desert')).toHaveLength(2);
     expect(board.getPlayerIds()).toEqual([1, 2, 3, 4, 5, 6]);
-    expect(board.setupOrder).toEqual([1, 2, 3, 4, 5, 6, 6, 5, 4, 3, 2, 1]);
+    // Snake setup order, starting from a randomized first player: the first half
+    // is a rotation of all players starting at firstPlayer, the second is its mirror.
+    const ids = board.getPlayerIds();
+    const half = board.setupOrder.slice(0, ids.length);
+    const mirror = board.setupOrder.slice(ids.length);
+    expect(half[0]).toBe(board.firstPlayer);
+    expect([...half].sort((a, b) => a - b)).toEqual(ids);
+    expect(mirror).toEqual([...half].reverse());
   });
 
   test('assigns nine ports to coastal edges', () => {
