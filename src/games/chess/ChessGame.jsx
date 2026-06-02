@@ -10,7 +10,8 @@ import { Link } from 'react-router-dom';
 import { Chessboard } from 'react-chessboard';
 import ChessBoard from './ChessBoard.js';
 import useStockfish from './hooks/useStockfish.js';
-import { DIFFICULTY_TIERS, DEFAULT_TIER_KEY } from './engine/difficulty.js';
+import { DIFFICULTY_TIERS, DEFAULT_TIER_KEY, RATING_LADDER } from './engine/difficulty.js';
+import { DEFAULT_RATING, nearestRung, updateRating, scoreFor, isProvisional } from './engine/rating.js';
 import { buildMovePayload } from './coach/analyzeMove.js';
 import { detectOpening } from './coach/openings.js';
 import {
@@ -66,6 +67,22 @@ export default function ChessGame() {
   const [difficulty, setDifficulty] = useState(() => {
     return localStorage.getItem('chessDifficulty') || DEFAULT_TIER_KEY;
   });
+  // Rated mode: a single Elo that updates from wins/losses/draws vs ladder
+  // opponents. While rated, undo/flip/coach/eval are disabled (see below) so the
+  // result is honest. Color is randomized each rated game.
+  const [rated, setRated] = useState(() => {
+    const saved = localStorage.getItem('chessRated');
+    return saved ? JSON.parse(saved) : false;
+  });
+  const [rating, setRating] = useState(() => {
+    const saved = localStorage.getItem('chessRating');
+    return saved ? JSON.parse(saved) : DEFAULT_RATING;
+  });
+  const [ratedGames, setRatedGames] = useState(() => {
+    const saved = localStorage.getItem('chessRatedGames');
+    return saved ? JSON.parse(saved) : 0;
+  });
+  const [ratedDelta, setRatedDelta] = useState(null); // {delta, opp} for the just-finished rated game
   const [humanColor, setHumanColor] = useState('w'); // 'w' | 'b'
   const [orientation, setOrientation] = useState('white');
   const [selected, setSelected] = useState(null);
@@ -102,6 +119,9 @@ export default function ChessGame() {
   const thinkingRef = useRef(false);
   const soundRef = useRef(soundOn); // latest value usable inside callbacks
   useEffect(() => { soundRef.current = soundOn; }, [soundOn]);
+  const ratedRef = useRef(rated); // latest value usable inside coachOnMove
+  useEffect(() => { ratedRef.current = rated; }, [rated]);
+  const ratedAppliedRef = useRef(false); // guard: score each rated game exactly once
   const coachSeqRef = useRef(0); // ignores stale coaching results after new game/undo
   const transcriptRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -147,6 +167,15 @@ export default function ChessGame() {
   useEffect(() => {
     localStorage.setItem('chessSound', JSON.stringify(soundOn));
   }, [soundOn]);
+  useEffect(() => {
+    localStorage.setItem('chessRated', JSON.stringify(rated));
+  }, [rated]);
+  useEffect(() => {
+    localStorage.setItem('chessRating', JSON.stringify(rating));
+  }, [rating]);
+  useEffect(() => {
+    localStorage.setItem('chessRatedGames', JSON.stringify(ratedGames));
+  }, [ratedGames]);
 
   // Auto-scroll the transcript to the newest entry (now rendered at the top).
   useEffect(() => {
@@ -171,6 +200,13 @@ export default function ChessGame() {
   }, [movesPlayedCount]);
 
   const aiColor = humanColor === 'w' ? 'b' : 'w';
+  // Rated matchmaking: face the ladder rung nearest your rating. In casual play
+  // the opponent is the chosen difficulty tier. moveSpec is what getMove uses.
+  const ratedRung = useMemo(() => nearestRung(rating, RATING_LADDER), [rating]);
+  const moveSpec = useMemo(
+    () => (rated ? ratedRung.spec : difficulty),
+    [rated, ratedRung, difficulty]
+  );
   const gameResult = resigned
     ? { over: true, type: 'resign', winner: resigned === 'w' ? 'black' : 'white' }
     : board.result();
@@ -179,11 +215,30 @@ export default function ChessGame() {
   const checkedSquare = board.checkedKingSquare();
   const humanToMove = !gameOver && board.turn() === humanColor;
 
+  // Score a finished rated game exactly once: derive win/loss/draw from the
+  // human's POV, update the Elo against the matched rung, and record the delta.
+  useEffect(() => {
+    if (!rated || puzzleMode || !gameResult || ratedAppliedRef.current) return;
+    ratedAppliedRef.current = true;
+    const humanWord = humanColor === 'w' ? 'white' : 'black';
+    const result = gameResult.winner == null
+      ? 'draw'
+      : gameResult.winner === humanWord
+        ? 'win'
+        : 'loss';
+    const opp = ratedRung.rating;
+    const { rating: next, delta } = updateRating(rating, opp, scoreFor(result), ratedGames);
+    setRating(next);
+    setRatedGames((g) => g + 1);
+    setRatedDelta({ delta, opp });
+  }, [rated, puzzleMode, gameResult, humanColor, ratedRung, rating, ratedGames]);
+
   // Produce coaching for a move that was just played. Runs two full-strength
   // analyses (position before + after the move) so commentary is engine-true,
   // then asks the coach (Claude or template fallback) to phrase it.
   const coachOnMove = useCallback(
     async (fenBefore, fenAfter, movePlayedSan, moverColor, kind, ply, sanAfter) => {
+      if (ratedRef.current) return; // rated games are uncoached — no hints, no eval leak
       const seq = coachSeqRef.current;
       const entryId = `${ply}-${kind}`;
       const opening = detectOpening(sanAfter || []);
@@ -328,7 +383,7 @@ export default function ChessGame() {
     let cancelled = false;
 
     const fenBefore = board.fen();
-    getMove(board.fen(), difficulty)
+    getMove(board.fen(), moveSpec)
       .then((mv) => {
         if (cancelled || !mv) return;
         const applied = board.move(mv.from, mv.to, mv.promotion || 'q');
@@ -352,7 +407,7 @@ export default function ChessGame() {
     return () => {
       cancelled = true;
     };
-  }, [board, aiColor, engineStatus, difficulty, gameOver, getMove, coachOnMove, puzzleMode]);
+  }, [board, aiColor, engineStatus, moveSpec, gameOver, getMove, coachOnMove, puzzleMode]);
 
   const squareStyles = useMemo(() => {
     const styles = {};
@@ -496,6 +551,8 @@ export default function ChessGame() {
   const startGame = (color) => {
     const c = color || (Math.random() < 0.5 ? 'w' : 'b');
     coachSeqRef.current += 1; // invalidate any in-flight coaching
+    ratedAppliedRef.current = false;
+    setRatedDelta(null);
     setPuzzleMode(false);
     setHumanColor(c);
     setOrientation(c === 'w' ? 'white' : 'black');
@@ -509,6 +566,13 @@ export default function ChessGame() {
     thinkingRef.current = false;
     setIsThinking(false);
     setBoard(new ChessBoard());
+  };
+
+  // Switch rated mode on/off. Always starts a fresh game so a half-played
+  // casual position is never scored (and vice-versa).
+  const toggleRated = () => {
+    setRated((v) => !v);
+    startGame();
   };
 
   // Puzzle mode (#18): the pool is chosen by the difficulty tier, so the
@@ -779,8 +843,26 @@ export default function ChessGame() {
               <div className="mb-3 font-body text-sm" style={{ color: 'var(--color-text-secondary)' }} aria-live="polite">
                 {statusText}
               </div>
+              {rated && (
+                <div className="mb-3 flex items-center gap-2 font-body text-sm" aria-live="polite">
+                  <span className="px-2 py-0.5 rounded font-semibold" style={{ backgroundColor: 'var(--color-accent-soft)', color: 'var(--color-text-primary)' }}>
+                    Rated
+                  </span>
+                  <span style={{ color: 'var(--color-text-secondary)' }}>
+                    You {rating}{isProvisional(ratedGames) ? '?' : ''} · Opponent {ratedRung.rating}
+                  </span>
+                  {ratedDelta && (
+                    <span
+                      className="font-semibold"
+                      style={{ color: ratedDelta.delta >= 0 ? 'var(--color-accent)' : 'var(--tone-bad, #dc2626)' }}
+                    >
+                      {ratedDelta.delta >= 0 ? `+${ratedDelta.delta}` : ratedDelta.delta}
+                    </span>
+                  )}
+                </div>
+              )}
               <div className="flex gap-3 w-full max-w-[680px] mx-auto">
-                {showEvalBar && !puzzleMode && (
+                {showEvalBar && !puzzleMode && !rated && (
                   <div
                     className="w-3 sm:w-4 rounded overflow-hidden shrink-0 self-stretch flex flex-col border"
                     style={{ backgroundColor: '#3f3f46', borderColor: 'var(--color-border)' }}
@@ -796,7 +878,7 @@ export default function ChessGame() {
                   {/* Top tray = pieces captured by the side shown at top */}
                   <div className="flex items-center justify-between mb-1">
                     <Tray pieces={orientation === 'white' ? capturedByBlack : capturedByWhite} plus={0} />
-                    {showEvalBar && !puzzleMode && (
+                    {showEvalBar && !puzzleMode && !rated && (
                       <span className="font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
                         {material > 0 ? `White +${material}` : material < 0 ? `Black +${-material}` : 'Even'}
                       </span>
@@ -843,18 +925,22 @@ export default function ChessGame() {
               ) : (
                 <div className="flex flex-wrap gap-2 justify-center mt-4">
                   <button onClick={() => startGame()} className="px-4 py-2 rounded-lg font-body text-sm panel">
-                    New Game
+                    {rated ? 'New Rated Game' : 'New Game'}
                   </button>
-                  <button
-                    onClick={undo}
-                    disabled={!board.canUndo() || isThinking}
-                    className="px-4 py-2 rounded-lg font-body text-sm panel disabled:opacity-40"
-                  >
-                    Undo
-                  </button>
-                  <button onClick={flip} className="px-4 py-2 rounded-lg font-body text-sm panel">
-                    Flip
-                  </button>
+                  {!rated && (
+                    <button
+                      onClick={undo}
+                      disabled={!board.canUndo() || isThinking}
+                      className="px-4 py-2 rounded-lg font-body text-sm panel disabled:opacity-40"
+                    >
+                      Undo
+                    </button>
+                  )}
+                  {!rated && (
+                    <button onClick={flip} className="px-4 py-2 rounded-lg font-body text-sm panel">
+                      Flip
+                    </button>
+                  )}
                   <button
                     onClick={resign}
                     disabled={gameOver}
@@ -862,9 +948,11 @@ export default function ChessGame() {
                   >
                     Resign
                   </button>
-                  <button onClick={startPuzzles} className="px-4 py-2 rounded-lg font-body text-sm panel">
-                    Puzzles
-                  </button>
+                  {!rated && (
+                    <button onClick={startPuzzles} className="px-4 py-2 rounded-lg font-body text-sm panel">
+                      Puzzles
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -950,7 +1038,16 @@ export default function ChessGame() {
                 </div>
               )}
 
-              {/* Coaching dialogue (#8 / #10) — grows to fill remaining height */}
+              {/* Coaching dialogue (#8 / #10) — grows to fill remaining height.
+                  Hidden in rated mode: live coaching would leak best moves. */}
+              {rated ? (
+                <div className="panel rounded-xl p-4 flex-1 min-h-0 flex items-center justify-center text-center">
+                  <p className="font-body text-sm" style={{ color: 'var(--color-text-muted)' }}>
+                    Coaching, the evaluation bar, undo and flip are off in rated games.
+                    Toggle Rated off in the Game panel to practice with the coach.
+                  </p>
+                </div>
+              ) : (
               <div className="panel rounded-xl p-4 flex flex-col flex-1 min-h-0">
                 <div className="flex items-center justify-between mb-2">
                   <h2 className="font-heading text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
@@ -1018,6 +1115,7 @@ export default function ChessGame() {
                   )}
                 </div>
               </div>
+              )}
 
               <details
                 className="panel rounded-xl p-4"
@@ -1028,36 +1126,61 @@ export default function ChessGame() {
                   Game
                 </summary>
                 <div className="space-y-3 mt-3">
-                <div>
-                  <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
-                    Difficulty
-                  </label>
-                  <select
-                    value={difficulty}
-                    onChange={(e) => setDifficulty(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg font-body text-sm panel"
-                    style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
-                  >
-                    {DIFFICULTY_TIERS.map((t) => (
-                      <option key={t.key} value={t.key}>
-                        {t.label} (~{t.elo})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
-                    Play as
-                  </label>
-                  <div className="flex gap-2">
-                    <button onClick={() => startGame('w')} className="flex-1 px-3 py-2 rounded-lg font-body text-sm panel">
-                      White
-                    </button>
-                    <button onClick={() => startGame('b')} className="flex-1 px-3 py-2 rounded-lg font-body text-sm panel">
-                      Black
-                    </button>
+                <Toggle label="Rated mode" checked={rated} onChange={toggleRated} />
+
+                {rated ? (
+                  <div className="rounded-lg p-3" style={{ backgroundColor: 'var(--color-bg-panel)' }}>
+                    <div className="flex items-baseline justify-between">
+                      <span className="font-body text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                        Your rating
+                      </span>
+                      <span className="font-display text-2xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
+                        {rating}
+                      </span>
+                    </div>
+                    <p className="font-body text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                      {isProvisional(ratedGames)
+                        ? `Provisional — ${ratedGames}/20 games played. Facing ${ratedRung.rating}.`
+                        : `${ratedGames} games played. Facing ${ratedRung.rating}.`}
+                    </p>
+                    <p className="font-body text-xs mt-2" style={{ color: 'var(--color-text-muted)' }}>
+                      Random color each game. Undo, flip, and coaching are disabled so the result is honest. Resigning counts as a loss.
+                    </p>
                   </div>
-                </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+                        Difficulty
+                      </label>
+                      <select
+                        value={difficulty}
+                        onChange={(e) => setDifficulty(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg font-body text-sm panel"
+                        style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
+                      >
+                        {DIFFICULTY_TIERS.map((t) => (
+                          <option key={t.key} value={t.key}>
+                            {t.label} (~{t.elo})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+                        Play as
+                      </label>
+                      <div className="flex gap-2">
+                        <button onClick={() => startGame('w')} className="flex-1 px-3 py-2 rounded-lg font-body text-sm panel">
+                          White
+                        </button>
+                        <button onClick={() => startGame('b')} className="flex-1 px-3 py-2 rounded-lg font-body text-sm panel">
+                          Black
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
                 </div>
               </details>
 

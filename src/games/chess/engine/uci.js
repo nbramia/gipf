@@ -65,6 +65,36 @@ export function splitUciMove(uci) {
   };
 }
 
+// Pick a deliberately-weakened move from MultiPV lines for a sub-floor rated
+// opponent. With probability `pOff` it deviates from best, but ONLY among moves
+// that lose ≤ `windowCp` centipawns — so it plays inaccuracies/mistakes and can
+// never hang a piece (a hung knight is ~300cp, far outside any sane window).
+// Deviations are weighted toward the smaller losses. `lines` are White-POV
+// MultiPV objects (from collectMultiPV); `rand` is injectable for tests.
+// Returns a UCI move string, or null if no usable line.
+export function chooseWeakenedMove(lines, sideToMove, { windowCp, pOff }, rand = Math.random) {
+  const sign = sideToMove === 'b' ? -1 : 1;
+  const cands = [];
+  for (const ln of lines || []) {
+    if (!ln || !ln.pv || ln.pv.length === 0 || typeof ln.scoreCp !== 'number') continue;
+    cands.push({ move: ln.pv[0], moverScore: sign * ln.scoreCp });
+  }
+  if (cands.length === 0) return null;
+  const best = cands.reduce((a, b) => (b.moverScore > a.moverScore ? b : a));
+  if (rand() >= pOff) return best.move;
+  // Candidates within the centipawn window (always includes best).
+  const within = cands.filter((c) => best.moverScore - c.moverScore <= windowCp);
+  // Weight toward smaller loss: weight = window − loss + 1 (strictly positive).
+  const weights = within.map((c) => windowCp - (best.moverScore - c.moverScore) + 1);
+  const total = weights.reduce((a, b) => a + b, 0);
+  let r = rand() * total;
+  for (let i = 0; i < within.length; i += 1) {
+    r -= weights[i];
+    if (r <= 0) return within[i].move;
+  }
+  return within[within.length - 1].move;
+}
+
 // Reduce a stream of parsed info objects to the latest line per multipv index,
 // keeping only the deepest depth seen for each. Returns an array sorted by
 // multipv (1..N). Used to turn streaming engine output into final candidates.

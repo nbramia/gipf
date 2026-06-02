@@ -1,4 +1,4 @@
-import { parseInfoLine, parseBestMove, splitUciMove, collectMultiPV } from './uci';
+import { parseInfoLine, parseBestMove, splitUciMove, collectMultiPV, chooseWeakenedMove } from './uci';
 
 describe('uci — parseInfoLine', () => {
   test('parses depth, multipv, cp score (white to move)', () => {
@@ -54,6 +54,54 @@ describe('uci — splitUciMove', () => {
   test('returns null for garbage', () => {
     expect(splitUciMove('xx')).toBeNull();
     expect(splitUciMove(null)).toBeNull();
+  });
+});
+
+describe('uci — chooseWeakenedMove', () => {
+  // Four candidate lines (White POV): best +60, then +30, +10, and a blunder −300.
+  const lines = [
+    { multipv: 1, scoreCp: 60, pv: ['e2e4'] },
+    { multipv: 2, scoreCp: 30, pv: ['d2d4'] },
+    { multipv: 3, scoreCp: 10, pv: ['g1f3'] },
+    { multipv: 4, scoreCp: -300, pv: ['b1a3'] }, // hangs material
+  ];
+
+  test('plays best when the deviation roll fails (rand ≥ pOff)', () => {
+    const mv = chooseWeakenedMove(lines, 'w', { windowCp: 50, pOff: 0.4 }, () => 0.9);
+    expect(mv).toBe('e2e4');
+  });
+
+  test('never picks a move outside the centipawn window (no piece-hanging)', () => {
+    // Deviation roll succeeds (pOff=1); selection roll = 0.999 lands on the worst
+    // in-window candidate, which must still be within 40cp of best (+60).
+    const mv = chooseWeakenedMove(lines, 'w', { windowCp: 40, pOff: 1 }, () => 0.999);
+    expect(['e2e4', 'd2d4']).toContain(mv); // +60 and +30 only; +10 (50cp off) and −300 excluded
+    expect(mv).not.toBe('b1a3');
+  });
+
+  test('a wider window admits more candidates but still excludes the blunder', () => {
+    const seen = new Set();
+    for (let i = 0; i < 20; i += 1) {
+      const r = i / 20; // 0 … 0.95
+      seen.add(chooseWeakenedMove(lines, 'w', { windowCp: 60, pOff: 1 }, () => r));
+    }
+    expect(seen.has('g1f3')).toBe(true); // +10 is now within 60cp of best
+    expect(seen.has('b1a3')).toBe(false); // the −300 blunder is never selected
+  });
+
+  test('normalises by side to move (black POV)', () => {
+    // White-POV scores; for Black the best mover-score is the most negative cp.
+    const blackLines = [
+      { multipv: 1, scoreCp: -40, pv: ['e7e5'] }, // best for Black
+      { multipv: 2, scoreCp: 200, pv: ['g8f6'] }, // terrible for Black
+    ];
+    const mv = chooseWeakenedMove(blackLines, 'b', { windowCp: 50, pOff: 1 }, () => 0);
+    expect(mv).toBe('e7e5');
+  });
+
+  test('returns null when no line has a usable pv', () => {
+    expect(chooseWeakenedMove([{ multipv: 1, scoreCp: 10, pv: [] }], 'w', { windowCp: 50, pOff: 1 })).toBeNull();
+    expect(chooseWeakenedMove([], 'w', { windowCp: 50, pOff: 1 })).toBeNull();
   });
 });
 

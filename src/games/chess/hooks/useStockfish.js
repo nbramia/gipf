@@ -10,7 +10,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createEngine, isEngineSupported } from '../engine/stockfishLoader.js';
-import { parseInfoLine, parseBestMove, collectMultiPV, splitUciMove } from '../engine/uci.js';
+import { parseInfoLine, parseBestMove, collectMultiPV, splitUciMove, chooseWeakenedMove } from '../engine/uci.js';
 import { getTier, ANALYSIS_MOVETIME_MS, ANALYSIS_MULTIPV } from '../engine/difficulty.js';
 
 export default function useStockfish() {
@@ -124,13 +124,27 @@ export default function useStockfish() {
     });
   };
 
-  // Opponent move at a difficulty tier. Returns {from,to,promotion} or null.
+  // Opponent move at a given strength. Accepts either a casual difficulty tier
+  // KEY (string) or a Rated-ladder SPEC object ({elo, moveTimeMs} or
+  // {weak, moveTimeMs}). The `weak` path searches at full strength for honest
+  // evals, then samples an intentionally-suboptimal move within a centipawn
+  // window so sub-1320 opponents play inaccuracies rather than blunders.
+  // Returns {from,to,promotion} or null.
   const getMove = useCallback(
-    async (fen, tierKey) => {
-      const tier = getTier(tierKey);
+    async (fen, tierOrSpec) => {
+      const spec = typeof tierOrSpec === 'string' ? getTier(tierOrSpec) : tierOrSpec;
+      if (spec && spec.weak) {
+        const { lines, sideToMove } = await runSearch(fen, {
+          elo: undefined, // full strength: the bot must know the true evals to throttle honestly
+          movetime: spec.moveTimeMs,
+          multipv: spec.weak.multipv || 5,
+        });
+        const uci = chooseWeakenedMove(lines, sideToMove, spec.weak);
+        return uci ? splitUciMove(uci) : null;
+      }
       const { bestmove } = await runSearch(fen, {
-        elo: tier.elo,
-        movetime: tier.moveTimeMs,
+        elo: spec.elo,
+        movetime: spec.moveTimeMs,
         multipv: 1,
       });
       return bestmove ? splitUciMove(bestmove) : null;

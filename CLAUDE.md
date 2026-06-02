@@ -353,7 +353,8 @@ zertzDarkMode, zertzShowMoves
 
 ```
 chessDarkMode, chessShowMoves, chessDifficulty, chessLearningGoal,
-chessShowEvalBar, chessSound
+chessShowEvalBar, chessSound,
+chessRated, chessRating, chessRatedGames   # Rated mode: toggle, current Elo, games played
 ```
 
 **Catan:**
