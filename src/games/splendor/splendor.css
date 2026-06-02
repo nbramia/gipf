@@ -213,6 +213,17 @@
 .spl-noble-pip { width: 17px; height: 17px; border-radius: 5px; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
 
 /* ---- card rows ---- */
+/* Play-mat: a subtle inset felt surface the market sits on, so the cards read as
+   a crafted board rather than floating on the page. */
+.spl-market {
+  display: flex; flex-direction: column; gap: 14px;
+  padding: 16px; border-radius: 18px;
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(216,178,94,0.06), rgba(0,0,0,0) 70%),
+    linear-gradient(180deg, rgba(0,0,0,0.05), rgba(0,0,0,0.12));
+  border: 1px solid var(--spl-line);
+  box-shadow: inset 0 2px 14px rgba(0,0,0,0.22);
+}
 .spl-row { display: flex; gap: 14px; align-items: center; }
 .spl-deck { display: flex; flex-direction: column; gap: 7px; align-items: center; }
 .spl-cards { display: flex; gap: 12px; flex-wrap: wrap; }
@@ -329,11 +340,51 @@
 }
 .spl-gemstack-val { position: relative; z-index: 1; font-size: 13px; font-weight: 800; text-shadow: 0 1px 1px rgba(0,0,0,0.2); }
 .spl-gemstack-token {
+  display: inline-flex; align-items: center; justify-content: center;
   min-width: 27px; height: 19px; padding: 0 4px; border-radius: 6px; font-size: 12px; font-weight: 700;
   background: var(--spl-panel-2); color: var(--spl-ink); border: 1px solid var(--spl-line); cursor: default;
 }
 .spl-discardable { border-color: #c98a2b; cursor: pointer; color: var(--spl-gold-bright); }
 .spl-discardable:hover { background: rgba(201,138,43,0.16); }
+/* A 0-count gem recedes so the colours you actually hold stand out. */
+.spl-empty { opacity: 0.3; filter: saturate(0.45); }
+
+/* ---- hero (human) panel: the focal point of the rail ---- */
+.spl-hero {
+  border-color: var(--spl-gold);
+  background:
+    radial-gradient(130% 100% at 50% 0%, rgba(216,178,94,0.12), rgba(0,0,0,0) 62%),
+    var(--spl-panel);
+  box-shadow: var(--spl-shadow), inset 0 0 0 1px rgba(216,178,94,0.16);
+  padding: 14px 16px;
+}
+.spl-hero.spl-player-current { box-shadow: var(--spl-shadow), 0 0 0 1px var(--spl-gold), 0 0 28px rgba(216,178,94,0.32); }
+.spl-hero .spl-player-points { font-size: 28px; }
+.spl-hero-label {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 1.6px; color: var(--spl-gold); font-weight: 600;
+  margin: 13px 0 8px; padding-left: 8px;
+}
+.spl-hero-label small { text-transform: none; letter-spacing: 0.3px; color: var(--spl-muted); font-size: 11px; font-weight: 400; }
+.spl-token-total {
+  margin-left: auto; font-size: 12px; font-weight: 600; letter-spacing: 0;
+  color: var(--spl-muted); background: var(--spl-panel-2); border: 1px solid var(--spl-line);
+  border-radius: 20px; padding: 1px 9px;
+}
+.spl-token-total.over { color: var(--spl-gold-bright); border-color: #c98a2b; }
+.spl-hero-tokens { display: flex; gap: 9px; flex-wrap: wrap; padding-left: 8px; }
+.spl-hero-token { width: 44px; height: 44px; }
+.spl-hero-token:disabled { cursor: default; filter: none; }
+.spl-hero-token .spl-token-count { font-size: 16px; }
+.spl-hero-token.spl-discardable { box-shadow: var(--gem-edge), 0 0 0 2px #c98a2b, 0 2px 5px rgba(0,0,0,0.32); cursor: pointer; }
+.spl-hero-token.spl-discardable:hover { transform: translateY(-3px); }
+.spl-hero-bonuses { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; padding-left: 8px; }
+.spl-hero-bonus {
+  width: 30px; height: 30px; border-radius: 8px; overflow: hidden;
+  display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 800;
+  text-shadow: 0 1px 1px rgba(0,0,0,0.2);
+}
+.spl-hero-tally { margin-left: 4px; font-size: 12px; color: var(--spl-muted); }
 .spl-player-foot { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-top: 10px; padding-left: 8px; }
 .spl-player-meta { font-size: 12px; color: var(--spl-muted); letter-spacing: 0.3px; }
 .spl-reserved { display: flex; gap: 7px; width: 100%; margin-top: 4px; }

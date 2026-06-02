@@ -125,57 +125,101 @@ function NobleTile({ noble, claimable, onClick }) {
   );
 }
 
-function PlayerPanel({ player, board, isCurrent, isHuman, onBuyReserved, onDiscardToken, discardMode }) {
+function ReservedRow({ player, board, isCurrent, isHuman, onBuyReserved }) {
+  if (player.reserved.length === 0) return null;
+  return (
+    <div className="spl-reserved">
+      {player.reserved.map((entry, i) => {
+        const card = CARDS_BY_ID[entry.cardId];
+        const canBuy = isHuman && isCurrent && board.phase === 'play' && board.canAffordCard(player.id, entry.cardId);
+        // Opponents' reserves stay hidden to the human.
+        return isHuman ? (
+          <div key={i} className="spl-reserved-card">
+            <DevCard card={card} onBuy={isCurrent ? () => onBuyReserved(entry.cardId) : undefined} canBuy={canBuy} />
+          </div>
+        ) : (
+          <div key={i} className="spl-card spl-card-back spl-reserved-back"><span className="spl-card-crest">❖</span></div>
+        );
+      })}
+    </div>
+  );
+}
+
+// The human's panel is the focal point of the rail: spendable tokens are shown
+// large in their own row (with a running n/10 limit), the permanent card
+// discounts in a separate labelled row. Opponents get the compact summary.
+function HeroPanel({ player, board, isCurrent, onBuyReserved, onDiscardToken, discardMode }) {
+  const points = board.getVictoryPoints(player.id);
+  const tokenTotal = board.getTokenTotal(player.id);
+  return (
+    <div className={`spl-player spl-hero ${isCurrent ? 'spl-player-current' : ''}`} style={{ '--accent': player.color }}>
+      <div className="spl-player-head">
+        <span className="spl-player-name" style={{ color: player.color }}>You</span>
+        <span className="spl-player-points">{points} <small>prestige</small></span>
+      </div>
+
+      <div className="spl-hero-label">
+        Your tokens
+        <span className={`spl-token-total ${tokenTotal > 10 ? 'over' : ''}`}>{tokenTotal}/10</span>
+      </div>
+      <div className="spl-hero-tokens">
+        {[...GEMS, GOLD].map(g => {
+          const canDiscard = discardMode && player.tokens[g] > 0;
+          return (
+            <button
+              key={g}
+              type="button"
+              title={discardMode ? `Return a ${GEM_LABELS[g]}` : GEM_LABELS[g]}
+              className={`spl-token spl-hero-token ${gemClass(g)} ${player.tokens[g] === 0 ? 'spl-empty' : ''} ${canDiscard ? 'spl-discardable' : ''}`}
+              onClick={canDiscard ? () => onDiscardToken(g) : undefined}
+              disabled={!canDiscard}
+            >
+              {g === GOLD ? <span className="spl-token-star">✦</span> : null}
+              <span className="spl-token-count">{player.tokens[g]}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="spl-hero-label">Your cards <small>· discounts</small></div>
+      <div className="spl-hero-bonuses">
+        {GEMS.map(g => (
+          <span key={g} className={`spl-hero-bonus ${gemClass(g)} ${player.bonuses[g] === 0 ? 'spl-empty' : ''}`} title={`${GEM_LABELS[g]} discount`}>
+            {player.bonuses[g]}
+          </span>
+        ))}
+        <span className="spl-hero-tally">{player.cards.length} cards{player.nobles.length ? ` · ${player.nobles.length} noble${player.nobles.length > 1 ? 's' : ''}` : ''}</span>
+      </div>
+
+      <ReservedRow player={player} board={board} isCurrent={isCurrent} isHuman onBuyReserved={onBuyReserved} />
+    </div>
+  );
+}
+
+function PlayerPanel({ player, board, isCurrent }) {
   const points = board.getVictoryPoints(player.id);
   return (
     <div className={`spl-player ${isCurrent ? 'spl-player-current' : ''}`} style={{ '--accent': player.color }}>
       <div className="spl-player-head">
-        <span className="spl-player-name" style={{ color: player.color }}>
-          {player.name}{isHuman ? ' (you)' : ''}
-        </span>
+        <span className="spl-player-name" style={{ color: player.color }}>{player.name}</span>
         <span className="spl-player-points">{points} <small>pts</small></span>
       </div>
       <div className="spl-player-gems">
         {[...GEMS, GOLD].map(g => (
           <div key={g} className="spl-gemstack" title={GEM_LABELS[g]}>
-            <span className={`spl-gemstack-bonus ${gemClass(g)}`}>
+            <span className={`spl-gemstack-bonus ${gemClass(g)} ${g !== GOLD && player.bonuses[g] === 0 ? 'spl-empty' : ''}`}>
               <span className="spl-gemstack-val">{g === GOLD ? '✦' : player.bonuses[g]}</span>
             </span>
-            <button
-              type="button"
-              className={`spl-gemstack-token ${discardMode && player.tokens[g] > 0 ? 'spl-discardable' : ''}`}
-              onClick={discardMode && player.tokens[g] > 0 ? () => onDiscardToken(g) : undefined}
-              disabled={!(discardMode && player.tokens[g] > 0)}
-            >
-              {player.tokens[g]}
-            </button>
+            <span className="spl-gemstack-token">{player.tokens[g]}</span>
           </div>
         ))}
       </div>
       <div className="spl-player-foot">
         <span className="spl-player-meta">{player.cards.length} cards</span>
         {player.nobles.length > 0 && <span className="spl-player-meta">{player.nobles.length} noble{player.nobles.length > 1 ? 's' : ''}</span>}
-        {player.reserved.length > 0 && (
-          <div className="spl-reserved">
-            {player.reserved.map((entry, i) => {
-              const card = CARDS_BY_ID[entry.cardId];
-              const reveal = isHuman; // opponents' reserves stay hidden to the human
-              const canBuy = isHuman && isCurrent && board.phase === 'play' && board.canAffordCard(player.id, entry.cardId);
-              return reveal ? (
-                <div key={i} className="spl-reserved-card">
-                  <DevCard
-                    card={card}
-                    onBuy={isHuman && isCurrent ? () => onBuyReserved(entry.cardId) : undefined}
-                    canBuy={canBuy}
-                  />
-                </div>
-              ) : (
-                <div key={i} className="spl-card spl-card-back spl-reserved-back"><span className="spl-card-crest">❖</span></div>
-              );
-            })}
-          </div>
-        )}
+        {player.reserved.length > 0 && <span className="spl-player-meta">{player.reserved.length} reserved</span>}
       </div>
+      <ReservedRow player={player} board={board} isCurrent={isCurrent} isHuman={false} />
     </div>
   );
 }
@@ -433,6 +477,7 @@ export default function SplendorGame() {
               ))}
             </div>
 
+            <div className="spl-market">
             {[3, 2, 1].map(tier => (
               <div key={tier} className={`spl-row tier-row-${tier}`}>
                 <div className="spl-deck">
@@ -463,6 +508,7 @@ export default function SplendorGame() {
                 </div>
               </div>
             ))}
+            </div>
 
             <div className="spl-section-label">Gem Bank</div>
             <div className="spl-bank">
@@ -506,17 +552,21 @@ export default function SplendorGame() {
           </div>
 
           <aside className="spl-side">
+            <HeroPanel
+              player={human}
+              board={board}
+              isCurrent={board.currentPlayer === HUMAN_PLAYER}
+              onBuyReserved={buyReserved}
+              onDiscardToken={discardToken}
+              discardMode={humanDiscardMode}
+            />
             <div className="spl-players">
-              {[human, ...opponents].map(player => (
+              {opponents.map(player => (
                 <PlayerPanel
                   key={player.id}
                   player={player}
                   board={board}
                   isCurrent={board.currentPlayer === player.id}
-                  isHuman={player.id === HUMAN_PLAYER}
-                  onBuyReserved={buyReserved}
-                  onDiscardToken={discardToken}
-                  discardMode={player.id === HUMAN_PLAYER && humanDiscardMode}
                 />
               ))}
             </div>
