@@ -183,7 +183,10 @@ function cardBuyValue(board, playerId, cardId) {
   return value;
 }
 
-function scoreMove(board, move, playerId) {
+// `demand` (per-colour token demand) is constant for a position but was the #1
+// hot spot when recomputed per candidate move — callers compute it once per
+// scoring pass and thread it in. It's only needed for take/discard moves.
+function scoreMove(board, move, playerId, demand) {
   switch (move.type) {
     case 'buy':
       return cardBuyValue(board, playerId, move.cardId);
@@ -193,20 +196,20 @@ function scoreMove(board, move, playerId) {
       return 130 + card.points * 32 + (board.bank[GOLD] > 0 ? 12 : 0);
     }
     case 'take-three': {
-      const demand = colorDemand(board, playerId);
+      const d = demand || colorDemand(board, playerId);
       let s = 100;
-      for (const color of move.colors) s += Math.min(demand[color], 6) * 4;
+      for (const color of move.colors) s += Math.min(d[color], 6) * 4;
       return s;
     }
     case 'take-two': {
-      const demand = colorDemand(board, playerId);
-      return 100 + Math.min(demand[move.color], 8) * 6;
+      const d = demand || colorDemand(board, playerId);
+      return 100 + Math.min(d[move.color], 8) * 6;
     }
     case 'discard-token': {
       if (move.token === GOLD) return 20; // never want to drop the wild
-      const demand = colorDemand(board, playerId);
+      const d = demand || colorDemand(board, playerId);
       const player = board.players[playerId];
-      return 150 + player.tokens[move.token] * 8 - Math.min(demand[move.token], 6) * 12;
+      return 150 + player.tokens[move.token] * 8 - Math.min(d[move.token], 6) * 12;
     }
     case 'choose-noble':
       return 500; // all nobles are +3; any is fine
@@ -217,10 +220,11 @@ function scoreMove(board, move, playerId) {
   }
 }
 
-function pruneMoves(board, moves, playerId, maxChildren = DEFAULT_MAX_CHILDREN) {
+function pruneMoves(board, moves, playerId, maxChildren = DEFAULT_MAX_CHILDREN, demand) {
   if (moves.length <= maxChildren) return moves;
+  const d = demand || colorDemand(board, playerId);
   return moves
-    .map(move => ({ move, score: scoreMove(board, move, playerId) }))
+    .map(move => ({ move, score: scoreMove(board, move, playerId, d) }))
     .sort((a, b) => b.score - a.score)
     .slice(0, maxChildren)
     .map(entry => entry.move);
@@ -232,8 +236,9 @@ function selectMoveByHeuristic(board, { rollout = false } = {}) {
   if (moves.length === 1) return moves[0];
 
   const playerId = board.currentPlayer;
-  const pruned = pruneMoves(board, moves, playerId, 16);
-  const scores = pruned.map(move => scoreMove(board, move, playerId));
+  const demand = colorDemand(board, playerId);
+  const pruned = pruneMoves(board, moves, playerId, 16, demand);
+  const scores = pruned.map(move => scoreMove(board, move, playerId, demand));
 
   const max = Math.max(...scores);
   let sum = 0;
@@ -257,11 +262,8 @@ function selectMoveByHeuristic(board, { rollout = false } = {}) {
 // ---------------------------------------------------------------------------
 
 function searchClone(board) {
-  const clone = board.clone();
-  clone._skipHistory = true;
-  clone.stateHistory = [];
-  clone.historyIndex = -1;
-  return clone;
+  // _fastClone already drops history and sets _skipHistory — the hot path.
+  return board._fastClone();
 }
 
 function shuffleInPlace(arr) {
@@ -337,7 +339,8 @@ function terminalValueVector(board, players) {
 }
 
 function heuristicPriors(board, moves, toMove) {
-  const scores = moves.map(move => scoreMove(board, move, toMove));
+  const demand = colorDemand(board, toMove);
+  const scores = moves.map(move => scoreMove(board, move, toMove, demand));
   const max = Math.max(...scores);
   let sum = 0;
   const exps = scores.map(s => { const e = Math.exp((s - max) / PRIOR_TEMP); sum += e; return e; });

@@ -677,6 +677,52 @@ export default class SplendorBoard {
     return SplendorBoard.fromSerializedState(this.serializeState());
   }
 
+  // Fast clone for MCTS search: a direct field copy that skips both the
+  // serialize/deserialize round-trip AND the constructor's throwaway game setup
+  // (deck shuffles, noble draw, player init) that fromSerializedState discards.
+  // Produces a behavior-identical board with fresh mutable state; history is
+  // dropped (search clones never use undo/redo). This is the hot path — every
+  // tree node and rollout step clones — so it dominates search throughput.
+  _fastClone() {
+    const b = Object.create(SplendorBoard.prototype);
+    b.seed = this.seed;
+    b.playerCount = this.playerCount;
+    b.playerIds = this.playerIds;           // immutable, safe to share
+    b.victoryTarget = this.victoryTarget;
+    b.decks = { 1: this.decks[1].slice(), 2: this.decks[2].slice(), 3: this.decks[3].slice() };
+    b.visible = { 1: this.visible[1].slice(), 2: this.visible[2].slice(), 3: this.visible[3].slice() };
+    b.bank = { ...this.bank };
+    b.nobles = this.nobles.slice();
+    b.players = {};
+    for (const id of this.playerIds) {
+      const p = this.players[id];
+      b.players[id] = {
+        id: p.id, name: p.name, color: p.color,
+        tokens: { ...p.tokens },
+        bonuses: { ...p.bonuses },
+        cards: p.cards.slice(),
+        reserved: p.reserved.map(e => ({ cardId: e.cardId, hidden: e.hidden })),
+        nobles: p.nobles.slice(),
+        points: p.points,
+      };
+    }
+    b.firstPlayer = this.firstPlayer;
+    b.currentPlayer = this.currentPlayer;
+    b.phase = this.phase;
+    b.pendingNobles = this.pendingNobles.slice();
+    b.endTriggered = this.endTriggered;
+    b.turnNumber = this.turnNumber;
+    b.winner = this.winner;
+    b.winningPoints = this.winningPoints;
+    b.lastAction = this.lastAction;
+    b.log = this.log.slice();
+    b.stateHistory = [];
+    b.historyIndex = -1;
+    b.maxHistoryLength = this.maxHistoryLength;
+    b._skipHistory = true;
+    return b;
+  }
+
   _captureState() {
     if (this._skipHistory) return;
     const state = this.serializeState();

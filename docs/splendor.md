@@ -95,11 +95,17 @@ keeps even deep search cheap, ~0.4 ms/sim):
 Leaf-rollout depth was swept with `scripts/splendor/ladder.mjs --rollout-set` (28 ranks best;
 shallower loses accuracy, deeper adds cost/variance without gain), so the presets use 28.
 
+A demand-memoization speedup (computing per-colour token demand once per scoring pass instead
+of per candidate move — it was the #1 profiler hot spot) roughly **2.5×'d search throughput**
+(~1950 → ~5000 sims/sec; `scripts/splendor/bench.mjs`). The presets were raised ~2.5× to spend
+that on more search at the **same move latency** — a free strength gain: the strong preset's
+1200→3000 jump is **+190 Elo** (h-3000 beat h-1200 18–6, 75%, Wilson CI [55%, 88%], significant):
+
 | Level | Simulations | Max root children | Rollout depth |
 |-------|-------------|-------------------|---------------|
-| Strong | 1200 | 36 | 28 |
-| Expert | 2500 | 44 | 28 |
-| Brutal | 5000 | 50 | 30 |
+| Strong | 3000 | 36 | 28 |
+| Expert | 6000 | 44 | 28 |
+| Brutal | 12000 | 50 | 30 |
 
 ## Verification rig (how strength is proven)
 

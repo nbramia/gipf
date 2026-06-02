@@ -21,14 +21,14 @@ import './splendor.css';
 
 const HUMAN_PLAYER = 1;
 
-// Splendor's small branching factor lets search go deep cheaply (~0.4ms/sim);
-// more search is the reliable strength lever. rolloutSteps≈28 is the leaf-eval
-// sweet spot (scripts/splendor/ladder.mjs --rollout-set sweep): shallower loses
-// accuracy, deeper adds cost/variance without gain.
+// More search is the reliable strength lever (ladder.mjs proves sims→Elo). The
+// engine runs ~5000 sims/sec after the demand-memoization speedup (~2.5× faster),
+// so these sim counts are ~2.5× the old ones at the SAME move latency — a free
+// strength gain. rolloutSteps≈28 is the swept leaf-eval sweet spot.
 const DIFFICULTY_CONFIG = {
-  strong: { simulations: 1200, maxChildren: 36, rolloutSteps: 28 },
-  expert: { simulations: 2500, maxChildren: 44, rolloutSteps: 28 },
-  brutal: { simulations: 5000, maxChildren: 50, rolloutSteps: 30 },
+  strong: { simulations: 3000, maxChildren: 36, rolloutSteps: 28 },
+  expert: { simulations: 6000, maxChildren: 44, rolloutSteps: 28 },
+  brutal: { simulations: 12000, maxChildren: 50, rolloutSteps: 30 },
 };
 
 const DIFFICULTY_LABELS = { strong: 'Strong', expert: 'Expert', brutal: 'Brutal' };
