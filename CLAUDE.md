@@ -200,11 +200,13 @@ See [docs/chess.md](docs/chess.md) for the engine + coaching pipeline and the BY
 | File | Purpose |
 |------|---------|
 | `CatanBoard.js` | Pure 3-6 player Catan rules engine -- setup, production, robber, builds, dev cards, P2P trades, discard, awards |
-| `CatanGame.jsx` | React UI -- SVG board, player panels, controls, AI turn loop |
+| `CatanGame.jsx` | React UI -- SVG board, player panels, controls, AI turn loop, rules-help chat |
 | `catan.css` | Scoped CSS variables (`.game-catan`) + animations |
 | `engine/mcts.js` | PUCT game-tree MCTS (maxⁿ value, dice chance nodes, heuristic-rollout/NN evaluator) |
 | `engine/features.js` | Self-play feature extraction and policy targets |
 | `hooks/useAIWorker.js` | React hook managing Catan MCTS Web Worker lifecycle |
+| `coach/rulesClient.js` | Rules-assistant client + BYO Anthropic key storage (`catanApiKey`) |
+| `api/catanRules.js` | Vercel serverless rules assistant (Claude API, **bring-your-own key**, ruleset-aware) |
 | `CatanBoard.test.js` | Jest tests covering core Catan logic and AI legality |
 
 See [docs/catan.md](docs/catan.md) for rule coverage and AI/training details.

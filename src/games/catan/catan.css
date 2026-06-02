@@ -648,27 +648,35 @@
 
 .game-catan .catan-port-pier {
   stroke: var(--color-harbor);
-  stroke-width: 3;
+  stroke-width: 4.5;
   stroke-linecap: round;
-  opacity: 0.5;
+  opacity: 0.7;
 }
 
-.game-catan .catan-port-badge {
+/* Round wooden harbor token */
+.game-catan .catan-port-disc {
   fill: var(--color-harbor);
   stroke: var(--color-piece-outline);
   stroke-width: 1.5;
 }
 
-.game-catan .catan-port-label {
+.game-catan .catan-port-rim {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.5);
+  stroke-width: 1.4;
+}
+
+.game-catan .catan-port-ratio {
   fill: #FFFFFF;
   font-family: Outfit, sans-serif;
-  font-size: 10px;
+  font-size: 9.5px;
   font-weight: 800;
+  letter-spacing: 0.2px;
 }
 
 .game-catan .catan-port-chip {
-  stroke: var(--color-piece-outline);
-  stroke-width: 1.2;
+  stroke: rgba(255, 255, 255, 0.85);
+  stroke-width: 1.3;
 }
 
 .game-catan .catan-port-chip.port-brick { fill: var(--tile-brick); }
@@ -677,12 +685,18 @@
 .game-catan .catan-port-chip.port-grain { fill: var(--tile-grain); }
 .game-catan .catan-port-chip.port-ore { fill: var(--tile-ore); }
 
-.game-catan .catan-robber circle,
-.game-catan .catan-robber path {
-  fill: #1F2937;
-  stroke: rgba(255, 255, 255, 0.6);
-  stroke-width: 1;
+/* Generic 3:1 harbor anchor */
+.game-catan .catan-port-anchor circle,
+.game-catan .catan-port-anchor line,
+.game-catan .catan-port-anchor path {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.92);
+  stroke-width: 1.3;
+  stroke-linecap: round;
 }
+
+/* The robber's bandit figure carries its own inline fills/strokes (cloak, hood
+   rim, shadowed face, red eyes); no blanket override here or it flattens them. */
 
 .game-catan .catan-clickable {
   cursor: pointer;
@@ -887,4 +901,119 @@
 .game-catan .catan-log-empty {
   font-size: 12px;
   color: var(--color-text-muted);
+}
+
+/* ========== Rules-help chat ========== */
+
+.game-catan .catan-rules-status {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.game-catan .catan-rules-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.game-catan .catan-rules-context {
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--color-text-muted);
+}
+
+.game-catan .catan-rules-context strong {
+  color: var(--color-text-secondary);
+}
+
+.game-catan .catan-rules-transcript {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+}
+
+.game-catan .catan-rules-empty {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+
+.game-catan .catan-rules-msg {
+  padding: 7px 10px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.game-catan .catan-rules-msg.is-user {
+  align-self: flex-end;
+  max-width: 92%;
+  background: var(--color-accent-soft);
+  color: var(--color-text-primary);
+}
+
+.game-catan .catan-rules-msg.is-bot {
+  align-self: flex-start;
+  background: var(--color-bg-soft);
+  border: 1px solid var(--color-border-panel);
+  color: var(--color-text-secondary);
+}
+
+.game-catan .catan-rules-thinking {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.game-catan .catan-rules-error {
+  font-size: 12px;
+  color: var(--color-accent);
+}
+
+.game-catan .catan-rules-inputrow {
+  display: flex;
+  gap: 6px;
+}
+
+.game-catan .catan-rules-field {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border-panel);
+  background: var(--color-bg-panel);
+  color: var(--color-text-primary);
+  font-size: 12.5px;
+}
+
+.game-catan .catan-rules-field:disabled {
+  opacity: 0.6;
+}
+
+.game-catan .catan-rules-keyblock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.game-catan .catan-rules-keynote {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--color-text-muted);
+}
+
+.game-catan .catan-rules-keylink {
+  align-self: flex-start;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  text-decoration: underline;
+}
+
+.game-catan .catan-rules-keylink:hover {
+  color: var(--color-accent);
 }

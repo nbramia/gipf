@@ -41,6 +41,16 @@ Every ruleset × scenario × player-count combination is exercised by `scripts/c
 
 The AI's `propose-trade` prior carries diminishing returns within a turn (`mcts.js`): the first offer is scored normally, each further one is penalized, so the AI makes its best deals and moves on instead of spamming the per-turn cap — fewer trade modals for the human, slightly shorter games. The penalty is deliberately gentle (it still lets clearly-beneficial repeat trades through), and is tuned to be strength-neutral: head-to-head against the prior champion it scores 52.5% over 40 games (a clean tie). A harder penalty would shorten games further but costs a few points of AI-vs-AI strength, so it's kept conservative. The human's own 4-proposals-per-turn cap is unaffected.
 
+### Rules assistant (bring-your-own key)
+
+The right rail has a "Rules Help" chat for asking about the active expansion — useful for the less familiar rulesets (Seafarers, Cities & Knights, Explorers & Pirates, etc.). It mirrors the chess coach's BYO-key model:
+
+- `api/catanRules.js` is a Vercel serverless function that calls the Anthropic API with a key supplied in the request body (used once, never logged or persisted; no server-side fallback key).
+- `src/games/catan/coach/rulesClient.js` stores the key in `localStorage` (`catanApiKey`, browser-only) and posts the running conversation.
+- Each request carries the live game context (ruleset, edition, scenario, map, player count, victory target, module list), so answers are specific to what's in play. The system prompt also has the model distinguish the full tabletop rules of an expansion from what this base-engine app actually simulates, so it never claims a mechanic the app doesn't have.
+
+Like the chess coach, this only works on the deployed site (or `vercel dev`); `npm start` alone doesn't serve `/api/*`.
+
 ## Architecture
 
 Files:
@@ -49,8 +59,10 @@ Files:
 |------|---------|
 | `src/games/catan/CatanBoard.js` | Pure game logic and rule enforcement |
 | `src/games/catan/catanRulesets.js` | Rule family, scenario, map, player-count, and victory-target metadata |
-| `src/games/catan/CatanGame.jsx` | React UI, SVG board, controls, AI turn loop |
+| `src/games/catan/CatanGame.jsx` | React UI, SVG board, controls, AI turn loop, rules-help chat |
 | `src/games/catan/catan.css` | Scoped `.game-catan` variables and board styling |
+| `src/games/catan/coach/rulesClient.js` | Client + BYO-key storage for the rules assistant |
+| `api/catanRules.js` | Serverless rules assistant (Claude, bring-your-own key) |
 | `src/games/catan/engine/mcts.js` | PUCT game-tree MCTS (maxⁿ value, dice chance nodes, heuristic-rollout/NN evaluator) |
 | `src/games/catan/engine/features.js` | Self-play feature extraction and policy targets |
 | `src/games/catan/engine/valueNetwork.js` / `valueNetworkNode.js` | ONNX inference (browser / Node) for the NN evaluator |

@@ -7,6 +7,7 @@ import { CATAN_RULESETS, RULESET_GROUPS, getDefaultScenario, getRuleset, normali
 import useAIWorker from './hooks/useAIWorker.js';
 import { MCTS } from './engine/mcts.js';
 import { applyAIMove } from './engine/aiPlayer.js';
+import { askRules, setApiKey as setRulesKey, hasApiKey as hasRulesKey } from './coach/rulesClient.js';
 import './catan.css';
 
 const HUMAN_PLAYER = 1;
@@ -294,9 +295,18 @@ export default function CatanGame() {
   const [yopPick, setYopPick] = useState([]);
   const [robberVictimPicker, setRobberVictimPicker] = useState(null);
   const [gameLog, setGameLog] = useState([]);
+  // Rules-help chat (BYO Anthropic key, aware of the current ruleset).
+  const [rulesOpen, setRulesOpen] = useState(true);
+  const [rulesMessages, setRulesMessages] = useState([]);
+  const [rulesInput, setRulesInput] = useState('');
+  const [rulesBusy, setRulesBusy] = useState(false);
+  const [rulesError, setRulesError] = useState('');
+  const [rulesKeySet, setRulesKeySet] = useState(() => hasRulesKey());
+  const [rulesKeyInput, setRulesKeyInput] = useState('');
   const aiTimerRef = useRef(null);
   const lastLoggedActionRef = useRef(null);
   const logEndRef = useRef(null);
+  const rulesEndRef = useRef(null);
   const { computeMove, isSupported: workerSupported } = useAIWorker();
 
   useEffect(() => localStorage.setItem('catanDarkMode', JSON.stringify(darkMode)), [darkMode]);
@@ -327,6 +337,18 @@ export default function CatanGame() {
     if (logEndRef.current) logEndRef.current.scrollTop = logEndRef.current.scrollHeight;
   }, [gameLog]);
 
+  // Auto-scroll the rules-chat transcript to the newest message.
+  useEffect(() => {
+    if (rulesEndRef.current) rulesEndRef.current.scrollTop = rulesEndRef.current.scrollHeight;
+  }, [rulesMessages, rulesBusy]);
+
+  // Reset the rules conversation when the played ruleset changes (new game of a
+  // different expansion) so the transcript doesn't mix contexts.
+  useEffect(() => {
+    setRulesMessages([]);
+    setRulesError('');
+  }, [board.rulesetId]);
+
   const isHumanTurn = board.currentPlayer === HUMAN_PLAYER && board.phase !== 'game-over';
   const currentPlayer = board.players[board.currentPlayer];
   const human = board.players[HUMAN_PLAYER];
@@ -335,6 +357,50 @@ export default function CatanGame() {
   const selectedScenario = selectedRuleset.scenarios?.find(scenario => scenario.id === gameConfig.scenarioId) || getDefaultScenario(selectedRuleset);
   const activeRuleset = getRuleset(board.rulesetId);
   const activeScenario = activeRuleset.scenarios?.find(scenario => scenario.id === board.scenarioId) || getDefaultScenario(activeRuleset);
+
+  // Context handed to the rules assistant so its answers are specific to the
+  // ruleset/scenario actually in play.
+  const rulesContext = useMemo(() => ({
+    rulesetName: activeRuleset.name,
+    edition: activeRuleset.edition,
+    group: activeRuleset.group,
+    modules: activeRuleset.modules,
+    scenarioName: activeScenario?.name || 'Random Island',
+    mapName: board.mapName,
+    players: board.playerCount,
+    victoryTarget: board.victoryTarget,
+  }), [activeRuleset, activeScenario, board.mapName, board.playerCount, board.victoryTarget]);
+
+  const sendRulesQuestion = useCallback(async () => {
+    const question = rulesInput.trim();
+    if (!question || rulesBusy || !hasRulesKey()) return;
+    const next = [...rulesMessages, { role: 'user', content: question }];
+    setRulesMessages(next);
+    setRulesInput('');
+    setRulesError('');
+    setRulesBusy(true);
+    const result = await askRules({ context: rulesContext, messages: next });
+    if (result.answer) {
+      setRulesMessages(prev => [...prev, { role: 'assistant', content: result.answer }]);
+    } else {
+      setRulesError(result.message || 'Something went wrong.');
+    }
+    setRulesBusy(false);
+  }, [rulesInput, rulesBusy, rulesMessages, rulesContext]);
+
+  const saveRulesKey = useCallback(() => {
+    const key = rulesKeyInput.trim();
+    if (!key) return;
+    setRulesKey(key);
+    setRulesKeySet(true);
+    setRulesKeyInput('');
+  }, [rulesKeyInput]);
+
+  const removeRulesKey = useCallback(() => {
+    setRulesKey('');
+    setRulesKeySet(false);
+  }, []);
+
   const playerIds = board.getPlayerIds();
   const boardLayout = useMemo(() => {
     const points = Object.values(board.vertices);
@@ -1000,7 +1066,7 @@ export default function CatanGame() {
               </g>
             )}
             {isRobber && (
-              <g transform={`translate(${center.x}, ${center.y})`} className="catan-robber" filter="url(#catan-piece-shadow)">
+              <g transform={`translate(${center.x}, ${center.y}) scale(3)`} className="catan-robber" filter="url(#catan-piece-shadow)">
                 {/* ground shadow */}
                 <ellipse cx="0" cy="19" rx="12" ry="3" fill="rgba(0,0,0,0.32)" stroke="none" />
                 {/* hooded robe */}
@@ -1060,19 +1126,30 @@ export default function CatanGame() {
               const dirX = mx - BOARD_VIEWBOX.width / 2;
               const dirY = my - BOARD_VIEWBOX.height / 2;
               const len = Math.hypot(dirX, dirY) || 1;
-              const bx = mx + (dirX / len) * 22;
-              const by = my + (dirY / len) * 22;
+              const bx = mx + (dirX / len) * 24;
+              const by = my + (dirY / len) * 24;
               const isAny = edge.port === 'any';
               return (
                 <g className="catan-port-group">
                   <line x1={a.x} y1={a.y} x2={bx} y2={by} className="catan-port-pier" />
                   <line x1={b.x} y1={b.y} x2={bx} y2={by} className="catan-port-pier" />
                   <g filter="url(#catan-piece-shadow)">
-                    <rect x={bx - 15} y={by - 9} width="30" height="18" rx="6" className="catan-port-badge" />
-                    {!isAny && (
-                      <circle cx={bx} cy={by - 12} r="4.5" className={`catan-port-chip port-${edge.port}`} />
+                    {/* round wooden harbor token */}
+                    <circle cx={bx} cy={by} r="14" className="catan-port-disc" />
+                    <circle cx={bx} cy={by} r="14" className="catan-port-rim" />
+                    {isAny ? (
+                      /* generic 3:1 harbor — a little anchor */
+                      <g className="catan-port-anchor" transform={`translate(${bx}, ${by - 4.5})`}>
+                        <circle cx="0" cy="-4.4" r="1.7" />
+                        <line x1="0" y1="-2.7" x2="0" y2="5.6" />
+                        <line x1="-3.6" y1="-0.6" x2="3.6" y2="-0.6" />
+                        <path d="M-4.6 2.6 C-4.6 5.6 -2.2 7.2 0 7.2 C2.2 7.2 4.6 5.6 4.6 2.6" />
+                      </g>
+                    ) : (
+                      /* 2:1 resource harbor — a resource chip */
+                      <circle cx={bx} cy={by - 4.6} r="5.6" className={`catan-port-chip port-${edge.port}`} />
                     )}
-                    <text x={bx} y={by + 0.5} textAnchor="middle" dominantBaseline="central" className="catan-port-label">
+                    <text x={bx} y={by + (isAny ? 9.4 : 6.8)} textAnchor="middle" dominantBaseline="central" className="catan-port-ratio">
                       {isAny ? '3:1' : '2:1'}
                     </text>
                   </g>
@@ -1576,6 +1653,97 @@ export default function CatanGame() {
                 <span key={module}>{module}</span>
               ))}
             </div>
+          </div>
+
+          <div className="catan-panel p-4">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-2"
+              onClick={() => setRulesOpen(open => !open)}
+              aria-expanded={rulesOpen}
+            >
+              <span className="catan-panel-label">Rules Help</span>
+              <span className="catan-rules-status">
+                {rulesKeySet ? (rulesBusy ? 'thinking…' : 'Ask Claude') : 'needs key'} {rulesOpen ? '▾' : '▸'}
+              </span>
+            </button>
+            {rulesOpen && (
+              <div className="catan-rules-chat mt-2">
+                <p className="catan-rules-context">
+                  Answering about <strong>{activeRuleset.name}</strong> — {activeScenario?.name || 'Random Island'}, {board.playerCount}p, to {board.victoryTarget} VP.
+                </p>
+                <div className="catan-rules-transcript" ref={rulesEndRef}>
+                  {rulesMessages.length === 0 ? (
+                    <p className="catan-rules-empty">
+                      Ask anything about this ruleset — e.g. “How do knights work here?”, “What does the pirate ship do?”, or “How is this different from the base game?”
+                    </p>
+                  ) : (
+                    rulesMessages.map((message, index) => (
+                      <div key={index} className={`catan-rules-msg ${message.role === 'user' ? 'is-user' : 'is-bot'}`}>
+                        {message.content}
+                      </div>
+                    ))
+                  )}
+                  {rulesBusy && <div className="catan-rules-msg is-bot catan-rules-thinking">Thinking…</div>}
+                </div>
+                {rulesError && <p className="catan-rules-error">{rulesError}</p>}
+                {rulesKeySet ? (
+                  <>
+                    <div className="catan-rules-inputrow">
+                      <input
+                        type="text"
+                        value={rulesInput}
+                        onChange={event => setRulesInput(event.target.value)}
+                        onKeyDown={event => {
+                          if (event.key === 'Enter' && !event.shiftKey) {
+                            event.preventDefault();
+                            sendRulesQuestion();
+                          }
+                        }}
+                        placeholder="Ask about the rules…"
+                        disabled={rulesBusy}
+                        className="catan-rules-field"
+                      />
+                      <button
+                        type="button"
+                        className="catan-tool-btn px-3"
+                        onClick={sendRulesQuestion}
+                        disabled={rulesBusy || !rulesInput.trim()}
+                      >
+                        Ask
+                      </button>
+                    </div>
+                    <button type="button" className="catan-rules-keylink" onClick={removeRulesKey}>
+                      Remove API key
+                    </button>
+                  </>
+                ) : (
+                  <div className="catan-rules-keyblock">
+                    <div className="catan-rules-inputrow">
+                      <input
+                        type="password"
+                        value={rulesKeyInput}
+                        onChange={event => setRulesKeyInput(event.target.value)}
+                        onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); saveRulesKey(); } }}
+                        placeholder="sk-ant-…"
+                        className="catan-rules-field"
+                      />
+                      <button
+                        type="button"
+                        className="catan-tool-btn px-3"
+                        onClick={saveRulesKey}
+                        disabled={!rulesKeyInput.trim()}
+                      >
+                        Save
+                      </button>
+                    </div>
+                    <p className="catan-rules-keynote">
+                      Add your Anthropic API key to chat about the rules. Stored only in your browser; sent only to Anthropic when you ask a question.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </aside>
       </div>
