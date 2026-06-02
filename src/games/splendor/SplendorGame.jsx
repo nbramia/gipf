@@ -31,15 +31,10 @@ const DIFFICULTY_CONFIG = {
 
 const DIFFICULTY_LABELS = { strong: 'Strong', expert: 'Expert', brutal: 'Brutal' };
 
-const GEM_HEX = {
-  white: '#e8edf4',
-  blue: '#2563eb',
-  green: '#059669',
-  red: '#dc2626',
-  black: '#374151',
-  gold: '#f59e0b',
-};
-const GEM_TEXT = { white: '#1f2937', blue: '#fff', green: '#fff', red: '#fff', black: '#fff', gold: '#1f2937' };
+// Gems are rendered as faceted cut stones via CSS (.gem-<color>); JS only
+// supplies the color class. Roman numerals give the tiers an heirloom feel.
+const gemClass = token => `gem gem-${token}`;
+const ROMAN = { 1: 'I', 2: 'II', 3: 'III' };
 
 function makeSeed() {
   return Math.floor(Math.random() * 1e9) + 1;
@@ -57,17 +52,16 @@ function loadInitialConfig() {
 // ---- small presentational pieces ------------------------------------------
 
 function TokenChip({ token, count, onClick, selected, disabled, small }) {
-  const style = { background: GEM_HEX[token], color: GEM_TEXT[token] };
   return (
     <button
       type="button"
-      className={`spl-token ${small ? 'spl-token-sm' : ''} ${selected ? 'spl-token-selected' : ''}`}
-      style={style}
+      className={`spl-token ${gemClass(token)} ${small ? 'spl-token-sm' : ''} ${selected ? 'spl-token-selected' : ''}`}
       onClick={onClick}
       disabled={disabled || !onClick}
       aria-label={`${GEM_LABELS[token]}${count != null ? `: ${count}` : ''}`}
     >
-      {token === GOLD ? <span className="spl-token-star">★</span> : null}
+      <span className="spl-token-facet" aria-hidden="true" />
+      {token === GOLD ? <span className="spl-token-star">✦</span> : null}
       {count != null && <span className="spl-token-count">{count}</span>}
     </button>
   );
@@ -77,23 +71,27 @@ function CostPips({ cost }) {
   return (
     <div className="spl-cost">
       {GEMS.filter(g => cost[g]).map(g => (
-        <span key={g} className="spl-cost-pip" style={{ background: GEM_HEX[g], color: GEM_TEXT[g] }}>
-          {cost[g]}
-        </span>
+        <span key={g} className={`spl-cost-pip ${gemClass(g)}`}>{cost[g]}</span>
       ))}
     </div>
   );
 }
 
-function DevCard({ card, faceDown, onBuy, onReserve, canBuy, canReserve, highlight }) {
+function DevCard({ card, faceDown, onBuy, onReserve, canBuy, canReserve, style }) {
   if (faceDown) {
-    return <div className={`spl-card spl-card-back tier-${card?.tier || 1}`}>{card?.tier ? `T${card.tier}` : ''}</div>;
+    return (
+      <div className={`spl-card spl-card-back tier-${card?.tier || 1}`} style={style}>
+        <span className="spl-card-crest">❖</span>
+      </div>
+    );
   }
   return (
-    <div className={`spl-card tier-${card.tier} ${highlight ? 'spl-card-highlight' : ''}`}>
+    <div className={`spl-card tier-${card.tier}`} style={style}>
       <div className="spl-card-top">
         <span className="spl-card-points">{card.points > 0 ? card.points : ''}</span>
-        <span className="spl-card-bonus" style={{ background: GEM_HEX[card.bonus], color: GEM_TEXT[card.bonus] }} />
+        <span className={`spl-card-bonus ${gemClass(card.bonus)}`}>
+          <span className="spl-token-facet" aria-hidden="true" />
+        </span>
       </div>
       <CostPips cost={card.cost} />
       <div className="spl-card-actions">
@@ -115,13 +113,13 @@ function NobleTile({ noble, claimable, onClick }) {
       className={`spl-noble ${claimable ? 'spl-noble-claimable' : ''}`}
       onClick={claimable ? onClick : undefined}
       disabled={!claimable}
+      title="Noble — 3 prestige"
     >
+      <span className="spl-noble-crown">♛</span>
       <span className="spl-noble-points">3</span>
       <span className="spl-noble-req">
         {GEMS.filter(g => noble.requirement[g]).map(g => (
-          <span key={g} className="spl-noble-pip" style={{ background: GEM_HEX[g], color: GEM_TEXT[g] }}>
-            {noble.requirement[g]}
-          </span>
+          <span key={g} className={`spl-noble-pip ${gemClass(g)}`}>{noble.requirement[g]}</span>
         ))}
       </span>
     </button>
@@ -131,7 +129,7 @@ function NobleTile({ noble, claimable, onClick }) {
 function PlayerPanel({ player, board, isCurrent, isHuman, onBuyReserved, onDiscardToken, discardMode }) {
   const points = board.getVictoryPoints(player.id);
   return (
-    <div className={`spl-player ${isCurrent ? 'spl-player-current' : ''}`} style={{ borderColor: player.color }}>
+    <div className={`spl-player ${isCurrent ? 'spl-player-current' : ''}`} style={{ '--accent': player.color }}>
       <div className="spl-player-head">
         <span className="spl-player-name" style={{ color: player.color }}>
           {player.name}{isHuman ? ' (you)' : ''}
@@ -139,10 +137,11 @@ function PlayerPanel({ player, board, isCurrent, isHuman, onBuyReserved, onDisca
         <span className="spl-player-points">{points} <small>pts</small></span>
       </div>
       <div className="spl-player-gems">
-        {GEMS.map(g => (
+        {[...GEMS, GOLD].map(g => (
           <div key={g} className="spl-gemstack" title={GEM_LABELS[g]}>
-            <span className="spl-gemstack-bonus" style={{ background: GEM_HEX[g], color: GEM_TEXT[g] }}>
-              {player.bonuses[g]}
+            <span className={`spl-gemstack-bonus ${gemClass(g)}`}>
+              <span className="spl-token-facet" aria-hidden="true" />
+              <span className="spl-gemstack-val">{g === GOLD ? '✦' : player.bonuses[g]}</span>
             </span>
             <button
               type="button"
@@ -154,17 +153,6 @@ function PlayerPanel({ player, board, isCurrent, isHuman, onBuyReserved, onDisca
             </button>
           </div>
         ))}
-        <div className="spl-gemstack" title="Gold (wild)">
-          <span className="spl-gemstack-bonus spl-gold-bonus">★</span>
-          <button
-            type="button"
-            className={`spl-gemstack-token ${discardMode && player.tokens[GOLD] > 0 ? 'spl-discardable' : ''}`}
-            onClick={discardMode && player.tokens[GOLD] > 0 ? () => onDiscardToken(GOLD) : undefined}
-            disabled={!(discardMode && player.tokens[GOLD] > 0)}
-          >
-            {player.tokens[GOLD]}
-          </button>
-        </div>
       </div>
       <div className="spl-player-foot">
         <span className="spl-player-meta">{player.cards.length} cards</span>
@@ -184,7 +172,7 @@ function PlayerPanel({ player, board, isCurrent, isHuman, onBuyReserved, onDisca
                   />
                 </div>
               ) : (
-                <div key={i} className="spl-card spl-card-back spl-reserved-back">R</div>
+                <div key={i} className="spl-card spl-card-back spl-reserved-back"><span className="spl-card-crest">❖</span></div>
               );
             })}
           </div>
@@ -201,7 +189,8 @@ export default function SplendorGame() {
   const [difficulty, setDifficulty] = useState(initial.difficulty);
   const [playerCount, setPlayerCount] = useState(initial.playerCount);
   const [board, setBoard] = useState(() => new SplendorBoard({ seed: makeSeed(), playerCount: initial.playerCount }));
-  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('splendorDarkMode') === 'true');
+  // Dark velvet is the hero look; default to it unless the player opted out.
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('splendorDarkMode') !== 'false');
   const [showSettings, setShowSettings] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [isAiThinking, setIsAiThinking] = useState(false);
@@ -369,7 +358,10 @@ export default function SplendorGame() {
         <header className="spl-header">
           <div className="spl-header-left">
             <Link to="/" className="spl-back">← Games</Link>
-            <h1 className="spl-title">Splendor</h1>
+            <div className="spl-titlewrap">
+              <h1 className="spl-title">Splendor</h1>
+              <span className="spl-tagline">Merchants of the Renaissance · race to 15 prestige</span>
+            </div>
           </div>
           <div className="spl-header-right">
             <button type="button" className="spl-btn" onClick={() => setChatOpen(o => !o)}>Rules Help</button>
@@ -431,6 +423,7 @@ export default function SplendorGame() {
 
         <div className="spl-main">
           <div className="spl-board">
+            <div className="spl-section-label">Nobles</div>
             <div className="spl-nobles">
               {board.nobles.map(nobleId => (
                 <NobleTile
@@ -443,10 +436,10 @@ export default function SplendorGame() {
             </div>
 
             {[3, 2, 1].map(tier => (
-              <div key={tier} className="spl-row">
+              <div key={tier} className={`spl-row tier-row-${tier}`}>
                 <div className="spl-deck">
                   <div className={`spl-card spl-card-back tier-${tier}`}>
-                    <span className="spl-deck-tier">T{tier}</span>
+                    <span className="spl-deck-tier">{ROMAN[tier]}</span>
                     <span className="spl-deck-count">{board.decks[tier].length}</span>
                   </div>
                   <button
@@ -461,6 +454,7 @@ export default function SplendorGame() {
                     <DevCard
                       key={cardId}
                       card={CARDS_BY_ID[cardId]}
+                      style={{ animationDelay: `${i * 60}ms` }}
                       onBuy={() => buyVisible(cardId)}
                       onReserve={() => reserveVisible(cardId, tier)}
                       canBuy={isHumanTurn && board.phase === 'play' && board.canAffordCard(HUMAN_PLAYER, cardId)}
@@ -471,6 +465,7 @@ export default function SplendorGame() {
               </div>
             ))}
 
+            <div className="spl-section-label">Gem Bank</div>
             <div className="spl-bank">
               {ALL_TOKENS.map(token => {
                 const isGem = token !== GOLD;
