@@ -10,7 +10,7 @@ self.onmessage = async function (event) {
   try {
     const { boardState, simulations, maxChildren, rolloutSteps } = data;
     const board = SplendorBoard.fromSerializedState(boardState);
-    const mcts = new MCTS({ maxChildren, rolloutSteps: rolloutSteps ?? 24 });
+    const mcts = new MCTS({ maxChildren, rolloutSteps: rolloutSteps ?? 28 });
     const move = await mcts.getBestMove(board, simulations);
 
     self.postMessage({

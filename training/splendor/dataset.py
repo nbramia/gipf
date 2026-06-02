@@ -19,29 +19,35 @@ INPUT_SIZE = 216
 POLICY_SIZE = 230
 
 
+def _as_list(paths):
+    return [paths] if isinstance(paths, str) else list(paths)
+
+
 class SplendorDataset(Dataset):
-    def __init__(self, path, game_ids=None):
+    def __init__(self, paths, game_ids=None):
         self.rows = []
-        with open(path) as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                row = json.loads(line)
-                if game_ids is not None and row.get("gameId") not in game_ids:
-                    continue
-                if row.get("winnerSeat", -1) < 0:
-                    continue  # undecided positions carry no value label
-                self.rows.append(row)
+        for path in _as_list(paths):
+            with open(path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    row = json.loads(line)
+                    if game_ids is not None and row.get("gameId") not in game_ids:
+                        continue
+                    if row.get("winnerSeat", -1) < 0:
+                        continue  # undecided positions carry no value label
+                    self.rows.append(row)
 
     @staticmethod
-    def all_game_ids(path):
+    def all_game_ids(paths):
         ids = set()
-        with open(path) as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    ids.add(json.loads(line).get("gameId"))
+        for path in _as_list(paths):
+            with open(path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        ids.add(json.loads(line).get("gameId"))
         return sorted(ids)
 
     def __len__(self):

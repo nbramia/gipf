@@ -72,8 +72,24 @@ async function main() {
 
   const decisive = wins.A + wins.B;
   const rate = decisive ? (wins.A / decisive * 100).toFixed(1) : 'n/a';
+  const [lo, hi] = wilson95(wins.A, decisive);
+  const significant = lo > 0.5;
   console.log('---');
-  console.log(`A=${wins.A}  B=${wins.B}  none=${wins.none}  A win rate=${rate}%  time=${((Date.now() - start) / 1000).toFixed(0)}s`);
+  console.log(`A=${wins.A}  B=${wins.B}  none=${wins.none}  A win rate=${rate}%  95% CI [${(lo * 100).toFixed(1)}%, ${(hi * 100).toFixed(1)}%]  time=${((Date.now() - start) / 1000).toFixed(0)}s`);
+  console.log(`A win rate (decisive): ${rate}%  ${significant ? 'SIGNIFICANT' : 'not significant'}`);
+  // Exit 0 only when A is significantly better than B — the flywheel promotes on
+  // proven gains, not noise.
+  process.exitCode = significant ? 0 : 1;
+}
+
+function wilson95(wins, n) {
+  if (n === 0) return [0, 1];
+  const z = 1.96;
+  const phat = wins / n;
+  const denom = 1 + (z * z) / n;
+  const center = (phat + (z * z) / (2 * n)) / denom;
+  const margin = (z * Math.sqrt((phat * (1 - phat)) / n + (z * z) / (4 * n * n))) / denom;
+  return [Math.max(0, center - margin), Math.min(1, center + margin)];
 }
 
 main().catch(e => { console.error(e); process.exit(1); });

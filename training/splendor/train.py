@@ -45,7 +45,7 @@ def run_epoch(model, loader, opt, device, train):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data", required=True)
+    ap.add_argument("--data", nargs="+", required=True)
     ap.add_argument("--output", required=True)
     ap.add_argument("--checkpoint", default=None)
     ap.add_argument("--epochs", type=int, default=40)

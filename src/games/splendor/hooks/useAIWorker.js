@@ -45,7 +45,7 @@ export default function useAIWorker() {
     }
   }, []);
 
-  const computeMove = useCallback((boardState, simulations, onSuccess, onError, maxChildren = 36, rolloutSteps = 24) => {
+  const computeMove = useCallback((boardState, simulations, onSuccess, onError, maxChildren = 36, rolloutSteps = 28) => {
     if (!workerRef.current) {
       onError('Worker not available');
       return;
