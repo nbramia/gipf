@@ -60,7 +60,6 @@ function TokenChip({ token, count, onClick, selected, disabled, small }) {
       disabled={disabled || !onClick}
       aria-label={`${GEM_LABELS[token]}${count != null ? `: ${count}` : ''}`}
     >
-      <span className="spl-token-facet" aria-hidden="true" />
       {token === GOLD ? <span className="spl-token-star">✦</span> : null}
       {count != null && <span className="spl-token-count">{count}</span>}
     </button>
@@ -89,18 +88,18 @@ function DevCard({ card, faceDown, onBuy, onReserve, canBuy, canReserve, style }
     <div className={`spl-card tier-${card.tier}`} style={style}>
       <div className="spl-card-top">
         <span className="spl-card-points">{card.points > 0 ? card.points : ''}</span>
-        <span className={`spl-card-bonus ${gemClass(card.bonus)}`}>
-          <span className="spl-token-facet" aria-hidden="true" />
-        </span>
+        <span className={`spl-card-bonus ${gemClass(card.bonus)}`} />
       </div>
-      <CostPips cost={card.cost} />
-      <div className="spl-card-actions">
-        {onBuy && (
-          <button type="button" className="spl-btn spl-btn-buy" onClick={onBuy} disabled={!canBuy}>Buy</button>
-        )}
-        {onReserve && (
-          <button type="button" className="spl-btn spl-btn-reserve" onClick={onReserve} disabled={!canReserve}>Reserve</button>
-        )}
+      <div className="spl-card-bottom">
+        <CostPips cost={card.cost} />
+        <div className="spl-card-actions">
+          {onBuy && (
+            <button type="button" className="spl-btn spl-btn-buy" onClick={onBuy} disabled={!canBuy}>Buy</button>
+          )}
+          {onReserve && (
+            <button type="button" className="spl-btn spl-btn-reserve" onClick={onReserve} disabled={!canReserve}>Reserve</button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -140,7 +139,6 @@ function PlayerPanel({ player, board, isCurrent, isHuman, onBuyReserved, onDisca
         {[...GEMS, GOLD].map(g => (
           <div key={g} className="spl-gemstack" title={GEM_LABELS[g]}>
             <span className={`spl-gemstack-bonus ${gemClass(g)}`}>
-              <span className="spl-token-facet" aria-hidden="true" />
               <span className="spl-gemstack-val">{g === GOLD ? '✦' : player.bonuses[g]}</span>
             </span>
             <button

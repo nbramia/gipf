@@ -19,7 +19,8 @@
   --spl-shadow: 0 6px 18px rgba(70, 50, 15, 0.16);
   --spl-vignette: radial-gradient(120% 90% at 50% 0%, rgba(255,255,255,0.5), rgba(120,90,40,0.10) 70%, rgba(80,55,20,0.18) 100%);
 
-  --gem-edge: inset 0 -2px 5px rgba(0,0,0,0.28), inset 0 2px 3px rgba(255,255,255,0.45);
+  /* Matte chip bevel — a thin rim line and a soft bottom shade, no glossy highlight. */
+  --gem-edge: inset 0 0 0 1px rgba(0,0,0,0.12), inset 0 -2px 3px rgba(0,0,0,0.16);
 
   min-height: 100vh;
   background-color: var(--spl-bg);
@@ -44,7 +45,7 @@
   --spl-shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
   --spl-vignette: radial-gradient(130% 100% at 50% -10%, rgba(120,40,90,0.22), rgba(20,12,24,0) 55%),
                   radial-gradient(100% 80% at 50% 120%, rgba(180,130,60,0.10), rgba(20,12,24,0) 60%);
-  --gem-edge: inset 0 -3px 6px rgba(0,0,0,0.45), inset 0 2px 3px rgba(255,255,255,0.35);
+  --gem-edge: inset 0 0 0 1px rgba(0,0,0,0.35), inset 0 -2px 4px rgba(0,0,0,0.28);
 }
 
 /* Atmosphere: vignette + a faint film grain over the whole surface. */
@@ -169,23 +170,28 @@
   color: var(--spl-gold); font-weight: 600; margin: 4px 0 -2px 2px;
 }
 
-/* ---- faceted gems (shared) ---- */
+/* ---- gems as matte poker chips ---- */
 .gem { position: relative; }
-.spl-token, .spl-cost-pip, .spl-card-bonus, .spl-gemstack-bonus, .spl-noble-pip {
+.gem-white  { --chip: #d4dcea; --spot: #ffffff; color: #2b3550; }
+.gem-blue   { --chip: #2f5fc9; --spot: #c1d6ff; color: #fff; }
+.gem-green  { --chip: #14935c; --spot: #bdf0d8; color: #fff; }
+.gem-red    { --chip: #cf3146; --spot: #ffccd3; color: #fff; }
+.gem-black  { --chip: #2c2838; --spot: #968fa6; color: #f0eaf7; }
+.gem-gold   { --chip: #d6a341; --spot: #fff0c0; color: #3a2906; }
+
+/* Small gems (card cost/bonus, player holdings, noble reqs): flat matte tiles. */
+.spl-cost-pip, .spl-card-bonus, .spl-gemstack-bonus, .spl-noble-pip {
+  background: var(--chip);
   box-shadow: var(--gem-edge);
 }
-.spl-token-facet {
-  position: absolute; top: 9%; left: 13%; width: 46%; height: 38%;
-  border-radius: 50%;
-  background: radial-gradient(circle at 32% 30%, rgba(255,255,255,0.9), rgba(255,255,255,0) 72%);
-  pointer-events: none;
+
+/* Bank tokens: classic striped-edge poker chip — matte, solid center, no gloss. */
+.spl-token {
+  background:
+    radial-gradient(circle at 50% 50%, var(--chip) 0 54%, rgba(0,0,0,0.18) 54% 56.5%, transparent 57%),
+    repeating-conic-gradient(from 0deg, var(--spot) 0 9deg, var(--chip) 9deg 30deg);
+  box-shadow: var(--gem-edge), 0 2px 5px rgba(0,0,0,0.32);
 }
-.gem-white  { background: radial-gradient(circle at 33% 27%, #ffffff, #e2e9f4 46%, #aab7cc 100%); color: #2b3550; }
-.gem-blue   { background: radial-gradient(circle at 33% 27%, #8fb6ff, #2f63d6 52%, #173a90 100%); color: #fff; }
-.gem-green  { background: radial-gradient(circle at 33% 27%, #76e2ad, #11a165 52%, #086841 100%); color: #fff; }
-.gem-red    { background: radial-gradient(circle at 33% 27%, #ff9c9c, #e23149 52%, #9d0f29 100%); color: #fff; }
-.gem-black  { background: radial-gradient(circle at 33% 27%, #7b7385, #3a3346 52%, #15111d 100%); color: #efe9f7; }
-.gem-gold   { background: radial-gradient(circle at 33% 27%, #ffeaa8, #e6b54c 52%, #b07f25 100%); color: #3a2906; }
 
 /* ---- nobles ---- */
 .spl-nobles { display: flex; gap: 12px; flex-wrap: wrap; }
@@ -212,7 +218,7 @@
 .spl-cards { display: flex; gap: 12px; flex-wrap: wrap; }
 
 .spl-card {
-  width: 104px; height: 144px; border-radius: 11px;
+  width: 106px; height: 152px; border-radius: 11px;
   background: var(--spl-card-face);
   border: 1px solid var(--spl-card-border);
   box-shadow: var(--spl-shadow);
@@ -251,14 +257,19 @@
 
 .spl-card-top { display: flex; justify-content: space-between; align-items: flex-start; position: relative; z-index: 1; }
 .spl-card-points { font-family: 'Cormorant Garamond', serif; font-weight: 700; font-size: 30px; line-height: 0.8; color: var(--spl-ink); }
-.spl-card-bonus { width: 24px; height: 24px; border-radius: 7px; overflow: hidden; }
+.spl-card-bonus { width: 24px; height: 24px; border-radius: 7px; }
 
-.spl-cost { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; position: relative; z-index: 1; }
+/* Bottom region: cost column (left, grows up from the base) + stacked actions
+   (right). Keeping these in their own flex region below the points means a
+   4-5 colour cost can never collide with the prestige numeral up top. */
+.spl-card-bottom { display: flex; justify-content: space-between; align-items: flex-end; gap: 6px; position: relative; z-index: 1; }
+.spl-cost { display: flex; flex-direction: column-reverse; gap: 3px; align-items: flex-start; }
 .spl-cost-pip {
-  width: 22px; height: 22px; border-radius: 50%;
-  font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center;
+  width: 19px; height: 19px; border-radius: 50%;
+  font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center;
 }
-.spl-card-actions { display: flex; gap: 5px; position: relative; z-index: 1; }
+.spl-card-actions { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
+.spl-card-actions .spl-btn { flex: none; padding: 3px 10px; font-size: 11px; }
 
 /* ---- token bank ---- */
 .spl-bank {
