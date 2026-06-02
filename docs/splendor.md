@@ -92,25 +92,54 @@ ships only if it wins — then copy `mcts.js` → `_mcts_champion.js`.
 Difficulty presets (search depth is the reliable strength lever; Splendor's small branching
 keeps even deep search cheap, ~0.4 ms/sim):
 
+Leaf-rollout depth was swept with `scripts/splendor/ladder.mjs --rollout-set` (28 ranks best;
+shallower loses accuracy, deeper adds cost/variance without gain), so the presets use 28.
+
 | Level | Simulations | Max root children | Rollout depth |
 |-------|-------------|-------------------|---------------|
-| Strong | 1200 | 36 | 20 |
-| Expert | 2500 | 44 | 26 |
+| Strong | 1200 | 36 | 28 |
+| Expert | 2500 | 44 | 28 |
 | Brutal | 5000 | 50 | 30 |
 
-## Neural network (scaffold, not trained)
+## Verification rig (how strength is proven)
 
-A full policy+value pipeline exists behind the `Evaluator` seam (`engine/features.js`,
-`engine/valueNetwork*.js`, `scripts/splendor/generate-training-data.mjs`,
-`training/splendor/`) but **no Splendor model is trained or deployed** — the live engine is
+Strength is measured, not asserted (`docs/splendor-ai-plan.md`):
+
+- `scripts/splendor/ladder.mjs` — Bradley-Terry **ELO** gauntlet across engines. Confirms the
+  engine scales with search: 40 / 150 / 500 sims ≈ **1212 / 1563 / 1724 Elo**.
+- `engine/positions.test.js` — tactical benchmarks (winning buy, noble-for-the-win,
+  prefer-buy-over-take, keep-the-gold). Competence proof + regression guard.
+- `scripts/splendor/compare-evals.mjs` and `tournament.mjs` — head-to-head with a **Wilson 95%
+  CI** and a significance verdict; the flywheel/ratchet promote only when the lower bound clears
+  50%, never on noise. Output also reports self-play health (plies/game, cap-hits, prestige).
+
+## Neural network (trained, did NOT beat the heuristic — heuristic stays)
+
+A full AlphaZero-style flywheel exists (`scripts/splendor/selfplay-parallel.mjs`,
+`train-loop.mjs`, `training/splendor/`) behind the `Evaluator` seam. It was run for real
+(13 generations, 2-player, ~3,900 self-play games, gated vs the heuristic). **The NN never
+significantly beat the heuristic rollout-leaf and is not deployed** — the live engine remains
 the heuristic PUCT rollout-leaf tree.
 
-The pipeline is kept because Splendor is a more promising NN target than Catan turned out to
-be: Catan's search-backed value label had an irreducible noise floor from dice + fair
-determinization + rollouts that more capacity couldn't beat. Splendor has **no dice** and a
-much smaller branching factor, so the search-backed value target should be markedly less
-noisy. Training it well would still want many high-sim searches per position across many
-games (a GPU project), which is why it's left as a documented next step rather than shipped.
+Results (gate = NN vs heuristic, 60 games/gen):
+- Win-rate climbed 1.7% → ~15% across generations, then **plateaued ~15%** at 2× sims.
+- Even at **10× sims (≈ equal wall-clock**, since an NN leaf is one forward pass vs a 28-step
+  rollout), the best generation reached only **23.3%** (95% CI [11.8%, 40.9%] — significantly
+  worse). Its value scales with search but can't close the gap.
+
+This reproduces Catan's finding (their distillation maxed ~16.7%). Two compounding causes:
+1. **Cold start.** The gate requires beating the heuristic before NN-guided self-play kicks in,
+   but the net can't clear that bar from heuristic-outcome data alone — so self-play never
+   improved past heuristic quality (a chicken-and-egg the flywheel can't bootstrap here).
+2. **Value vs lookahead.** A 1-ply NN value replaces a 28-step rollout; to win it must be a far
+   better positional evaluator than the hand heuristic, and a small MLP on noisy 2-player
+   outcome labels isn't.
+
+What would actually be needed (a real project, not a CPU afternoon): train the value head on
+**search-backed targets** (the AlphaZero target, averaged over determinizations to fight label
+noise), a **larger network**, and **orders of magnitude more self-play** — ideally on a GPU.
+The pipeline and rig are in place to attempt that later. Meanwhile the reliable lever remains
+search depth, and the deployed presets already run it deep.
 
 Feature encoding (`features.js`): `players` (4×14, perspective-relative) + `market` (12×12)
 + `meta` (16) = 216 input floats; policy = 230 move slots; value = 4 seat logits (softmax
