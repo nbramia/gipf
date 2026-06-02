@@ -205,7 +205,7 @@ See [docs/chess.md](docs/chess.md) for the engine + coaching pipeline and the BY
 | `engine/mcts.js` | PUCT game-tree MCTS (maxⁿ value, dice chance nodes, heuristic-rollout/NN evaluator) |
 | `engine/features.js` | Self-play feature extraction and policy targets |
 | `hooks/useAIWorker.js` | React hook managing Catan MCTS Web Worker lifecycle |
-| `coach/rulesClient.js` | Rules-assistant client + BYO Anthropic key storage (`catanApiKey`) |
+| `coach/rulesClient.js` | Rules-assistant client + BYO Anthropic key storage (shared `gipfApiKey`, reused across chess + Catan) |
 | `api/catanRules.js` | Vercel serverless rules assistant (Claude API, **bring-your-own key**, ruleset-aware) |
 | `CatanBoard.test.js` | Jest tests covering core Catan logic and AI legality |
 
@@ -330,7 +330,23 @@ zertzDarkMode, zertzShowMoves
 
 ```
 chessDarkMode, chessShowMoves, chessDifficulty, chessLearningGoal,
-chessShowEvalBar, chessSound, chessApiKey
+chessShowEvalBar, chessSound
+```
+
+**Catan:**
+
+```
+catanDarkMode, catanShowMoves, catanDifficulty, catanRulesetId,
+catanPlayerCount, catanScenarioId
+```
+
+**Shared (app-wide):**
+
+```
+gipfApiKey   # one BYO Anthropic key, used by both the chess coach and the Catan
+             # rules chat. Legacy chessApiKey / catanApiKey are migrated into it
+             # on first read. Both games keep an identical copy of the storage
+             # helper (no cross-game import).
 ```
 
 Never rename or restructure these without migration logic.

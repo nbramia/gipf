@@ -46,7 +46,7 @@ The AI's `propose-trade` prior carries diminishing returns within a turn (`mcts.
 The right rail has a "Rules Help" chat for asking about the active expansion — useful for the less familiar rulesets (Seafarers, Cities & Knights, Explorers & Pirates, etc.). It mirrors the chess coach's BYO-key model:
 
 - `api/catanRules.js` is a Vercel serverless function that calls the Anthropic API with a key supplied in the request body (used once, never logged or persisted; no server-side fallback key).
-- `src/games/catan/coach/rulesClient.js` stores the key in `localStorage` (`catanApiKey`, browser-only) and posts the running conversation.
+- `src/games/catan/coach/rulesClient.js` stores the key in `localStorage` under a shared `gipfApiKey` slot (browser-only) and posts the running conversation. The key is shared app-wide: a key saved in the chess coach is reused here and vice versa, and legacy per-game keys (`chessApiKey` / `catanApiKey`) are migrated into the shared slot on first read. The chess and Catan clients each keep their own identical copy of this storage logic, so the games stay independent (no cross-import).
 - Each request carries the live game context (ruleset, edition, scenario, map, player count, victory target, module list), so answers are specific to what's in play. The system prompt also has the model distinguish the full tabletop rules of an expansion from what this base-engine app actually simulates, so it never claims a mechanic the app doesn't have.
 
 Like the chess coach, this only works on the deployed site (or `vercel dev`); `npm start` alone doesn't serve `/api/*`.

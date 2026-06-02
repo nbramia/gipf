@@ -9,11 +9,25 @@ import { describeAiMove, describePlayerMove } from './templates.js';
 import { runTool } from './analysisTools.js';
 import { getLichessToken } from './openingCoach.js';
 
-const KEY_STORAGE = 'chessApiKey';
+// One Anthropic key is shared across the whole app (this coach + the Catan rules
+// chat), so a key saved in either game is reused by the other. Legacy per-game
+// keys are migrated into the shared slot on first read. (The Catan client keeps
+// an identical copy of this logic — the games stay independent, no cross-import.)
+const KEY_STORAGE = 'gipfApiKey';
+const LEGACY_KEYS = ['chessApiKey', 'catanApiKey'];
 
 export function getApiKey() {
   try {
-    return localStorage.getItem(KEY_STORAGE) || '';
+    const shared = localStorage.getItem(KEY_STORAGE);
+    if (shared) return shared;
+    for (const legacy of LEGACY_KEYS) {
+      const value = localStorage.getItem(legacy);
+      if (value) {
+        localStorage.setItem(KEY_STORAGE, value);
+        return value;
+      }
+    }
+    return '';
   } catch (_) {
     return '';
   }
@@ -21,8 +35,12 @@ export function getApiKey() {
 
 export function setApiKey(key) {
   try {
-    if (key) localStorage.setItem(KEY_STORAGE, key);
-    else localStorage.removeItem(KEY_STORAGE);
+    if (key) {
+      localStorage.setItem(KEY_STORAGE, key);
+    } else {
+      localStorage.removeItem(KEY_STORAGE);
+      LEGACY_KEYS.forEach(legacy => localStorage.removeItem(legacy));
+    }
   } catch (_) {
     /* ignore storage failures */
   }

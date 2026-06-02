@@ -873,6 +873,29 @@ export default function CatanGame() {
             {points} VP
           </span>
         </div>
+        {(board.longestRoadHolder === playerId || board.largestArmyHolder === playerId) && (
+          <div className="catan-award-row mt-2">
+            {board.longestRoadHolder === playerId && (
+              <span className="catan-award-badge catan-award-road" title="Longest Road · +2 VP">
+                <svg viewBox="0 0 16 16" className="catan-award-ico" aria-hidden="true">
+                  <path d="M2 13 L6 3 H10 L14 13 Z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+                  <line x1="8" y1="4.4" x2="8" y2="12" stroke="currentColor" strokeWidth="1.3" strokeDasharray="1.5 1.8" strokeLinecap="round" />
+                </svg>
+                Longest Road
+              </span>
+            )}
+            {board.largestArmyHolder === playerId && (
+              <span className="catan-award-badge catan-award-army" title="Largest Army · +2 VP">
+                <svg viewBox="0 0 16 16" className="catan-award-ico" aria-hidden="true">
+                  <path d="M8 1.6 L13.4 3.5 V8 C13.4 11.4 8 14.4 8 14.4 C8 14.4 2.6 11.4 2.6 8 V3.5 Z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+                  <line x1="8" y1="5" x2="8" y2="11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                  <line x1="6" y1="6.6" x2="10" y2="6.6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                </svg>
+                Largest Army
+              </span>
+            )}
+          </div>
+        )}
         {playerId === HUMAN_PLAYER ? (
           <>
             <div className="mt-3 grid grid-cols-5 gap-1">
