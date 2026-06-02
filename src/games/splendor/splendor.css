@@ -337,7 +337,15 @@
 .spl-player-foot { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-top: 10px; padding-left: 8px; }
 .spl-player-meta { font-size: 12px; color: var(--spl-muted); letter-spacing: 0.3px; }
 .spl-reserved { display: flex; gap: 7px; width: 100%; margin-top: 4px; }
-.spl-reserved-card .spl-card { width: 82px; height: 114px; }
+/* Reserved cards render compact — scale the inner pieces down so a 4-colour cost
+   column plus the Buy button still fit (the market cards are 106x152). */
+.spl-reserved-card .spl-card { width: 82px; height: 116px; padding: 7px; }
+.spl-reserved-card .spl-card-points { font-size: 22px; }
+.spl-reserved-card .spl-card-bonus { width: 18px; height: 18px; border-radius: 5px; }
+.spl-reserved-card .spl-card-bottom { gap: 4px; }
+.spl-reserved-card .spl-cost { gap: 2px; }
+.spl-reserved-card .spl-cost-pip { width: 15px; height: 15px; font-size: 9px; }
+.spl-reserved-card .spl-card-actions .spl-btn { padding: 2px 7px; font-size: 10px; }
 
 /* ---- move log ---- */
 .spl-log { background: var(--spl-panel); border: 1px solid var(--spl-line); border-radius: 12px; padding: 12px 14px; box-shadow: var(--spl-shadow); }

@@ -445,7 +445,8 @@ export default function SplendorGame() {
                     className="spl-btn spl-btn-reserve spl-deck-reserve"
                     onClick={() => reserveDeck(tier)}
                     disabled={!isHumanTurn || board.phase !== 'play' || humanReservedFull || board.decks[tier].length === 0}
-                  >Reserve</button>
+                    title={`Reserve the top (face-down) card of deck ${ROMAN[tier]} and take a gold`}
+                  >Reserve blind</button>
                 </div>
                 <div className="spl-cards">
                   {board.visible[tier].map((cardId, i) => cardId ? (
