@@ -39,6 +39,19 @@ export function updateRating(rating, oppRating, score, gamesPlayed) {
   return { rating: Math.max(100, rating + delta), delta };
 }
 
+// Reconcile a local and a remote {rating, ratedGames} record (cross-device
+// sync). `ratedGames` is monotonic per identity, so the record with more games
+// is the more authoritative one — no clocks, no skew. Ties favour the higher
+// rating so a win recorded on two devices can't be lost. Either side may be
+// null (nothing stored there yet).
+export function mergeRating(local, remote) {
+  if (!remote) return local;
+  if (!local) return remote;
+  if (remote.ratedGames > local.ratedGames) return remote;
+  if (remote.ratedGames < local.ratedGames) return local;
+  return remote.rating >= local.rating ? remote : local;
+}
+
 // Matchmaking: the ladder rung whose published rating is nearest the player's.
 // `ladder` is an array of objects each carrying a numeric `rating`. Ties favour
 // the stronger rung so a climbing player keeps facing resistance.

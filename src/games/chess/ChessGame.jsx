@@ -11,7 +11,8 @@ import { Chessboard } from 'react-chessboard';
 import ChessBoard from './ChessBoard.js';
 import useStockfish from './hooks/useStockfish.js';
 import { DIFFICULTY_TIERS, DEFAULT_TIER_KEY, RATING_LADDER } from './engine/difficulty.js';
-import { DEFAULT_RATING, nearestRung, updateRating, scoreFor, isProvisional } from './engine/rating.js';
+import { DEFAULT_RATING, nearestRung, updateRating, scoreFor, isProvisional, mergeRating } from './engine/rating.js';
+import { ratingIdFromKey, fetchRemoteRating, putRemoteRating } from './engine/ratingSync.js';
 import { buildMovePayload } from './coach/analyzeMove.js';
 import { detectOpening } from './coach/openings.js';
 import {
@@ -28,7 +29,7 @@ import { puzzlesForDifficulty, budgetPliesFor, evaluatePuzzleMove } from './coac
 import { capturedPieces, materialBalance } from './coach/material.js';
 import { playSound, moveSoundKind } from './coach/sound.js';
 import { formatEval } from './coach/classify.js';
-import { requestCommentary, runThreadTurn, setApiKey, hasApiKey } from './coach/coachClient.js';
+import { requestCommentary, runThreadTurn, setApiKey, hasApiKey, getApiKey } from './coach/coachClient.js';
 import './chess.css';
 
 const PIECE_GLYPH = { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛', k: '♚' };
@@ -83,6 +84,9 @@ export default function ChessGame() {
     return saved ? JSON.parse(saved) : 0;
   });
   const [ratedDelta, setRatedDelta] = useState(null); // {delta, opp} for the just-finished rated game
+  // Cross-device rating sync (opt-in, keyed by a hash of the Anthropic key).
+  const [syncId, setSyncId] = useState(null);
+  const [syncStatus, setSyncStatus] = useState('off'); // off | local | syncing | synced | error
   const [humanColor, setHumanColor] = useState('w'); // 'w' | 'b'
   const [orientation, setOrientation] = useState('white');
   const [selected, setSelected] = useState(null);
@@ -122,6 +126,10 @@ export default function ChessGame() {
   const ratedRef = useRef(rated); // latest value usable inside coachOnMove
   useEffect(() => { ratedRef.current = rated; }, [rated]);
   const ratedAppliedRef = useRef(false); // guard: score each rated game exactly once
+  const ratingRef = useRef(rating); // latest rating/games for the sync-pull closure
+  const ratedGamesRef = useRef(ratedGames);
+  useEffect(() => { ratingRef.current = rating; }, [rating]);
+  useEffect(() => { ratedGamesRef.current = ratedGames; }, [ratedGames]);
   const coachSeqRef = useRef(0); // ignores stale coaching results after new game/undo
   const transcriptRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -177,6 +185,51 @@ export default function ChessGame() {
     localStorage.setItem('chessRatedGames', JSON.stringify(ratedGames));
   }, [ratedGames]);
 
+  // Derive the opaque sync id from the Anthropic key (or clear it when no key).
+  useEffect(() => {
+    let cancelled = false;
+    const key = getApiKey();
+    if (!key) {
+      setSyncId(null);
+      setSyncStatus('off');
+      return undefined;
+    }
+    ratingIdFromKey(key).then((id) => {
+      if (!cancelled) setSyncId(id || null);
+    });
+    return () => { cancelled = true; };
+  }, [keySet]);
+
+  // On a fresh sync id, pull the remote record and reconcile with local: adopt
+  // whichever has played more games (then write the winner back so both
+  // devices converge). Runs once per id — reads latest local values via refs.
+  useEffect(() => {
+    if (!syncId) return undefined;
+    let cancelled = false;
+    setSyncStatus('syncing');
+    fetchRemoteRating(syncId)
+      .then((remote) => {
+        if (cancelled) return;
+        if (remote && remote.configured === false) {
+          setSyncStatus('local'); // key present, but no store provisioned server-side
+          return;
+        }
+        const local = { rating: ratingRef.current, ratedGames: ratedGamesRef.current };
+        const merged = mergeRating(local, remote);
+        if (merged !== local) {
+          setRating(merged.rating);
+          setRatedGames(merged.ratedGames);
+        }
+        // Push local up when the server is behind or empty.
+        if (!remote || merged === local) {
+          putRemoteRating(syncId, merged.rating, merged.ratedGames);
+        }
+        setSyncStatus('synced');
+      })
+      .catch(() => { if (!cancelled) setSyncStatus('error'); });
+    return () => { cancelled = true; };
+  }, [syncId]);
+
   // Auto-scroll the transcript to the newest entry (now rendered at the top).
   useEffect(() => {
     if (transcriptRef.current) {
@@ -231,7 +284,8 @@ export default function ChessGame() {
     setRating(next);
     setRatedGames((g) => g + 1);
     setRatedDelta({ delta, opp });
-  }, [rated, puzzleMode, gameResult, humanColor, ratedRung, rating, ratedGames]);
+    if (syncId) putRemoteRating(syncId, next, ratedGames + 1); // cross-device write-through
+  }, [rated, puzzleMode, gameResult, humanColor, ratedRung, rating, ratedGames, syncId]);
 
   // Produce coaching for a move that was just played. Runs two full-strength
   // analyses (position before + after the move) so commentary is engine-true,
@@ -1145,6 +1199,16 @@ export default function ChessGame() {
                     </p>
                     <p className="font-body text-xs mt-2" style={{ color: 'var(--color-text-muted)' }}>
                       Random color each game. Undo, flip, and coaching are disabled so the result is honest. Resigning counts as a loss.
+                    </p>
+                    <p
+                      className="font-body text-xs mt-2"
+                      style={{ color: syncStatus === 'synced' ? 'var(--color-accent)' : 'var(--color-text-muted)' }}
+                    >
+                      {syncStatus === 'synced' && '☁ Synced to your API key — your rating follows you across devices.'}
+                      {syncStatus === 'syncing' && '☁ Syncing…'}
+                      {syncStatus === 'error' && '⚠ Couldn’t reach the rating store — using your rating on this device.'}
+                      {syncStatus === 'local' && 'Saved on this device. (Rating sync isn’t configured on the server.)'}
+                      {syncStatus === 'off' && 'Add an Anthropic API key in Settings to sync your rating across devices.'}
                     </p>
                   </div>
                 ) : (

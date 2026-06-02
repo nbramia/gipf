@@ -188,13 +188,22 @@ Before modifying game logic for either game:
 | `chess.css` | Scoped CSS variables (`.game-chess`) + animations |
 | `ChessBoard.test.js` | Jest tests for chess game logic |
 | `engine/stockfishLoader.js` | Loads Stockfish from a CDN in a Blob Web Worker (no bundled binary) |
-| `engine/uci.js` | Pure UCI parsing (info / bestmove / MultiPV) |
-| `engine/difficulty.js` | Named tiers -> UCI_Elo |
+| `engine/uci.js` | Pure UCI parsing (info / bestmove / MultiPV) + `chooseWeakenedMove` (sub-1320 sampling) |
+| `engine/difficulty.js` | Named tiers -> UCI_Elo; `RATING_LADDER` (Rated-mode opponents 800-3000) |
+| `engine/rating.js` | Pure Elo math: K-factor, expected score, `updateRating`, `nearestRung`, `mergeRating` |
+| `engine/ratingSync.js` | Cross-device rating sync client (SHA-256 of the API key -> opaque id) |
 | `hooks/useStockfish.js` | Engine lifecycle; `getMove()` (opponent) + `analyze()` (coaching), serialized |
 | `coach/*.js` | classify, analyzeMove, templates, coachClient, openings, pgn, accuracy, puzzles, material, sound |
 | `api/chessCoach.js` | Vercel serverless coach (Claude API, **bring-your-own key**, no server fallback) |
+| `api/chessRating.js` | Vercel serverless Rated-mode store (Vercel KV; keyed by API-key hash, raw key never sent). Returns `{configured:false}` and the client stays local when no KV env is set |
 
 See [docs/chess.md](docs/chess.md) for the engine + coaching pipeline and the BYO-key security model.
+
+**Rated mode** (`chessRated`/`chessRating`/`chessRatedGames`): a single Elo that
+updates from wins/losses/draws vs a matched `RATING_LADDER` rung. Undo/flip/coach/eval
+are locked out while rated. Cross-device sync via `api/chessRating.js` is OPTIONAL and
+requires a Vercel KV store linked to the project (injects `KV_REST_API_URL` +
+`KV_REST_API_TOKEN`); without it, ratings persist in localStorage only.
 
 ### Catan (`src/games/catan/`)
 

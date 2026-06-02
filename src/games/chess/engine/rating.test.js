@@ -6,6 +6,7 @@ import {
   scoreFor,
   updateRating,
   nearestRung,
+  mergeRating,
 } from './rating';
 import { RATING_LADDER } from './difficulty';
 
@@ -92,6 +93,27 @@ describe('rating — nearestRung (matchmaking)', () => {
     const rung = nearestRung(DEFAULT_RATING, RATING_LADDER);
     expect(rung).toBeTruthy();
     expect(rung.spec).toBeTruthy();
+  });
+});
+
+describe('rating — mergeRating (cross-device reconciliation)', () => {
+  test('adopts the record with more games played', () => {
+    const local = { rating: 1200, ratedGames: 5 };
+    const remote = { rating: 1450, ratedGames: 12 };
+    expect(mergeRating(local, remote)).toBe(remote);
+    expect(mergeRating(remote, local)).toBe(remote);
+  });
+
+  test('falls back to whichever side exists when the other is null', () => {
+    const local = { rating: 1100, ratedGames: 3 };
+    expect(mergeRating(local, null)).toBe(local);
+    expect(mergeRating(null, local)).toBe(local);
+  });
+
+  test('on an equal game count, the higher rating wins (a win is never lost)', () => {
+    const local = { rating: 1300, ratedGames: 8 };
+    const remote = { rating: 1280, ratedGames: 8 };
+    expect(mergeRating(local, remote)).toBe(local);
   });
 });
 
