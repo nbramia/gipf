@@ -24,6 +24,12 @@ Four-player base-game Catan against three local MCTS opponents. Build roads, set
 
 Features strong Web Worker AI opponents, randomized balanced boards, full undo/redo, and self-play training-data scripts.
 
+### Splendor
+
+Collect gem tokens, build an engine of discounted development cards, and court nobles. Take 3 different gems or 2 of one, reserve cards (with a gold wild), and buy cards for prestige -- race 1-3 local MCTS opponents to 15 points.
+
+Features a deep-search maxⁿ MCTS AI with fair-play hidden-information handling, a bring-your-own-key rules-help chat, full undo/redo, and 2-4 player support.
+
 ## Quick Start
 
 ```bash
@@ -33,7 +39,7 @@ npm install
 npm start
 ```
 
-Opens at `http://localhost:3000` with a landing page. Navigate to `/yinsh`, `/zertz`, `/chess`, or `/catan`.
+Opens at `http://localhost:3000` with a landing page. Navigate to `/yinsh`, `/zertz`, `/chess`, `/catan`, or `/splendor`.
 
 ## Development
 
@@ -74,6 +80,9 @@ src/
     catan/
       CatanBoard.js        # Four-player Catan logic (no React)
       CatanGame.jsx        # React UI + SVG board + AI turns
+    splendor/
+      SplendorBoard.js     # 2-4 player Splendor logic (no React)
+      SplendorGame.jsx     # React UI + card market + AI turns
       catan.css            # Scoped CSS variables + animations
 api/
   aiMove.js                # Vercel serverless function (Yinsh AI)

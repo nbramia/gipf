@@ -6,7 +6,7 @@ Critical instructions for AI agents (Claude, Cursor, Copilot, etc.) working on t
 
 ## Project Overview
 
-GIPF Project is a multi-game React application hosting browser-based implementations of board games. Currently includes Yinsh, Zertz, Chess, and Catan. Games are code-split and served under a single deployment with client-side routing.
+GIPF Project is a multi-game React application hosting browser-based implementations of board games. Currently includes Yinsh, Zertz, Chess, Catan, and Splendor. Games are code-split and served under a single deployment with client-side routing.
 
 **Key Concepts:**
 - **Multi-game monorepo**: Each game lives in `src/games/<name>/` with its own logic, UI, CSS, and tests
@@ -18,7 +18,7 @@ GIPF Project is a multi-game React application hosting browser-based implementat
 **Tech Stack:**
 - React 18 (CRA) + React Router 6 + Tailwind CSS
 - SVG rendering for hexagonal boards
-- MCTS AI engines: YINSH and ZERTZ use game-tree MCTS; CATAN uses a PUCT game-tree MCTS (win-probability/maxⁿ value, dice chance nodes, pluggable heuristic-rollout or NN evaluator)
+- MCTS AI engines: YINSH and ZERTZ use game-tree MCTS; CATAN and SPLENDOR use a maxⁿ PUCT game-tree MCTS (per-player win-probability value, pluggable heuristic-rollout or NN evaluator). CATAN has dice chance nodes; SPLENDOR has none (deck order is its only hidden info, handled by determinization)
 - Neural network: PyTorch training pipeline -> ONNX export -> onnxruntime-web browser inference
 - Vercel serverless functions for API-mode AI
 - Jest + React Testing Library (full suite auto-discovered across all game subdirs)
@@ -28,6 +28,7 @@ GIPF Project is a multi-game React application hosting browser-based implementat
 - [docs/architecture.md](docs/architecture.md) - Codebase architecture and design
 - [docs/ai-engine.md](docs/ai-engine.md) - AI system internals
 - [docs/catan.md](docs/catan.md) - Catan rules coverage and AI/training details
+- [docs/splendor.md](docs/splendor.md) - Splendor rules coverage and AI/training details
 - [docs/notation.md](docs/notation.md) - Move notation specification (Yinsh)
 - [docs/agents.md](docs/agents.md) - Practical development guide for AI agents
 
@@ -211,6 +212,23 @@ See [docs/chess.md](docs/chess.md) for the engine + coaching pipeline and the BY
 
 See [docs/catan.md](docs/catan.md) for rule coverage and AI/training details.
 
+### Splendor (`src/games/splendor/`)
+
+| File | Purpose |
+|------|---------|
+| `SplendorBoard.js` | Pure 2-4 player base-game rules engine -- token takes, reserve+gold, gold-min-payment buys, discard, nobles, final-round end + tiebreak |
+| `splendorCards.js` | Canonical 90-card deck, 10 nobles, token/noble setup constants (cross-validated, test-locked) |
+| `SplendorGame.jsx` | React UI -- card market, token bank, player panels, AI turn loop, rules-help chat |
+| `splendor.css` | Scoped CSS variables (`.game-splendor`) + animations |
+| `engine/mcts.js` | maxⁿ PUCT game-tree MCTS (no chance nodes; determinization for hidden deck/reserves; heuristic-rollout/NN evaluator) |
+| `engine/features.js` | Self-play feature extraction and policy targets |
+| `hooks/useAIWorker.js` | React hook managing Splendor MCTS Web Worker lifecycle |
+| `coach/rulesClient.js` | Rules-assistant client + BYO Anthropic key storage (shared `gipfApiKey`) |
+| `api/splendorRules.js` | Vercel serverless rules assistant (Claude API, **bring-your-own key**) |
+| `SplendorBoard.test.js` | Jest tests: data invariants, full rules, AI legality, self-play termination |
+
+See [docs/splendor.md](docs/splendor.md) for rule coverage and AI/training details.
+
 ### Infrastructure
 
 | File | Purpose |
@@ -233,6 +251,8 @@ See [docs/catan.md](docs/catan.md) for rule coverage and AI/training details.
 | `npm run self-play` | AI vs AI self-play evaluation |
 | `npm run catan:self-play` | Generate Catan self-play training data |
 | `npm run catan:tournament` | Strong-vs-baseline Catan AI evaluation |
+| `npm run splendor:self-play` | Generate Splendor self-play training data |
+| `npm run splendor:tournament` | A-vs-B Splendor AI evaluation (NN vs heuristic, etc.) |
 
 ---
 
@@ -246,6 +266,7 @@ See [docs/catan.md](docs/catan.md) for rule coverage and AI/training details.
 /zertz      -> ZertzGame (lazy-loaded chunk)
 /chess      -> ChessGame (lazy-loaded chunk)
 /catan      -> CatanGame (lazy-loaded chunk)
+/splendor   -> SplendorGame (lazy-loaded chunk)
 ```
 
 `React.lazy()` with `<Suspense>` ensures code splitting. Visiting `/zertz` does NOT load the yinsh MCTS engine bundle. The `vercel.json` catch-all rewrite ensures direct URL access works.
@@ -260,6 +281,8 @@ Each game scopes its CSS variables under a wrapper class:
 .game-zertz.dark { --color-bg-page: ...; }
 .game-catan { --color-bg-page: ...; }
 .game-catan.dark { --color-bg-page: ...; }
+.game-splendor { --spl-bg: ...; }
+.game-splendor.dark { --spl-bg: ...; }
 ```
 
 Animations are also prefixed (`yinsh-piece-fade-in`, `zertz-piece-fade-in`) and scoped (`.game-yinsh .piece-enter`). The shared `slide-in-right` keyframe lives in `index.css`.
@@ -340,13 +363,19 @@ catanDarkMode, catanShowMoves, catanDifficulty, catanRulesetId,
 catanPlayerCount, catanScenarioId
 ```
 
+**Splendor:**
+
+```
+splendorDarkMode, splendorDifficulty, splendorPlayerCount
+```
+
 **Shared (app-wide):**
 
 ```
-gipfApiKey   # one BYO Anthropic key, used by both the chess coach and the Catan
-             # rules chat. Legacy chessApiKey / catanApiKey are migrated into it
-             # on first read. Both games keep an identical copy of the storage
-             # helper (no cross-game import).
+gipfApiKey   # one BYO Anthropic key, used by the chess coach, the Catan rules
+             # chat, and the Splendor rules chat. Legacy chessApiKey / catanApiKey
+             # are migrated into it on first read. Each game keeps an identical
+             # copy of the storage helper (no cross-game import).
 ```
 
 Never rename or restructure these without migration logic.

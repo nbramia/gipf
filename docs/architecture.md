@@ -14,6 +14,7 @@ src/
     yinsh/             # Complete Yinsh game (logic + UI + AI + CSS + tests)
     zertz/             # Complete Zertz game (logic + UI + CSS + tests)
     catan/             # 3-6 player Catan game (logic + UI + AI + CSS + tests)
+    splendor/          # 2-4 player Splendor game (logic + UI + AI + CSS + tests)
 api/                   # Vercel serverless functions
 scripts/               # CLI tools (self-play, training, tournaments)
 training/              # PyTorch training pipeline
@@ -28,6 +29,7 @@ public/models/         # ONNX neural network models
 const YinshGame = lazy(() => import('./games/yinsh/YinshGame.jsx'));
 const ZertzGame = lazy(() => import('./games/zertz/ZertzGame.jsx'));
 const CatanGame = lazy(() => import('./games/catan/CatanGame.jsx'));
+const SplendorGame = lazy(() => import('./games/splendor/SplendorGame.jsx'));
 ```
 
 This means visiting `/zertz` never loads the Yinsh MCTS engine or ONNX runtime. `LandingPage` is eagerly loaded since it's the entry point.
@@ -45,6 +47,7 @@ Both games define CSS custom properties with overlapping names (`--color-bg-page
 - Yinsh: `.game-yinsh` and `.game-yinsh.dark` (in `src/games/yinsh/yinsh.css`)
 - Zertz: `.game-zertz` and `.game-zertz.dark` (in `src/games/zertz/zertz.css`)
 - Catan: `.game-catan` and `.game-catan.dark` (in `src/games/catan/catan.css`)
+- Splendor: `.game-splendor` and `.game-splendor.dark` (in `src/games/splendor/splendor.css`)
 
 Animation keyframes are prefixed (`yinsh-piece-fade-in`, `zertz-piece-fade-in`) and animation classes are scoped (`.game-yinsh .piece-enter`). The only shared keyframe is `slide-in-right` in `src/index.css`.
 
@@ -241,6 +244,27 @@ zertzDarkMode, zertzShowMoves
 | `scripts/catan/*.mjs` | Self-play data generation and tournament harness |
 
 See [catan.md](catan.md) for rule coverage and AI/training details.
+
+---
+
+## Splendor
+
+### Files
+
+| File | Responsibility |
+|------|----------------|
+| `src/games/splendor/SplendorBoard.js` | Pure 2-4 player base-game rules engine (no board geometry, no dice) |
+| `src/games/splendor/splendorCards.js` | Canonical 90-card deck + 10 nobles + setup constants (test-locked) |
+| `src/games/splendor/SplendorGame.jsx` | React UI -- card market, token bank, player panels, AI loop |
+| `src/games/splendor/engine/mcts.js` | maxⁿ PUCT game-tree MCTS, no chance nodes, determinization for hidden info |
+| `src/games/splendor/engine/features.js` | Feature extraction and policy target helpers for self-play data |
+| `scripts/splendor/*.mjs` | Self-play data generation, A/B compare, tournament harness |
+
+Splendor reuses the maxⁿ value-vector model and the fair-play determinization idea from
+Catan, but is simpler: no hex topology, no setup phase, and no dice — the only hidden
+state is deck order, fixed at construction, so the search tree has no chance nodes.
+
+See [splendor.md](splendor.md) for rule coverage and AI/training details.
 
 ## Shared Infrastructure
 

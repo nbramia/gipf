@@ -26,7 +26,9 @@
     "zertz:tournament": "node scripts/zertz/tournament.mjs",
     "zertz:train-iteration": "bash scripts/zertz/train-iteration.sh",
     "catan:self-play": "node scripts/catan/generate-training-data.mjs",
-    "catan:tournament": "node scripts/catan/tournament.mjs"
+    "catan:tournament": "node scripts/catan/tournament.mjs",
+    "splendor:self-play": "node scripts/splendor/generate-training-data.mjs",
+    "splendor:tournament": "node scripts/splendor/tournament.mjs"
   },
   "devDependencies": {
     "@babel/core": "^7.26.0",

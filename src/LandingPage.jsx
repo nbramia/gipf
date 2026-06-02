@@ -26,6 +26,12 @@ const games = [
     description: 'Build settlements, trade ports, and race three strong MCTS opponents to 10 points.',
     accent: '#2DD4BF',
   },
+  {
+    name: 'SPLENDOR',
+    path: '/splendor',
+    description: 'Collect gems, build a card engine, and court nobles. Race deep-search opponents to 15 prestige.',
+    accent: '#D9A441',
+  },
 ];
 
 export default function LandingPage() {
