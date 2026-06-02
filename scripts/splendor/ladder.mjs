@@ -32,9 +32,16 @@ const ANCHOR = getInt('anchor', 1500);      // mean Elo of the field
 // Engine specs. Default: heuristic at four sim budgets (a strength-vs-search curve).
 // Add more with --add "<label>:<spec>" where spec is "<sims>" (heuristic) or
 // "nn:<modelPath>@<sims>".
+// --rollout-set sweeps leaf-rollout depth at a fixed sim budget; otherwise
+// --sims-set sweeps the sim budget (a strength-vs-search curve).
+const ROLLOUT_SET = getArg('rollout-set', '');
+const SWEEP_SIMS = getInt('sweep-sims', 400);
 const SIMS_SET = getArg('sims-set', '50,200,800,2000');
-const DEFAULT_ENGINES = SIMS_SET.split(',').map(s => parseInt(s, 10)).filter(Boolean)
-  .map(s => ({ label: `h-${s}`, mode: 'tree', sims: s }));
+const DEFAULT_ENGINES = ROLLOUT_SET
+  ? ROLLOUT_SET.split(',').map(r => parseInt(r, 10)).filter(r => r >= 0)
+      .map(r => ({ label: `r${r}`, mode: 'tree', sims: SWEEP_SIMS, rollout: r }))
+  : SIMS_SET.split(',').map(s => parseInt(s, 10)).filter(Boolean)
+      .map(s => ({ label: `h-${s}`, mode: 'tree', sims: s }));
 
 function parseAdd(spec) {
   // "label:1200"  or  "label:nn:path/to.onnx@800"
@@ -60,7 +67,7 @@ async function main() {
       const net = await Net.load(resolve(projectDir, eng.model));
       return new MCTS({ maxChildren: CHILDREN, evaluator: new NNEvaluator(net) });
     }
-    return new MCTS({ maxChildren: CHILDREN, rolloutSteps: ROLLOUT });
+    return new MCTS({ maxChildren: CHILDREN, rolloutSteps: eng.rollout ?? ROLLOUT });
   }
 
   const n = engines.length;
@@ -69,7 +76,8 @@ async function main() {
   const record = engines.map(() => ({ w: 0, l: 0, d: 0, games: 0 }));
 
   console.log(`Splendor ELO ladder — ${engines.map(e => e.label).join(', ')}`);
-  console.log(`  ${PLAYERS}p, ${GAMES} games/pair, rollout=${ROLLOUT}, anchor=${ANCHOR}`);
+  const sweepDesc = ROLLOUT_SET ? `rollout-sweep@${SWEEP_SIMS} sims` : `rollout=${ROLLOUT}`;
+  console.log(`  ${PLAYERS}p, ${GAMES} games/pair, ${sweepDesc}, anchor=${ANCHOR}`);
   const start = Date.now();
   let gameIx = 0;
 
