@@ -5,8 +5,19 @@ import DiplomacyBoard, {
   HOME_CENTERS,
   ARMY_ADJACENCY,
   FLEET_ADJACENCY,
+  FLEET_COAST_ADJACENCY,
+  COAST_PROVINCES,
   unitCanOccupy,
+  adjacencyFor,
+  baseProvince,
+  coastOf,
+  isSplitCoast,
 } from './DiplomacyBoard.js';
+
+// Set-equality assertion (order-independent) for adjacency lists.
+function expectSameSet(actual, expected) {
+  expect([...actual].sort()).toEqual([...expected].sort());
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -725,4 +736,389 @@ describe('Diplomacy AI legality', () => {
     expect(board.phase).toBe('game-over');
     expect(moves).toBeLessThan(200);
   }, 30000);
+});
+
+// ---------------------------------------------------------------------------
+// Split coasts (STP / SPA / BUL) -- issue #24
+// ---------------------------------------------------------------------------
+
+describe('Diplomacy split-coast helpers and data', () => {
+  test('COAST_PROVINCES enumerates exactly STP, SPA, BUL with two coasts each', () => {
+    expect(Object.keys(COAST_PROVINCES).sort()).toEqual(['BUL', 'SPA', 'STP']);
+    expect(COAST_PROVINCES.STP).toEqual(['nc', 'sc']);
+    expect(COAST_PROVINCES.SPA).toEqual(['nc', 'sc']);
+    expect(COAST_PROVINCES.BUL).toEqual(['ec', 'sc']);
+  });
+
+  test('baseProvince strips a coast suffix and passes bare ids through', () => {
+    expect(baseProvince('STP/sc')).toBe('STP');
+    expect(baseProvince('BUL/ec')).toBe('BUL');
+    expect(baseProvince('PAR')).toBe('PAR');
+  });
+
+  test('coastOf extracts the coast tag or null for bare ids', () => {
+    expect(coastOf('BUL/ec')).toBe('ec');
+    expect(coastOf('STP/nc')).toBe('nc');
+    expect(coastOf('PAR')).toBeNull();
+  });
+
+  test('isSplitCoast is true only for STP, SPA, BUL', () => {
+    expect(isSplitCoast('STP')).toBe(true);
+    expect(isSplitCoast('SPA')).toBe(true);
+    expect(isSplitCoast('BUL')).toBe(true);
+    expect(isSplitCoast('BRE')).toBe(false);
+    expect(isSplitCoast('NTH')).toBe(false);
+  });
+
+  test('PROVINCES resolves for any coast-keyed loc via the base id', () => {
+    expect(PROVINCES[baseProvince('STP/sc')]).toBeDefined();
+    expect(PROVINCES[baseProvince('SPA/nc')].name).toBe('Spain');
+  });
+});
+
+describe('Diplomacy coast adjacency', () => {
+  test('each coast resolves to its exact canonical neighbor set', () => {
+    expectSameSet(adjacencyFor('fleet', 'STP/nc'), ['BAR', 'NWY']);
+    expectSameSet(adjacencyFor('fleet', 'STP/sc'), ['BOT', 'FIN', 'LVN']);
+    expectSameSet(adjacencyFor('fleet', 'SPA/nc'), ['MAO', 'GAS', 'POR']);
+    expectSameSet(adjacencyFor('fleet', 'SPA/sc'), ['MAO', 'POR', 'WES', 'GOL', 'MAR']);
+    expectSameSet(adjacencyFor('fleet', 'BUL/ec'), ['BLA', 'RUM', 'CON']);
+    expectSameSet(adjacencyFor('fleet', 'BUL/sc'), ['AEG', 'CON', 'GRE']);
+  });
+
+  test('FLEET_COAST_ADJACENCY table matches adjacencyFor for every coast', () => {
+    for (const [base, coasts] of Object.entries(COAST_PROVINCES)) {
+      for (const coast of coasts) {
+        const loc = `${base}/${coast}`;
+        expectSameSet(FLEET_COAST_ADJACENCY[loc], adjacencyFor('fleet', loc));
+      }
+    }
+  });
+
+  test('a coast never lists the other coast of the same province', () => {
+    expect(adjacencyFor('fleet', 'STP/nc')).not.toContain('STP');
+    expect(adjacencyFor('fleet', 'STP/sc')).not.toContain('STP');
+    expect(adjacencyFor('fleet', 'SPA/nc')).not.toContain('SPA');
+    expect(adjacencyFor('fleet', 'BUL/ec')).not.toContain('BUL');
+  });
+
+  test('coasts share only genuinely-bordering neighbors', () => {
+    const intersect = (a, b) => a.filter(x => b.includes(x));
+    expectSameSet(intersect(adjacencyFor('fleet', 'STP/nc'), adjacencyFor('fleet', 'STP/sc')), []);
+    expectSameSet(intersect(adjacencyFor('fleet', 'SPA/nc'), adjacencyFor('fleet', 'SPA/sc')), ['MAO', 'POR']);
+    expectSameSet(intersect(adjacencyFor('fleet', 'BUL/ec'), adjacencyFor('fleet', 'BUL/sc')), ['CON']);
+  });
+
+  test('the base fleet entry is the union of its two coasts', () => {
+    for (const [base, coasts] of Object.entries(COAST_PROVINCES)) {
+      const union = [...new Set(coasts.flatMap(c => FLEET_COAST_ADJACENCY[`${base}/${c}`]))];
+      expectSameSet(FLEET_ADJACENCY[base], union);
+    }
+  });
+});
+
+describe('Diplomacy split-coast movement legality', () => {
+  function fleetBoard(units) {
+    const board = emptyBoard();
+    setUnits(board, units);
+    return board;
+  }
+
+  test('a fleet on BAR can move to STP/nc; a fleet on BOT can move to STP/sc', () => {
+    const board = fleetBoard({ BAR: { power: 'russia', type: 'fleet' } });
+    expect(board.getMoveTargets('BAR')).toContain('STP/nc');
+    expect(board.getMoveTargets('BAR')).not.toContain('STP/sc');
+
+    const board2 = fleetBoard({ BOT: { power: 'russia', type: 'fleet' } });
+    expect(board2.getMoveTargets('BOT')).toContain('STP/sc');
+    expect(board2.getMoveTargets('BOT')).not.toContain('STP/nc');
+  });
+
+  test('a fleet on MAO lists both SPA coasts as targets', () => {
+    const board = fleetBoard({ MAO: { power: 'france', type: 'fleet' } });
+    const targets = board.getMoveTargets('MAO');
+    expect(targets).toContain('SPA/nc');
+    expect(targets).toContain('SPA/sc');
+    expect(targets).not.toContain('SPA'); // never the bare base id
+  });
+
+  test('a fleet on STP/sc can move to BOT, FIN, LVN', () => {
+    const board = fleetBoard({ 'STP/sc': { power: 'russia', type: 'fleet' } });
+    const targets = board.getMoveTargets('STP/sc');
+    expect(targets).toEqual(expect.arrayContaining(['BOT', 'FIN', 'LVN']));
+  });
+
+  test('getMoveTargets(BAR) yields STP/nc (reverse coast resolution)', () => {
+    const board = fleetBoard({ BAR: { power: 'russia', type: 'fleet' } });
+    expect(board.getMoveTargets('BAR')).toContain('STP/nc');
+  });
+
+  test('a fleet on STP/nc cannot reach south-coast neighbors', () => {
+    const board = fleetBoard({ 'STP/nc': { power: 'russia', type: 'fleet' } });
+    const targets = board.getMoveTargets('STP/nc');
+    for (const to of ['BOT', 'FIN', 'LVN']) expect(targets).not.toContain(to);
+    expect(targets).toEqual(expect.arrayContaining(['BAR', 'NWY']));
+  });
+
+  test('a fleet on STP/sc cannot reach north-coast neighbors', () => {
+    const board = fleetBoard({ 'STP/sc': { power: 'russia', type: 'fleet' } });
+    const targets = board.getMoveTargets('STP/sc');
+    expect(targets).not.toContain('BAR');
+    expect(targets).not.toContain('NWY');
+  });
+
+  test('BUL coasts gate the Black Sea / Aegean split', () => {
+    const ec = fleetBoard({ 'BUL/ec': { power: 'turkey', type: 'fleet' } });
+    expect(ec.getMoveTargets('BUL/ec')).not.toContain('AEG');
+    expect(ec.getMoveTargets('BUL/ec')).not.toContain('GRE');
+    const sc = fleetBoard({ 'BUL/sc': { power: 'turkey', type: 'fleet' } });
+    expect(sc.getMoveTargets('BUL/sc')).not.toContain('BLA');
+    expect(sc.getMoveTargets('BUL/sc')).not.toContain('RUM');
+  });
+
+  test('SPA coasts gate the Atlantic / Mediterranean split', () => {
+    const sc = fleetBoard({ 'SPA/sc': { power: 'france', type: 'fleet' } });
+    expect(sc.getMoveTargets('SPA/sc')).not.toContain('GAS');
+    const nc = fleetBoard({ 'SPA/nc': { power: 'france', type: 'fleet' } });
+    for (const to of ['WES', 'GOL', 'MAR']) expect(nc.getMoveTargets('SPA/nc')).not.toContain(to);
+  });
+
+  test('_sanitizeOrder returns null for coast-violating fleet moves', () => {
+    const board = fleetBoard({ 'STP/nc': { power: 'russia', type: 'fleet' } });
+    expect(board._sanitizeOrder({ type: 'move', unitLoc: 'STP/nc', to: 'BOT' })).toBeNull();
+    expect(board._sanitizeOrder({ type: 'move', unitLoc: 'STP/nc', to: 'STP/sc' })).toBeNull();
+
+    const sc = fleetBoard({ 'SPA/sc': { power: 'france', type: 'fleet' } });
+    expect(sc._sanitizeOrder({ type: 'move', unitLoc: 'SPA/sc', to: 'GAS' })).toBeNull();
+
+    const ec = fleetBoard({ 'BUL/ec': { power: 'turkey', type: 'fleet' } });
+    expect(ec._sanitizeOrder({ type: 'move', unitLoc: 'BUL/ec', to: 'AEG' })).toBeNull();
+  });
+
+  test('_sanitizeOrder resolves a bare split destination to the one reachable coast', () => {
+    const board = fleetBoard({ BAR: { power: 'russia', type: 'fleet' } });
+    const order = board._sanitizeOrder({ type: 'move', unitLoc: 'BAR', to: 'STP' });
+    expect(order).toEqual({ type: 'move', unitLoc: 'BAR', to: 'STP/nc', viaConvoy: false });
+  });
+
+  test('_sanitizeOrder rejects an ambiguous bare split destination (two coasts reachable)', () => {
+    const board = fleetBoard({ MAO: { power: 'france', type: 'fleet' } });
+    // MAO borders both SPA coasts, so a bare "to: SPA" is ambiguous.
+    expect(board._sanitizeOrder({ type: 'move', unitLoc: 'MAO', to: 'SPA' })).toBeNull();
+    expect(board._sanitizeOrder({ type: 'move', unitLoc: 'MAO', to: 'SPA/nc' }))
+      .toEqual({ type: 'move', unitLoc: 'MAO', to: 'SPA/nc', viaConvoy: false });
+  });
+});
+
+describe('Diplomacy split-coast support / convoy / retreat', () => {
+  test('a fleet cannot support an action on the opposite coast of its own province', () => {
+    const board = emptyBoard();
+    setUnits(board, { 'STP/sc': { power: 'russia', type: 'fleet' } });
+    expect(board.canSupport('fleet', 'STP/sc', 'STP/nc')).toBe(false);
+    expect(board.canSupport('fleet', 'STP/nc', 'STP/sc')).toBe(false);
+  });
+
+  test('BLA can support a BUL/ec action but not a BUL/sc action', () => {
+    const board = emptyBoard();
+    setUnits(board, { BLA: { power: 'turkey', type: 'fleet' } });
+    expect(board.canSupport('fleet', 'BLA', 'BUL/ec')).toBe(true);
+    expect(board.canSupport('fleet', 'BLA', 'BUL/sc')).toBe(false);
+  });
+
+  test('a support-move into a split province respects the supporting fleet coast', () => {
+    // BLA supports RUM -> BUL/ec (legal); RUM moves to BUL/ec with strength 2.
+    const board = emptyBoard();
+    setUnits(board, {
+      RUM: { power: 'turkey', type: 'fleet' },
+      BLA: { power: 'turkey', type: 'fleet' },
+      'BUL/sc': { power: 'russia', type: 'fleet' },
+    });
+    board.processOrders({
+      turkey: [
+        { type: 'move', unitLoc: 'RUM', to: 'BUL/ec' },
+        { type: 'support-move', unitLoc: 'BLA', from: 'RUM', to: 'BUL/ec' },
+      ],
+      russia: [{ type: 'hold', unitLoc: 'BUL/sc' }],
+    });
+    // Russia's BUL fleet is dislodged; Turkey's fleet now holds BUL on the east coast.
+    expect(board.units['BUL/ec']).toMatchObject({ power: 'turkey', type: 'fleet' });
+    expect(board.units['BUL/sc']).toBeUndefined();
+    expect(board.units.BUL).toBeUndefined();
+    expect(board.isRetreatPhase()).toBe(true);
+  });
+
+  test('a dislodged fleet on SPA/nc only retreats to its north-coast neighbors', () => {
+    const board = emptyBoard();
+    setUnits(board, {
+      'SPA/nc': { power: 'france', type: 'fleet' },
+      MAO: { power: 'england', type: 'fleet' },
+      POR: { power: 'england', type: 'fleet' },
+    });
+    // MAO -> SPA/nc with POR support dislodges France.
+    board.processOrders({
+      england: [
+        { type: 'move', unitLoc: 'MAO', to: 'SPA/nc' },
+        { type: 'support-move', unitLoc: 'POR', from: 'MAO', to: 'SPA/nc' },
+      ],
+      france: [{ type: 'hold', unitLoc: 'SPA/nc' }],
+    });
+    expect(board.isRetreatPhase()).toBe(true);
+    const pending = board.pendingRetreats.find(e => e.unitLoc === 'SPA/nc');
+    expect(pending).toBeDefined();
+    // Only north-coast neighbors, minus the attacker origin (MAO) and occupied (POR).
+    expect(pending.options).toEqual(['GAS']);
+    for (const south of ['WES', 'GOL', 'MAR']) expect(pending.options).not.toContain(south);
+  });
+});
+
+describe('Diplomacy split-coast builds', () => {
+  test('a fleet build in a split home emits one order per coast plus a bare army build', () => {
+    const board = emptyBoard({ phase: 'winter-build' });
+    board.supplyCenters.STP = 'russia';
+    board.units = {}; // STP open, +1 build available
+    const orders = board.getLegalAdjustmentOrders('russia');
+    const stpOrders = orders.filter(o => baseProvince(o.loc) === 'STP');
+    const fleetBuilds = stpOrders.filter(o => o.unitType === 'fleet').map(o => o.loc).sort();
+    const armyBuilds = stpOrders.filter(o => o.unitType === 'army').map(o => o.loc);
+    expect(fleetBuilds).toEqual(['STP/nc', 'STP/sc']);
+    expect(armyBuilds).toEqual(['STP']);
+  });
+
+  test('a fleet build in a non-split coastal home yields exactly one fleet option', () => {
+    const board = emptyBoard({ phase: 'winter-build' });
+    board.supplyCenters.BRE = 'france';
+    board.units = {};
+    const fleetBuilds = board.getLegalAdjustmentOrders('france')
+      .filter(o => o.loc === 'BRE' && o.unitType === 'fleet');
+    expect(fleetBuilds).toHaveLength(1);
+  });
+
+  test('processAdjustments builds a fleet on the chosen coast of a split home', () => {
+    const board = emptyBoard({ phase: 'winter-build' });
+    board.supplyCenters = { STP: 'russia' };
+    board.units = {};
+    board.adjustments = board.getAdjustments();
+    board.processAdjustments({ russia: [{ type: 'build', power: 'russia', unitType: 'fleet', loc: 'STP/nc' }] });
+    expect(board.units['STP/nc']).toMatchObject({ power: 'russia', type: 'fleet' });
+    expect(board.units.STP).toBeUndefined();
+  });
+
+  test('a split home accepts at most one build even if both coast orders are sent', () => {
+    const board = emptyBoard({ phase: 'winter-build' });
+    board.supplyCenters = { STP: 'russia' };
+    board.units = {};
+    board.adjustments = board.getAdjustments();
+    board.processAdjustments({
+      russia: [
+        { type: 'build', power: 'russia', unitType: 'fleet', loc: 'STP/nc' },
+        { type: 'build', power: 'russia', unitType: 'fleet', loc: 'STP/sc' },
+      ],
+    });
+    expect(board.getUnitCount('russia')).toBe(1);
+  });
+});
+
+describe('Diplomacy split-coast serialization & compat', () => {
+  test('a board with F STP/sc round-trips through serialize/deserialize with the coast preserved', () => {
+    const board = emptyBoard();
+    setUnits(board, { 'STP/sc': { power: 'russia', type: 'fleet' } });
+    const copy = DiplomacyBoard.fromSerializedState(board.serializeState());
+    expect(copy.units['STP/sc']).toMatchObject({ power: 'russia', type: 'fleet' });
+    expect(copy.getStateHash()).toBe(board.getStateHash());
+    expect(copy.getStateHash()).toContain('STP/sc');
+  });
+
+  test('a legacy bare split-coast fleet normalizes to its default coast on load', () => {
+    const legacy = {
+      units: {
+        STP: { power: 'russia', type: 'fleet' },
+        SPA: { power: 'france', type: 'fleet' },
+        BUL: { power: 'turkey', type: 'fleet' },
+      },
+      phase: 'spring-orders',
+      season: 'spring',
+      year: 1901,
+    };
+    const board = DiplomacyBoard.fromSerializedState(legacy);
+    expect(board.units['STP/sc']).toMatchObject({ power: 'russia', type: 'fleet' });
+    expect(board.units['SPA/sc']).toMatchObject({ power: 'france', type: 'fleet' });
+    expect(board.units['BUL/sc']).toMatchObject({ power: 'turkey', type: 'fleet' });
+    expect(board.units.STP).toBeUndefined();
+    expect(board.units.SPA).toBeUndefined();
+    expect(board.units.BUL).toBeUndefined();
+  });
+
+  test('a legacy bare ARMY on a split province stays a bare base id', () => {
+    const board = DiplomacyBoard.fromSerializedState({
+      units: { BUL: { power: 'turkey', type: 'army' } },
+      phase: 'spring-orders', season: 'spring', year: 1901,
+    });
+    expect(board.units.BUL).toMatchObject({ power: 'turkey', type: 'army' });
+  });
+
+  test('clone preserves split-coast keys', () => {
+    const board = emptyBoard();
+    setUnits(board, {
+      'STP/nc': { power: 'russia', type: 'fleet' },
+      'BUL/ec': { power: 'turkey', type: 'fleet' },
+    });
+    const clone = board.clone();
+    expect(clone.units['STP/nc']).toMatchObject({ power: 'russia', type: 'fleet' });
+    expect(clone.units['BUL/ec']).toMatchObject({ power: 'turkey', type: 'fleet' });
+  });
+
+  test('the default new game starts Russia with a fleet at STP/sc', () => {
+    const board = new DiplomacyBoard({ skipInitialHistory: true });
+    expect(board.units['STP/sc']).toMatchObject({ power: 'russia', type: 'fleet' });
+    expect(board.units.STP).toBeUndefined();
+  });
+});
+
+describe('Diplomacy split-coast regression guards', () => {
+  test('army adjacency for STP, SPA, BUL is unchanged', () => {
+    expectSameSet(ARMY_ADJACENCY.STP, ['NWY', 'FIN', 'LVN', 'MOS']);
+    expectSameSet(ARMY_ADJACENCY.SPA, ['POR', 'GAS', 'MAR']);
+    expectSameSet(ARMY_ADJACENCY.BUL, ['SER', 'RUM', 'CON', 'GRE']);
+  });
+
+  test('supply-center ownership keys remain bare base ids even with a coast fleet', () => {
+    const board = emptyBoard({ season: 'fall', phase: 'fall-orders' });
+    board.supplyCenters = { STP: null };
+    setUnits(board, { 'STP/sc': { power: 'russia', type: 'fleet' } });
+    board._updateSupplyOwnership();
+    expect(board.supplyCenters.STP).toBe('russia');
+    expect(board.supplyCenters['STP/sc']).toBeUndefined();
+  });
+
+  test('an army moves into and out of a split province using the bare base id', () => {
+    const board = emptyBoard();
+    setUnits(board, { MOS: { power: 'russia', type: 'army' } });
+    expect(board.getMoveTargets('MOS')).toContain('STP');
+    board.processOrders({ russia: [{ type: 'move', unitLoc: 'MOS', to: 'STP' }] });
+    expect(board.units.STP).toMatchObject({ power: 'russia', type: 'army' });
+    expect(board.units['STP/sc']).toBeUndefined();
+  });
+
+  test('no non-split province gains or loses fleet adjacency (sampled)', () => {
+    expectSameSet(FLEET_ADJACENCY.BRE, ['ENG', 'MAO', 'PIC', 'GAS']);
+    expectSameSet(FLEET_ADJACENCY.NTH, ['NWG', 'NWY', 'SKA', 'DEN', 'HEL', 'HOL', 'BEL', 'ENG', 'LON', 'YOR', 'EDI']);
+    expectSameSet(FLEET_ADJACENCY.GAS, ['MAO', 'BRE', 'SPA']);
+  });
+
+  test('getStateHash for a board with no split-coast fleets is stable', () => {
+    // A board whose only split-province units are armies (bare ids) must hash
+    // exactly as it would have pre-change: no coast suffixes appear anywhere.
+    const board = emptyBoard();
+    setUnits(board, {
+      PAR: { power: 'france', type: 'army' },
+      BUL: { power: 'turkey', type: 'army' },
+      STP: { power: 'russia', type: 'army' },
+    });
+    const hash = board.getStateHash();
+    expect(hash).not.toContain('/');
+    expect(hash).toContain('BUL:ta');
+    expect(hash).toContain('STP:ra');
+    // Round-trips identically.
+    expect(DiplomacyBoard.fromSerializedState(board.serializeState()).getStateHash()).toBe(hash);
+  });
 });

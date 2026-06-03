@@ -82,7 +82,7 @@ const INITIAL_UNITS = {
   russia: [
     ['army', 'MOS'],
     ['fleet', 'SEV'],
-    ['fleet', 'STP'],
+    ['fleet', 'STP/sc'],
     ['army', 'WAR'],
   ],
   turkey: [
@@ -249,7 +249,7 @@ const FLEET_ADJACENCY = {
   BLA: ['BUL', 'RUM', 'SEV', 'ARM', 'ANK', 'CON'],
   BOT: ['SWE', 'FIN', 'STP', 'LVN', 'BAL', 'GOB'],
   BRE: ['ENG', 'MAO', 'PIC', 'GAS'],
-  BUL: ['BLA', 'CON', 'RUM', 'AEG', 'GRE'],
+  BUL: ['BLA', 'RUM', 'CON', 'AEG', 'GRE'], // union of BUL/ec + BUL/sc
   CLY: ['NAO', 'NWG', 'EDI', 'LVP'],
   CON: ['BLA', 'ANK', 'SMY', 'AEG', 'BUL'],
   DEN: ['NTH', 'SKA', 'SWE', 'BAL', 'KIE', 'HEL'],
@@ -258,7 +258,7 @@ const FLEET_ADJACENCY = {
   ENG: ['LON', 'WAL', 'BRE', 'PIC', 'BEL', 'NTH', 'IRI', 'MAO'],
   FIN: ['GOB', 'BOT', 'STP', 'SWE'],
   GAS: ['MAO', 'BRE', 'SPA'],
-  GOB: ['SWE', 'FIN', 'STP', 'BOT', 'BAL', 'LVN'],
+  GOB: ['SWE', 'FIN', 'BOT', 'BAL', 'LVN'], // STP borders BOT (sc), not GOB
   GOL: ['SPA', 'MAR', 'PIE', 'TUS', 'TYS', 'WES'],
   GRE: ['ION', 'AEG', 'ALB', 'BUL'],
   HEL: ['HOL', 'KIE', 'DEN', 'NTH', 'SKA'],
@@ -286,8 +286,8 @@ const FLEET_ADJACENCY = {
   SEV: ['BLA', 'RUM', 'ARM'],
   SKA: ['NWY', 'SWE', 'DEN', 'NTH', 'HEL'],
   SMY: ['CON', 'AEG', 'EAS', 'SYR'],
-  SPA: ['POR', 'GAS', 'MAO', 'WES', 'GOL', 'MAR'],
-  STP: ['BAR', 'NWY', 'FIN', 'GOB', 'BOT', 'LVN'],
+  SPA: ['MAO', 'GAS', 'POR', 'WES', 'GOL', 'MAR'], // union of SPA/nc + SPA/sc
+  STP: ['BAR', 'NWY', 'BOT', 'FIN', 'LVN'], // union of STP/nc + STP/sc
   SWE: ['NWY', 'SKA', 'DEN', 'BAL', 'BOT', 'GOB', 'FIN'],
   SYR: ['EAS', 'SMY'],
   TRI: ['VEN', 'ADR', 'ALB'],
@@ -299,6 +299,43 @@ const FLEET_ADJACENCY = {
   WES: ['MAO', 'SPA', 'GOL', 'TYS', 'TUN', 'NAF'],
   YOR: ['EDI', 'NTH', 'LON'],
 };
+
+// Split-coast provinces. Each has two separate, non-connected coasts; a fleet
+// must commit to one. Armies, ownership, and the map node always use the bare
+// base id -- the coast suffix is a fleet-location refinement only.
+const COAST_PROVINCES = { STP: ['nc', 'sc'], SPA: ['nc', 'sc'], BUL: ['ec', 'sc'] };
+
+// Per-coast fleet adjacency for the split-coast provinces (canonical 1901 map).
+// Keyed by coast loc; the base FLEET_ADJACENCY entries hold the union of these
+// for army-independent reverse lookups and convoy BFS over base ids.
+const FLEET_COAST_ADJACENCY = {
+  'STP/nc': ['BAR', 'NWY'],
+  'STP/sc': ['BOT', 'FIN', 'LVN'],
+  'SPA/nc': ['MAO', 'GAS', 'POR'],
+  'SPA/sc': ['MAO', 'POR', 'WES', 'GOL', 'MAR'],
+  'BUL/ec': ['BLA', 'RUM', 'CON'],
+  'BUL/sc': ['AEG', 'CON', 'GRE'],
+};
+
+// When a legacy serialized state lacks a coast suffix on a split-coast fleet,
+// normalize to the canonical default coast for that province.
+const DEFAULT_COAST = { STP: 'sc', SPA: 'sc', BUL: 'sc' };
+
+function baseProvince(loc) {
+  if (typeof loc !== 'string') return loc;
+  const slash = loc.indexOf('/');
+  return slash === -1 ? loc : loc.slice(0, slash);
+}
+
+function coastOf(loc) {
+  if (typeof loc !== 'string') return null;
+  const slash = loc.indexOf('/');
+  return slash === -1 ? null : loc.slice(slash + 1);
+}
+
+function isSplitCoast(base) {
+  return Object.prototype.hasOwnProperty.call(COAST_PROVINCES, base);
+}
 
 const ALL_PROVINCES = Object.keys(PROVINCES).sort();
 const SUPPLY_CENTERS = ALL_PROVINCES.filter(id => PROVINCES[id].supply);
@@ -345,23 +382,29 @@ function formatUnitType(type) {
 }
 
 function isSea(loc) {
-  return SEA_SET.has(loc);
+  return SEA_SET.has(baseProvince(loc));
 }
 
 function isLandOrCoast(loc) {
-  return !!PROVINCES[loc] && !isSea(loc);
+  const base = baseProvince(loc);
+  return !!PROVINCES[base] && !isSea(base);
 }
 
 function unitCanOccupy(unitType, loc) {
-  if (!PROVINCES[loc]) return false;
-  if (unitType === 'army') return isLandOrCoast(loc);
-  return PROVINCES[loc].type === 'sea' || PROVINCES[loc].type === 'coast';
+  const base = baseProvince(loc);
+  if (!PROVINCES[base]) return false;
+  // A coast suffix only ever applies to a fleet on a split-coast province.
+  if (coastOf(loc) && !(unitType === 'fleet' && isSplitCoast(base))) return false;
+  if (unitType === 'army') return isLandOrCoast(base);
+  return PROVINCES[base].type === 'sea' || PROVINCES[base].type === 'coast';
 }
 
 function adjacencyFor(unitType, loc) {
-  return unitType === 'fleet'
-    ? (FLEET_ADJACENCY[loc] || [])
-    : (ARMY_ADJACENCY[loc] || []);
+  if (unitType === 'fleet') {
+    if (FLEET_COAST_ADJACENCY[loc]) return FLEET_COAST_ADJACENCY[loc];
+    return FLEET_ADJACENCY[baseProvince(loc)] || [];
+  }
+  return ARMY_ADJACENCY[baseProvince(loc)] || [];
 }
 
 function emptyCenterOwners() {
@@ -434,7 +477,32 @@ export default class DiplomacyBoard {
   }
 
   getProvince(id) {
-    return PROVINCES[id] || null;
+    return PROVINCES[baseProvince(id)] || null;
+  }
+
+  // Occupancy lookup by base province id. A fleet on a split coast is keyed by
+  // its coast loc (e.g. 'STP/sc'); this resolves it from the bare base id.
+  unitAt(base) {
+    if (this.units[base]) return this.units[base];
+    if (isSplitCoast(base)) {
+      for (const coast of COAST_PROVINCES[base]) {
+        const loc = `${base}/${coast}`;
+        if (this.units[loc]) return this.units[loc];
+      }
+    }
+    return undefined;
+  }
+
+  // The stored unit key (possibly coast-suffixed) occupying a base province.
+  unitLocAt(base) {
+    if (this.units[base]) return base;
+    if (isSplitCoast(base)) {
+      for (const coast of COAST_PROVINCES[base]) {
+        const loc = `${base}/${coast}`;
+        if (this.units[loc]) return loc;
+      }
+    }
+    return null;
   }
 
   getUnitLocations(power = null) {
@@ -492,20 +560,52 @@ export default class DiplomacyBoard {
   }
 
   canUnitMove(unitType, from, to, { viaConvoy = false, convoyOrders = null } = {}) {
-    if (!this.units[from] || !PROVINCES[to] || !unitCanOccupy(unitType, to)) return false;
-    if (adjacencyFor(unitType, from).includes(to)) return true;
-    if (unitType === 'army' && viaConvoy) return this.hasConvoyPath(from, to, convoyOrders);
+    const toBase = baseProvince(to);
+    if (!this.units[from] || !PROVINCES[toBase] || !unitCanOccupy(unitType, to)) return false;
+    if (this._fleetOrArmyAdjacent(unitType, from, to)) return true;
+    if (unitType === 'army' && viaConvoy) return this.hasConvoyPath(baseProvince(from), toBase, convoyOrders);
     return false;
   }
 
+  // Adjacency test that understands coast-keyed locs in either position. For a
+  // fleet, a coast-keyed `to` is reachable only if `from` is in that coast's
+  // precise list; a bare split-coast `to` is reachable if `from` borders any
+  // coast (the caller is expected to resolve to a concrete coast separately).
+  _fleetOrArmyAdjacent(unitType, from, to) {
+    const fromAdj = adjacencyFor(unitType, from);
+    if (unitType !== 'fleet') return fromAdj.includes(baseProvince(to));
+    const toCoast = coastOf(to);
+    if (toCoast) {
+      // `to` is a concrete coast: `from` must border exactly that coast.
+      return (FLEET_COAST_ADJACENCY[to] || []).includes(baseProvince(from));
+    }
+    return fromAdj.includes(baseProvince(to));
+  }
+
   canSupport(unitType, supportLoc, targetLoc) {
-    return unitCanOccupy(unitType, targetLoc) && adjacencyFor(unitType, supportLoc).includes(targetLoc);
+    if (!unitCanOccupy(unitType, targetLoc)) return false;
+    return this._fleetOrArmyAdjacent(unitType, supportLoc, targetLoc);
   }
 
   getMoveTargets(loc, { includeConvoys = true } = {}) {
     const unit = this.units[loc];
     if (!unit) return [];
-    const direct = adjacencyFor(unit.type, loc).filter(to => unitCanOccupy(unit.type, to));
+    // For fleets, expand any split-coast base destination into the concrete
+    // coast variant(s) actually reachable from this loc; for the source side,
+    // adjacencyFor already returns the precise per-coast list when `loc` carries
+    // a coast suffix. Armies always use bare base ids.
+    const direct = [];
+    for (const to of adjacencyFor(unit.type, loc)) {
+      if (!unitCanOccupy(unit.type, to)) continue;
+      if (unit.type === 'fleet' && isSplitCoast(to)) {
+        for (const coast of COAST_PROVINCES[to]) {
+          const coastLoc = `${to}/${coast}`;
+          if ((FLEET_COAST_ADJACENCY[coastLoc] || []).includes(baseProvince(loc))) direct.push(coastLoc);
+        }
+      } else {
+        direct.push(to);
+      }
+    }
     if (unit.type !== 'army' || !includeConvoys) return sorted(direct);
 
     const convoyTargets = this.getConvoyTargets(loc);
@@ -632,7 +732,7 @@ export default class DiplomacyBoard {
       const centers = this.getSupplyCount(power);
       const units = this.getUnitCount(power);
       const delta = centers - units;
-      const openHomes = HOME_CENTERS[power].filter(loc => this.supplyCenters[loc] === power && !this.units[loc]);
+      const openHomes = HOME_CENTERS[power].filter(loc => this.supplyCenters[loc] === power && !this.unitAt(loc));
       adjustments[power] = {
         delta,
         openHomes,
@@ -650,7 +750,16 @@ export default class DiplomacyBoard {
       const orders = [];
       for (const loc of adjustment.openHomes) {
         orders.push({ type: 'build', power, unitType: 'army', loc });
-        if (PROVINCES[loc].type === 'coast') orders.push({ type: 'build', power, unitType: 'fleet', loc });
+        if (PROVINCES[loc].type !== 'coast') continue;
+        // A fleet build in a split-coast home must commit to a coast: emit one
+        // build option per coast. Non-split coastal homes emit exactly one.
+        if (isSplitCoast(loc)) {
+          for (const coast of COAST_PROVINCES[loc]) {
+            orders.push({ type: 'build', power, unitType: 'fleet', loc: `${loc}/${coast}` });
+          }
+        } else {
+          orders.push({ type: 'build', power, unitType: 'fleet', loc });
+        }
       }
       return orders;
     }
@@ -731,9 +840,11 @@ export default class DiplomacyBoard {
       const selected = [];
       const used = new Set();
       for (const entry of byLoc) {
-        if (used.has(entry.order.loc)) continue;
+        // Dedupe by base province so a split-coast home yields at most one build.
+        const base = baseProvince(entry.order.loc);
+        if (used.has(base)) continue;
         selected.push(entry.order);
-        used.add(entry.order.loc);
+        used.add(base);
         if (selected.length >= adjustment.buildCount) break;
       }
       return [{ type: 'adjustments-plan', power, adjustments: selected }];
@@ -750,11 +861,12 @@ export default class DiplomacyBoard {
   }
 
   provinceValue(power, loc) {
-    const province = PROVINCES[loc];
+    const base = baseProvince(loc);
+    const province = PROVINCES[base];
     if (!province) return 0;
     let score = province.supply ? 260 : 28;
-    const owner = this.supplyCenters[loc];
-    const occupant = this.units[loc];
+    const owner = this.supplyCenters[base];
+    const occupant = this.unitAt(base);
     if (province.supply && owner === power) score += 120;
     if (province.supply && owner && owner !== power) score += 360 + Math.max(0, this.getSupplyCount(owner) - this.getSupplyCount(power)) * 22;
     if (province.supply && !owner) score += 300;
@@ -764,7 +876,7 @@ export default class DiplomacyBoard {
     const adjacentEnemyCenters = adjacencyFor(province.type === 'sea' ? 'fleet' : 'army', loc)
       .filter(adj => PROVINCES[adj]?.supply && this.supplyCenters[adj] && this.supplyCenters[adj] !== power).length;
     score += adjacentEnemyCenters * 35;
-    if (province.type === 'sea') score += (FLEET_ADJACENCY[loc]?.filter(adj => PROVINCES[adj]?.supply).length || 0) * 20;
+    if (province.type === 'sea') score += (FLEET_ADJACENCY[base]?.filter(adj => PROVINCES[adj]?.supply).length || 0) * 20;
     return score;
   }
 
@@ -773,15 +885,17 @@ export default class DiplomacyBoard {
     if (!unit) return -1000;
     switch (order.type) {
       case 'hold': {
+        const holdBase = baseProvince(order.unitLoc);
         const locValue = this.provinceValue(power, order.unitLoc);
-        const ownsCenter = PROVINCES[order.unitLoc]?.supply && this.supplyCenters[order.unitLoc] === power;
+        const ownsCenter = PROVINCES[holdBase]?.supply && this.supplyCenters[holdBase] === power;
         return (ownsCenter ? 155 : 18) + locValue * 0.12;
       }
       case 'move': {
+        const toBase = baseProvince(order.to);
         let score = this.provinceValue(power, order.to);
-        if (this.units[order.to]?.power === power) score -= 180;
-        if (this.supplyCenters[order.to] === power && !this.units[order.to]) score += this.season === 'fall' ? 80 : 20;
-        if (PROVINCES[order.to]?.supply && this.supplyCenters[order.to] !== power) score += this.season === 'fall' ? 260 : 140;
+        if (this.unitAt(toBase)?.power === power) score -= 180;
+        if (this.supplyCenters[toBase] === power && !this.unitAt(toBase)) score += this.season === 'fall' ? 80 : 20;
+        if (PROVINCES[toBase]?.supply && this.supplyCenters[toBase] !== power) score += this.season === 'fall' ? 260 : 140;
         if (order.viaConvoy) score += 35;
         return score;
       }
@@ -796,7 +910,7 @@ export default class DiplomacyBoard {
         const mover = this.units[order.from];
         if (!mover) return -100;
         const friendly = mover.power === power;
-        const targetOwner = this.supplyCenters[order.to];
+        const targetOwner = this.supplyCenters[baseProvince(order.to)];
         return (friendly ? 230 : 70) + this.provinceValue(power, order.to) * (friendly ? 0.55 : 0.18) + (targetOwner && targetOwner !== power ? 90 : 0);
       }
       case 'convoy':
@@ -812,14 +926,15 @@ export default class DiplomacyBoard {
     const supports = orders.filter(order => order.type === 'support-move' || order.type === 'support-hold');
     const targets = new Map();
     for (const move of moves) {
-      targets.set(move.to, (targets.get(move.to) || 0) + 1);
-      if (PROVINCES[move.to]?.supply && this.supplyCenters[move.to] !== power) score += 45;
+      const toBase = baseProvince(move.to);
+      targets.set(toBase, (targets.get(toBase) || 0) + 1);
+      if (PROVINCES[toBase]?.supply && this.supplyCenters[toBase] !== power) score += 45;
     }
     for (const count of targets.values()) {
       if (count > 1) score -= (count - 1) * 180;
     }
     for (const support of supports) {
-      if (support.type === 'support-move' && moves.some(move => move.unitLoc === support.from && move.to === support.to)) score += 140;
+      if (support.type === 'support-move' && moves.some(move => move.unitLoc === support.from && baseProvince(move.to) === baseProvince(support.to))) score += 140;
       if (support.type === 'support-hold' && this.units[support.target]?.power === power) score += 75;
     }
     return score;
@@ -870,18 +985,21 @@ export default class DiplomacyBoard {
       }
     }
 
+    // Two fleets retreating to different coasts of the same province still
+    // collide on the base node, so count contention by base province.
     const destinationCounts = {};
     for (const pending of this.pendingRetreats) {
       const retreat = byUnit[pending.unitLoc] || { type: 'retreat', unitLoc: pending.unitLoc, to: null };
       if (retreat.to && pending.options.includes(retreat.to)) {
-        destinationCounts[retreat.to] = (destinationCounts[retreat.to] || 0) + 1;
+        const base = baseProvince(retreat.to);
+        destinationCounts[base] = (destinationCounts[base] || 0) + 1;
       }
     }
 
     const logs = [];
     for (const pending of this.pendingRetreats) {
       const retreat = byUnit[pending.unitLoc] || { type: 'retreat', unitLoc: pending.unitLoc, to: null };
-      if (retreat.to && pending.options.includes(retreat.to) && destinationCounts[retreat.to] === 1 && !this.units[retreat.to]) {
+      if (retreat.to && pending.options.includes(retreat.to) && destinationCounts[baseProvince(retreat.to)] === 1 && !this.unitAt(baseProvince(retreat.to))) {
         this.units[retreat.to] = { ...pending.unit };
         logs.push(`${formatUnitType(pending.unit.type)} ${pending.unitLoc} retreats to ${retreat.to}`);
       } else {
@@ -909,11 +1027,14 @@ export default class DiplomacyBoard {
         const usedHomes = new Set();
         const builds = [];
         for (const order of requested) {
-          if (order.type !== 'build' || order.power !== power || usedHomes.has(order.loc)) continue;
-          if (!adjustment.openHomes.includes(order.loc) || this.units[order.loc]) continue;
+          // A fleet build may carry a coast-suffixed loc (e.g. 'STP/sc'); the
+          // home/occupancy checks key off the bare base province.
+          const base = baseProvince(order.loc);
+          if (order.type !== 'build' || order.power !== power || usedHomes.has(base)) continue;
+          if (!adjustment.openHomes.includes(base) || this.unitAt(base)) continue;
           if (!unitCanOccupy(order.unitType, order.loc)) continue;
           builds.push(order);
-          usedHomes.add(order.loc);
+          usedHomes.add(base);
           if (builds.length >= adjustment.buildCount) break;
         }
         for (const order of builds) {
@@ -965,6 +1086,24 @@ export default class DiplomacyBoard {
     return byLoc;
   }
 
+  // Normalize a move's destination to a concrete fleet coast key when the
+  // target is a split-coast province. Returns the (possibly coast-suffixed)
+  // loc, or null if the move is coast-illegal / ambiguously specified.
+  _resolveFleetMoveCoast(unitType, from, to) {
+    const toBase = baseProvince(to);
+    if (unitType !== 'fleet' || !isSplitCoast(toBase)) return toBase;
+    const requested = coastOf(to);
+    const reachable = COAST_PROVINCES[toBase]
+      .map(coast => `${toBase}/${coast}`)
+      .filter(coastLoc => (FLEET_COAST_ADJACENCY[coastLoc] || []).includes(baseProvince(from)));
+    if (requested) {
+      const coastLoc = `${toBase}/${requested}`;
+      return reachable.includes(coastLoc) ? coastLoc : null;
+    }
+    // No coast specified: accept only when exactly one coast is reachable.
+    return reachable.length === 1 ? reachable[0] : null;
+  }
+
   _sanitizeOrder(order) {
     const unit = this.units[order.unitLoc];
     if (!unit) return null;
@@ -972,9 +1111,14 @@ export default class DiplomacyBoard {
       case 'hold':
         return { type: 'hold', unitLoc: order.unitLoc };
       case 'move': {
-        const viaConvoy = !!order.viaConvoy || (unit.type === 'army' && !adjacencyFor('army', order.unitLoc).includes(order.to));
-        if (!this.canUnitMove(unit.type, order.unitLoc, order.to, { viaConvoy })) return null;
-        return { type: 'move', unitLoc: order.unitLoc, to: order.to, viaConvoy };
+        // Resolve a fleet move into a split-coast province to a concrete coast
+        // key (rejecting coast-violating orders), so adjudication and the unit
+        // map carry the committed coast. Armies always use the bare base id.
+        const to = this._resolveFleetMoveCoast(unit.type, order.unitLoc, order.to);
+        if (to === null) return null;
+        const viaConvoy = !!order.viaConvoy || (unit.type === 'army' && !adjacencyFor('army', order.unitLoc).includes(baseProvince(to)));
+        if (!this.canUnitMove(unit.type, order.unitLoc, to, { viaConvoy })) return null;
+        return { type: 'move', unitLoc: order.unitLoc, to, viaConvoy };
       }
       case 'support-hold':
         if (!this.units[order.target] || !this.canSupport(unit.type, order.unitLoc, order.target)) return null;
@@ -1022,6 +1166,25 @@ export default class DiplomacyBoard {
     return false;
   }
 
+  // Coast-aware adjacency expansion for retreat option generation. Mirrors the
+  // fleet branch of getMoveTargets: from a coast-committed fleet, expand any
+  // split-coast neighbor into the concrete coast(s) reachable from this loc.
+  _retreatTargets(unitType, fromLoc) {
+    const targets = [];
+    for (const to of adjacencyFor(unitType, fromLoc)) {
+      if (!unitCanOccupy(unitType, to)) continue;
+      if (unitType === 'fleet' && isSplitCoast(to)) {
+        for (const coast of COAST_PROVINCES[to]) {
+          const coastLoc = `${to}/${coast}`;
+          if ((FLEET_COAST_ADJACENCY[coastLoc] || []).includes(baseProvince(fromLoc))) targets.push(coastLoc);
+        }
+      } else {
+        targets.push(to);
+      }
+    }
+    return targets;
+  }
+
   _adjudicate(ordersByLoc) {
     const validOrders = { ...ordersByLoc };
     for (const [loc, order] of Object.entries(validOrders)) {
@@ -1030,21 +1193,25 @@ export default class DiplomacyBoard {
       }
     }
 
+    // Conflicts resolve per base province: two fleets aiming at different coasts
+    // of the same split province still contest the one node. Targets are grouped
+    // by base id; occupant lookups go through unitAt/unitLocAt.
     const attacksByTarget = {};
     for (const [loc, order] of Object.entries(validOrders)) {
       if (order.type !== 'move') continue;
-      if (!attacksByTarget[order.to]) attacksByTarget[order.to] = [];
-      attacksByTarget[order.to].push(loc);
+      const targetBase = baseProvince(order.to);
+      if (!attacksByTarget[targetBase]) attacksByTarget[targetBase] = [];
+      attacksByTarget[targetBase].push(loc);
     }
 
     const cutSupports = new Set();
     for (const [loc, order] of Object.entries(validOrders)) {
       if (order.type !== 'support-hold' && order.type !== 'support-move') continue;
-      const attacks = attacksByTarget[loc] || [];
+      const attacks = attacksByTarget[baseProvince(loc)] || [];
       for (const attackerLoc of attacks) {
         const attack = validOrders[attackerLoc];
         if (!attack) continue;
-        if (order.type === 'support-move' && attackerLoc === order.to) continue;
+        if (order.type === 'support-move' && baseProvince(attackerLoc) === baseProvince(order.to)) continue;
         cutSupports.add(loc);
       }
     }
@@ -1061,7 +1228,8 @@ export default class DiplomacyBoard {
       if (order.type === 'support-hold' && this.units[order.target]) {
         defenseStrength[order.target] = (defenseStrength[order.target] || 1) + 1;
       }
-      if (order.type === 'support-move' && this.units[order.from] && validOrders[order.from]?.type === 'move' && validOrders[order.from].to === order.to) {
+      if (order.type === 'support-move' && this.units[order.from] && validOrders[order.from]?.type === 'move'
+        && baseProvince(validOrders[order.from].to) === baseProvince(order.to)) {
         moveStrength[order.from] = (moveStrength[order.from] || 1) + 1;
       }
     }
@@ -1075,16 +1243,17 @@ export default class DiplomacyBoard {
 
     for (const [loc, order] of Object.entries(validOrders)) {
       if (order.type !== 'move' || handledHeadToHead.has(loc)) continue;
-      const opposing = validOrders[order.to];
-      if (opposing?.type === 'move' && opposing.to === loc && !order.viaConvoy && !opposing.viaConvoy) {
+      const oppLoc = this.unitLocAt(baseProvince(order.to));
+      const opposing = oppLoc ? validOrders[oppLoc] : null;
+      if (opposing?.type === 'move' && baseProvince(opposing.to) === baseProvince(loc) && !order.viaConvoy && !opposing.viaConvoy) {
         handledHeadToHead.add(loc);
-        handledHeadToHead.add(order.to);
+        handledHeadToHead.add(oppLoc);
         const aUnit = this.units[loc];
-        const bUnit = this.units[order.to];
+        const bUnit = this.units[oppLoc];
         const a = moveStrength[loc] || 1;
-        const b = moveStrength[order.to] || 1;
+        const b = moveStrength[oppLoc] || 1;
         if (a > b && aUnit.power !== bUnit.power) moveSuccess[loc] = true;
-        if (b > a && bUnit.power !== aUnit.power) moveSuccess[order.to] = true;
+        if (b > a && bUnit.power !== aUnit.power) moveSuccess[oppLoc] = true;
       }
     }
 
@@ -1110,20 +1279,21 @@ export default class DiplomacyBoard {
           continue;
         }
 
-        const occupant = this.units[target];
+        const occupantLoc = this.unitLocAt(target);
+        const occupant = occupantLoc ? this.units[occupantLoc] : undefined;
         let succeeds = false;
         if (!occupant) {
           succeeds = true;
         } else {
-          const occupantOrder = validOrders[target];
-          const occupantLeaves = occupantOrder?.type === 'move' && moveSuccess[target] === true;
+          const occupantOrder = validOrders[occupantLoc];
+          const occupantLeaves = occupantOrder?.type === 'move' && moveSuccess[occupantLoc] === true;
           const attackerPower = this.units[best.loc].power;
           if (occupant.power === attackerPower) {
             succeeds = occupantLeaves;
           } else if (occupantLeaves) {
             succeeds = true;
           } else {
-            succeeds = best.strength > (defenseStrength[target] || 1);
+            succeeds = best.strength > (defenseStrength[occupantLoc] || 1);
           }
         }
 
@@ -1147,7 +1317,7 @@ export default class DiplomacyBoard {
       const order = validOrders[loc];
       if (order?.type === 'move' && moveSuccess[loc]) continue;
       const attacked = Object.entries(validOrders)
-        .some(([from, attack]) => attack.type === 'move' && attack.to === loc && moveSuccess[from] && this.units[from].power !== unit.power);
+        .some(([from, attack]) => attack.type === 'move' && baseProvince(attack.to) === baseProvince(loc) && moveSuccess[from] && this.units[from].power !== unit.power);
       if (attacked) dislodgedLocs.add(loc);
     }
     for (const [loc, order] of Object.entries(validOrders)) {
@@ -1163,7 +1333,7 @@ export default class DiplomacyBoard {
       const order = validOrders[loc];
       if (order?.type === 'move' && moveSuccess[loc]) continue;
       const attackLoc = Object.entries(validOrders)
-        .find(([from, attack]) => attack.type === 'move' && attack.to === loc && moveSuccess[from] && this.units[from].power !== unit.power)?.[0];
+        .find(([from, attack]) => attack.type === 'move' && baseProvince(attack.to) === baseProvince(loc) && moveSuccess[from] && this.units[from].power !== unit.power)?.[0];
       if (attackLoc) {
         dislodged.push({ unitLoc: loc, unit: { ...unit }, attackerFrom: attackLoc });
       } else {
@@ -1177,17 +1347,22 @@ export default class DiplomacyBoard {
       }
     }
 
+    // Contested provinces (a standoff bounces retreats) are tracked by base id.
     const contestedProvinces = sorted(uniq(Object.values(validOrders)
       .filter(order => order.type === 'move')
-      .map(order => order.to)));
+      .map(order => baseProvince(order.to))));
+    const occupiedBases = new Set(Object.keys(newUnits).map(baseProvince));
 
     const pendingRetreats = dislodged
       .map(entry => {
-        const options = adjacencyFor(entry.unit.type, entry.unitLoc)
-          .filter(to => unitCanOccupy(entry.unit.type, to))
-          .filter(to => !newUnits[to])
-          .filter(to => to !== entry.attackerFrom)
-          .filter(to => !contestedProvinces.includes(to));
+        // Retreat targets are coast-aware: a dislodged fleet on a split coast
+        // may only retreat to neighbors of its committed coast, and a fleet
+        // retreating into a split province must name a concrete coast.
+        const candidates = this._retreatTargets(entry.unit.type, entry.unitLoc);
+        const options = candidates
+          .filter(to => !occupiedBases.has(baseProvince(to)))
+          .filter(to => baseProvince(to) !== baseProvince(entry.attackerFrom))
+          .filter(to => !contestedProvinces.includes(baseProvince(to)));
         return { ...entry, options: sorted(options) };
       })
       .filter(entry => entry.options.length > 0);
@@ -1240,7 +1415,7 @@ export default class DiplomacyBoard {
 
   _updateSupplyOwnership() {
     for (const center of SUPPLY_CENTERS) {
-      const unit = this.units[center];
+      const unit = this.unitAt(center);
       if (unit) this.supplyCenters[center] = unit.power;
     }
   }
@@ -1304,7 +1479,16 @@ export default class DiplomacyBoard {
   static fromSerializedState(state) {
     const board = new DiplomacyBoard({ skipInitialHistory: true, maxYears: state.maxYears || 1912 });
     board.powers = state.powers ? [...state.powers] : [...POWERS];
-    board.units = Object.fromEntries(Object.entries(state.units || {}).map(([loc, unit]) => [loc, { ...unit }]));
+    board.units = {};
+    for (const [loc, unit] of Object.entries(state.units || {})) {
+      // Backward-compat: a legacy state may key a split-coast fleet by the bare
+      // base id (e.g. units['STP'] = {type:'fleet'}). Normalize it to that
+      // province's canonical default coast (STP/sc, SPA/sc, BUL/sc) so the
+      // engine never carries a coast-less split fleet. Armies stay bare.
+      let key = loc;
+      if (unit.type === 'fleet' && isSplitCoast(loc)) key = `${loc}/${DEFAULT_COAST[loc]}`;
+      board.units[key] = { ...unit };
+    }
     board.supplyCenters = { ...emptyCenterOwners(), ...(state.supplyCenters || {}) };
     board.phase = state.phase || 'spring-orders';
     board.season = state.season || (board.phase.startsWith('fall') ? 'fall' : 'spring');
@@ -1383,8 +1567,14 @@ export {
   HOME_CENTERS,
   ARMY_ADJACENCY,
   FLEET_ADJACENCY,
+  FLEET_COAST_ADJACENCY,
+  COAST_PROVINCES,
   SEA_PROVINCES,
   orderKey,
   formatUnitType,
   unitCanOccupy,
+  adjacencyFor,
+  baseProvince,
+  coastOf,
+  isSplitCoast,
 };
