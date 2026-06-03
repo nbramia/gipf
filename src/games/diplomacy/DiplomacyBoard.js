@@ -994,6 +994,34 @@ export default class DiplomacyBoard {
     }
   }
 
+  // BFS a convoy route from `from` to `to` using only fleets that ordered this
+  // exact convoy and survived adjudication (not in `dislodgedLocs`). Used to
+  // fail a convoyed move whose convoying fleet(s) were dislodged.
+  _convoyPathSurvives(from, to, validOrders, dislodgedLocs) {
+    const convoyFleets = Object.entries(this.units)
+      .filter(([loc, unit]) => unit.type === 'fleet' && isSea(loc) && !dislodgedLocs.has(loc))
+      .filter(([loc]) => {
+        const order = validOrders[loc];
+        return order?.type === 'convoy' && order.from === from && order.to === to;
+      })
+      .map(([loc]) => loc);
+    const fleetSet = new Set(convoyFleets);
+    const starts = convoyFleets.filter(sea => FLEET_ADJACENCY[sea]?.includes(from));
+    if (starts.length === 0) return false;
+    const seen = new Set(starts);
+    const queue = [...starts];
+    while (queue.length) {
+      const sea = queue.shift();
+      if (FLEET_ADJACENCY[sea]?.includes(to)) return true;
+      for (const next of FLEET_ADJACENCY[sea] || []) {
+        if (!fleetSet.has(next) || seen.has(next)) continue;
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+    return false;
+  }
+
   _adjudicate(ordersByLoc) {
     const validOrders = { ...ordersByLoc };
     for (const [loc, order] of Object.entries(validOrders)) {
@@ -1106,6 +1134,26 @@ export default class DiplomacyBoard {
             changed = true;
           }
         }
+      }
+    }
+
+    // Convoy disruption: a convoyed move only succeeds if a convoy path survives
+    // through fleets that ordered the convoy AND are not themselves dislodged.
+    // _adjudicate's up-front hasConvoyPath check (above) uses all ordered fleets,
+    // so re-check here against the fleets that survive adjudication and fail any
+    // convoyed move whose route is now broken. The army falls back to a hold.
+    const dislodgedLocs = new Set();
+    for (const [loc, unit] of Object.entries(this.units)) {
+      const order = validOrders[loc];
+      if (order?.type === 'move' && moveSuccess[loc]) continue;
+      const attacked = Object.entries(validOrders)
+        .some(([from, attack]) => attack.type === 'move' && attack.to === loc && moveSuccess[from] && this.units[from].power !== unit.power);
+      if (attacked) dislodgedLocs.add(loc);
+    }
+    for (const [loc, order] of Object.entries(validOrders)) {
+      if (order.type !== 'move' || !order.viaConvoy || !moveSuccess[loc]) continue;
+      if (!this._convoyPathSurvives(order.unitLoc, order.to, validOrders, dislodgedLocs)) {
+        moveSuccess[loc] = false;
       }
     }
 
