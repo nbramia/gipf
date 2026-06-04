@@ -21,6 +21,7 @@ import DiplomacyBoard, {
   coastOf,
   formatUnitType,
 } from './DiplomacyBoard.js';
+import ChatPanel from './agents/ChatPanel.jsx';
 import './diplomacy.css';
 
 // ----- viewBox computed from PROVINCES coords + padding (nothing clipped) -----
@@ -321,10 +322,14 @@ export default function DiplomacyGame() {
             </div>
           </div>
 
-          {/* Reserved region for a future chat / negotiation panel (later issues). */}
-          <div className="dip-panel dip-negotiation-slot p-4">
-            <div className="dip-panel-label mb-1">Negotiation</div>
-            <p className="dip-negotiation-hint">Chat &amp; negotiation arrive in a later release.</p>
+          {/* Negotiation: talk to the other powers (BYO Anthropic key). The
+              active power is treated as "you"; every other power is an agent. */}
+          <div className="dip-panel p-4">
+            <ChatPanel
+              board={board}
+              humanPower={activePower}
+              aiPowers={POWERS.filter(p => p !== activePower)}
+            />
           </div>
         </aside>
 
