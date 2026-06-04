@@ -1,0 +1,482 @@
+/* ========== Diplomacy Color System ========== */
+/* All selectors are scoped under .game-diplomacy. CSS variables live only on the
+   wrapper class. Keyframes are prefixed diplomacy-. */
+
+.game-diplomacy {
+  --dip-bg: #E8E3D6;
+  --dip-panel: #FBF8F0;
+  --dip-soft: #F0EADA;
+  --dip-text: #211C16;
+  --dip-text-muted: #6B5E4D;
+  --dip-border: #D5C8B3;
+  --dip-border-strong: #A8967A;
+  --dip-accent: #1E5F74;
+  --dip-accent-hover: #154656;
+  --dip-btn-primary-bg: #1E5F74;
+  --dip-btn-primary-text: #FFFFFF;
+  --dip-toggle-active: #2F7D55;
+  --dip-toggle-inactive: #D2C5B0;
+
+  --dip-sea: #9CC4D2;
+  --dip-land: #E3D7B8;
+  --dip-coast: #CFE0C2;
+  --dip-province-stroke: rgba(40, 32, 22, 0.45);
+  --dip-label: rgba(40, 32, 22, 0.7);
+  --dip-supply-dot: #8A6D33;
+  --dip-selectable: #F4C430;
+  --dip-selected: #1E5F74;
+}
+
+.game-diplomacy.dark {
+  --dip-bg: #15181A;
+  --dip-panel: #20231F;
+  --dip-soft: #2A2D27;
+  --dip-text: #F6F1E4;
+  --dip-text-muted: #A8997F;
+  --dip-border: #43463C;
+  --dip-border-strong: #7C6F58;
+  --dip-accent: #4FB8D4;
+  --dip-accent-hover: #7FD0E6;
+  --dip-btn-primary-bg: #2A7D96;
+  --dip-btn-primary-text: #FFFFFF;
+  --dip-toggle-active: #3E9C6A;
+  --dip-toggle-inactive: #4A4D40;
+
+  --dip-sea: #2E5566;
+  --dip-land: #4A4334;
+  --dip-coast: #3A4A38;
+  --dip-province-stroke: rgba(246, 241, 228, 0.4);
+  --dip-label: rgba(246, 241, 228, 0.75);
+  --dip-supply-dot: #D8B45C;
+  --dip-selectable: #F4C430;
+  --dip-selected: #4FB8D4;
+}
+
+/* ========== Layout & panels ========== */
+
+.game-diplomacy .dip-panel,
+.game-diplomacy .dip-modal {
+  border: 1px solid var(--dip-border);
+  border-radius: 8px;
+  background: var(--dip-panel);
+  box-shadow: 0 10px 32px rgba(40, 28, 14, 0.08);
+}
+
+.game-diplomacy .dip-panel-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dip-text-muted);
+}
+
+.game-diplomacy .dip-phase-banner {
+  font-family: var(--font-display, inherit);
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--dip-accent);
+}
+
+.game-diplomacy .dip-last-action {
+  font-size: 0.8rem;
+  color: var(--dip-text-muted);
+}
+
+/* ========== Buttons ========== */
+
+.game-diplomacy .dip-tool-btn {
+  border: 1px solid var(--dip-border-strong);
+  border-radius: 6px;
+  background: var(--dip-soft);
+  color: var(--dip-text);
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.35rem 0.6rem;
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+
+.game-diplomacy .dip-tool-btn:hover:not(:disabled) {
+  border-color: var(--dip-accent);
+}
+
+.game-diplomacy .dip-tool-btn.active {
+  background: var(--dip-accent);
+  color: #fff;
+  border-color: var(--dip-accent);
+}
+
+.game-diplomacy .dip-tool-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.game-diplomacy .dip-primary-btn {
+  border: none;
+  border-radius: 6px;
+  background: var(--dip-btn-primary-bg);
+  color: var(--dip-btn-primary-text);
+  font-weight: 700;
+  padding: 0.55rem 0.9rem;
+  transition: background 0.15s;
+}
+
+.game-diplomacy .dip-primary-btn:hover {
+  background: var(--dip-accent-hover);
+}
+
+.game-diplomacy button:focus-visible,
+.game-diplomacy [tabindex]:focus-visible,
+.game-diplomacy .dip-province:focus-visible {
+  outline: 2px solid var(--dip-accent);
+  outline-offset: 2px;
+}
+
+/* ========== Scoreboard ========== */
+
+.game-diplomacy .dip-scoreboard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.game-diplomacy .dip-score-row {
+  display: grid;
+  grid-template-columns: 14px 1fr auto auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.4rem;
+  border-radius: 5px;
+  font-size: 0.85rem;
+}
+
+.game-diplomacy .dip-score-row.is-leader {
+  background: var(--dip-soft);
+}
+
+.game-diplomacy .dip-score-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.game-diplomacy .dip-score-name {
+  font-weight: 600;
+}
+
+.game-diplomacy .dip-score-centers {
+  font-weight: 800;
+  color: var(--dip-text);
+}
+
+.game-diplomacy .dip-score-units {
+  font-size: 0.72rem;
+  color: var(--dip-text-muted);
+}
+
+/* ========== Board ========== */
+
+.game-diplomacy .dip-board-shell {
+  width: 100%;
+  max-width: 1000px;
+  border-radius: 10px;
+  background: var(--dip-sea);
+  border: 1px solid var(--dip-border-strong);
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+}
+
+.game-diplomacy .dip-board-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.game-diplomacy .dip-province {
+  stroke: var(--dip-province-stroke);
+  stroke-width: 1;
+}
+
+.game-diplomacy .dip-province-sea { fill: var(--dip-sea); }
+.game-diplomacy .dip-province-land { fill: var(--dip-land); }
+.game-diplomacy .dip-province-coast { fill: var(--dip-coast); }
+
+.game-diplomacy .dip-province.is-selectable {
+  cursor: pointer;
+  stroke: var(--dip-selectable);
+  stroke-width: 2.5;
+}
+
+.game-diplomacy .dip-province.is-selected {
+  stroke: var(--dip-selected);
+  stroke-width: 3;
+}
+
+.game-diplomacy .dip-supply-dot {
+  fill: var(--dip-supply-dot);
+  pointer-events: none;
+}
+
+.game-diplomacy .dip-province-label {
+  font-size: 9px;
+  font-weight: 700;
+  fill: var(--dip-label);
+  pointer-events: none;
+  letter-spacing: 0.03em;
+}
+
+.game-diplomacy .dip-unit-group {
+  cursor: pointer;
+}
+
+.game-diplomacy .dip-unit {
+  stroke: rgba(0, 0, 0, 0.55);
+  stroke-width: 1.2;
+}
+
+.game-diplomacy .dip-unit-glyph {
+  font-size: 10px;
+  font-weight: 800;
+  fill: #fff;
+  pointer-events: none;
+}
+
+/* ========== Order overlays ========== */
+
+.game-diplomacy .dip-order-arrow {
+  stroke-width: 3;
+  fill: none;
+  opacity: 0.85;
+  animation: diplomacy-fade-in 0.2s ease-out;
+}
+
+.game-diplomacy .dip-arrow-head {
+  fill: currentColor;
+}
+
+.game-diplomacy .dip-order-support {
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
+  fill: none;
+  opacity: 0.8;
+}
+
+.game-diplomacy .dip-order-support.is-convoy {
+  stroke-dasharray: 2 3;
+  stroke-width: 2.5;
+}
+
+.game-diplomacy .dip-order-hold {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-dasharray: 3 3;
+  opacity: 0.85;
+}
+
+/* ========== Order entry panel ========== */
+
+.game-diplomacy .dip-power-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.game-diplomacy .dip-power-tab {
+  border: 1px solid var(--dip-border-strong);
+  border-bottom: 3px solid var(--tab-color, var(--dip-border-strong));
+  border-radius: 5px;
+  background: var(--dip-soft);
+  color: var(--dip-text);
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.25rem 0.5rem;
+}
+
+.game-diplomacy .dip-power-tab.active {
+  background: var(--tab-color, var(--dip-accent));
+  color: #fff;
+}
+
+.game-diplomacy .dip-unit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.game-diplomacy .dip-unit-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.4rem;
+}
+
+.game-diplomacy .dip-unit-pick {
+  flex: 1;
+  text-align: left;
+  border: 1px solid var(--dip-border);
+  border-radius: 6px;
+  background: var(--dip-soft);
+  padding: 0.35rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.game-diplomacy .dip-unit-row.is-selected .dip-unit-pick {
+  border-color: var(--dip-accent);
+  box-shadow: 0 0 0 1px var(--dip-accent);
+}
+
+.game-diplomacy .dip-unit-tag {
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: var(--dip-text);
+}
+
+.game-diplomacy .dip-unit-order {
+  font-size: 0.72rem;
+  color: var(--dip-text-muted);
+}
+
+.game-diplomacy .dip-ordertype-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.game-diplomacy .dip-target-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.game-diplomacy .dip-target-btn {
+  border: 1px solid var(--dip-border);
+  border-radius: 5px;
+  background: var(--dip-soft);
+  color: var(--dip-text);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: left;
+  padding: 0.35rem 0.55rem;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.game-diplomacy .dip-target-btn:hover {
+  border-color: var(--dip-accent);
+}
+
+.game-diplomacy .dip-target-btn.active {
+  background: var(--dip-accent);
+  color: #fff;
+  border-color: var(--dip-accent);
+}
+
+.game-diplomacy .dip-submit-hint,
+.game-diplomacy .dip-negotiation-hint {
+  font-size: 0.78rem;
+  color: var(--dip-text-muted);
+  line-height: 1.4;
+}
+
+/* ========== Results log ========== */
+
+.game-diplomacy .dip-log-feed {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.game-diplomacy .dip-log-empty {
+  font-size: 0.8rem;
+  color: var(--dip-text-muted);
+  font-style: italic;
+}
+
+.game-diplomacy .dip-results-phase {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--dip-text-muted);
+  margin-bottom: 0.3rem;
+}
+
+.game-diplomacy .dip-results-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: var(--dip-text);
+  padding: 0.12rem 0;
+}
+
+.game-diplomacy .dip-results-tag {
+  font-size: 0.66rem;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 0.05rem 0.35rem;
+  white-space: nowrap;
+}
+
+.game-diplomacy .dip-results-tag.tag-moved { background: #2F7D55; color: #fff; }
+.game-diplomacy .dip-results-tag.tag-bounced { background: #B45309; color: #fff; }
+.game-diplomacy .dip-results-tag.tag-support-cut { background: #92400E; color: #fff; }
+.game-diplomacy .dip-results-tag.tag-dislodged { background: #B91C1C; color: #fff; }
+
+.game-diplomacy .dip-results-dislodged {
+  margin-top: 0.3rem;
+  border-top: 1px solid var(--dip-border);
+  padding-top: 0.3rem;
+}
+
+.game-diplomacy .dip-results-retreat {
+  color: var(--dip-text-muted);
+  font-style: italic;
+}
+
+/* ========== Retreat & winter ========== */
+
+.game-diplomacy .dip-retreat-list,
+.game-diplomacy .dip-winter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.game-diplomacy .dip-retreat-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--dip-text);
+}
+
+.game-diplomacy .dip-winter-count {
+  margin-top: 0.3rem;
+  font-size: 0.72rem;
+  color: var(--dip-text-muted);
+}
+
+/* ========== Game over & negotiation seam ========== */
+
+.game-diplomacy .dip-gameover-banner {
+  font-family: var(--font-display, inherit);
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--dip-accent);
+}
+
+.game-diplomacy .dip-negotiation-slot {
+  border-style: dashed;
+  opacity: 0.85;
+}
+
+/* ========== Animations ========== */
+
+@keyframes diplomacy-fade-in {
+  from { opacity: 0; }
+  to { opacity: 0.85; }
+}
