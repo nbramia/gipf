@@ -111,3 +111,56 @@ export async function sendMessage({ power, history, context, addressee, model, s
 
   return result;
 }
+
+// askAgent — the orchestrator-facing call shape used by negotiator.js
+// (runNegotiationPhase). It wraps the same BYO-key endpoint as sendMessage but
+// adds AI↔AI negotiation fields (channel, counterparties) and never writes to any
+// memory store itself — the orchestrator owns transcript/state persistence and
+// keeps AI↔AI text out of the human-visible thread store.
+//   { power, counterparties, channel, boardContext, persona, messages, model }
+// Returns { reply: { message, scratchpad } } on success, or { error, reply }
+// mirroring sendMessage's error contract (no key / network / upstream).
+export async function askAgent({
+  power,
+  counterparties = [],
+  channel,
+  boardContext,
+  persona,
+  messages,
+  model,
+} = {}) {
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    return { error: 'no_key', reply: { message: 'Add your Anthropic API key to enable AI negotiation.' } };
+  }
+
+  const resolvedPersona = persona || getPersona(power);
+  const history = Array.isArray(messages) ? messages : [];
+
+  let res;
+  try {
+    res = await fetch('/api/diplomacyAgent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        apiKey,
+        power,
+        persona: resolvedPersona,
+        context: boardContext,
+        messages: history,
+        counterparties,
+        channel,
+        model,
+      }),
+    });
+  } catch (_) {
+    return { error: 'network', reply: { message: '' } };
+  }
+
+  if (!res.ok) {
+    return { error: 'upstream', reply: { message: '' } };
+  }
+
+  const data = await res.json();
+  return { reply: { message: (data && data.message) || '', scratchpad: (data && data.scratchpad) || null } };
+}

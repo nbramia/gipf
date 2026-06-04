@@ -49,7 +49,16 @@ function buildSystemPrompt(body = {}) {
   const power = typeof body.power === 'string' ? body.power : '';
   const persona = body.persona && typeof body.persona === 'object' ? body.persona : {};
   const context = body.context && typeof body.context === 'object' ? body.context : {};
-  const addressee = typeof body.addressee === 'string' ? body.addressee : 'the player you are talking to';
+  // `counterparties` (AI↔AI negotiation, [AI Negotiation]) names the rival power(s)
+  // in a private channel; it takes precedence over `addressee` (the human thread).
+  const counterparties = Array.isArray(body.counterparties)
+    ? body.counterparties.filter((p) => typeof p === 'string')
+    : [];
+  const addressee = counterparties.length
+    ? counterparties.map((p) => POWER_NAMES[p] || p).join(' and ')
+    : typeof body.addressee === 'string'
+      ? body.addressee
+      : 'the player you are talking to';
 
   const name = POWER_NAMES[power] || persona.name || 'a Great Power';
   const temperament = persona.temperament && typeof persona.temperament === 'object' ? persona.temperament : {};
