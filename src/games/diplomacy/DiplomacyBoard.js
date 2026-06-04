@@ -93,7 +93,7 @@ const INITIAL_UNITS = {
 };
 
 const SEA_PROVINCES = [
-  'ADR', 'AEG', 'BAL', 'BAR', 'BLA', 'BOT', 'EAS', 'ENG', 'GOB', 'GOL',
+  'ADR', 'AEG', 'BAL', 'BAR', 'BLA', 'BOT', 'EAS', 'ENG', 'GOL',
   'HEL', 'ION', 'IRI', 'MAO', 'NAO', 'NTH', 'NWG', 'SKA', 'TYS', 'WES',
 ];
 
@@ -124,7 +124,6 @@ const PROVINCES = {
   FIN: { name: 'Finland', type: 'coast', x: 690, y: 205 },
   GAL: { name: 'Galicia', type: 'land', x: 720, y: 505 },
   GAS: { name: 'Gascony', type: 'coast', x: 315, y: 606 },
-  GOB: { name: 'Gulf of Finland', type: 'sea', x: 708, y: 318 },
   GOL: { name: 'Gulf of Lyon', type: 'sea', x: 407, y: 718 },
   GRE: { name: 'Greece', type: 'coast', supply: true, x: 722, y: 707 },
   HEL: { name: 'Helgoland Bight', type: 'sea', x: 430, y: 385 },
@@ -242,12 +241,12 @@ const FLEET_ADJACENCY = {
   ANK: ['BLA', 'ARM', 'CON'],
   APU: ['VEN', 'ADR', 'ION', 'NAP'],
   ARM: ['BLA', 'ANK', 'SEV'],
-  BAL: ['SWE', 'DEN', 'KIE', 'BER', 'PRU', 'LVN', 'BOT', 'GOB'],
+  BAL: ['SWE', 'DEN', 'KIE', 'BER', 'PRU', 'LVN', 'BOT'],
   BAR: ['NWG', 'NWY', 'STP'],
   BEL: ['ENG', 'NTH', 'HOL', 'PIC'],
   BER: ['KIE', 'BAL', 'PRU'],
   BLA: ['BUL', 'RUM', 'SEV', 'ARM', 'ANK', 'CON'],
-  BOT: ['SWE', 'FIN', 'STP', 'LVN', 'BAL', 'GOB'],
+  BOT: ['SWE', 'FIN', 'STP', 'LVN', 'BAL'],
   BRE: ['ENG', 'MAO', 'PIC', 'GAS'],
   BUL: ['BLA', 'RUM', 'CON', 'AEG', 'GRE'], // union of BUL/ec + BUL/sc
   CLY: ['NAO', 'NWG', 'EDI', 'LVP'],
@@ -256,9 +255,8 @@ const FLEET_ADJACENCY = {
   EAS: ['AEG', 'ION', 'SMY', 'SYR'],
   EDI: ['NWG', 'NTH', 'YOR', 'CLY', 'LVP'],
   ENG: ['LON', 'WAL', 'BRE', 'PIC', 'BEL', 'NTH', 'IRI', 'MAO'],
-  FIN: ['GOB', 'BOT', 'STP', 'SWE'],
+  FIN: ['BOT', 'STP', 'SWE'],
   GAS: ['MAO', 'BRE', 'SPA'],
-  GOB: ['SWE', 'FIN', 'BOT', 'BAL', 'LVN'], // STP borders BOT (sc), not GOB
   GOL: ['SPA', 'MAR', 'PIE', 'TUS', 'TYS', 'WES'],
   GRE: ['ION', 'AEG', 'ALB', 'BUL'],
   HEL: ['HOL', 'KIE', 'DEN', 'NTH', 'SKA'],
@@ -267,7 +265,7 @@ const FLEET_ADJACENCY = {
   IRI: ['NAO', 'MAO', 'ENG', 'WAL', 'LVP'],
   KIE: ['HEL', 'BAL', 'DEN', 'HOL', 'BER'],
   LON: ['NTH', 'ENG', 'WAL', 'YOR'],
-  LVN: ['BAL', 'BOT', 'GOB', 'PRU', 'STP'],
+  LVN: ['BAL', 'BOT', 'PRU', 'STP'],
   LVP: ['NAO', 'IRI', 'WAL', 'CLY', 'EDI'],
   MAO: ['NAO', 'IRI', 'ENG', 'BRE', 'GAS', 'SPA', 'POR', 'WES', 'NAF'],
   MAR: ['SPA', 'GOL', 'PIE'],
@@ -288,7 +286,7 @@ const FLEET_ADJACENCY = {
   SMY: ['CON', 'AEG', 'EAS', 'SYR'],
   SPA: ['MAO', 'GAS', 'POR', 'WES', 'GOL', 'MAR'], // union of SPA/nc + SPA/sc
   STP: ['BAR', 'NWY', 'BOT', 'FIN', 'LVN'], // union of STP/nc + STP/sc
-  SWE: ['NWY', 'SKA', 'DEN', 'BAL', 'BOT', 'GOB', 'FIN'],
+  SWE: ['NWY', 'SKA', 'DEN', 'BAL', 'BOT', 'FIN'],
   SYR: ['EAS', 'SMY'],
   TRI: ['VEN', 'ADR', 'ALB'],
   TUN: ['NAF', 'WES', 'TYS', 'ION'],

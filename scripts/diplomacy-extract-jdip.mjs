@@ -58,18 +58,19 @@ for (const m of svg.matchAll(/<use[^>]*id="sc_([A-Za-z]+)"[^>]*x="([^"]+)"[^>]*y
 }
 
 // ---- province name label coordinates -----------------------------------------
+// jDip labels a few seas with a different abbreviation than its own path id
+// (e.g. Gulf of Lyon: path "_gol" but label text "LYO").
+const LABEL_ALIAS = { lyo: 'GOL' };
+const labelId = (abbr) => LABEL_ALIAS[abbr] || ourId(abbr);
 const labelPos = {};
 for (const m of svg.matchAll(/<text[^>]*?x="([^"]+)"\s+y="([^"]+)"[^>]*>([A-Za-z]+)<\/text>/g)) {
-  const oid = ourId(m[3].toLowerCase());
+  const oid = labelId(m[3].toLowerCase());
   if (PROVINCES[oid]) labelPos[oid] = { x: +m[1], y: +m[2] };
 }
-
-// ---- fallback for our non-standard GOB (Gulf of Finland) ---------------------
-// jDip folds this water into BOT/BAL, so it has no path. Hand-place its marker in
-// the open Gulf of Finland — south-east of Finland, between LVN and STP's south
-// coast. (Verified to sit on water, clear of the surrounding land.)
-if (!unitPos.GOB) unitPos.GOB = { x: 1006, y: 506 };
-if (!labelPos.GOB) labelPos.GOB = { x: 1006, y: 506 };
+// Safety net: any province still without a label sits its label at its piece spot.
+for (const id of Object.keys(PROVINCES)) {
+  if (!labelPos[id] && unitPos[id]) labelPos[id] = { ...unitPos[id] };
+}
 
 const fmt = (obj) =>
   JSON.stringify(obj)

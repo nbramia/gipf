@@ -65,7 +65,7 @@ describe('DiplomacyGame — setup gate', () => {
       </MemoryRouter>
     );
     startNewGame();
-    // 75 of our 76 provinces have real jDip geometry (GOB has no path).
+    // The canonical 75-province standard map, each drawn from real jDip geometry.
     expect(container.querySelectorAll('.dip-province').length).toBe(75);
     expect(container.querySelectorAll('.dip-unit-group').length).toBe(22);
   });
