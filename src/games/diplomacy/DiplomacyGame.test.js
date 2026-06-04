@@ -65,7 +65,8 @@ describe('DiplomacyGame — setup gate', () => {
       </MemoryRouter>
     );
     startNewGame();
-    expect(container.querySelectorAll('.dip-province-group').length).toBe(76);
+    // 75 of our 76 provinces have real jDip geometry (GOB has no path).
+    expect(container.querySelectorAll('.dip-province').length).toBe(75);
     expect(container.querySelectorAll('.dip-unit-group').length).toBe(22);
   });
 });

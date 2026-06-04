@@ -37,21 +37,23 @@ import {
   budgetForDifficulty,
 } from './diplomacySettings.js';
 import { saveGame, loadGame, clearGame } from './diplomacyPersistence.js';
+import {
+  MAP_VIEWBOX,
+  MAP_TRANSFORM,
+  PROVINCE_SHAPES,
+  UNIT_POS,
+  SC_POS,
+  LABEL_POS,
+} from './mapGeometry.js';
 import './diplomacy.css';
 
-// ----- viewBox computed from PROVINCES coords + padding (nothing clipped) -----
-const PAD = 48;
-const COORDS = Object.values(PROVINCES);
-const MIN_X = Math.min(...COORDS.map(p => p.x));
-const MAX_X = Math.max(...COORDS.map(p => p.x));
-const MIN_Y = Math.min(...COORDS.map(p => p.y));
-const MAX_Y = Math.max(...COORDS.map(p => p.y));
-const VIEW = {
-  x: MIN_X - PAD,
-  y: MIN_Y - PAD,
-  w: MAX_X - MIN_X + PAD * 2,
-  h: MAX_Y - MIN_Y + PAD * 2,
-};
+// Real-geography map (jDip vector boundaries + piece coordinates). Province
+// paths live in the MapLayer space (rendered under MAP_TRANSFORM); units, supply
+// stars and labels use the root-space coordinates below.
+const VIEW = (() => {
+  const [x, y, w, h] = MAP_VIEWBOX.split(/\s+/).map(Number);
+  return { x, y, w, h };
+})();
 
 const ORDER_TYPE_LABELS = {
   hold: 'Hold',
@@ -66,10 +68,21 @@ function pendingKey(order) {
   return JSON.stringify(order);
 }
 
-// Where a unit at `loc` sits on the map (split-coast fleets nudge toward coast).
+// Where a unit at `loc` sits on the map. Split-coast fleets (e.g. STP/sc) have
+// their own coordinate; otherwise fall back to the base province.
 function unitPoint(loc) {
-  const province = PROVINCES[baseProvince(loc)];
-  return province ? { x: province.x, y: province.y } : null;
+  return UNIT_POS[loc] || UNIT_POS[baseProvince(loc)] || null;
+}
+
+// Points for a supply-center star drawn at (cx, cy).
+function starPoints(cx, cy, outer, inner, n = 5) {
+  const pts = [];
+  for (let i = 0; i < n * 2; i++) {
+    const r = i % 2 === 0 ? outer : inner;
+    const a = (Math.PI * i) / n - Math.PI / 2;
+    pts.push(`${(cx + r * Math.cos(a)).toFixed(2)},${(cy + r * Math.sin(a)).toFixed(2)}`);
+  }
+  return pts.join(' ');
 }
 
 function provinceLabel(loc) {
@@ -511,7 +524,7 @@ export default function DiplomacyGame() {
     return (
       <svg
         className="dip-board-svg"
-        viewBox={`${VIEW.x} ${VIEW.y} ${VIEW.w} ${VIEW.h}`}
+        viewBox={MAP_VIEWBOX}
         role="img"
         aria-label="Diplomacy map"
       >
@@ -526,23 +539,31 @@ export default function DiplomacyGame() {
           <marker id="dip-support-diamond" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto">
             <path d="M5,1 L9,5 L5,9 L1,5 Z" fill="none" stroke="currentColor" strokeWidth="1.4" />
           </marker>
+          {/* Faint lat/long graticule, painted into the water fill. */}
+          <pattern id="dip-sea-pattern" width="84" height="84" patternUnits="userSpaceOnUse">
+            <rect width="84" height="84" className="dip-sea-tile" />
+            <path d="M84 0 H0 V84" className="dip-sea-grid" />
+          </pattern>
         </defs>
 
-        {/* Province nodes */}
-        {Object.entries(PROVINCES).map(([id, province]) => {
-          const owner = province.supply ? board.supplyCenters[id] : null;
-          const isSelectable = isOrderEntry
-            && board.units[id]
-            && board.units[id].power === humanPower;
-          const selectedLoc = board.unitLocAt(id);
-          const isSelected = selectedUnit && baseProvince(selectedUnit) === id;
-          return (
-            <g key={id} className="dip-province-group">
-              <title>{`${province.name} (${id})${province.supply ? ` — supply center${owner ? `, ${POWER_SHORT_NAMES[owner]}` : ''}` : ''}`}</title>
-              <circle
-                cx={province.x}
-                cy={province.y}
-                r={province.supply ? 17 : 13}
+        {/* Sea floor behind the whole board. */}
+        <rect x={VIEW.x} y={VIEW.y} width={VIEW.w} height={VIEW.h} className="dip-sea-base" />
+
+        {/* Province territories — real jDip boundaries in the MapLayer space. */}
+        <g transform={MAP_TRANSFORM}>
+          {Object.entries(PROVINCES).map(([id, province]) => {
+            const shape = PROVINCE_SHAPES[id];
+            if (!shape) return null;
+            const owner = province.supply ? board.supplyCenters[id] : null;
+            const isSelectable = isOrderEntry
+              && board.units[id]
+              && board.units[id].power === humanPower;
+            const selectedLoc = board.unitLocAt(id);
+            const isSelected = selectedUnit && baseProvince(selectedUnit) === id;
+            return (
+              <path
+                key={id}
+                d={shape}
                 className={`dip-province dip-province-${province.type} ${isSelectable ? 'is-selectable' : ''} ${isSelected ? 'is-selected' : ''}`}
                 style={owner ? { fill: POWER_ACCENTS[owner], stroke: POWER_COLORS[owner] } : undefined}
                 onClick={() => selectedLoc && selectUnitForOrder(selectedLoc)}
@@ -550,36 +571,70 @@ export default function DiplomacyGame() {
                 tabIndex={isSelectable ? 0 : undefined}
                 aria-label={isSelectable ? `Select unit at ${province.name}` : undefined}
                 onKeyDown={isSelectable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectUnitForOrder(selectedLoc); } } : undefined}
-              />
-              {province.supply && (
-                <circle cx={province.x} cy={province.y} r={3.2} className="dip-supply-dot" />
+              >
+                <title>{`${province.name} (${id})${province.supply ? ` — supply center${owner ? `, ${POWER_SHORT_NAMES[owner]}` : ''}` : ''}`}</title>
+              </path>
+            );
+          })}
+        </g>
+
+        {/* Supply-center stars + province labels (root space). */}
+        {Object.entries(PROVINCES).map(([id, province]) => {
+          const label = LABEL_POS[id];
+          const owner = province.supply ? board.supplyCenters[id] : null;
+          const sc = SC_POS[id];
+          return (
+            <g key={`lbl-${id}`} pointerEvents="none">
+              {province.supply && sc && (
+                <g className="dip-supply-badge">
+                  <circle cx={sc.x} cy={sc.y} r={12} className="dip-supply-medallion" />
+                  <polygon
+                    points={starPoints(sc.x, sc.y, 8.5, 3.6)}
+                    className={`dip-supply-star ${owner ? 'is-owned' : ''}`}
+                    style={owner ? { fill: POWER_COLORS[owner] } : undefined}
+                  />
+                </g>
               )}
-              <text x={province.x} y={province.y + 26} textAnchor="middle" className="dip-province-label">{id}</text>
+              {label && (
+                <text
+                  x={label.x}
+                  y={label.y}
+                  textAnchor="middle"
+                  className={`dip-province-label dip-province-label-${province.type}`}
+                >
+                  {id}
+                </text>
+              )}
             </g>
           );
         })}
 
-        {/* Units */}
+        {/* Units. Each piece is drawn twice — a light "coin" halo behind the
+            coloured body — so it stays legible on any territory colour. Army =
+            disc, fleet = boat hull: distinguishable by SHAPE alone (and glyph),
+            so they read for colour-blind players too. */}
         {units.map(unit => {
           const pt = unitPoint(unit.loc);
           if (!pt) return null;
           const color = POWER_COLORS[unit.power];
+          const isFleet = unit.type === 'fleet';
+          // Boat hull centred on pt (flat deck, rounded keel).
+          const hull = `M ${pt.x - 15} ${pt.y - 6} L ${pt.x + 15} ${pt.y - 6} L ${pt.x + 10} ${pt.y + 8} Q ${pt.x} ${pt.y + 13} ${pt.x - 10} ${pt.y + 8} Z`;
           return (
             <g key={unit.loc} className="dip-unit-group" filter="url(#dip-piece-shadow)" onClick={() => selectUnitForOrder(unit.loc)}>
               <title>{`${POWER_SHORT_NAMES[unit.power]} ${unit.type} ${provinceLabel(unit.loc)}`}</title>
-              {unit.type === 'fleet' ? (
-                // Fleet: a pennant / triangular flag — distinguishable from the
-                // army disc by SHAPE alone (color-blind safe, legible at scale).
-                <polygon
-                  points={`${pt.x - 9},${pt.y - 9} ${pt.x + 11},${pt.y - 3} ${pt.x - 9},${pt.y + 3} ${pt.x - 9},${pt.y + 9}`}
-                  className="dip-unit dip-unit-fleet"
-                  style={{ fill: color }}
-                />
+              {isFleet ? (
+                <>
+                  <path d={hull} className="dip-unit-halo" />
+                  <path d={hull} className="dip-unit dip-unit-fleet" style={{ fill: color }} />
+                </>
               ) : (
-                // Army: a solid disc.
-                <circle cx={pt.x} cy={pt.y} r={9} className="dip-unit dip-unit-army" style={{ fill: color }} />
+                <>
+                  <circle cx={pt.x} cy={pt.y} r={15} className="dip-unit-halo" />
+                  <circle cx={pt.x} cy={pt.y} r={15} className="dip-unit dip-unit-army" style={{ fill: color }} />
+                </>
               )}
-              <text x={unit.type === 'fleet' ? pt.x - 2 : pt.x} y={pt.y - 1} textAnchor="middle" dominantBaseline="central" className="dip-unit-glyph">
+              <text x={pt.x} y={isFleet ? pt.y + 1 : pt.y} textAnchor="middle" dominantBaseline="central" className="dip-unit-glyph">
                 {formatUnitType(unit.type)}
               </text>
             </g>
@@ -628,7 +683,7 @@ export default function DiplomacyGame() {
       );
     }
     return (
-      <circle key={key} cx={from.x} cy={from.y} r={14} className="dip-order-hold" style={{ stroke: color }} />
+      <circle key={key} cx={from.x} cy={from.y} r={24} className="dip-order-hold" style={{ stroke: color }} />
     );
   }
 

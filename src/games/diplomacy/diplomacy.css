@@ -37,15 +37,20 @@
   --dip-toggle-inactive: #C7B894;
 
   /* Cartography. */
-  --dip-sea: #8FB2BB;
+  --dip-sea: #93B9C6;
   --dip-sea-2: #A6C4CB;
-  --dip-land: #DBCBA1;
-  --dip-land-2: #E4D6B0;
-  --dip-coast: #C9D4AE;
-  --dip-province-stroke: rgba(48, 36, 20, 0.42);
-  --dip-label: rgba(46, 35, 18, 0.72);
+  --dip-land: #E5D6AD;
+  --dip-land-2: #EEE0BC;
+  --dip-coast: #DFD0A3;
+  --dip-province-stroke: rgba(60, 44, 22, 0.5);
+  --dip-sea-stroke: rgba(40, 70, 84, 0.32);
+  --dip-graticule: rgba(40, 70, 84, 0.16);
+  --dip-label: rgba(46, 35, 18, 0.82);
+  --dip-label-sea: rgba(33, 62, 74, 0.7);
+  --dip-label-halo: rgba(246, 240, 224, 0.62);
   --dip-supply-ring: #8A6A28;
   --dip-supply-fill: #C6A24A;
+  --dip-piece-halo: #F8F3E7;
   --dip-selectable: #C99A2E;
   --dip-selected: #8E2B20;
 
@@ -86,13 +91,18 @@
 
   --dip-sea: #2C4956;
   --dip-sea-2: #335562;
-  --dip-land: #3E4434;
-  --dip-land-2: #474D3B;
-  --dip-coast: #38463A;
-  --dip-province-stroke: rgba(242, 233, 214, 0.36);
-  --dip-label: rgba(242, 233, 214, 0.78);
+  --dip-land: #434A39;
+  --dip-land-2: #4C5340;
+  --dip-coast: #3C4A3C;
+  --dip-province-stroke: rgba(242, 233, 214, 0.34);
+  --dip-sea-stroke: rgba(150, 196, 210, 0.22);
+  --dip-graticule: rgba(150, 196, 210, 0.12);
+  --dip-label: rgba(242, 233, 214, 0.84);
+  --dip-label-sea: rgba(176, 206, 216, 0.8);
+  --dip-label-halo: rgba(10, 14, 18, 0.5);
   --dip-supply-ring: #E4C26A;
-  --dip-supply-fill: #9A7B36;
+  --dip-supply-fill: #D8B45E;
+  --dip-piece-halo: #ECE4D2;
   --dip-selectable: #E4C26A;
   --dip-selected: #E86A58;
 
@@ -323,72 +333,108 @@
   display: block;
 }
 
+/* Full-bleed water base behind the territories (graticule-patterned). */
+.game-diplomacy .dip-sea-base { fill: url(#dip-sea-pattern); }
+.game-diplomacy .dip-sea-tile { fill: var(--dip-sea); }
+.game-diplomacy .dip-sea-grid {
+  fill: none;
+  stroke: var(--dip-graticule, rgba(40, 70, 84, 0.14));
+  stroke-width: 0.8;
+}
+
 .game-diplomacy .dip-province {
   stroke: var(--dip-province-stroke);
-  stroke-width: 1;
+  stroke-width: 2;
+  stroke-linejoin: round;
   transition: stroke 0.18s ease, stroke-width 0.18s ease, fill 0.25s ease, filter 0.18s ease;
 }
 
-.game-diplomacy .dip-province-sea { fill: var(--dip-sea); }
+.game-diplomacy .dip-province-sea { fill: url(#dip-sea-pattern); stroke: var(--dip-sea-stroke, rgba(40, 70, 84, 0.28)); }
 .game-diplomacy .dip-province-land { fill: var(--dip-land); }
 .game-diplomacy .dip-province-coast { fill: var(--dip-coast); }
 
+/* Highlights must win over the inline owner-colour stroke, hence !important. */
 .game-diplomacy .dip-province.is-selectable {
   cursor: pointer;
-  stroke: var(--dip-selectable);
-  stroke-width: 2.5;
-  filter: drop-shadow(0 0 4px var(--dip-selectable));
+  stroke: var(--dip-selectable) !important;
+  stroke-width: 5;
+  filter: drop-shadow(0 0 6px var(--dip-selectable));
 }
 
 .game-diplomacy .dip-province.is-selectable:hover {
-  stroke-width: 3.2;
+  stroke-width: 6.5;
 }
 
 .game-diplomacy .dip-province.is-selected {
-  stroke: var(--dip-selected);
-  stroke-width: 3.4;
-  filter: drop-shadow(0 0 5px var(--dip-selected));
+  stroke: var(--dip-selected) !important;
+  stroke-width: 7;
+  filter: drop-shadow(0 0 8px var(--dip-selected));
 }
 
-/* Supply center: a brass ring around a filled pip so owned/unowned both read. */
-.game-diplomacy .dip-supply-dot {
+/* Supply center: a cream medallion badge with a star — brass when neutral,
+   power-coloured when controlled. The medallion keeps it legible on any fill. */
+.game-diplomacy .dip-supply-medallion {
+  fill: var(--dip-piece-halo, #F7F2E6);
+  stroke: var(--dip-supply-ring);
+  stroke-width: 1.4;
+}
+.game-diplomacy .dip-supply-star {
   fill: var(--dip-supply-fill);
   stroke: var(--dip-supply-ring);
   stroke-width: 1.2;
+  stroke-linejoin: round;
   pointer-events: none;
 }
+.game-diplomacy .dip-supply-star.is-owned { stroke: rgba(0, 0, 0, 0.5); }
 
 .game-diplomacy .dip-province-label {
   font-family: 'Outfit', sans-serif;
-  font-size: 9px;
-  font-weight: 600;
+  font-size: 20px;
+  font-weight: 700;
   fill: var(--dip-label);
   pointer-events: none;
   letter-spacing: 0.04em;
+  paint-order: stroke;
+  stroke: var(--dip-label-halo, rgba(245, 239, 222, 0.6));
+  stroke-width: 3.5px;
+}
+.game-diplomacy .dip-province-label-sea {
+  fill: var(--dip-label-sea, rgba(30, 55, 66, 0.7));
+  font-style: italic;
+  font-weight: 600;
 }
 
 .game-diplomacy .dip-unit-group { cursor: pointer; }
 .game-diplomacy .dip-unit-group:hover .dip-unit {
   stroke: var(--dip-text);
-  stroke-width: 2;
+  stroke-width: 2.6;
+}
+
+/* The light "coin" backing that lifts each piece off the territory. */
+.game-diplomacy .dip-unit-halo {
+  fill: var(--dip-piece-halo, #F7F2E6);
+  stroke: var(--dip-piece-halo, #F7F2E6);
+  stroke-width: 5;
+  stroke-linejoin: round;
 }
 
 .game-diplomacy .dip-unit {
-  stroke: rgba(0, 0, 0, 0.6);
-  stroke-width: 1.3;
+  stroke: rgba(0, 0, 0, 0.7);
+  stroke-width: 2;
+  stroke-linejoin: round;
   transition: stroke 0.15s ease, stroke-width 0.15s ease;
 }
-.game-diplomacy.dark .dip-unit { stroke: rgba(0, 0, 0, 0.75); }
+.game-diplomacy.dark .dip-unit { stroke: rgba(0, 0, 0, 0.82); }
 
 .game-diplomacy .dip-unit-glyph {
   font-family: 'Syne', sans-serif;
-  font-size: 9px;
+  font-size: 17px;
   font-weight: 800;
   fill: #fff;
   pointer-events: none;
   paint-order: stroke;
   stroke: rgba(0, 0, 0, 0.5);
-  stroke-width: 0.5px;
+  stroke-width: 1px;
 }
 
 /* ========== Order overlays ========== */
