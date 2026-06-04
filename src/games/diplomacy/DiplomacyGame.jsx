@@ -1,13 +1,15 @@
 // DiplomacyGame.jsx - React UI + SVG rendering for classic Diplomacy.
 //
-// Hot-seat baseline: a human enters every power's orders before a single
-// "Submit orders" resolves the turn (Diplomacy is simultaneous). All legal
-// options are sourced from the engine (getLegalOrdersForUnit / getMoveTargets /
-// getRetreatOptions / getLegalAdjustmentOrders) — the UI never computes
-// adjacency itself. The per-power `controller` ('human' | 'ai') is the seam for
-// later AI issues; 'ai' powers placeholder-hold at submit (no AI logic here).
+// Full playable loop ([Negotiation Loop]): new-game setup -> per-season
+// negotiation (human chat + bounded AI↔AI) -> the human enters only their own
+// power's orders while AI powers are computed via intent binding + tactical AI ->
+// adjudicate -> retreats -> winter -> next season, vs six AI powers, with full
+// versioned save/resume. The turn orchestration lives in useDiplomacyTurn; the
+// engine (DiplomacyBoard) stays pure logic, consumed via clone/applyMove/
+// serializeState only. All legal options are sourced from the engine — the UI
+// never computes adjacency itself.
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import DiplomacyBoard, {
   POWERS,
@@ -16,12 +18,25 @@ import DiplomacyBoard, {
   POWER_COLORS,
   POWER_ACCENTS,
   PROVINCES,
-  SUPPLY_CENTERS,
   baseProvince,
   coastOf,
   formatUnitType,
 } from './DiplomacyBoard.js';
 import ChatPanel from './agents/ChatPanel.jsx';
+import { createMemory } from './agents/memory.js';
+import { createDiplomaticState } from './agents/diplomaticState.js';
+import { PERSONAS } from './agents/personas.js';
+import { hasApiKey } from './agents/agentClient.js';
+import useAIWorker from './hooks/useAIWorker.js';
+import useDiplomacyTurn from './hooks/useDiplomacyTurn.js';
+import DiplomacySetup from './DiplomacySetup.jsx';
+import {
+  loadSettings,
+  saveSettings,
+  buildControllers,
+  budgetForDifficulty,
+} from './diplomacySettings.js';
+import { saveGame, loadGame, clearGame } from './diplomacyPersistence.js';
 import './diplomacy.css';
 
 // ----- viewBox computed from PROVINCES coords + padding (nothing clipped) -----
@@ -80,31 +95,113 @@ function describeOrder(order) {
   }
 }
 
-function defaultControllers() {
-  // All powers default to human (hot-seat). 'ai' is the reserved seam.
-  return Object.fromEntries(POWERS.map(power => [power, 'human']));
+// Personas for every power (the persona shape persisted in the save).
+function defaultPersonas() {
+  return { ...PERSONAS };
 }
 
 export default function DiplomacyGame() {
-  const [board, setBoard] = useState(() => new DiplomacyBoard());
+  // ----- one-time mount restore: resume a saved game if one exists -----
+  const restoredRef = useRef(null);
+  if (restoredRef.current === null) {
+    restoredRef.current = safeLoad();
+  }
+  const restored = restoredRef.current;
+
+  const [settings, setSettings] = useState(loadSettings);
+  const [inGame, setInGame] = useState(() => !!restored);
+
+  const [board, setBoardState] = useState(() =>
+    restored
+      ? DiplomacyBoard.fromSerializedState(restored.board)
+      : new DiplomacyBoard({ maxYears: settings.maxYears })
+  );
+  const [controllers, setControllers] = useState(() =>
+    restored && restored.controllers ? restored.controllers : buildControllers(settings.power)
+  );
+  const [personas, setPersonas] = useState(() =>
+    restored && restored.personas ? restored.personas : defaultPersonas()
+  );
+  // Human-VISIBLE conversation store (memory of the human↔AI chat threads).
+  const [conversations, setConversations] = useState(() => {
+    if (restored && restored.conversations) return restored.conversations;
+    const ai = POWERS.filter((p) => p !== settings.power);
+    return createMemory(ai);
+  });
+  // Hidden AI↔AI diplomatic state — never rendered.
+  const [diplomaticState, setDiplomaticState] = useState(() => {
+    if (restored && restored.diplomaticState) return restored.diplomaticState;
+    const b = restored ? DiplomacyBoard.fromSerializedState(restored.board) : board;
+    try {
+      return createDiplomaticState({ board: b, humanPower: settings.power });
+    } catch (_) {
+      return null;
+    }
+  });
+
+  const humanPower = useMemo(
+    () => POWERS.find((p) => controllers[p] === 'human') || settings.power,
+    [controllers, settings.power]
+  );
+  const difficultyBudget = useMemo(() => budgetForDifficulty(settings.difficulty), [settings.difficulty]);
+
   const [darkMode, setDarkMode] = useState(() => JSON.parse(localStorage.getItem('diplomacyDarkMode') || 'false'));
   const [showOrders, setShowOrders] = useState(() => JSON.parse(localStorage.getItem('diplomacyShowOrders') || 'true'));
-  const [controllers] = useState(defaultControllers);
+  const [confirmNew, setConfirmNew] = useState(false);
+  const [keyPromptDismissed, setKeyPromptDismissed] = useState(false);
 
-  const [activePower, setActivePower] = useState(POWERS[0]);
-  // pendingOrdersByPower[power] = { [unitLoc]: orderObject }
-  const [pendingOrders, setPendingOrders] = useState({});
-  // In-progress order entry: { unitLoc, type } once a unit + type are chosen.
+  // Transient order-entry state (human power only).
+  const [pendingOrders, setPendingOrders] = useState({}); // { [unitLoc]: order }
   const [selectedUnit, setSelectedUnit] = useState(null);
   const [orderType, setOrderType] = useState(null);
-  // Retreat phase: { [unitLoc]: 'DISBAND' | targetLoc }
-  const [retreatChoices, setRetreatChoices] = useState({});
-  // Winter phase: pending adjustment orders per power (array).
-  const [buildOrders, setBuildOrders] = useState({});
-  const [confirmNew, setConfirmNew] = useState(false);
+  const [retreatChoices, setRetreatChoices] = useState({}); // { [unitLoc]: 'DISBAND'|to }
+  const [buildOrders, setBuildOrders] = useState({}); // { [power]: order[] }
+
+  const { computeOrders, isSupported: workerSupported } = useAIWorker();
 
   useEffect(() => localStorage.setItem('diplomacyDarkMode', JSON.stringify(darkMode)), [darkMode]);
   useEffect(() => localStorage.setItem('diplomacyShowOrders', JSON.stringify(showOrders)), [showOrders]);
+
+  const setBoard = useCallback((next) => setBoardState(next), []);
+
+  // Persist the whole game after each phase transition the hook settles.
+  const onPhaseSettled = useCallback(
+    ({ uiPhase: ph, diplomaticState: ds }) => {
+      saveGame({
+        board,
+        uiPhase: ph,
+        controllers,
+        personas,
+        conversations,
+        diplomaticState: ds !== undefined ? ds : diplomaticState,
+      });
+    },
+    [board, controllers, personas, conversations, diplomaticState]
+  );
+
+  const turn = useDiplomacyTurn({
+    board,
+    setBoard,
+    controllers,
+    humanPower,
+    difficultyBudget,
+    diplomaticState,
+    setDiplomaticState,
+    personas,
+    conversations,
+    workerSupported,
+    computeOrders,
+    onPhaseSettled,
+  });
+
+  // Restore the saved UI phase exactly once after a resume.
+  const uiRestoredRef = useRef(false);
+  useEffect(() => {
+    if (!uiRestoredRef.current && restored && restored.uiPhase) {
+      turn.restoreUiPhase(restored.uiPhase);
+      uiRestoredRef.current = true;
+    }
+  }, [restored, turn]);
 
   // Reset transient entry state whenever the phase/turn changes.
   useEffect(() => {
@@ -113,19 +210,22 @@ export default function DiplomacyGame() {
     setOrderType(null);
     setRetreatChoices({});
     setBuildOrders({});
-  }, [board.phase, board.year, board.season]);
+  }, [board.phase, board.year, board.season, turn.uiPhase]);
+
+  // Persist whenever the board reference changes (every applied move) so a save
+  // exists even outside the explicit settle calls.
+  const persistRef = useRef(null);
+  persistRef.current = { board, uiPhase: turn.uiPhase, controllers, personas, conversations, diplomaticState };
+  useEffect(() => {
+    if (!inGame) return;
+    saveGame(persistRef.current);
+  }, [board, turn.uiPhase, inGame]);
 
   const phaseLabel = board.getPhaseLabel();
   const leader = board.getLeader();
+  const activeUnits = useMemo(() => board.getUnits(humanPower), [board, humanPower]);
 
-  const humanPowers = useMemo(() => POWERS.filter(power => controllers[power] === 'human'), [controllers]);
-
-  // Units owned by the active power that can be ordered this phase.
-  const activeUnits = useMemo(() => board.getUnits(activePower), [board, activePower]);
-
-  const refresh = () => setBoard(board.clone());
-
-  // ----- Orders phase: order construction (all options from the engine) -----
+  // ----- order construction (human power only; options from the engine) -----
   const legalForSelected = useMemo(() => {
     if (!selectedUnit) return [];
     return board.getLegalOrdersForUnit(selectedUnit);
@@ -141,72 +241,47 @@ export default function DiplomacyGame() {
     return legalForSelected.filter(o => o.type === orderType);
   }, [legalForSelected, selectedUnit, orderType]);
 
+  const isOrderEntry = board.isOrdersPhase() && turn.uiPhase === 'orders';
+
   function selectUnitForOrder(loc) {
     const unit = board.units[loc];
-    if (!unit || unit.power !== activePower || !board.isOrdersPhase()) return;
+    if (!unit || unit.power !== humanPower || !isOrderEntry) return;
     setSelectedUnit(loc);
     setOrderType(null);
   }
 
-  function setPendingOrder(power, order) {
-    setPendingOrders(prev => ({
-      ...prev,
-      [power]: { ...(prev[power] || {}), [order.unitLoc]: order },
-    }));
+  function setPendingOrder(order) {
+    setPendingOrders(prev => ({ ...prev, [order.unitLoc]: order }));
     setSelectedUnit(null);
     setOrderType(null);
   }
 
   function chooseOrderType(type) {
     setOrderType(type);
-    // Hold has no target — commit immediately.
-    if (type === 'hold') {
-      setPendingOrder(activePower, { type: 'hold', unitLoc: selectedUnit });
-    }
+    if (type === 'hold') setPendingOrder({ type: 'hold', unitLoc: selectedUnit });
   }
 
-  function clearOrderFor(power, unitLoc) {
+  function clearOrderFor(unitLoc) {
     setPendingOrders(prev => {
-      const next = { ...(prev[power] || {}) };
+      const next = { ...prev };
       delete next[unitLoc];
-      return { ...prev, [power]: next };
+      return next;
     });
   }
 
   function submitOrders() {
-    const ordersByPower = {};
-    for (const power of POWERS) {
-      if (controllers[power] === 'ai') {
-        // Placeholder: AI powers hold every unit (no AI logic in this issue).
-        ordersByPower[power] = board.getUnits(power).map(u => ({ type: 'hold', unitLoc: u.loc }));
-        continue;
-      }
-      const entered = pendingOrders[power] || {};
-      ordersByPower[power] = board.getUnits(power).map(u => entered[u.loc] || { type: 'hold', unitLoc: u.loc });
-    }
-    board.applyMove({ type: 'orders', ordersByPower });
-    refresh();
+    turn.submitOrders({ [humanPower]: pendingOrders });
   }
 
-  // ----- Retreat phase -----
+  // ----- retreats -----
   function chooseRetreat(unitLoc, value) {
     setRetreatChoices(prev => ({ ...prev, [unitLoc]: value }));
   }
-
   function submitRetreats() {
-    const retreatsByPower = {};
-    for (const pending of board.pendingRetreats) {
-      const power = pending.unit.power;
-      const choice = retreatChoices[pending.unitLoc];
-      const to = !choice || choice === 'DISBAND' ? null : choice;
-      if (!retreatsByPower[power]) retreatsByPower[power] = [];
-      retreatsByPower[power].push({ type: 'retreat', unitLoc: pending.unitLoc, to });
-    }
-    board.applyMove({ type: 'retreats', retreatsByPower });
-    refresh();
+    turn.submitRetreats({ [humanPower]: retreatChoices });
   }
 
-  // ----- Winter phase -----
+  // ----- winter -----
   function toggleBuildOrder(power, order) {
     setBuildOrders(prev => {
       const list = prev[power] || [];
@@ -216,43 +291,60 @@ export default function DiplomacyGame() {
       return { ...prev, [power]: [...list, order] };
     });
   }
-
   function submitAdjustments() {
-    const adjustmentsByPower = {};
-    for (const power of POWERS) {
-      adjustmentsByPower[power] = buildOrders[power] || [];
-    }
-    board.applyMove({ type: 'adjustments', adjustmentsByPower });
-    refresh();
+    turn.submitAdjustments(buildOrders);
   }
 
-  // ----- Undo / redo / new game -----
-  function doUndo() {
-    if (board.undo()) refresh();
-  }
-  function doRedo() {
-    if (board.redo()) refresh();
-  }
-  function newGame() {
+  // ----- new game / setup -----
+  function startGame(chosen) {
+    const next = { ...settings, ...chosen };
+    setSettings(next);
+    saveSettings(next);
+    clearGame();
+    const fresh = new DiplomacyBoard({ maxYears: next.maxYears });
+    const ctrls = buildControllers(next.power);
+    const ai = POWERS.filter((p) => p !== next.power);
+    setBoardState(fresh);
+    setControllers(ctrls);
+    setPersonas(defaultPersonas());
+    setConversations(createMemory(ai));
+    try {
+      setDiplomaticState(createDiplomaticState({ board: fresh, humanPower: next.power }));
+    } catch (_) {
+      setDiplomaticState(null);
+    }
     setConfirmNew(false);
-    setBoard(new DiplomacyBoard());
+    setKeyPromptDismissed(false);
+    uiRestoredRef.current = true; // don't re-restore an old phase
+    turn.setUiPhase('negotiation');
+    setInGame(true);
   }
 
-  // ----- Pending-order overlays for the active power (+ already-entered ones) -----
-  const overlayOrders = useMemo(() => {
-    if (!showOrders) return [];
-    const all = [];
-    for (const power of POWERS) {
-      const entered = pendingOrders[power] || {};
-      for (const order of Object.values(entered)) {
-        all.push({ power, order });
-      }
-    }
-    return all;
-  }, [pendingOrders, showOrders]);
+  function returnToSetup() {
+    clearGame();
+    setConfirmNew(false);
+    setInGame(false);
+  }
 
   const adjustments = board.isWinterPhase() ? board.getAdjustments() : null;
   const lastLog = board.orderHistory[0] || null;
+
+  // Pending-order overlays for the human power.
+  const overlayOrders = useMemo(() => {
+    if (!showOrders) return [];
+    return Object.values(pendingOrders).map(order => ({ power: humanPower, order }));
+  }, [pendingOrders, showOrders, humanPower]);
+
+  const showKeyPrompt = !hasApiKey() && !keyPromptDismissed && inGame;
+
+  // ----- setup gate -----
+  if (!inGame) {
+    return (
+      <div className={`game-diplomacy min-h-screen bg-[var(--dip-bg)] font-body ${darkMode ? 'dark' : ''}`}>
+        <DiplomacySetup initial={settings} onStart={startGame} />
+      </div>
+    );
+  }
 
   return (
     <div className={`game-diplomacy min-h-screen bg-[var(--dip-bg)] font-body ${darkMode ? 'dark' : ''}`}>
@@ -264,7 +356,7 @@ export default function DiplomacyGame() {
               Your current game will be lost.
             </p>
             <div className="mt-6 flex gap-3">
-              <button className="dip-primary-btn flex-1" onClick={newGame}>New Game</button>
+              <button className="dip-primary-btn flex-1" onClick={returnToSetup}>New Game</button>
               <button className="dip-tool-btn flex-1" onClick={() => setConfirmNew(false)}>Cancel</button>
             </div>
           </div>
@@ -283,9 +375,13 @@ export default function DiplomacyGame() {
             </div>
             <div className="dip-phase-banner mt-4">{phaseLabel}</div>
             <div className="dip-last-action mt-2">{board.lastAction}</div>
+            <div className="dip-you-line mt-1">
+              You are <strong style={{ color: POWER_COLORS[humanPower] }}>{POWER_NAMES[humanPower]}</strong>
+            </div>
+            {turn.isBusy && turn.progress && (
+              <div className="dip-progress mt-2" role="status">{turn.progress}</div>
+            )}
             <div className="mt-3 flex flex-wrap gap-2">
-              <button className="dip-tool-btn px-3" onClick={doUndo} disabled={!board.canUndo()} aria-label="Undo last move">Undo</button>
-              <button className="dip-tool-btn px-3" onClick={doRedo} disabled={!board.canRedo()} aria-label="Redo move">Redo</button>
               <button className="dip-tool-btn px-3" onClick={() => setConfirmNew(true)} aria-label="Start a new game">New</button>
             </div>
             <div className="mt-3 space-y-2">
@@ -294,6 +390,16 @@ export default function DiplomacyGame() {
             </div>
           </div>
 
+          {showKeyPrompt && (
+            <div className="dip-keyprompt p-4">
+              <div className="dip-keyprompt-text">
+                Playing without an Anthropic API key: the AI powers still make tactical moves, but
+                won't negotiate or chat. Add a key in the Negotiation panel to enable diplomacy.
+              </div>
+              <button className="dip-keyprompt-dismiss" onClick={() => setKeyPromptDismissed(true)}>Dismiss</button>
+            </div>
+          )}
+
           <div className="dip-panel p-4">
             <div className="dip-panel-label mb-2">Supply Centers</div>
             <div className="dip-scoreboard">
@@ -301,7 +407,7 @@ export default function DiplomacyGame() {
                 .map(power => ({ power, centers: board.getSupplyCount(power), units: board.getUnitCount(power) }))
                 .sort((a, b) => b.centers - a.centers || a.power.localeCompare(b.power))
                 .map(({ power, centers, units }) => (
-                  <div key={power} className={`dip-score-row ${leader.power === power ? 'is-leader' : ''}`}>
+                  <div key={power} className={`dip-score-row ${leader.power === power ? 'is-leader' : ''} ${power === humanPower ? 'is-you' : ''}`}>
                     <span className="dip-score-swatch" style={{ backgroundColor: POWER_COLORS[power] }} aria-hidden="true" />
                     <span className="dip-score-name" style={{ color: 'var(--dip-text)' }}>{POWER_SHORT_NAMES[power]}</span>
                     <span className="dip-score-centers">{centers}</span>
@@ -322,13 +428,12 @@ export default function DiplomacyGame() {
             </div>
           </div>
 
-          {/* Negotiation: talk to the other powers (BYO Anthropic key). The
-              active power is treated as "you"; every other power is an agent. */}
+          {/* Negotiation chat: the human talks to the other powers (BYO key). */}
           <div className="dip-panel p-4">
             <ChatPanel
               board={board}
-              humanPower={activePower}
-              aiPowers={POWERS.filter(p => p !== activePower)}
+              humanPower={humanPower}
+              aiPowers={POWERS.filter(p => p !== humanPower)}
             />
           </div>
         </aside>
@@ -340,7 +445,7 @@ export default function DiplomacyGame() {
           </div>
         </main>
 
-        {/* ---- Right: order entry / retreat / winter / game-over ---- */}
+        {/* ---- Right: negotiation / order entry / retreat / winter / game-over ---- */}
         <aside className="order-3 flex w-full flex-col gap-3 lg:w-[340px]">
           {board.phase === 'game-over' && (
             <div className="dip-panel p-4">
@@ -356,15 +461,50 @@ export default function DiplomacyGame() {
             </div>
           )}
 
-          {board.isOrdersPhase() && renderOrderPanel()}
-          {board.isRetreatPhase() && renderRetreatPanel()}
-          {board.isWinterPhase() && renderWinterPanel()}
+          {board.phase !== 'game-over' && board.isOrdersPhase() && turn.uiPhase === 'negotiation' && renderNegotiationPanel()}
+          {board.phase !== 'game-over' && isOrderEntry && renderOrderPanel()}
+          {board.phase !== 'game-over' && turn.uiPhase === 'resolving' && (
+            <div className="dip-panel p-4">
+              <div className="dip-panel-label mb-2">Resolving</div>
+              <p className="dip-submit-hint">{turn.progress || 'Resolving orders…'}</p>
+            </div>
+          )}
+          {board.phase !== 'game-over' && board.isRetreatPhase() && renderRetreatPanel()}
+          {board.phase !== 'game-over' && board.isWinterPhase() && renderWinterPanel()}
         </aside>
       </div>
     </div>
   );
 
   // ============================ render helpers ============================
+
+  function renderNegotiationPanel() {
+    return (
+      <div className="dip-panel p-4">
+        <div className="dip-panel-label mb-2">Negotiation — {phaseLabel}</div>
+        <p className="dip-submit-hint">
+          Talk to the other powers in the Negotiation panel. When you're ready, proceed to enter
+          your orders. The other powers will plan their moves simultaneously.
+        </p>
+        <div className="mt-4 flex flex-col gap-2">
+          <button
+            className="dip-tool-btn w-full"
+            onClick={turn.runNegotiation}
+            disabled={turn.isBusy}
+          >
+            {turn.isBusy ? 'Powers conferring…' : 'Let the powers confer'}
+          </button>
+          <button
+            className="dip-primary-btn w-full"
+            onClick={turn.proceedToOrders}
+            disabled={turn.isBusy}
+          >
+            Proceed to orders
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   function renderMap() {
     const units = board.getUnits();
@@ -387,9 +527,9 @@ export default function DiplomacyGame() {
         {/* Province nodes */}
         {Object.entries(PROVINCES).map(([id, province]) => {
           const owner = province.supply ? board.supplyCenters[id] : null;
-          const isSelectable = board.isOrdersPhase()
+          const isSelectable = isOrderEntry
             && board.units[id]
-            && board.units[id].power === activePower;
+            && board.units[id].power === humanPower;
           const selectedLoc = board.unitLocAt(id);
           const isSelected = selectedUnit && baseProvince(selectedUnit) === id;
           return (
@@ -471,33 +611,19 @@ export default function DiplomacyGame() {
         />
       );
     }
-    // hold
     return (
       <circle key={key} cx={from.x} cy={from.y} r={14} className="dip-order-hold" style={{ stroke: color }} />
     );
   }
 
   function renderOrderPanel() {
-    const entered = pendingOrders[activePower] || {};
+    const entered = pendingOrders;
     return (
       <>
         <div className="dip-panel p-4">
-          <div className="dip-panel-label mb-2">Order Entry</div>
-          <div className="dip-power-switcher">
-            {humanPowers.map(power => (
-              <button
-                key={power}
-                className={`dip-power-tab ${activePower === power ? 'active' : ''}`}
-                style={{ '--tab-color': POWER_COLORS[power] }}
-                onClick={() => { setActivePower(power); setSelectedUnit(null); setOrderType(null); }}
-              >
-                {POWER_SHORT_NAMES[power]}
-              </button>
-            ))}
-          </div>
-
-          <div className="mt-3 dip-unit-list">
-            {activeUnits.length === 0 && <p className="dip-log-empty">{POWER_SHORT_NAMES[activePower]} has no units.</p>}
+          <div className="dip-panel-label mb-2">Your Orders — {POWER_SHORT_NAMES[humanPower]}</div>
+          <div className="mt-1 dip-unit-list">
+            {activeUnits.length === 0 && <p className="dip-log-empty">{POWER_SHORT_NAMES[humanPower]} has no units.</p>}
             {activeUnits.map(unit => {
               const order = entered[unit.loc];
               const isSelected = selectedUnit === unit.loc;
@@ -508,7 +634,7 @@ export default function DiplomacyGame() {
                     <span className="dip-unit-order">{order ? describeOrder(order) : 'holds (default)'}</span>
                   </button>
                   {order && (
-                    <button className="dip-tool-btn px-2" onClick={() => clearOrderFor(activePower, unit.loc)} aria-label={`Clear order for ${unit.loc}`}>Clear</button>
+                    <button className="dip-tool-btn px-2" onClick={() => clearOrderFor(unit.loc)} aria-label={`Clear order for ${unit.loc}`}>Clear</button>
                   )}
                 </div>
               );
@@ -537,7 +663,7 @@ export default function DiplomacyGame() {
                   <button
                     key={pendingKey(option)}
                     className="dip-target-btn"
-                    onClick={() => setPendingOrder(activePower, option)}
+                    onClick={() => setPendingOrder(option)}
                   >
                     {describeOrder(option)}
                   </button>
@@ -549,23 +675,27 @@ export default function DiplomacyGame() {
 
         <div className="dip-panel p-4">
           <p className="dip-submit-hint">
-            Enter orders for every human power, then resolve the turn. Units with no order will hold.
+            Enter orders for your units, then resolve the turn. Units with no order will hold. The
+            other powers move simultaneously.
           </p>
-          <button className="dip-primary-btn mt-3 w-full" onClick={submitOrders}>Submit Orders</button>
+          <button className="dip-primary-btn mt-3 w-full" onClick={submitOrders} disabled={turn.isBusy}>
+            {turn.isBusy ? 'Resolving…' : 'Submit Orders'}
+          </button>
         </div>
       </>
     );
   }
 
   function renderRetreatPanel() {
+    const humanPending = board.pendingRetreats.filter(p => p.unit.power === humanPower);
     return (
       <div className="dip-panel p-4">
         <div className="dip-panel-label mb-2">Retreats</div>
-        {board.pendingRetreats.length === 0 ? (
-          <p className="dip-log-empty">No retreats pending.</p>
+        {humanPending.length === 0 ? (
+          <p className="dip-log-empty">None of your units need to retreat.</p>
         ) : (
           <div className="dip-retreat-list">
-            {board.pendingRetreats.map(pending => {
+            {humanPending.map(pending => {
               const options = board.getRetreatOptions(pending.unitLoc);
               const choice = retreatChoices[pending.unitLoc] || 'DISBAND';
               return (
@@ -596,57 +726,73 @@ export default function DiplomacyGame() {
             })}
           </div>
         )}
-        <button className="dip-primary-btn mt-4 w-full" onClick={submitRetreats}>Submit Retreats</button>
+        <button className="dip-primary-btn mt-4 w-full" onClick={submitRetreats} disabled={turn.isBusy}>
+          {turn.isBusy ? 'Resolving…' : 'Submit Retreats'}
+        </button>
       </div>
     );
   }
 
   function renderWinterPanel() {
+    const adj = adjustments[humanPower];
+    const needsAdjust = adj && (adj.buildCount > 0 || adj.disbandCount > 0);
     return (
       <div className="dip-panel p-4">
         <div className="dip-panel-label mb-2">Winter Adjustments</div>
-        <div className="dip-winter-list">
-          {POWERS.map(power => {
-            const adj = adjustments[power];
-            if (!adj || (adj.buildCount === 0 && adj.disbandCount === 0)) return null;
-            const legal = board.getLegalAdjustmentOrders(power);
-            const selected = buildOrders[power] || [];
-            const need = adj.delta > 0 ? `build ${adj.buildCount}` : `disband ${adj.disbandCount}`;
-            return (
-              <div key={power} className="dip-winter-power">
-                <div className="dip-retreat-head">
-                  <span className="dip-score-swatch" style={{ backgroundColor: POWER_COLORS[power] }} aria-hidden="true" />
-                  {POWER_SHORT_NAMES[power]} — {need}
+        {!needsAdjust ? (
+          <p className="dip-log-empty">You have no builds or disbands this winter.</p>
+        ) : (
+          <div className="dip-winter-list">
+            {(() => {
+              const legal = board.getLegalAdjustmentOrders(humanPower);
+              const selected = buildOrders[humanPower] || [];
+              const need = adj.delta > 0 ? `build ${adj.buildCount}` : `disband ${adj.disbandCount}`;
+              return (
+                <div className="dip-winter-power">
+                  <div className="dip-retreat-head">
+                    <span className="dip-score-swatch" style={{ backgroundColor: POWER_COLORS[humanPower] }} aria-hidden="true" />
+                    {POWER_SHORT_NAMES[humanPower]} — {need}
+                  </div>
+                  <div className="dip-target-grid mt-2">
+                    {legal.map(order => {
+                      const isOn = selected.some(o => pendingKey(o) === pendingKey(order));
+                      const label = order.type === 'build'
+                        ? `+ ${formatUnitType(order.unitType)} ${provinceLabel(order.loc)}`
+                        : `− ${provinceLabel(order.unitLoc)}`;
+                      return (
+                        <button
+                          key={pendingKey(order)}
+                          className={`dip-target-btn ${isOn ? 'active' : ''}`}
+                          onClick={() => toggleBuildOrder(humanPower, order)}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="dip-winter-count">{selected.length} selected</p>
                 </div>
-                <div className="dip-target-grid mt-2">
-                  {legal.map(order => {
-                    const isOn = selected.some(o => pendingKey(o) === pendingKey(order));
-                    const label = order.type === 'build'
-                      ? `+ ${formatUnitType(order.unitType)} ${provinceLabel(order.loc)}`
-                      : `− ${provinceLabel(order.unitLoc)}`;
-                    return (
-                      <button
-                        key={pendingKey(order)}
-                        className={`dip-target-btn ${isOn ? 'active' : ''}`}
-                        onClick={() => toggleBuildOrder(power, order)}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-                <p className="dip-winter-count">{selected.length} selected</p>
-              </div>
-            );
-          })}
-        </div>
-        <button className="dip-primary-btn mt-4 w-full" onClick={submitAdjustments}>Submit Adjustments</button>
+              );
+            })()}
+          </div>
+        )}
+        <button className="dip-primary-btn mt-4 w-full" onClick={submitAdjustments} disabled={turn.isBusy}>
+          {turn.isBusy ? 'Resolving…' : 'Submit Adjustments'}
+        </button>
       </div>
     );
   }
 }
 
 // ----- small presentational helpers -----
+
+function safeLoad() {
+  try {
+    return loadGame() || false;
+  } catch (_) {
+    return false;
+  }
+}
 
 function ToggleRow({ label, checked, onChange }) {
   return (
