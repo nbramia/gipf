@@ -6,7 +6,7 @@ Critical instructions for AI agents (Claude, Cursor, Copilot, etc.) working on t
 
 ## Project Overview
 
-GIPF Project is a multi-game React application hosting browser-based implementations of board games. Currently includes Yinsh, Zertz, Chess, Catan, and Splendor. Games are code-split and served under a single deployment with client-side routing.
+GIPF Project is a multi-game React application hosting browser-based implementations of board games. Currently includes Yinsh, Zertz, Chess, Catan, Splendor, and Diplomacy. Games are code-split and served under a single deployment with client-side routing.
 
 **Key Concepts:**
 - **Multi-game monorepo**: Each game lives in `src/games/<name>/` with its own logic, UI, CSS, and tests
@@ -29,6 +29,7 @@ GIPF Project is a multi-game React application hosting browser-based implementat
 - [docs/ai-engine.md](docs/ai-engine.md) - AI system internals
 - [docs/catan.md](docs/catan.md) - Catan rules coverage and AI/training details
 - [docs/splendor.md](docs/splendor.md) - Splendor rules coverage and AI/training details
+- [docs/diplomacy.md](docs/diplomacy.md) - Diplomacy rules coverage and AI/agents details
 - [docs/notation.md](docs/notation.md) - Move notation specification (Yinsh)
 - [docs/agents.md](docs/agents.md) - Practical development guide for AI agents
 
@@ -238,6 +239,20 @@ See [docs/catan.md](docs/catan.md) for rule coverage and AI/training details.
 
 See [docs/splendor.md](docs/splendor.md) for rule coverage and AI/training details.
 
+### Diplomacy (`src/games/diplomacy/`)
+
+| File | Purpose |
+|------|---------|
+| `DiplomacyBoard.js` | Pure seven-power rules engine -- 1901 Europe map, armies/fleets, hold/move/support/convoy, simultaneous adjudication, retreats, Winter builds/disbands, split coasts (STP/SPA/BUL), serialize/restore |
+| `DiplomacyGame.jsx` | React UI -- SVG map, order entry, negotiation/chat panel, turn loop, save/resume |
+| `diplomacy.css` | Scoped CSS variables (`.game-diplomacy`) + animations |
+| `engine/` | Tactical best-response order AI (`aiPlayer.js`) + Web Worker (`mcts.worker.js`) |
+| `agents/` | Conversational LLM agents -- personas, memory, AI-to-AI negotiation, trust/betrayal model, intent binding, chat panel |
+| `hooks/` | React hooks -- AI worker lifecycle (`useAIWorker.js`) + turn-loop controller (`useDiplomacyTurn.js`) |
+| `api/diplomacyAgent.js` | Vercel serverless conversational agent (Claude API, **bring-your-own key**) |
+
+See [docs/diplomacy.md](docs/diplomacy.md) for rule coverage and AI/agents details.
+
 ### Infrastructure
 
 | File | Purpose |
@@ -276,6 +291,7 @@ See [docs/splendor.md](docs/splendor.md) for rule coverage and AI/training detai
 /chess      -> ChessGame (lazy-loaded chunk)
 /catan      -> CatanGame (lazy-loaded chunk)
 /splendor   -> SplendorGame (lazy-loaded chunk)
+/diplomacy  -> DiplomacyGame (lazy-loaded chunk)
 ```
 
 `React.lazy()` with `<Suspense>` ensures code splitting. Visiting `/zertz` does NOT load the yinsh MCTS engine bundle. The `vercel.json` catch-all rewrite ensures direct URL access works.
@@ -292,6 +308,8 @@ Each game scopes its CSS variables under a wrapper class:
 .game-catan.dark { --color-bg-page: ...; }
 .game-splendor { --spl-bg: ...; }
 .game-splendor.dark { --spl-bg: ...; }
+.game-diplomacy { --dip-bg: ...; }
+.game-diplomacy.dark { --dip-bg: ...; }
 ```
 
 Animations are also prefixed (`yinsh-piece-fade-in`, `zertz-piece-fade-in`) and scoped (`.game-yinsh .piece-enter`). The shared `slide-in-right` keyframe lives in `index.css`.
@@ -379,6 +397,14 @@ catanPlayerCount, catanScenarioId
 splendorDarkMode, splendorDifficulty, splendorPlayerCount
 ```
 
+**Diplomacy:**
+
+```
+diplomacyDarkMode, diplomacyShowOrders,
+diplomacySettings,    # new-game setup: power, difficulty, personaSpice, maxYears
+diplomacyGameState    # versioned in-progress save (board snapshot + UI phase + controllers)
+```
+
 **Shared (app-wide):**
 
 ```
@@ -417,7 +443,7 @@ git push origin main          # Deploy (only after all checks pass)
 
 Production URL: https://gipf.vercel.app
 
-CORS origins for the Yinsh AI API are in `api/aiMove.js` (two lists -- main handler and error handler). Update both if adding a new domain.
+CORS origins for the Yinsh AI API are in `api/aiMove.js` (two lists -- main handler and error handler). Update both if adding a new domain. The Diplomacy agent endpoint `api/diplomacyAgent.js` keeps its own `ALLOWED_ORIGINS` list (single `applyCors` helper, reused in the error handler) -- update it too.
 
 ---
 
