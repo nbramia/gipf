@@ -32,6 +32,12 @@ const games = [
     description: 'Collect gems, build a card engine, and court nobles. Race deep-search opponents to 15 prestige.',
     accent: '#D9A441',
   },
+  {
+    name: 'DIPLOMACY',
+    path: '/diplomacy',
+    description: 'Command armies and fleets across Europe. Enter simultaneous orders, resolve, and race to 18 supply centers.',
+    accent: '#4FB8D4',
+  },
 ];
 
 export default function LandingPage() {

@@ -7,6 +7,7 @@ const ZertzGame = lazy(() => import('./games/zertz/ZertzGame.jsx'));
 const ChessGame = lazy(() => import('./games/chess/ChessGame.jsx'));
 const CatanGame = lazy(() => import('./games/catan/CatanGame.jsx'));
 const SplendorGame = lazy(() => import('./games/splendor/SplendorGame.jsx'));
+const DiplomacyGame = lazy(() => import('./games/diplomacy/DiplomacyGame.jsx'));
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
           <Route path="/chess" element={<ChessGame />} />
           <Route path="/catan" element={<CatanGame />} />
           <Route path="/splendor" element={<SplendorGame />} />
+          <Route path="/diplomacy" element={<DiplomacyGame />} />
         </Routes>
       </Suspense>
     </BrowserRouter>
