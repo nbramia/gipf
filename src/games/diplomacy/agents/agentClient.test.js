@@ -7,6 +7,7 @@ import {
   setApiKey,
   hasApiKey,
   sendMessage,
+  askAgent,
   createMemory,
 } from './agentClient.js';
 
@@ -84,7 +85,7 @@ describe('sendMessage', () => {
     expect(body.addressee).toBe('France');
     expect(body.model).toBe('claude-opus-4-8');
 
-    expect(result).toEqual({ message: 'We watch Belgium too.', scratchpad: SCRATCHPAD });
+    expect(result).toEqual({ message: 'We watch Belgium too.', scratchpad: SCRATCHPAD, summary: '' });
   });
 
   test('wires the reply and scratchpad through a provided memory store', async () => {
@@ -112,5 +113,45 @@ describe('sendMessage', () => {
     global.fetch = okFetch({ message: '', scratchpad: null });
     const result = await sendMessage({ power: 'germany', history: [{ role: 'user', content: 'hi' }], context: {} });
     expect(result.error).toBe('empty');
+  });
+});
+
+describe('askAgent', () => {
+  test('with no key returns error and never calls fetch', async () => {
+    global.fetch = jest.fn();
+    const result = await askAgent({ power: 'germany', counterparties: ['france'], messages: [{ role: 'user', content: 'hi' }] });
+    expect(result.error).toBe('no_key');
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('threads priorSummary/memory into the POST body and surfaces summary in the reply', async () => {
+    setApiKey('sk-live');
+    global.fetch = okFetch({ message: 'We hold the line.', scratchpad: SCRATCHPAD, summary: 'Tense over Belgium.' });
+
+    const result = await askAgent({
+      power: 'germany',
+      counterparties: ['france'],
+      channel: 'france~germany',
+      messages: [{ role: 'user', content: 'Belgium?' }],
+      priorSummary: 'Last phase we agreed to a DMZ.',
+      memory: 'stance rival; trust -0.10',
+    });
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(body.priorSummary).toBe('Last phase we agreed to a DMZ.');
+    expect(body.memory).toBe('stance rival; trust -0.10');
+    expect(body.counterparties).toEqual(['france']);
+
+    expect(result.reply.message).toBe('We hold the line.');
+    expect(result.reply.scratchpad).toEqual(SCRATCHPAD);
+    expect(result.reply.summary).toBe('Tense over Belgium.');
+  });
+
+  test('summary defaults to empty string when the endpoint omits it', async () => {
+    setApiKey('sk-live');
+    global.fetch = okFetch({ message: 'Noted.', scratchpad: null });
+    const result = await askAgent({ power: 'germany', counterparties: ['france'], messages: [{ role: 'user', content: 'hi' }] });
+    expect(result.reply.summary).toBe('');
   });
 });

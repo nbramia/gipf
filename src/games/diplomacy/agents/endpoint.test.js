@@ -195,6 +195,48 @@ describe('diplomacyAgent endpoint', () => {
     expect(res.statusCode).toBe(502);
   });
 
+  test('an emitted summary (<=200 chars) is returned; oversized/absent become empty', async () => {
+    // Valid summary surfaces.
+    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Aligned.', scratchpad: VALID_SCRATCHPAD, summary: 'DMZ in the Channel holds.' }));
+    let res = makeRes();
+    await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
+    expect(res.body.summary).toBe('DMZ in the Channel holds.');
+
+    // Oversized summary is dropped to ''.
+    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Aligned.', scratchpad: VALID_SCRATCHPAD, summary: 'x'.repeat(201) }));
+    res = makeRes();
+    await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
+    expect(res.body.summary).toBe('');
+
+    // Absent summary is ''.
+    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Aligned.', scratchpad: VALID_SCRATCHPAD }));
+    res = makeRes();
+    await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
+    expect(res.body.summary).toBe('');
+  });
+
+  test('prior memory (priorSummary/memory) is injected into the system prompt', async () => {
+    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Understood.', scratchpad: VALID_SCRATCHPAD }));
+    const res = makeRes();
+    await handler(
+      makeReq({
+        body: {
+          apiKey: 'sk-test',
+          power: 'france',
+          messages: [{ role: 'user', content: 'hi' }],
+          priorSummary: 'We agreed to a Channel DMZ last phase.',
+          memory: 'stance rival; intent: lure into NTH',
+        },
+      }),
+      res
+    );
+    const payload = JSON.parse(global.fetch.mock.calls[0][1].body);
+    const systemText = payload.system[0].text;
+    expect(systemText).toContain('We agreed to a Channel DMZ last phase.');
+    expect(systemText).toContain('Previously with this rival:');
+    expect(systemText).toContain('lure into NTH');
+  });
+
   test('a thrown error returns a generic 500 that never echoes the request body', async () => {
     global.fetch = jest.fn().mockRejectedValue(new Error('network down'));
     const res = makeRes();

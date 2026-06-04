@@ -16,8 +16,15 @@
 //     relations:  { 'france>germany': { trust: 0.42, lastUpdatedPhase: 'Fall 1902' } },
 //     agreements: [ { id, type, ... } ],          // standing, durable deals
 //     promises:   [ { id, type, from, to, expectedOrder, madePhase, actingPower } ],
-//     promiseLedger: { 'france>germany': { kept: 3, broken: 1 } }
+//     promiseLedger: { 'france>germany': { kept: 3, broken: 1 } },
+//     scratchpads: { france: <scratchpad> },        // last private disposition per power
+//     summaries:   { 'austria~france': '...' }       // one-line per-channel memory
 //   }
+//
+// `scratchpads` and `summaries` (issue #44) carry the conversational layer's
+// memory forward across negotiation phases without an extra LLM call: an agent's
+// own scratchpad (from api/diplomacyAgent.js) and a brief self-emitted channel
+// summary are persisted here and re-injected into the next phase's prompts.
 //
 // `relations` holds one entry for EVERY ordered pair of alive powers (so both
 // 'france>germany' and 'germany>france' exist) seeded at trust 0. The pair key
@@ -59,6 +66,8 @@ export function createDiplomaticState({ board, humanPower } = {}) {
     agreements: [],
     promises: [],
     promiseLedger: {},
+    scratchpads: {},
+    summaries: {},
   };
 }
 
@@ -132,6 +141,33 @@ export function dropAgreement(state, id) {
   return next;
 }
 
+// Persist a power's latest private scratchpad (the disposition object from the
+// agent endpoint). Returns new state. A null/undefined scratchpad clears it; any
+// other value is stored verbatim (the endpoint already validated its shape).
+export function setScratchpad(state, power, scratchpad) {
+  if (!power || typeof power !== 'string') return state;
+  const next = cloneState(state);
+  if (!next.scratchpads || typeof next.scratchpads !== 'object') next.scratchpads = {};
+  if (scratchpad == null) {
+    delete next.scratchpads[power];
+  } else {
+    next.scratchpads[power] = scratchpad;
+  }
+  return next;
+}
+
+// Persist a brief one-line conversation summary for a channel. Returns new state.
+// Empty / non-string / oversized (> 200 chars) text is ignored (no-op) so a bad
+// agent emission never corrupts the carried memory.
+export function setSummary(state, channelId, text) {
+  if (!channelId || typeof channelId !== 'string') return state;
+  if (typeof text !== 'string' || !text.trim() || text.length > 200) return state;
+  const next = cloneState(state);
+  if (!next.summaries || typeof next.summaries !== 'object') next.summaries = {};
+  next.summaries[channelId] = text.trim();
+  return next;
+}
+
 // --- getters (read-only, never mutate) --------------------------------------
 
 // A's trust toward B in [-1,1]; 0 if the pair has no relation entry.
@@ -143,6 +179,16 @@ export function getTrust(state, from, to) {
 // Ledger {kept,broken} for A toward B; zeros if none recorded yet.
 export function getLedger(state, from, to) {
   return state.promiseLedger[relationKey(from, to)] || { kept: 0, broken: 0 };
+}
+
+// A power's persisted private scratchpad, or null if none recorded yet.
+export function getScratchpad(state, power) {
+  return (state.scratchpads && state.scratchpads[power]) || null;
+}
+
+// The carried one-line summary for a channel, or '' if none recorded yet.
+export function getSummary(state, channelId) {
+  return (state.summaries && state.summaries[channelId]) || '';
 }
 
 // All standing agreements that involve `power` (as a party / from / to).

@@ -11,6 +11,10 @@ import {
   getPromisesBy,
   agreementInvolves,
   agreementPartner,
+  setScratchpad,
+  setSummary,
+  getScratchpad,
+  getSummary,
   STATE_VERSION,
 } from './diplomaticState.js';
 
@@ -34,7 +38,7 @@ describe('createDiplomaticState', () => {
     expect(state.relations['france>france']).toBeUndefined();
   });
 
-  test('starts with empty agreements, promises, and ledger; version stamped', () => {
+  test('starts with empty agreements, promises, ledger, scratchpads, summaries; version stamped', () => {
     const board = new DiplomacyBoard();
     const state = createDiplomaticState({ board, humanPower: 'france' });
     expect(state).toMatchObject({
@@ -43,6 +47,8 @@ describe('createDiplomaticState', () => {
       agreements: [],
       promises: [],
       promiseLedger: {},
+      scratchpads: {},
+      summaries: {},
     });
   });
 
@@ -153,6 +159,11 @@ describe('getters', () => {
     expect(getPromisesBy(state, 'turkey')).toHaveLength(0);
   });
 
+  test('getScratchpad / getSummary return null / empty when nothing recorded', () => {
+    expect(getScratchpad(state, 'france')).toBeNull();
+    expect(getSummary(state, 'austria~france')).toBe('');
+  });
+
   test('agreementInvolves / agreementPartner handle both parties and from/to shapes', () => {
     const dmz = { type: 'dmz', parties: ['france', 'italy'], provinces: ['pie'] };
     const support = { type: 'support', from: 'france', to: 'germany' };
@@ -162,5 +173,55 @@ describe('getters', () => {
     expect(agreementPartner(support, 'france')).toBe('germany');
     expect(agreementPartner(support, 'germany')).toBe('france');
     expect(agreementPartner(support, 'italy')).toBeNull();
+  });
+});
+
+describe('setScratchpad / setSummary (#44 carried memory)', () => {
+  const board = new DiplomacyBoard();
+  const base = createDiplomaticState({ board, humanPower: 'england' });
+  const pad = {
+    self: 'france',
+    dispositions: { germany: { trust: -0.3, stance: 'rival', intent: 'Stab in fall.' } },
+    priority: 'Take Belgium.',
+    confidence: 0.6,
+  };
+
+  test('setScratchpad stores per power and is pure', () => {
+    const before = JSON.parse(JSON.stringify(base));
+    const next = setScratchpad(base, 'france', pad);
+    expect(getScratchpad(next, 'france')).toEqual(pad);
+    expect(base).toEqual(before); // input untouched
+  });
+
+  test('setScratchpad with null clears the entry', () => {
+    let s = setScratchpad(base, 'france', pad);
+    s = setScratchpad(s, 'france', null);
+    expect(getScratchpad(s, 'france')).toBeNull();
+  });
+
+  test('setScratchpad ignores a missing power', () => {
+    expect(setScratchpad(base, '', pad)).toBe(base);
+  });
+
+  test('setSummary stores per channel and trims', () => {
+    const next = setSummary(base, 'austria~france', '  Tense over Galicia.  ');
+    expect(getSummary(next, 'austria~france')).toBe('Tense over Galicia.');
+  });
+
+  test('setSummary ignores empty, non-string, or oversized text (no-op)', () => {
+    expect(setSummary(base, 'a~b', '')).toBe(base);
+    expect(setSummary(base, 'a~b', 42)).toBe(base);
+    expect(setSummary(base, 'a~b', 'x'.repeat(201))).toBe(base);
+    // 200 chars exactly is allowed.
+    const ok = setSummary(base, 'a~b', 'y'.repeat(200));
+    expect(getSummary(ok, 'a~b').length).toBe(200);
+  });
+
+  test('summaries/scratchpads survive a JSON serialize/deserialize round trip', () => {
+    let s = setScratchpad(base, 'france', pad);
+    s = setSummary(s, 'austria~france', 'Holding the DMZ.');
+    const round = JSON.parse(JSON.stringify(s));
+    expect(getScratchpad(round, 'france')).toEqual(pad);
+    expect(getSummary(round, 'austria~france')).toBe('Holding the DMZ.');
   });
 });

@@ -78,7 +78,7 @@ agent layers touch the board only through `clone()` / `applyMove()` and read-onl
 | `src/games/diplomacy/agents/serializeContext.js` | Pure serializer turning a live board into a compact, prompt-friendly context object for one power |
 | `src/games/diplomacy/agents/memory.js` | Per-power conversation memory — visible thread + private scratchpad (disposition toward others) |
 | `src/games/diplomacy/agents/negotiator.js` | Negotiation orchestrator — runs bounded private pairwise AI↔AI conversations (and each AI's side of the human thread), extracting concrete deals |
-| `src/games/diplomacy/agents/diplomaticState.js` | Persisted cross-turn diplomatic state — who trusts whom, which deals stand, which promises were kept/broken |
+| `src/games/diplomacy/agents/diplomaticState.js` | Persisted cross-turn diplomatic state — who trusts whom, which deals stand, which promises were kept/broken, plus carried per-power scratchpads and per-channel conversation summaries |
 | `src/games/diplomacy/agents/trustModel.js` | Deterministic trust update — diffs promises against what units actually did, moving trust accordingly |
 | `src/games/diplomacy/agents/betrayalModel.js` | Per-agreement honor-vs-break decision; assembles the strategic-intent object the tactical AI consumes |
 | `src/games/diplomacy/agents/strategicIntent.js` | The strategic-intent schema + validator binding negotiation output to the tactical layer |
@@ -131,10 +131,24 @@ exactly:
   the full game but the AI powers won't chat or negotiate.
 
 The endpoint builds a per-power system prompt grounded in the serialized board state and
-returns two fields: a visible plain-text `message` for the chat panel and a structured,
+returns three fields: a visible plain-text `message` for the chat panel, a structured,
 **private** `scratchpad` (the agent's true, possibly deceptive, disposition toward every
-other power). The scratchpad is validated defensively, never shown to the human, and
+other power), and an optional one-line **`summary`** (≤ 200 chars: "where this conversation
+stands"). The scratchpad and summary are validated defensively, never shown to the human, and
 persisted by the caller for the trust/betrayal model.
+
+### Conversation continuity (no extra LLM call)
+
+Private negotiation **carries forward across phases** without a second model call. Each
+phase the orchestrator persists, in the hidden `diplomaticState`, the proposer's
+`scratchpad` (`scratchpads[power]`) and the channel `summary` (`summaries[channelId]`). On
+the next phase it re-injects both into the prompt as `priorSummary` (the carried channel
+summary) and `memory` (a one-line render of that power's own prior note about the rival —
+"Previously with this rival: …"). The agent self-summarizes in its existing reply, so
+continuity costs nothing extra, and everything stays bounded by the existing
+`messages.slice(-16)` upstream cap. These fields live **only** in `diplomaticState` (which is
+persisted but never rendered) — AI↔AI scratchpads and summaries are never written to the
+human-visible conversation store.
 
 ### CORS
 
@@ -165,6 +179,37 @@ accordingly (verified promises clear; durable ones are promoted to standing agre
 emits a strategic-intent object, which `intentBinding.js` turns into the orders the tactical
 engine actually submits. So an alliance or betrayal changes resolved orders, not just chat
 text.
+
+### Thinking → orders: the trust blend
+
+The agent's private "thinking" reaches the order pipeline through the persisted scratchpad.
+`betrayalModel.js` blends the mechanical ledger trust with the scratchpad's self-reported
+trust, **ledger-dominant**:
+
+```
+effectiveTrust(partner) = clamp(W_LEDGER · ledgerTrust + W_SCRATCH · scratchpadTrust, -1, 1)
+```
+
+with `W_LEDGER` (0.7) **>** `W_SCRATCH` (0.3) — both exported constants. The verifiable
+kept/broken-promise ledger is the backbone, so a hallucinated "I trust you" can never
+override a partner who actually stabbed last turn, while genuine private reasoning still
+steers the honor-vs-break decision. The scratchpad also adds **deal-less** powers to
+`targets`: an `enemy` stance (or a `rival` stance with a hostile `intent`) toward a power you
+hold no agreement with presses them; an `ally`/`friendly` stance keeps them out of targets
+unless the ledger contradicts it. The function stays pure and deterministic in its inputs.
+
+### Deal-specific betrayal payoff
+
+Betrayal is decided **per agreement**, not all-or-nothing. `payoffOfBreaking(board, power,
+agreement)` generates candidate plans (`board.generateCandidatePlans`) and partitions them
+into **honor-consistent** plans — those that keep the agreement's promised support, avoid its
+DMZ provinces, or don't move into the partner's occupied centers (a small per-type
+predicate) — versus **all** plans. The gain is `(bestFreeScore − bestHonorScore) /
+PAYOFF_SCALE`, clamped to `[0, ∞)`; if no honor-consistent plan exists, the all-hold score is
+the honor baseline so the result stays finite and deterministic. So a deal that barely
+constrains a power yields a small gain (honored) while one blocking a high-value center grab
+yields a large gain (broken) — two deals for the same power can resolve differently in the
+same turn. Tests/tuning may still inject a `payoff` override (number or function).
 
 ## Difficulty and settings
 
