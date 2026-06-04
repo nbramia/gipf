@@ -386,7 +386,7 @@ export default function DiplomacyGame() {
 
       <div className="mx-auto flex min-h-screen w-full max-w-[1600px] flex-col gap-4 px-4 py-4 lg:flex-row lg:px-6">
         {/* ---- Left: header, scoreboard ---- */}
-        <aside className="order-2 flex w-full flex-col gap-3 lg:order-1 lg:w-[300px]">
+        <aside className="order-3 flex w-full flex-col gap-3 lg:order-1 lg:w-[300px]">
           <div className="dip-panel p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -479,7 +479,7 @@ export default function DiplomacyGame() {
         </aside>
 
         {/* ---- Center: the map ---- */}
-        <main className="order-1 flex min-h-[520px] flex-1 flex-col items-center justify-center gap-4 lg:order-2">
+        <main className="order-1 flex min-h-[260px] flex-1 flex-col items-center justify-center gap-4 lg:order-2 lg:min-h-[520px]">
           <div className="dip-board-shell">
             {renderMap()}
           </div>
@@ -488,7 +488,7 @@ export default function DiplomacyGame() {
         {/* ---- Right: order entry / retreat / winter / game-over. Hidden during
              the negotiation phase so the map takes the full remaining width. ---- */}
         {showActionPanel && (
-          <aside className="order-3 flex w-full flex-col gap-3 lg:w-[340px]">
+          <aside className="order-2 flex w-full flex-col gap-3 lg:order-3 lg:w-[340px]">
             {board.phase === 'game-over' && (
               <div className="dip-panel p-4">
                 <div className="dip-gameover-banner">

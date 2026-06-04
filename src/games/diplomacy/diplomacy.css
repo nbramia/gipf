@@ -1022,6 +1022,27 @@
   .game-diplomacy .dip-board-shell { max-width: 100%; }
 }
 
+/* ---- Phones: bigger touch targets, no nested scroll, tighter chrome ---- */
+@media (max-width: 640px) {
+  /* Comfortable 44px+ tap targets across the order/retreat/winter controls. */
+  .game-diplomacy .dip-unit-pick,
+  .game-diplomacy .dip-target-btn,
+  .game-diplomacy .dip-tool-btn,
+  .game-diplomacy .dip-primary-btn {
+    min-height: 46px;
+  }
+  .game-diplomacy .dip-target-btn,
+  .game-diplomacy .dip-unit-pick { padding: 0.6rem 0.75rem; }
+  .game-diplomacy .dip-ordertype-row .dip-tool-btn { flex: 1 1 8rem; }
+  .game-diplomacy .dip-unit-tag { font-size: 0.92rem; }
+  .game-diplomacy .dip-unit-order,
+  .game-diplomacy .dip-target-btn { font-size: 0.88rem; }
+
+  /* Let the page scroll naturally instead of nesting scroll regions. */
+  .game-diplomacy .dip-unit-list,
+  .game-diplomacy .dip-target-grid { max-height: none; overflow: visible; }
+}
+
 /* ========== Animations (all prefixed diplomacy-) ========== */
 
 @keyframes diplomacy-fade-in {
