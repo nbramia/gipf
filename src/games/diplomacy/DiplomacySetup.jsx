@@ -32,7 +32,7 @@ export default function DiplomacySetup({ initial, onStart }) {
     <div className="dip-setup">
       <div className="dip-setup-card">
         <Link to="/" className="dip-panel-label hover:opacity-80">GIPF Project</Link>
-        <h1 className="mt-1 font-display text-4xl font-bold" style={{ color: 'var(--dip-text)' }}>DIPLOMACY</h1>
+        <h1 className="dip-title mt-1 text-4xl" style={{ color: 'var(--dip-text)' }}>DIPLOMACY</h1>
         <p className="dip-setup-subtitle">
           Negotiate, ally, and betray your way to 18 supply centers against six AI powers.
         </p>
