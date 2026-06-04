@@ -30,6 +30,12 @@ Collect gem tokens, build an engine of discounted development cards, and court n
 
 Features a deep-search maxⁿ MCTS AI with fair-play hidden-information handling, a bring-your-own-key rules-help chat, full undo/redo, and 2-4 player support.
 
+### Diplomacy
+
+Classic seven-power Diplomacy on the standard 1901 Europe map. Pick one of the Great Powers and command armies and fleets with hold/move/support/convoy orders that adjudicate simultaneously each season. Negotiate with the six AI powers, then race to control 18 of the 34 supply centers for a solo victory.
+
+Features conversational LLM opponents (bring-your-own Anthropic key), private AI-to-AI negotiation with a trust/alliance/betrayal model that binds dialogue to real orders, a tactical best-response order engine in a Web Worker, split-coast support, and full save/resume.
+
 ## Quick Start
 
 ```bash
@@ -39,7 +45,7 @@ npm install
 npm start
 ```
 
-Opens at `http://localhost:3000` with a landing page. Navigate to `/yinsh`, `/zertz`, `/chess`, `/catan`, or `/splendor`.
+Opens at `http://localhost:3000` with a landing page. Navigate to `/yinsh`, `/zertz`, `/chess`, `/catan`, `/splendor`, or `/diplomacy`.
 
 ## Development
 
@@ -84,8 +90,16 @@ src/
       SplendorBoard.js     # 2-4 player Splendor logic (no React)
       SplendorGame.jsx     # React UI + card market + AI turns
       catan.css            # Scoped CSS variables + animations
+    diplomacy/
+      DiplomacyBoard.js    # Seven-power Diplomacy rules engine (no React)
+      DiplomacyGame.jsx    # React UI + SVG map + turn loop
+      diplomacy.css        # Scoped CSS variables + animations
+      engine/              # Tactical best-response order AI + worker
+      agents/              # Conversational LLM agents + negotiation/trust
+      hooks/               # AI worker + turn-loop React hooks
 api/
   aiMove.js                # Vercel serverless function (Yinsh AI)
+  diplomacyAgent.js        # Vercel serverless function (Diplomacy LLM agents)
 scripts/                   # Training data generation, tournaments
 training/                  # PyTorch training pipeline -> ONNX export
 public/models/             # ONNX neural network models
