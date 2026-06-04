@@ -19,7 +19,15 @@ import {
   FLEET_ADJACENCY,
   baseProvince,
 } from '../DiplomacyBoard.js';
-import { recordPromise, recordAgreement, getTrust } from './diplomaticState.js';
+import {
+  recordPromise,
+  recordAgreement,
+  getTrust,
+  setScratchpad,
+  setSummary,
+  getScratchpad,
+  getSummary,
+} from './diplomaticState.js';
 
 // --- deterministic RNG (mulberry32) -----------------------------------------
 // Seeded so pair selection / tie-breaking is reproducible across runs.
@@ -221,6 +229,23 @@ function channelId(a, b) {
   return [a, b].sort().join('~');
 }
 
+// --- prior-memory injection (#44) -------------------------------------------
+
+// Render a power's persisted disposition toward one rival into a short private
+// note line (for re-injection as `memory`). Empty string when nothing is known.
+function priorNoteFor(state, power, rival) {
+  const scratchpad = getScratchpad(state, power);
+  if (!scratchpad || !scratchpad.dispositions) return '';
+  const d = scratchpad.dispositions[rival];
+  if (!d || typeof d !== 'object') return '';
+  const parts = [];
+  if (d.stance) parts.push(`stance ${d.stance}`);
+  if (typeof d.trust === 'number') parts.push(`trust ${d.trust.toFixed(2)}`);
+  if (d.intent) parts.push(`intent: ${d.intent}`);
+  if (d.note) parts.push(`note: ${d.note}`);
+  return parts.join('; ');
+}
+
 // --- orchestrator -----------------------------------------------------------
 
 const DEFAULT_OPTIONS = { maxRounds: 2, maxPairsPerRound: 4, humanPower: null, seed: 0 };
@@ -233,8 +258,10 @@ const DEFAULT_OPTIONS = { maxRounds: 2, maxPairsPerRound: 4, humanPower: null, s
 //             `agents.humanThreads` (if present) is the HUMAN-VISIBLE thread store
 //             and is NEVER written with AI↔AI text.
 //   askAgent: async ({ power, counterparties, channel, boardContext, persona,
-//             memory, scratchpad, messages }) -> { reply, scratchpadDelta? }.
-//             Injected so tests mock it; the app passes the reused endpoint client.
+//             priorSummary, memory, scratchpad, messages }) ->
+//             { reply: { message, scratchpad?, summary? } }. Injected so tests
+//             mock it; the app passes the reused endpoint client. The orchestrator
+//             folds reply.scratchpad/summary into the returned state (#44).
 //   options:  { maxRounds, maxPairsPerRound, humanPower, seed }.
 //
 // Budget (hard): ≤ maxRounds × maxPairsPerRound AI↔AI askAgent calls, plus ≤ 1
@@ -279,8 +306,12 @@ export async function runNegotiationPhase({ board, state, agents = {}, askAgent,
         phase,
         boardContext: aCtx.boardContext || null,
         persona: aCtx.persona || null,
-        memory: aCtx.memory || null,
-        scratchpad: aCtx.scratchpad || null,
+        // Carry the conversation forward (#44): the brief per-channel summary and
+        // this power's own prior private note about the rival, both from the
+        // persisted diplomatic state (never the human-visible store).
+        priorSummary: getSummary(nextState, channel),
+        memory: priorNoteFor(nextState, a, b),
+        scratchpad: getScratchpad(nextState, a),
         messages: transcriptMessages(transcripts[channel], a),
       });
 
@@ -291,6 +322,18 @@ export async function runNegotiationPhase({ board, state, agents = {}, askAgent,
         counterparty: b,
         message: messageText(proposalReply),
       });
+
+      // Persist the proposer's scratchpad + the channel summary so they carry
+      // into the next phase. These live ONLY in the hidden diplomatic state —
+      // never written to agents.humanThreads (the secrecy invariant).
+      if (proposalReply && typeof proposalReply === 'object') {
+        if (proposalReply.scratchpad) {
+          nextState = setScratchpad(nextState, a, proposalReply.scratchpad);
+        }
+        if (proposalReply.summary) {
+          nextState = setSummary(nextState, channel, proposalReply.summary);
+        }
+      }
 
       // Record any concrete, structured deal the proposer offered AND the
       // counterparty implicitly/explicitly accepted (acceptance is the proposer
@@ -315,15 +358,19 @@ export async function runNegotiationPhase({ board, state, agents = {}, askAgent,
       // Skip if the last message is already from the AI (nothing to answer).
       if (thread.messages[thread.messages.length - 1].role === 'assistant') continue;
 
+      const humanChannel = `human~${power}`;
       const res = await askAgent({
         power,
         counterparties: [human],
-        channel: `human~${power}`,
+        channel: humanChannel,
         phase,
         boardContext: ctx.boardContext || null,
         persona: ctx.persona || null,
-        memory: ctx.memory || null,
-        scratchpad: ctx.scratchpad || null,
+        // The human thread carries its own summary + this power's prior note
+        // about the human, mirroring the AI↔AI continuity (#44).
+        priorSummary: getSummary(nextState, humanChannel),
+        memory: priorNoteFor(nextState, power, human),
+        scratchpad: getScratchpad(nextState, power),
         messages: thread.messages,
       });
       const reply = res && res.reply ? res.reply : res;
@@ -331,6 +378,13 @@ export async function runNegotiationPhase({ board, state, agents = {}, askAgent,
       if (text && humanThreads) {
         thread.messages.push({ role: 'assistant', content: text, turn: phase || '' });
         thread.updatedAt = Date.now();
+      }
+      // Persist the power's evolving scratchpad (and the human-channel summary)
+      // into the HIDDEN state only — the visible text already went to the thread
+      // above; the private disposition/summary never touch humanThreads.
+      if (reply && typeof reply === 'object') {
+        if (reply.scratchpad) nextState = setScratchpad(nextState, power, reply.scratchpad);
+        if (reply.summary) nextState = setSummary(nextState, humanChannel, reply.summary);
       }
     }
   }

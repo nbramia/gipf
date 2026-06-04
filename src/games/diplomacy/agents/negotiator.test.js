@@ -1,5 +1,5 @@
 import DiplomacyBoard from '../DiplomacyBoard.js';
-import { createDiplomaticState } from './diplomaticState.js';
+import { createDiplomaticState, getScratchpad, getSummary } from './diplomaticState.js';
 import { createMemory } from './memory.js';
 import { runNegotiationPhase, selectPairs } from './negotiator.js';
 
@@ -158,6 +158,110 @@ describe('runNegotiationPhase — deal extraction', () => {
     });
     expect(next.promises).toHaveLength(0);
     expect(next.agreements).toHaveLength(0);
+  });
+});
+
+describe('runNegotiationPhase — carried memory (#44)', () => {
+  test('a scratchpad returned in phase N is present in the state used for phase N+1', async () => {
+    const { board, state, humanPower } = freshGame();
+    const opts = { maxRounds: 1, maxPairsPerRound: 4, humanPower, seed: 5 };
+
+    const pad = {
+      self: 'self',
+      dispositions: { rival: { trust: -0.4, stance: 'rival', intent: 'Stab next fall.' } },
+      priority: 'Grow.',
+      confidence: 0.7,
+    };
+    const askN = mockAskAgent((power) => {
+      if (askN.calls.length === 1) {
+        return { message: 'Friends for now.', scratchpad: { ...pad, self: power } };
+      }
+      return { message: '' };
+    });
+    const { state: afterN } = await runNegotiationPhase({ board, state, askAgent: askN, options: opts });
+
+    const firstProposer = askN.calls[0].power;
+    expect(getScratchpad(afterN, firstProposer)).toMatchObject({ self: firstProposer });
+
+    // Phase N+1: the orchestrator re-injects that power's prior note about its
+    // rival as `memory`, observable on the askAgent call args.
+    const rivalInChannel = askN.calls[0].counterparties[0];
+    const padForNext = {
+      self: firstProposer,
+      dispositions: { [rivalInChannel]: { trust: -0.4, stance: 'rival', intent: 'Stab next fall.' } },
+      priority: 'Grow.',
+      confidence: 0.7,
+    };
+    const seeded = JSON.parse(JSON.stringify(afterN));
+    seeded.scratchpads[firstProposer] = padForNext;
+
+    const askNext = mockAskAgent(() => ({ message: '' }));
+    await runNegotiationPhase({ board, state: seeded, askAgent: askNext, options: opts });
+    const proposerCall = askNext.calls.find(
+      (c) => c.power === firstProposer && (c.counterparties || []).includes(rivalInChannel)
+    );
+    expect(proposerCall).toBeTruthy();
+    expect(proposerCall.memory).toContain('Stab next fall.');
+    expect(proposerCall.memory).toContain('rival');
+  });
+
+  test('a channel summary is captured and re-injected as priorSummary next phase', async () => {
+    const { board, state, humanPower } = freshGame();
+    const opts = { maxRounds: 1, maxPairsPerRound: 4, humanPower, seed: 5 };
+
+    const askN = mockAskAgent(() => {
+      if (askN.calls.length === 1) {
+        return { message: 'Belgium stays neutral.', summary: 'Agreed to keep Belgium neutral.' };
+      }
+      return { message: '' };
+    });
+    const { state: afterN } = await runNegotiationPhase({ board, state, askAgent: askN, options: opts });
+
+    const firstChannel = askN.calls[0].channel;
+    expect(getSummary(afterN, firstChannel)).toBe('Agreed to keep Belgium neutral.');
+
+    const askNext = mockAskAgent(() => ({ message: '' }));
+    await runNegotiationPhase({ board, state: afterN, askAgent: askNext, options: opts });
+    const call = askNext.calls.find((c) => c.channel === firstChannel);
+    expect(call).toBeTruthy();
+    expect(call.priorSummary).toBe('Agreed to keep Belgium neutral.');
+  });
+
+  test('AI↔AI scratchpads/summaries are NEVER written to the human thread store', async () => {
+    const { board, state, humanPower } = freshGame();
+    const aiPowers = board.getPowerIds().filter((p) => p !== humanPower);
+    const humanThreads = createMemory(aiPowers);
+
+    const PAD_SECRET = 'PAD-SECRET-STAB-PLAN';
+    const SUM_SECRET = 'SUMMARY-SECRET-DMZ-PLAN';
+    const askAgent = mockAskAgent((power, ctx) => {
+      if (!ctx.channel.startsWith('human~')) {
+        return {
+          message: 'Pleasant nothing.',
+          scratchpad: {
+            self: power,
+            dispositions: { [ctx.counterparties[0]]: { trust: -0.2, stance: 'enemy', intent: PAD_SECRET } },
+            priority: 'win',
+            confidence: 0.5,
+          },
+          summary: SUM_SECRET,
+        };
+      }
+      return { message: 'Nothing to report.' };
+    });
+
+    const { state: next } = await runNegotiationPhase({
+      board, state, askAgent,
+      agents: { humanThreads },
+      options: { maxRounds: 2, maxPairsPerRound: 4, humanPower, seed: 11 },
+    });
+
+    const hidden = JSON.stringify({ scratchpads: next.scratchpads, summaries: next.summaries });
+    expect(hidden).toContain(PAD_SECRET);
+    expect(hidden).toContain(SUM_SECRET);
+    const visible = JSON.stringify(humanThreads);
+    expect(visible).not.toContain(PAD_SECRET);
+    expect(visible).not.toContain(SUM_SECRET);
   });
 });
 

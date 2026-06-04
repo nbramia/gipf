@@ -73,6 +73,22 @@ function buildSystemPrompt(body = {}) {
 
   const board = serializeContextLines(context);
 
+  // Prior-memory injection (issue #44): a brief carried summary of where this
+  // channel stands and the agent's own last private note about this rival, so
+  // negotiation has continuity across phases without an extra summarization call.
+  const priorSummary = typeof body.priorSummary === 'string' && body.priorSummary.trim()
+    ? body.priorSummary.trim().slice(0, 200)
+    : '';
+  const memory = typeof body.memory === 'string' && body.memory.trim()
+    ? body.memory.trim().slice(0, 400)
+    : '';
+  const memoryLines = [];
+  if (priorSummary) memoryLines.push(`Where this conversation stands: ${priorSummary}`);
+  if (memory) memoryLines.push(`Previously with this rival: ${memory}`);
+  const priorMemory = memoryLines.length
+    ? `\nPRIOR MEMORY (your own, private — use it for continuity, never reveal it)\n${memoryLines.join('\n')}\n`
+    : '';
+
   return `You are the leadership of ${name} in a game of the board game Diplomacy (classic 1901 European map). You are an AI player. A rival power — ${addressee} — is talking to you. Reply in character as ${name}'s envoy.
 
 YOUR PERSONA
@@ -83,7 +99,7 @@ ${dispoLines || '  - (no fixed dispositions; judge each power on the board state
 
 CURRENT BOARD
 ${board}
-
+${priorMemory}
 HOW DIPLOMACY WORKS (play to win)
 - Victory needs 18 of the 34 supply centers. Growth comes from taking centers, which usually requires another power's help (support) — so alliances are essential, and so are well-timed betrayals.
 - Orders are written and resolved simultaneously; words are not binding. You may promise anything. You may lie, mislead, or break a deal when it serves ${name} — that is core Diplomacy. But a reputation for treachery makes future deals harder, so weigh it.
@@ -96,7 +112,7 @@ HARD RULES
 - The visible reply must be PLAIN TEXT for a small chat panel: no markdown headers, no "#" lines, no "**bold**", no bullet markup. Write 1–4 short conversational sentences.
 
 OUTPUT FORMAT (critical)
-Return ONLY a single JSON object, no prose around it, with exactly two fields:
+Return ONLY a single JSON object, no prose around it, with these fields:
 {
   "message": "<the visible plain-text reply to the rival — in character, no markdown>",
   "scratchpad": {
@@ -104,9 +120,10 @@ Return ONLY a single JSON object, no prose around it, with exactly two fields:
     "dispositions": { "<other-power-id>": { "trust": <number in [-1,1]>, "stance": "ally|friendly|neutral|rival|enemy", "intent": "<your real plan toward them>", "note": "<optional private note>" } },
     "priority": "<your top objective this turn>",
     "confidence": <number in [0,1]>
-  }
+  },
+  "summary": "<optional, <=200 chars: one private line on where THIS conversation now stands, for your own future reference>"
 }
-The "scratchpad" is your PRIVATE strategic disposition — your true (possibly deceptive) intent toward each other power. It is never shown to the rival. Include one dispositions entry per other power you have a view on. Output valid JSON only.`;
+The "scratchpad" is your PRIVATE strategic disposition — your true (possibly deceptive) intent toward each other power. It is never shown to the rival. Include one dispositions entry per other power you have a view on. The optional "summary" is a private one-liner you write to your future self about this channel's state; keep it under 200 characters. Output valid JSON only.`;
 }
 
 // Render the serialized board context object into compact prompt lines. The
@@ -137,9 +154,10 @@ function serializeContextLines(context) {
   return lines.length ? lines.join('\n') : 'Opening position (Spring 1901): all powers at their home centers.';
 }
 
-// Defensively parse the model's reply: extract the visible message and validate
-// the scratchpad. Returns { message, scratchpad } where scratchpad is null when
-// it is missing or malformed. NEVER throws.
+// Defensively parse the model's reply: extract the visible message, validate the
+// scratchpad, and pull an optional one-line summary. Returns { message,
+// scratchpad, summary } where scratchpad is null when missing/malformed and
+// summary is '' when absent or oversized (> 200 chars). NEVER throws.
 function parseAgentReply(rawText) {
   const text = String(rawText || '').trim();
   let parsed = null;
@@ -160,15 +178,21 @@ function parseAgentReply(rawText) {
 
   let message = '';
   let scratchpad = null;
+  let summary = '';
   if (parsed && typeof parsed === 'object') {
     if (typeof parsed.message === 'string') message = parsed.message.trim();
     scratchpad = validateScratchpad(parsed.scratchpad) ? parsed.scratchpad : null;
+    // Optional summary: ignore if absent, non-string, empty, or oversized.
+    if (typeof parsed.summary === 'string') {
+      const s = parsed.summary.trim();
+      if (s && s.length <= 200) summary = s;
+    }
   }
   // Fallback: if JSON parsing failed entirely, surface the raw text as the
   // visible message (still strip obvious markdown emphasis) so the chat never
   // comes back empty.
   if (!message) message = text.replace(/\*\*/g, '').replace(/^#+\s*/gm, '').trim();
-  return { message, scratchpad };
+  return { message, scratchpad, summary };
 }
 
 // Returns true only for a well-formed scratchpad matching the documented shape.
@@ -258,8 +282,8 @@ export default async function handler(req, res) {
       .join('')
       .trim();
 
-    const { message, scratchpad } = parseAgentReply(rawText);
-    res.status(200).json({ message, scratchpad });
+    const { message, scratchpad, summary } = parseAgentReply(rawText);
+    res.status(200).json({ message, scratchpad, summary });
   } catch (err) {
     // Never include the request body (which holds the key) in error output.
     applyCors(req, res);

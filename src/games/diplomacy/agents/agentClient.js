@@ -100,7 +100,7 @@ export async function sendMessage({ power, history, context, addressee, model, s
     return { error: 'empty', message: 'No reply came back. Try again.' };
   }
 
-  const result = { message: data.message, scratchpad: data.scratchpad || null };
+  const result = { message: data.message, scratchpad: data.scratchpad || null, summary: data.summary || '' };
 
   // Wire the result through memory when a store is supplied: append the visible
   // reply and persist the latest scratchpad.
@@ -117,9 +117,12 @@ export async function sendMessage({ power, history, context, addressee, model, s
 // adds AI↔AI negotiation fields (channel, counterparties) and never writes to any
 // memory store itself — the orchestrator owns transcript/state persistence and
 // keeps AI↔AI text out of the human-visible thread store.
-//   { power, counterparties, channel, boardContext, persona, messages, model }
-// Returns { reply: { message, scratchpad } } on success, or { error, reply }
-// mirroring sendMessage's error contract (no key / network / upstream).
+//   { power, counterparties, channel, boardContext, persona, messages, model,
+//     priorSummary, memory }
+//   - priorSummary: a brief carried summary of where this channel stands (#44)
+//   - memory:       the agent's own prior private note about this rival (#44)
+// Returns { reply: { message, scratchpad, summary } } on success, or
+// { error, reply } mirroring sendMessage's error contract.
 export async function askAgent({
   power,
   counterparties = [],
@@ -128,6 +131,8 @@ export async function askAgent({
   persona,
   messages,
   model,
+  priorSummary,
+  memory,
 } = {}) {
   const apiKey = getApiKey();
   if (!apiKey) {
@@ -151,6 +156,8 @@ export async function askAgent({
         counterparties,
         channel,
         model,
+        priorSummary,
+        memory,
       }),
     });
   } catch (_) {
@@ -162,5 +169,11 @@ export async function askAgent({
   }
 
   const data = await res.json();
-  return { reply: { message: (data && data.message) || '', scratchpad: (data && data.scratchpad) || null } };
+  return {
+    reply: {
+      message: (data && data.message) || '',
+      scratchpad: (data && data.scratchpad) || null,
+      summary: (data && data.summary) || '',
+    },
+  };
 }
