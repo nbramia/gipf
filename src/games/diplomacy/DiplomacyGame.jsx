@@ -255,6 +255,14 @@ export default function DiplomacyGame() {
   }, [legalForSelected, selectedUnit, orderType]);
 
   const isOrderEntry = board.isOrdersPhase() && turn.uiPhase === 'orders';
+  // The right-hand action panel only appears when there's something to act on;
+  // during negotiation it's hidden so the map spans the full remaining width.
+  const showActionPanel =
+    board.phase === 'game-over' ||
+    isOrderEntry ||
+    turn.uiPhase === 'resolving' ||
+    board.isRetreatPhase() ||
+    board.isWinterPhase();
 
   function selectUnitForOrder(loc) {
     const unit = board.units[loc];
@@ -383,7 +391,7 @@ export default function DiplomacyGame() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <Link to="/" className="dip-panel-label hover:opacity-80">GIPF Project</Link>
-                <h1 className="dip-title mt-1 text-3xl" style={{ color: 'var(--dip-text)' }}>DIPLOMACY</h1>
+                <h1 className="dip-title mt-1 text-2xl" style={{ color: 'var(--dip-text)' }}>DIPLOMACY</h1>
               </div>
             </div>
             <div className="dip-phase-banner mt-4">{phaseLabel}</div>
@@ -402,6 +410,25 @@ export default function DiplomacyGame() {
               <ToggleRow label="Show Orders" checked={showOrders} onChange={() => setShowOrders(v => !v)} />
             </div>
           </div>
+
+          {/* Negotiation: the human chats below, then proceeds to enter orders.
+              Lives here (not the right column) so the map can use the full width. */}
+          {board.phase !== 'game-over' && board.isOrdersPhase() && turn.uiPhase === 'negotiation' && (
+            <div className="dip-panel p-4">
+              <div className="dip-panel-label mb-2">Negotiation — {phaseLabel}</div>
+              <p className="dip-submit-hint">
+                Talk to the other powers in the Negotiation panel below. When you're ready, proceed —
+                the other powers plan their moves at the same time.
+              </p>
+              <button
+                className="dip-primary-btn mt-3 w-full"
+                onClick={turn.proceedToOrders}
+                disabled={turn.isBusy}
+              >
+                {turn.isBusy ? 'Powers conferring…' : 'Proceed to orders'}
+              </button>
+            </div>
+          )}
 
           {showKeyPrompt && (
             <div className="dip-keyprompt p-4">
@@ -458,66 +485,40 @@ export default function DiplomacyGame() {
           </div>
         </main>
 
-        {/* ---- Right: negotiation / order entry / retreat / winter / game-over ---- */}
-        <aside className="order-3 flex w-full flex-col gap-3 lg:w-[340px]">
-          {board.phase === 'game-over' && (
-            <div className="dip-panel p-4">
-              <div className="dip-gameover-banner">
-                {board.winner ? `${POWER_SHORT_NAMES[board.winner]} wins` : 'Game over'}
+        {/* ---- Right: order entry / retreat / winter / game-over. Hidden during
+             the negotiation phase so the map takes the full remaining width. ---- */}
+        {showActionPanel && (
+          <aside className="order-3 flex w-full flex-col gap-3 lg:w-[340px]">
+            {board.phase === 'game-over' && (
+              <div className="dip-panel p-4">
+                <div className="dip-gameover-banner">
+                  {board.winner ? `${POWER_SHORT_NAMES[board.winner]} wins` : 'Game over'}
+                </div>
+                <p className="mt-2 text-sm" style={{ color: 'var(--dip-text-muted)' }}>
+                  {board.winner
+                    ? `${POWER_SHORT_NAMES[board.winner]} controls ${board.winningCenters} supply centers.`
+                    : 'No decisive winner.'}
+                </p>
+                <button className="dip-primary-btn mt-4 w-full" onClick={() => setConfirmNew(true)}>New Game</button>
               </div>
-              <p className="mt-2 text-sm" style={{ color: 'var(--dip-text-muted)' }}>
-                {board.winner
-                  ? `${POWER_SHORT_NAMES[board.winner]} controls ${board.winningCenters} supply centers.`
-                  : 'No decisive winner.'}
-              </p>
-              <button className="dip-primary-btn mt-4 w-full" onClick={() => setConfirmNew(true)}>New Game</button>
-            </div>
-          )}
+            )}
 
-          {board.phase !== 'game-over' && board.isOrdersPhase() && turn.uiPhase === 'negotiation' && renderNegotiationPanel()}
-          {board.phase !== 'game-over' && isOrderEntry && renderOrderPanel()}
-          {board.phase !== 'game-over' && turn.uiPhase === 'resolving' && (
-            <div className="dip-panel p-4">
-              <div className="dip-panel-label mb-2">Resolving</div>
-              <p className="dip-submit-hint">{turn.progress || 'Resolving orders…'}</p>
-            </div>
-          )}
-          {board.phase !== 'game-over' && board.isRetreatPhase() && renderRetreatPanel()}
-          {board.phase !== 'game-over' && board.isWinterPhase() && renderWinterPanel()}
-        </aside>
+            {board.phase !== 'game-over' && isOrderEntry && renderOrderPanel()}
+            {board.phase !== 'game-over' && turn.uiPhase === 'resolving' && (
+              <div className="dip-panel p-4">
+                <div className="dip-panel-label mb-2">Resolving</div>
+                <p className="dip-submit-hint">{turn.progress || 'Resolving orders…'}</p>
+              </div>
+            )}
+            {board.phase !== 'game-over' && board.isRetreatPhase() && renderRetreatPanel()}
+            {board.phase !== 'game-over' && board.isWinterPhase() && renderWinterPanel()}
+          </aside>
+        )}
       </div>
     </div>
   );
 
   // ============================ render helpers ============================
-
-  function renderNegotiationPanel() {
-    return (
-      <div className="dip-panel p-4">
-        <div className="dip-panel-label mb-2">Negotiation — {phaseLabel}</div>
-        <p className="dip-submit-hint">
-          Talk to the other powers in the Negotiation panel. When you're ready, proceed to enter
-          your orders. The other powers will plan their moves simultaneously.
-        </p>
-        <div className="mt-4 flex flex-col gap-2">
-          <button
-            className="dip-tool-btn w-full"
-            onClick={turn.runNegotiation}
-            disabled={turn.isBusy}
-          >
-            {turn.isBusy ? 'Powers conferring…' : 'Let the powers confer'}
-          </button>
-          <button
-            className="dip-primary-btn w-full"
-            onClick={turn.proceedToOrders}
-            disabled={turn.isBusy}
-          >
-            Proceed to orders
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   function renderMap() {
     const units = board.getUnits();
