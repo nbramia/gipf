@@ -619,3 +619,151 @@
   from { opacity: 0; }
   to { opacity: 0.85; }
 }
+
+/* ========== Setup screen ([Negotiation Loop] PR2) ========== */
+
+.game-diplomacy .dip-setup {
+  display: flex;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.game-diplomacy .dip-setup-card {
+  width: 100%;
+  max-width: 560px;
+  border: 1px solid var(--dip-border);
+  background: var(--dip-panel);
+  border-radius: 18px;
+  padding: 1.75rem;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.12);
+}
+
+.game-diplomacy .dip-setup-subtitle {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--dip-text-muted);
+}
+
+.game-diplomacy .dip-setup-section {
+  margin-top: 1.5rem;
+}
+
+.game-diplomacy .dip-setup-powers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.5rem;
+}
+
+.game-diplomacy .dip-setup-power {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--dip-border);
+  border-radius: 10px;
+  background: var(--dip-soft);
+  color: var(--dip-text);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: left;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.game-diplomacy .dip-setup-power:hover {
+  border-color: var(--dip-border-strong);
+}
+
+.game-diplomacy .dip-setup-power.is-active {
+  border-color: var(--power-color);
+  box-shadow: 0 0 0 2px var(--power-color) inset;
+}
+
+.game-diplomacy .dip-setup-power-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.game-diplomacy .dip-setup-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.game-diplomacy .dip-setup-pill {
+  padding: 0.45rem 1rem;
+  border: 1px solid var(--dip-border);
+  border-radius: 999px;
+  background: var(--dip-soft);
+  color: var(--dip-text);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.game-diplomacy .dip-setup-pill.is-active {
+  border-color: var(--dip-accent);
+  background: var(--dip-accent);
+  color: var(--dip-btn-primary-text);
+}
+
+.game-diplomacy .dip-setup-slider {
+  width: 100%;
+  accent-color: var(--dip-accent);
+}
+
+.game-diplomacy .dip-setup-spice-value {
+  color: var(--dip-text-muted);
+  font-weight: 600;
+}
+
+.game-diplomacy .dip-setup-hint {
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--dip-text-muted);
+}
+
+/* ========== Turn-loop status + fallback prompt ========== */
+
+.game-diplomacy .dip-you-line {
+  font-size: 0.82rem;
+  color: var(--dip-text-muted);
+}
+
+.game-diplomacy .dip-progress {
+  font-size: 0.82rem;
+  color: var(--dip-accent);
+  font-weight: 600;
+  animation: diplomacy-fade-in 0.6s ease both;
+}
+
+.game-diplomacy .dip-score-row.is-you {
+  outline: 1px dashed var(--dip-border-strong);
+  outline-offset: -1px;
+  border-radius: 6px;
+}
+
+.game-diplomacy .dip-keyprompt {
+  border: 1px solid var(--dip-border);
+  background: var(--dip-soft);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.game-diplomacy .dip-keyprompt-text {
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--dip-text-muted);
+}
+
+.game-diplomacy .dip-keyprompt-dismiss {
+  align-self: flex-end;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--dip-accent);
+}
