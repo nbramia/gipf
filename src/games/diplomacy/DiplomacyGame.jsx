@@ -370,7 +370,7 @@ export default function DiplomacyGame() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <Link to="/" className="dip-panel-label hover:opacity-80">GIPF Project</Link>
-                <h1 className="mt-1 font-display text-3xl font-bold" style={{ color: 'var(--dip-text)' }}>DIPLOMACY</h1>
+                <h1 className="dip-title mt-1 text-3xl" style={{ color: 'var(--dip-text)' }}>DIPLOMACY</h1>
               </div>
             </div>
             <div className="dip-phase-banner mt-4">{phaseLabel}</div>
@@ -522,6 +522,10 @@ export default function DiplomacyGame() {
           <marker id="dip-arrowhead" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
             <path d="M0,0 L6,3 L0,6 Z" className="dip-arrow-head" />
           </marker>
+          {/* Open diamond for support-move: distinct from the filled move arrow. */}
+          <marker id="dip-support-diamond" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto">
+            <path d="M5,1 L9,5 L5,9 L1,5 Z" fill="none" stroke="currentColor" strokeWidth="1.4" />
+          </marker>
         </defs>
 
         {/* Province nodes */}
@@ -564,11 +568,18 @@ export default function DiplomacyGame() {
             <g key={unit.loc} className="dip-unit-group" filter="url(#dip-piece-shadow)" onClick={() => selectUnitForOrder(unit.loc)}>
               <title>{`${POWER_SHORT_NAMES[unit.power]} ${unit.type} ${provinceLabel(unit.loc)}`}</title>
               {unit.type === 'fleet' ? (
-                <rect x={pt.x - 9} y={pt.y - 8} width={18} height={16} rx={3} className="dip-unit dip-unit-fleet" style={{ fill: color }} />
+                // Fleet: a pennant / triangular flag — distinguishable from the
+                // army disc by SHAPE alone (color-blind safe, legible at scale).
+                <polygon
+                  points={`${pt.x - 9},${pt.y - 9} ${pt.x + 11},${pt.y - 3} ${pt.x - 9},${pt.y + 3} ${pt.x - 9},${pt.y + 9}`}
+                  className="dip-unit dip-unit-fleet"
+                  style={{ fill: color }}
+                />
               ) : (
+                // Army: a solid disc.
                 <circle cx={pt.x} cy={pt.y} r={9} className="dip-unit dip-unit-army" style={{ fill: color }} />
               )}
-              <text x={pt.x} y={pt.y} textAnchor="middle" dominantBaseline="central" className="dip-unit-glyph">
+              <text x={unit.type === 'fleet' ? pt.x - 2 : pt.x} y={pt.y - 1} textAnchor="middle" dominantBaseline="central" className="dip-unit-glyph">
                 {formatUnitType(unit.type)}
               </text>
             </g>
@@ -602,12 +613,17 @@ export default function DiplomacyGame() {
     if (order.type === 'support-move' || order.type === 'support-hold' || order.type === 'convoy') {
       const target = unitPoint(order.type === 'support-hold' ? order.target : order.to);
       if (!target) return null;
+      // support-move ends in an open diamond; support-hold/convoy do not — so the
+      // four overlay kinds (move arrow / support-move diamond / support-hold /
+      // convoy wave) all read distinctly even when several overlap.
+      const markerEnd = order.type === 'support-move' ? 'url(#dip-support-diamond)' : undefined;
       return (
         <line
           key={key}
           x1={from.x} y1={from.y} x2={target.x} y2={target.y}
           className={`dip-order-support ${order.type === 'convoy' ? 'is-convoy' : ''}`}
-          style={{ stroke: color }}
+          style={{ stroke: color, color }}
+          markerEnd={markerEnd}
         />
       );
     }
