@@ -784,6 +784,48 @@
   color: #fff;
 }
 
+/* A power that has reached out: highlighted tab + unread count badge. */
+.game-diplomacy .dip-chat-power.has-unread {
+  border-color: var(--dip-accent);
+  color: var(--dip-text);
+  box-shadow: 0 0 0 1px var(--dip-accent);
+}
+.game-diplomacy .dip-chat-power-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  margin-left: 0.35rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  background: var(--dip-accent);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1;
+}
+.game-diplomacy .dip-chat-power.is-active .dip-chat-power-badge {
+  background: #fff;
+  color: var(--dip-accent);
+}
+
+/* Inline "powers have reached out" pill in the negotiation summary line. */
+.game-diplomacy .dip-notify-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.2rem;
+  height: 1.2rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: var(--dip-accent);
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 800;
+  vertical-align: middle;
+}
+
 .game-diplomacy .dip-chat-thread {
   display: flex;
   flex-direction: column;

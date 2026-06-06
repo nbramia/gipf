@@ -100,6 +100,7 @@ export default function useDiplomacyTurn({
   setDiplomaticState,
   personas,
   conversations,
+  setConversations,
   workerSupported,
   computeOrders,
   onPhaseSettled,
@@ -150,12 +151,16 @@ export default function useDiplomacyTurn({
 
   // ----- negotiation phase -----
 
-  // Run the bounded AI↔AI negotiation, evolving the hidden diplomatic state and
-  // letting AI powers answer open human chat threads. Returns the next state.
-  // With no key the orchestrator still runs (askAgent returns empty replies, so
-  // no AI↔AI content is produced) — the loop always completes. This is folded
-  // into proceedToOrders rather than exposed as its own (invisible) button.
-  const confer = useCallback(async () => {
+  // Run the bounded AI↔AI negotiation for the turn: evolve the hidden diplomatic
+  // state, let AI powers answer any open human threads, AND let the most-relevant
+  // neighbours proactively open talks with the human (initiateHuman). New AI→human
+  // messages land in the shared `conversations` store, which is refreshed so the
+  // chat panel and its unread indicator update. Returns the next state. With no
+  // key the orchestrator still completes (askAgent returns empty replies).
+  const runNegotiation = useCallback(async () => {
+    if (busyRef.current) return diplomaticState;
+    busyRef.current = true;
+    setIsBusy(true);
     setProgress('The powers are conferring…');
     let nextState = diplomaticState;
     try {
@@ -168,7 +173,7 @@ export default function useDiplomacyTurn({
         };
       }
       // The human-visible thread store is passed so AI powers can answer open
-      // human threads — AI↔AI transcripts stay OUT of it (orchestrator contract).
+      // human threads and open new ones — AI↔AI transcripts stay OUT of it.
       if (conversations) agents.humanThreads = conversations;
 
       const result = await runNegotiationPhase({
@@ -176,7 +181,7 @@ export default function useDiplomacyTurn({
         state: diplomaticState,
         agents,
         askAgent,
-        options: { ...NEGOTIATION_OPTIONS, humanPower },
+        options: { ...NEGOTIATION_OPTIONS, humanPower, initiateHuman: true },
       });
       if (result && result.state) nextState = result.state;
     } catch (_) {
@@ -184,9 +189,17 @@ export default function useDiplomacyTurn({
     }
 
     if (setDiplomaticState) setDiplomaticState(nextState);
+    // runNegotiationPhase mutates the thread store in place; hand the component a
+    // fresh reference so React re-renders the chat + unread badges.
+    if (setConversations && conversations) {
+      setConversations({ threads: { ...conversations.threads } });
+    }
+    busyRef.current = false;
+    setIsBusy(false);
     setProgress('');
+    settle('negotiation', nextState);
     return nextState;
-  }, [board, controllers, personas, conversations, diplomaticState, setDiplomaticState, humanPower]);
+  }, [board, controllers, personas, conversations, setConversations, diplomaticState, setDiplomaticState, humanPower, settle]);
 
   // ----- orders phase: compute AI orders, merge human orders, adjudicate -----
 
@@ -359,24 +372,14 @@ export default function useDiplomacyTurn({
     [board, controllers, diplomaticState, difficultyBudget, getOrders, setBoard, settle]
   );
 
-  // Move from negotiation to order entry (the human's explicit "Proceed"). When a
-  // key is present this first runs the AI↔AI negotiation (shaping the AI powers'
-  // upcoming orders and answering any open human threads), then advances.
-  const proceedToOrders = useCallback(async () => {
+  // Move from negotiation to order entry (the human's explicit "Proceed"). The
+  // AI↔AI negotiation now runs automatically when the negotiation phase begins
+  // (runNegotiation), so this just advances — it never blocks on AI calls.
+  const proceedToOrders = useCallback(() => {
     if (busyRef.current) return;
-    if (hasApiKey()) {
-      busyRef.current = true;
-      setIsBusy(true);
-      const nextState = await confer();
-      busyRef.current = false;
-      setIsBusy(false);
-      setUiPhase('orders');
-      settle('orders', nextState);
-    } else {
-      setUiPhase('orders');
-      settle('orders', diplomaticState);
-    }
-  }, [confer, settle, diplomaticState]);
+    setUiPhase('orders');
+    settle('orders', diplomaticState);
+  }, [settle, diplomaticState]);
 
   // Re-enter the saved UI phase on load (called by the game on mount-restore).
   const restoreUiPhase = useCallback((phase) => {
@@ -388,6 +391,7 @@ export default function useDiplomacyTurn({
     setUiPhase,
     isBusy,
     progress,
+    runNegotiation,
     proceedToOrders,
     submitOrders,
     submitRetreats,

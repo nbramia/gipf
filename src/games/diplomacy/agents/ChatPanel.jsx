@@ -5,7 +5,7 @@
 // Visible chat is plain text only — the agent's private scratchpad is persisted
 // in memory but NEVER rendered here. Scoped under .game-diplomacy.
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { POWER_NAMES, POWER_SHORT_NAMES } from '../DiplomacyBoard.js';
 import {
   getApiKey,
@@ -17,7 +17,15 @@ import {
 import { appendMessage, getThread } from './memory.js';
 import { serializeBoardContext } from './serializeContext.js';
 
-export default function ChatPanel({ board, humanPower, aiPowers }) {
+export default function ChatPanel({
+  board,
+  humanPower,
+  aiPowers,
+  memory: memoryProp,
+  setMemory: setMemoryProp,
+  unreadByPower,
+  onViewThread,
+}) {
   // AI powers are everyone except the human's power.
   const agents = useMemo(
     () => (Array.isArray(aiPowers) ? aiPowers : board.powers.filter((p) => p !== humanPower)),
@@ -25,7 +33,11 @@ export default function ChatPanel({ board, humanPower, aiPowers }) {
   );
 
   const [selected, setSelected] = useState(agents[0] || null);
-  const [memory, setMemory] = useState(() => createMemory(agents));
+  // Controlled by the parent's shared store when provided (so AI-initiated
+  // messages show here); otherwise fall back to local state (standalone use).
+  const [localMemory, setLocalMemory] = useState(() => createMemory(agents));
+  const memory = memoryProp || localMemory;
+  const setMemory = setMemoryProp || setLocalMemory;
   const [draft, setDraft] = useState('');
   const [keyDraft, setKeyDraft] = useState('');
   const [hasKey, setHasKey] = useState(() => hasApiKey());
@@ -33,6 +45,13 @@ export default function ChatPanel({ board, humanPower, aiPowers }) {
   const [error, setError] = useState('');
 
   const thread = selected ? getThread(memory, selected) : null;
+
+  // Viewing a power's thread clears its unread badge. Re-runs when the open
+  // thread gains messages (a live reply or an AI-initiated message).
+  const openCount = thread ? thread.messages.length : 0;
+  useEffect(() => {
+    if (selected && onViewThread) onViewThread(selected);
+  }, [selected, openCount, onViewThread]);
 
   function saveKey() {
     const trimmed = keyDraft.trim();
@@ -98,16 +117,20 @@ export default function ChatPanel({ board, humanPower, aiPowers }) {
       ) : (
         <>
           <div className="dip-chat-powers" role="tablist">
-            {agents.map((power) => (
-              <button
-                key={power}
-                type="button"
-                className={`dip-chat-power${selected === power ? ' is-active' : ''}`}
-                onClick={() => setSelected(power)}
-              >
-                {POWER_SHORT_NAMES[power] || power}
-              </button>
-            ))}
+            {agents.map((power) => {
+              const unread = (unreadByPower && unreadByPower[power]) || 0;
+              return (
+                <button
+                  key={power}
+                  type="button"
+                  className={`dip-chat-power${selected === power ? ' is-active' : ''}${unread ? ' has-unread' : ''}`}
+                  onClick={() => setSelected(power)}
+                >
+                  {POWER_SHORT_NAMES[power] || power}
+                  {unread > 0 && <span className="dip-chat-power-badge">{unread}</span>}
+                </button>
+              );
+            })}
           </div>
 
           <div className="dip-chat-thread">

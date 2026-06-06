@@ -133,6 +133,7 @@ export async function askAgent({
   model,
   priorSummary,
   memory,
+  initiate,
 } = {}) {
   const apiKey = getApiKey();
   if (!apiKey) {
@@ -158,6 +159,7 @@ export async function askAgent({
         model,
         priorSummary,
         memory,
+        initiate,
       }),
     });
   } catch (_) {

@@ -248,7 +248,47 @@ function priorNoteFor(state, power, rival) {
 
 // --- orchestrator -----------------------------------------------------------
 
-const DEFAULT_OPTIONS = { maxRounds: 2, maxPairsPerRound: 4, humanPower: null, seed: 0 };
+const DEFAULT_OPTIONS = {
+  maxRounds: 2,
+  maxPairsPerRound: 4,
+  humanPower: null,
+  seed: 0,
+  // Proactive AI->human outreach (off by default so unit tests / headless runs
+  // keep the reply-only behaviour). The app turns it on for the live turn loop.
+  initiateHuman: false,
+  maxHumanReaches: 3, // hard cap on AI-initiated human messages per phase
+  outreachThreshold: 1, // minimum relevance to be CONSIDERED (the LLM then decides)
+};
+
+// Do two powers' one-step reaches overlap (can they plausibly interact this
+// turn)? Looser than areNeighbors so sea powers / islands like England still
+// count as worth talking to.
+function reachOverlap(board, a, b) {
+  const ra = reach(board, a);
+  const rb = reach(board, b);
+  for (const x of ra) if (rb.has(x)) return true;
+  return false;
+}
+
+// Relevance of an AI power proactively opening talks with the human this phase.
+// Higher = more worth reaching out: powers who can interact, especially with a
+// contested centre between them or a formed (non-neutral) disposition toward the
+// human. The client only RANKS + caps with this; the LLM makes the final call on
+// whether it actually has something to say (it may return an empty message).
+function humanOutreachScore(board, state, power, human) {
+  let score = 0;
+  if (reachOverlap(board, power, human)) {
+    score += 10;
+    score += contestedCentersBetween(board, power, human) * 25;
+  }
+  const scratchpad = getScratchpad(state, power);
+  const d = scratchpad && scratchpad.dispositions ? scratchpad.dispositions[human] : null;
+  if (d && typeof d === 'object') {
+    if (d.stance && d.stance !== 'neutral') score += 22;
+    if (typeof d.trust === 'number') score += Math.abs(d.trust) * 20;
+  }
+  return score;
+}
 
 // runNegotiationPhase({ board, state, agents, askAgent, options }) -> { state, transcripts }
 //
@@ -349,42 +389,68 @@ export async function runNegotiationPhase({ board, state, agents = {}, askAgent,
   //    These replies ARE allowed in the human-visible store (they're addressed
   //    to the human); AI↔AI transcripts above never are.
   const humanThreads = agents.humanThreads || null;
-  if (human) {
-    for (const power of aiPowers) {
-      const ctx = agents[power] || {};
-      // Only engage powers that have an open human thread to answer.
-      const thread = humanThreads && humanThreads.threads ? humanThreads.threads[power] : null;
-      if (!thread || !Array.isArray(thread.messages) || thread.messages.length === 0) continue;
-      // Skip if the last message is already from the AI (nothing to answer).
-      if (thread.messages[thread.messages.length - 1].role === 'assistant') continue;
 
-      const humanChannel = `human~${power}`;
-      const res = await askAgent({
-        power,
-        counterparties: [human],
-        channel: humanChannel,
-        phase,
-        boardContext: ctx.boardContext || null,
-        persona: ctx.persona || null,
-        // The human thread carries its own summary + this power's prior note
-        // about the human, mirroring the AI↔AI continuity (#44).
-        priorSummary: getSummary(nextState, humanChannel),
-        memory: priorNoteFor(nextState, power, human),
-        scratchpad: getScratchpad(nextState, power),
-        messages: thread.messages,
-      });
-      const reply = res && res.reply ? res.reply : res;
-      const text = messageText(reply);
-      if (text && humanThreads) {
-        thread.messages.push({ role: 'assistant', content: text, turn: phase || '' });
-        thread.updatedAt = Date.now();
-      }
-      // Persist the power's evolving scratchpad (and the human-channel summary)
-      // into the HIDDEN state only — the visible text already went to the thread
-      // above; the private disposition/summary never touch humanThreads.
-      if (reply && typeof reply === 'object') {
-        if (reply.scratchpad) nextState = setScratchpad(nextState, power, reply.scratchpad);
-        if (reply.summary) nextState = setSummary(nextState, humanChannel, reply.summary);
+  // One AI->human exchange: ask the power, append any visible message to the
+  // human-visible thread, and fold its private scratchpad/summary into the hidden
+  // state. `initiate` mode lets a power decline (empty message => nothing added).
+  async function talkToHuman(power, thread, { initiate }) {
+    const ctx = agents[power] || {};
+    const humanChannel = `human~${power}`;
+    const res = await askAgent({
+      power,
+      counterparties: [human],
+      channel: humanChannel,
+      phase,
+      boardContext: ctx.boardContext || null,
+      persona: ctx.persona || null,
+      priorSummary: getSummary(nextState, humanChannel),
+      memory: priorNoteFor(nextState, power, human),
+      scratchpad: getScratchpad(nextState, power),
+      messages: Array.isArray(thread.messages) ? thread.messages : [],
+      initiate,
+    });
+    const reply = res && res.reply ? res.reply : res;
+    const text = messageText(reply);
+    if (text && humanThreads) {
+      thread.messages.push({ role: 'assistant', content: text, turn: phase || '', initiated: !!initiate });
+      thread.updatedAt = Date.now();
+    }
+    if (reply && typeof reply === 'object') {
+      if (reply.scratchpad) nextState = setScratchpad(nextState, power, reply.scratchpad);
+      if (reply.summary) nextState = setSummary(nextState, humanChannel, reply.summary);
+    }
+    return !!text;
+  }
+
+  if (human && humanThreads && humanThreads.threads) {
+    const answered = new Set();
+    // 2a) Answer any thread where the human spoke last (at most one call each).
+    for (const power of aiPowers) {
+      const thread = humanThreads.threads[power];
+      if (!thread || !Array.isArray(thread.messages) || thread.messages.length === 0) continue;
+      if (thread.messages[thread.messages.length - 1].role === 'assistant') continue;
+      await talkToHuman(power, thread, { initiate: false });
+      answered.add(power);
+    }
+
+    // 2b) Proactive outreach: the most-relevant neighbours may open talks. Hard
+    //     capped, gated by a relevance threshold, and each may stay silent.
+    if (opts.initiateHuman) {
+      const candidates = aiPowers
+        .filter((p) => !answered.has(p))
+        .map((p) => ({ power: p, score: humanOutreachScore(board, nextState, p, human) }))
+        .filter((c) => c.score >= opts.outreachThreshold)
+        .sort((a, b) => b.score - a.score || a.power.localeCompare(b.power))
+        .slice(0, opts.maxHumanReaches);
+      for (const { power } of candidates) {
+        if (!humanThreads.threads[power]) {
+          humanThreads.threads[power] = { power, messages: [], scratchpad: null, updatedAt: 0 };
+        }
+        const thread = humanThreads.threads[power];
+        // Don't talk over an unanswered human line or a fresh outreach.
+        const last = thread.messages[thread.messages.length - 1];
+        if (last && last.role === 'assistant') continue;
+        await talkToHuman(power, thread, { initiate: true });
       }
     }
   }

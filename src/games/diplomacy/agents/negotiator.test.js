@@ -51,6 +51,58 @@ describe('runNegotiationPhase — budget', () => {
     expect(aiToAiCalls(askAgent, humanPower).length).toBe(6);
   });
 
+  test('initiateHuman is OFF by default — no proactive outreach', async () => {
+    const { board, state, humanPower } = freshGame();
+    const aiPowers = board.getPowerIds().filter((p) => p !== humanPower);
+    const humanThreads = createMemory(aiPowers); // all empty (nothing to answer)
+    const askAgent = mockAskAgent(() => ({ message: 'Greetings, neighbour.' }));
+    await runNegotiationPhase({
+      board, state, askAgent,
+      agents: { humanThreads },
+      options: { maxRounds: 1, maxPairsPerRound: 4, humanPower, seed: 2 },
+    });
+    const humanCalls = askAgent.calls.filter((c) => c.channel.startsWith('human~'));
+    expect(humanCalls.length).toBe(0);
+  });
+
+  test('initiateHuman: only neighbours reach out, capped, and silence adds nothing', async () => {
+    const { board, state, humanPower } = freshGame(); // human = England
+    const aiPowers = board.getPowerIds().filter((p) => p !== humanPower);
+    const humanThreads = createMemory(aiPowers);
+    // Every initiation call returns a message; cap should still bound how many.
+    const askAgent = mockAskAgent(() => ({ message: 'Shall we divide the North Sea?' }));
+    await runNegotiationPhase({
+      board, state, askAgent,
+      agents: { humanThreads },
+      options: { maxRounds: 1, maxPairsPerRound: 4, humanPower, seed: 2, initiateHuman: true, maxHumanReaches: 3 },
+    });
+    const outreach = askAgent.calls.filter((c) => c.channel.startsWith('human~') && c.initiate);
+    expect(outreach.length).toBeGreaterThan(0);
+    expect(outreach.length).toBeLessThanOrEqual(3); // hard cap
+    // Outreach only targets AI powers that can interact with England (never the
+    // human itself, never a power with no reach overlap and no disposition).
+    outreach.forEach((c) => expect(aiPowers).toContain(c.power));
+    // Messages landed in the human-visible store, tagged as AI-initiated.
+    const initiated = aiPowers
+      .flatMap((p) => humanThreads.threads[p].messages)
+      .filter((m) => m.role === 'assistant' && m.initiated);
+    expect(initiated.length).toBe(outreach.length);
+  });
+
+  test('initiateHuman: a power that stays silent (empty message) posts nothing', async () => {
+    const { board, state, humanPower } = freshGame();
+    const aiPowers = board.getPowerIds().filter((p) => p !== humanPower);
+    const humanThreads = createMemory(aiPowers);
+    const askAgent = mockAskAgent((power, ctx) => (ctx.initiate ? { message: '' } : { message: 'hi' }));
+    await runNegotiationPhase({
+      board, state, askAgent,
+      agents: { humanThreads },
+      options: { maxRounds: 1, maxPairsPerRound: 4, humanPower, seed: 2, initiateHuman: true },
+    });
+    const posted = aiPowers.flatMap((p) => humanThreads.threads[p].messages);
+    expect(posted.length).toBe(0); // all declined -> nothing visible
+  });
+
   test('at most one human-thread call per AI power', async () => {
     const { board, state, humanPower } = freshGame();
     const aiPowers = board.getPowerIds().filter((p) => p !== humanPower);

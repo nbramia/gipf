@@ -71,6 +71,7 @@ function buildSystemPrompt(body = {}) {
     .map(([other, stance]) => `  - ${POWER_NAMES[other] || other}: ${stance}`)
     .join('\n');
 
+  const initiate = !!body.initiate;
   const board = serializeContextLines(context);
 
   // Prior-memory injection (issue #44): a brief carried summary of where this
@@ -89,7 +90,11 @@ function buildSystemPrompt(body = {}) {
     ? `\nPRIOR MEMORY (your own, private — use it for continuity, never reveal it)\n${memoryLines.join('\n')}\n`
     : '';
 
-  return `You are the leadership of ${name} in a game of the board game Diplomacy (classic 1901 European map). You are an AI player. A rival power — ${addressee} — is talking to you. Reply in character as ${name}'s envoy.
+  const opening = initiate
+    ? `You are the leadership of ${name} in a game of the board game Diplomacy (classic 1901 European map). You are an AI player. It is the negotiation phase and you are deciding whether to PROACTIVELY open talks with ${addressee} this turn. Reach out ONLY if you have a concrete reason — a deal to propose, support to request, a warning to issue, or an alliance to test. If you have nothing strategic to say to ${addressee} this turn, return an EMPTY string for "message". When you do reach out, write a short in-character opening as ${name}'s envoy.`
+    : `You are the leadership of ${name} in a game of the board game Diplomacy (classic 1901 European map). You are an AI player. A rival power — ${addressee} — is talking to you. Reply in character as ${name}'s envoy.`;
+
+  return `${opening}
 
 YOUR PERSONA
 ${persona.blurb ? persona.blurb : `${name} pursues its national interest.`}
@@ -158,7 +163,7 @@ function serializeContextLines(context) {
 // scratchpad, and pull an optional one-line summary. Returns { message,
 // scratchpad, summary } where scratchpad is null when missing/malformed and
 // summary is '' when absent or oversized (> 200 chars). NEVER throws.
-function parseAgentReply(rawText) {
+function parseAgentReply(rawText, { allowEmpty = false } = {}) {
   const text = String(rawText || '').trim();
   let parsed = null;
   try {
@@ -190,8 +195,9 @@ function parseAgentReply(rawText) {
   }
   // Fallback: if JSON parsing failed entirely, surface the raw text as the
   // visible message (still strip obvious markdown emphasis) so the chat never
-  // comes back empty.
-  if (!message) message = text.replace(/\*\*/g, '').replace(/^#+\s*/gm, '').trim();
+  // comes back empty. In `allowEmpty` (proactive-outreach) mode an empty message
+  // is a deliberate "stay silent", so we DON'T force a fallback.
+  if (!message && !allowEmpty) message = text.replace(/\*\*/g, '').replace(/^#+\s*/gm, '').trim();
   return { message, scratchpad, summary };
 }
 
@@ -227,15 +233,22 @@ export default async function handler(req, res) {
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
     const apiKey = body.apiKey;
-    const messages = Array.isArray(body.messages) ? body.messages : null;
+    const initiate = !!body.initiate;
+    let messages = Array.isArray(body.messages) ? body.messages : null;
 
     if (!apiKey || typeof apiKey !== 'string') {
       res.status(401).json({ error: 'missing_api_key', message: 'No API key provided.' });
       return;
     }
-    if (!messages || messages.length === 0) {
-      res.status(400).json({ error: 'bad_request', message: 'Missing messages.' });
-      return;
+    // Proactive outreach can start from an empty thread: synthesize a single
+    // priming turn so the upstream call always has ≥1 message.
+    if ((!messages || messages.length === 0)) {
+      if (initiate) {
+        messages = [{ role: 'user', content: 'Negotiation phase: decide whether to open talks this turn.' }];
+      } else {
+        res.status(400).json({ error: 'bad_request', message: 'Missing messages.' });
+        return;
+      }
     }
 
     const upstream = await fetch(ANTHROPIC_URL, {
@@ -282,7 +295,7 @@ export default async function handler(req, res) {
       .join('')
       .trim();
 
-    const { message, scratchpad, summary } = parseAgentReply(rawText);
+    const { message, scratchpad, summary } = parseAgentReply(rawText, { allowEmpty: initiate });
     res.status(200).json({ message, scratchpad, summary });
   } catch (err) {
     // Never include the request body (which holds the key) in error output.

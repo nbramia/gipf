@@ -202,6 +202,7 @@ export default function DiplomacyGame() {
     setDiplomaticState,
     personas,
     conversations,
+    setConversations,
     workerSupported,
     computeOrders,
     onPhaseSettled,
@@ -233,6 +234,55 @@ export default function DiplomacyGame() {
     if (!inGame) return;
     saveGame(persistRef.current);
   }, [board, turn.uiPhase, inGame]);
+
+  // ----- negotiation auto-run + unread tracking -----
+
+  // Auto-run the AI↔AI negotiation (and AI->human outreach) once when a turn's
+  // negotiation phase begins. A phase signature guards against re-running; it's
+  // seeded from the restored phase so resuming a save doesn't re-confer.
+  const phaseSig = `${board.year}-${board.season}-${board.phase}`;
+  const negotiatedRef = useRef(restored ? phaseSig : null);
+  useEffect(() => {
+    if (!inGame || board.phase === 'game-over') return;
+    if (!board.isOrdersPhase() || turn.uiPhase !== 'negotiation') return;
+    if (!turn.hasKey) return; // no key -> no AI calls; the human can still proceed
+    if (negotiatedRef.current === phaseSig) return;
+    negotiatedRef.current = phaseSig;
+    turn.runNegotiation();
+  }, [inGame, phaseSig, board, turn]);
+
+  // Per-power unread = AI messages the human hasn't viewed yet. Seed "seen" from
+  // any restored threads so a resume doesn't light up every power.
+  const [seenCounts, setSeenCounts] = useState(() => {
+    const init = {};
+    const threads = (restored && restored.conversations && restored.conversations.threads) || {};
+    for (const p of Object.keys(threads)) init[p] = (threads[p].messages || []).length;
+    return init;
+  });
+  const unreadByPower = useMemo(() => {
+    const out = {};
+    const threads = (conversations && conversations.threads) || {};
+    for (const p of Object.keys(threads)) {
+      const msgs = threads[p].messages || [];
+      // Threads present at mount are seeded into seenCounts (so a resume doesn't
+      // light up); threads created later default to 0 seen = all-new = unread.
+      const seen = seenCounts[p] != null ? seenCounts[p] : 0;
+      out[p] = msgs.slice(seen).filter((m) => m.role === 'assistant').length;
+    }
+    return out;
+  }, [conversations, seenCounts]);
+  const totalUnread = useMemo(
+    () => Object.values(unreadByPower).reduce((a, b) => a + b, 0),
+    [unreadByPower]
+  );
+  const markThreadRead = useCallback((power) => {
+    setSeenCounts((prev) => {
+      const len = (conversations && conversations.threads && conversations.threads[power]
+        ? conversations.threads[power].messages.length : 0);
+      if (prev[power] === len) return prev;
+      return { ...prev, [power]: len };
+    });
+  }, [conversations]);
 
   const phaseLabel = board.getPhaseLabel();
   const leader = board.getLeader();
@@ -416,10 +466,20 @@ export default function DiplomacyGame() {
           {board.phase !== 'game-over' && board.isOrdersPhase() && turn.uiPhase === 'negotiation' && (
             <div className="dip-panel p-4">
               <div className="dip-panel-label mb-2">Negotiation — {phaseLabel}</div>
-              <p className="dip-submit-hint">
-                Talk to the other powers in the Negotiation panel below. When you're ready, proceed —
-                the other powers plan their moves at the same time.
-              </p>
+              {turn.isBusy ? (
+                <p className="dip-submit-hint">The powers are conferring privately…</p>
+              ) : totalUnread > 0 ? (
+                <p className="dip-submit-hint">
+                  <span className="dip-notify-pill">{totalUnread}</span>
+                  {totalUnread === 1 ? ' a power has' : ' powers have'} reached out — see the
+                  Negotiation panel below.
+                </p>
+              ) : (
+                <p className="dip-submit-hint">
+                  Talk to the other powers in the Negotiation panel below. When you're ready, proceed —
+                  the other powers plan their moves at the same time.
+                </p>
+              )}
               <button
                 className="dip-primary-btn mt-3 w-full"
                 onClick={turn.proceedToOrders}
@@ -468,12 +528,18 @@ export default function DiplomacyGame() {
             </div>
           </div>
 
-          {/* Negotiation chat: the human talks to the other powers (BYO key). */}
+          {/* Negotiation chat: the human talks to the other powers (BYO key).
+              Controlled by the shared conversations store so AI-initiated
+              messages from the turn's negotiation appear here too. */}
           <div className="dip-panel p-4">
             <ChatPanel
               board={board}
               humanPower={humanPower}
               aiPowers={POWERS.filter(p => p !== humanPower)}
+              memory={conversations}
+              setMemory={setConversations}
+              unreadByPower={unreadByPower}
+              onViewThread={markThreadRead}
             />
           </div>
         </aside>
