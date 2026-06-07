@@ -51,6 +51,24 @@ describe('runNegotiationPhase — budget', () => {
     expect(aiToAiCalls(askAgent, humanPower).length).toBe(6);
   });
 
+  test('model routing: AI↔AI uses aiModel, human-facing uses humanModel', async () => {
+    const { board, state, humanPower } = freshGame();
+    const aiPowers = board.getPowerIds().filter((p) => p !== humanPower);
+    const humanThreads = createMemory(aiPowers);
+    aiPowers.forEach((p) => humanThreads.threads[p].messages.push({ role: 'user', content: 'hi' }));
+    const askAgent = mockAskAgent(() => ({ message: 'noted' }));
+    await runNegotiationPhase({
+      board, state, askAgent,
+      agents: { humanThreads },
+      options: { maxRounds: 1, maxPairsPerRound: 4, humanPower, seed: 3, aiModel: 'haiku-x' },
+    });
+    const aiCalls = aiToAiCalls(askAgent, humanPower);
+    const humanCalls = askAgent.calls.filter((c) => c.channel.startsWith('human~'));
+    expect(aiCalls.length).toBeGreaterThan(0);
+    aiCalls.forEach((c) => expect(c.model).toBe('haiku-x'));
+    humanCalls.forEach((c) => expect(c.model).toBeUndefined()); // default (Sonnet)
+  });
+
   test('initiateHuman is OFF by default — no proactive outreach', async () => {
     const { board, state, humanPower } = freshGame();
     const aiPowers = board.getPowerIds().filter((p) => p !== humanPower);

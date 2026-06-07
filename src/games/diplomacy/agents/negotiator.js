@@ -258,6 +258,11 @@ const DEFAULT_OPTIONS = {
   initiateHuman: false,
   maxHumanReaches: 3, // hard cap on AI-initiated human messages per phase
   outreachThreshold: 1, // minimum relevance to be CONSIDERED (the LLM then decides)
+  // Per-call model routing. The hidden AI↔AI rounds (the bulk of the calls) can
+  // run on a cheaper model; human-facing replies/outreach stay on the default.
+  // null => the endpoint's default model.
+  aiModel: null,
+  humanModel: null,
 };
 
 // Do two powers' one-step reaches overlap (can they plausibly interact this
@@ -344,6 +349,7 @@ export async function runNegotiationPhase({ board, state, agents = {}, askAgent,
         channel,
         round,
         phase,
+        model: opts.aiModel || undefined, // hidden AI↔AI rounds: cheaper model
         boardContext: aCtx.boardContext || null,
         persona: aCtx.persona || null,
         // Carry the conversation forward (#44): the brief per-channel summary and
@@ -401,6 +407,7 @@ export async function runNegotiationPhase({ board, state, agents = {}, askAgent,
       counterparties: [human],
       channel: humanChannel,
       phase,
+      model: opts.humanModel || undefined, // human-facing: keep the stronger model
       boardContext: ctx.boardContext || null,
       persona: ctx.persona || null,
       priorSummary: getSummary(nextState, humanChannel),

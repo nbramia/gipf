@@ -32,7 +32,11 @@ import { askAgent, hasApiKey } from '../agents/agentClient.js';
 import { serializeBoardContext } from '../agents/serializeContext.js';
 
 // Hard caps so a phase always terminates even if every AI call hangs/fails.
-const NEGOTIATION_OPTIONS = { maxRounds: 2, maxPairsPerRound: 4 };
+// The hidden AI↔AI rounds (~8 calls/turn, never read by the human) run on the
+// cheaper Haiku model; human-facing replies/outreach keep the endpoint default
+// (Sonnet) for stronger, more believable negotiation.
+const AI_TO_AI_MODEL = 'claude-haiku-4-5-20251001';
+const NEGOTIATION_OPTIONS = { maxRounds: 2, maxPairsPerRound: 4, aiModel: AI_TO_AI_MODEL };
 
 // AI powers in the controller config (everything not 'human').
 function aiPowersOf(controllers, board) {
