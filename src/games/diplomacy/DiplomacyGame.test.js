@@ -53,7 +53,8 @@ describe('DiplomacyGame — setup gate', () => {
 
     expect(container.querySelector('.dip-board-svg')).toBeTruthy();
     expect(container.textContent).toContain('Spring 1901 orders');
-    expect(container.textContent).toContain('Supply Centers');
+    // Supply-center standings render as the horizontal chip strip above the map.
+    expect(container.querySelectorAll('.dip-score-chip').length).toBe(7);
     // The negotiation phase opens before order entry.
     expect(container.textContent).toContain('Proceed to orders');
   });

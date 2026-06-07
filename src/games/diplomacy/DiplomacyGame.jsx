@@ -438,7 +438,7 @@ export default function DiplomacyGame() {
         </div>
       )}
 
-      <div className="mx-auto flex min-h-screen w-full max-w-[1600px] flex-col gap-4 px-4 py-4 lg:flex-row lg:px-6">
+      <div className="mx-auto flex min-h-screen w-full max-w-[2200px] flex-col gap-4 px-4 py-4 lg:flex-row lg:px-6">
         {/* ---- Left: header, scoreboard ---- */}
         <aside className="order-3 flex w-full flex-col gap-3 lg:order-1 lg:w-[300px]">
           <div className="dip-panel p-4">
@@ -505,23 +505,6 @@ export default function DiplomacyGame() {
           )}
 
           <div className="dip-panel p-4">
-            <div className="dip-panel-label mb-2">Supply Centers</div>
-            <div className="dip-scoreboard">
-              {[...POWERS]
-                .map(power => ({ power, centers: board.getSupplyCount(power), units: board.getUnitCount(power) }))
-                .sort((a, b) => b.centers - a.centers || a.power.localeCompare(b.power))
-                .map(({ power, centers, units }) => (
-                  <div key={power} className={`dip-score-row ${leader.power === power ? 'is-leader' : ''} ${power === humanPower ? 'is-you' : ''}`}>
-                    <span className="dip-score-swatch" style={{ backgroundColor: POWER_COLORS[power] }} aria-hidden="true" />
-                    <span className="dip-score-name" style={{ color: 'var(--dip-text)' }}>{POWER_SHORT_NAMES[power]}</span>
-                    <span className="dip-score-centers">{centers}</span>
-                    <span className="dip-score-units">{units}u</span>
-                  </div>
-                ))}
-            </div>
-          </div>
-
-          <div className="dip-panel p-4">
             <div className="dip-panel-label mb-2">Results Log</div>
             <div className="dip-log-feed">
               {!lastLog ? (
@@ -548,8 +531,27 @@ export default function DiplomacyGame() {
           </div>
         </aside>
 
-        {/* ---- Center: the map ---- */}
-        <main className="order-1 flex min-h-[260px] flex-1 flex-col items-center justify-center gap-4 lg:order-2 lg:min-h-[520px]">
+        {/* ---- Center: scoreboard strip + the map ---- */}
+        <main className="order-1 flex min-h-[260px] flex-1 flex-col items-center gap-3 lg:order-2 lg:min-h-[520px]">
+          {/* Supply centers, as a compact horizontal strip above the board. */}
+          <div className="dip-scorebar" role="list" aria-label="Supply center standings">
+            {[...POWERS]
+              .map(power => ({ power, centers: board.getSupplyCount(power), units: board.getUnitCount(power) }))
+              .sort((a, b) => b.centers - a.centers || a.power.localeCompare(b.power))
+              .map(({ power, centers, units }) => (
+                <div
+                  key={power}
+                  role="listitem"
+                  className={`dip-score-chip ${leader.power === power ? 'is-leader' : ''} ${power === humanPower ? 'is-you' : ''}`}
+                  title={`${POWER_NAMES[power]}: ${centers} supply centers, ${units} units`}
+                >
+                  <span className="dip-score-swatch" style={{ backgroundColor: POWER_COLORS[power] }} aria-hidden="true" />
+                  <span className="dip-score-name">{POWER_SHORT_NAMES[power]}</span>
+                  <span className="dip-score-centers">{centers}</span>
+                  <span className="dip-score-units">{units}u</span>
+                </div>
+              ))}
+          </div>
           <div className="dip-board-shell">
             {renderMap()}
           </div>

@@ -252,45 +252,50 @@
 
 /* ========== Scoreboard / standings ========== */
 
-.game-diplomacy .dip-scoreboard {
+/* Supply-center standings as a compact horizontal strip above the board. */
+.game-diplomacy .dip-scorebar {
   display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.game-diplomacy .dip-score-row {
-  display: grid;
-  grid-template-columns: 18px 1fr auto auto;
+  flex-wrap: wrap;
+  justify-content: center;
   align-items: center;
-  gap: 0.55rem;
-  padding: 0.3rem 0.45rem;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  border: 1px solid transparent;
-  transition: background 0.18s ease, border-color 0.18s ease;
+  gap: 0.4rem;
+  width: 100%;
 }
 
-.game-diplomacy .dip-score-row.is-leader {
+.game-diplomacy .dip-score-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.28rem 0.6rem;
+  border-radius: 999px;
+  background: var(--dip-panel);
+  border: 1px solid var(--dip-border);
+  box-shadow: var(--dip-shadow-soft);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.game-diplomacy .dip-score-chip.is-leader {
   background: var(--dip-soft);
   border-color: var(--dip-brass);
 }
 
-.game-diplomacy .dip-score-row.is-you {
-  outline: none;
+.game-diplomacy .dip-score-chip.is-you {
   border-style: dashed;
   border-color: var(--dip-border-strong);
 }
 
 /* Wax-seal style power swatch — a filled disc with a darkened rim. */
 .game-diplomacy .dip-score-swatch {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   border-radius: 50%;
   display: inline-block;
+  flex: none;
   box-shadow: inset 0 0 0 1.5px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
-.game-diplomacy .dip-score-name { font-weight: 600; }
+.game-diplomacy .dip-score-name { font-weight: 700; color: var(--dip-text); }
 .game-diplomacy .dip-score-centers {
   font-family: 'Syne', sans-serif;
   font-weight: 800;
@@ -298,7 +303,7 @@
   color: var(--dip-text);
 }
 .game-diplomacy .dip-score-units {
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   color: var(--dip-text-muted);
 }
 
@@ -306,7 +311,7 @@
 
 .game-diplomacy .dip-board-shell {
   width: 100%;
-  max-width: 1040px;
+  /* No fixed cap: the board fills its column, so it grows with the window. */
   border-radius: 12px;
   background: var(--dip-sea);
   background-image: linear-gradient(160deg, var(--dip-sea-2) 0%, var(--dip-sea) 100%);
