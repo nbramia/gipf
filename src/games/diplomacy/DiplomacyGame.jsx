@@ -26,7 +26,7 @@ import ChatPanel from './agents/ChatPanel.jsx';
 import { createMemory } from './agents/memory.js';
 import { createDiplomaticState } from './agents/diplomaticState.js';
 import { PERSONAS } from './agents/personas.js';
-import { hasApiKey } from './agents/agentClient.js';
+import useHasApiKey from './hooks/useApiKey.js';
 import useAIWorker from './hooks/useAIWorker.js';
 import useDiplomacyTurn from './hooks/useDiplomacyTurn.js';
 import DiplomacySetup from './DiplomacySetup.jsx';
@@ -162,6 +162,10 @@ export default function DiplomacyGame() {
   const [showOrders, setShowOrders] = useState(() => JSON.parse(localStorage.getItem('diplomacyShowOrders') || 'true'));
   const [confirmNew, setConfirmNew] = useState(false);
   const [keyPromptDismissed, setKeyPromptDismissed] = useState(false);
+  // Reactive shared-key signal: re-renders this view the instant the key is set
+  // or cleared anywhere (this chat, another tab, or another GIPF game), so the
+  // negotiation auto-run and the no-key prompt react without a reload.
+  const hasKey = useHasApiKey();
 
   // Transient order-entry state (human power only).
   const [pendingOrders, setPendingOrders] = useState({}); // { [unitLoc]: order }
@@ -406,7 +410,7 @@ export default function DiplomacyGame() {
     return Object.values(pendingOrders).map(order => ({ power: humanPower, order }));
   }, [pendingOrders, showOrders, humanPower]);
 
-  const showKeyPrompt = !hasApiKey() && !keyPromptDismissed && inGame;
+  const showKeyPrompt = !hasKey && !keyPromptDismissed && inGame;
 
   // ----- setup gate -----
   if (!inGame) {

@@ -38,6 +38,12 @@ export function getApiKey() {
   }
 }
 
+// Same-tab broadcast event name. The shared key lives in localStorage, so the
+// browser's native `storage` event already syncs OTHER tabs (and the other GIPF
+// games) for free; this custom event covers same-tab listeners (the `storage`
+// event does NOT fire in the tab that made the change).
+const KEY_EVENT = 'gipf-apikey-change';
+
 export function setApiKey(key) {
   try {
     if (key) {
@@ -49,10 +55,33 @@ export function setApiKey(key) {
   } catch (_) {
     /* ignore storage failures */
   }
+  // Notify same-tab listeners (cross-tab handled by the native `storage` event).
+  try {
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event(KEY_EVENT));
+  } catch (_) {
+    /* ignore */
+  }
 }
 
 export function hasApiKey() {
   return !!getApiKey();
+}
+
+// Subscribe to key changes from anywhere: this tab (our KEY_EVENT, e.g. saving a
+// key in the Diplomacy chat) OR another tab / another GIPF game (the native
+// `storage` event on the shared slot). Returns an unsubscribe fn.
+export function subscribeApiKey(callback) {
+  if (typeof window === 'undefined') return () => {};
+  const onChange = () => callback();
+  const onStorage = (e) => {
+    if (!e || e.key === null || e.key === KEY_STORAGE || LEGACY_KEYS.includes(e.key)) callback();
+  };
+  window.addEventListener(KEY_EVENT, onChange);
+  window.addEventListener('storage', onStorage);
+  return () => {
+    window.removeEventListener(KEY_EVENT, onChange);
+    window.removeEventListener('storage', onStorage);
+  };
 }
 
 // Re-export the memory helpers so callers (the chat panel) have one import for

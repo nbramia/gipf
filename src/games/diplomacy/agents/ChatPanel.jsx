@@ -10,10 +10,10 @@ import { POWER_NAMES, POWER_SHORT_NAMES } from '../DiplomacyBoard.js';
 import {
   getApiKey,
   setApiKey,
-  hasApiKey,
   sendMessage,
   createMemory,
 } from './agentClient.js';
+import useHasApiKey from '../hooks/useApiKey.js';
 import { appendMessage, getThread } from './memory.js';
 import { serializeBoardContext } from './serializeContext.js';
 
@@ -40,7 +40,8 @@ export default function ChatPanel({
   const setMemory = setMemoryProp || setLocalMemory;
   const [draft, setDraft] = useState('');
   const [keyDraft, setKeyDraft] = useState('');
-  const [hasKey, setHasKey] = useState(() => hasApiKey());
+  // Reactive: reflects a key set here OR in another tab / GIPF game, live.
+  const hasKey = useHasApiKey();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -56,8 +57,7 @@ export default function ChatPanel({
   function saveKey() {
     const trimmed = keyDraft.trim();
     if (!trimmed) return;
-    setApiKey(trimmed);
-    setHasKey(true);
+    setApiKey(trimmed); // broadcasts -> useHasApiKey updates here and elsewhere
     setKeyDraft('');
   }
 
