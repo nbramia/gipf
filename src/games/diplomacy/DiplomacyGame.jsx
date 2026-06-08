@@ -620,7 +620,7 @@ export default function DiplomacyGame() {
                 <p className="dip-log-empty">No turn resolved yet.</p>
               ) : (
                 board.orderHistory.map((log, i) => (
-                  <ResultsLog key={`${log.phase}-${i}`} log={log} board={board} />
+                  <ResultsLog key={`${log.phase}-${i}`} log={log} board={board} expanded={logExpanded} />
                 ))
               )}
             </div>
@@ -1105,18 +1105,28 @@ function ToggleRow({ label, checked, onChange }) {
   );
 }
 
-function ResultsLog({ log }) {
+// A faint power-colour tint + left stripe so a row's owner reads at a glance.
+function powerRowStyle(power) {
+  const c = POWER_COLORS[power];
+  if (!c) return undefined;
+  return { backgroundColor: `${c}22`, borderLeft: `3px solid ${c}`, paddingLeft: '0.4rem', borderRadius: '4px' };
+}
+
+function ResultsLog({ log, expanded }) {
   // Winter entries carry `adjustments` (build/disband strings), not `orders`.
   if (Array.isArray(log.adjustments)) {
+    const shortToPower = Object.fromEntries(Object.entries(POWER_SHORT_NAMES).map(([p, n]) => [n, p]));
     return (
       <div className="dip-results">
         <div className="dip-results-phase">{log.phase}</div>
         {log.adjustments.length === 0 ? (
           <div className="dip-results-row dip-results-muted">No builds or disbands.</div>
         ) : (
-          log.adjustments.map((line, i) => (
-            <div key={i} className="dip-results-row"><span>{line}</span></div>
-          ))
+          log.adjustments.map((line, i) => {
+            const name = Object.keys(shortToPower).find(n => line.startsWith(n));
+            const p = name ? shortToPower[name] : null;
+            return <div key={i} className="dip-results-row" style={p ? powerRowStyle(p) : undefined}><span>{line}</span></div>;
+          })
         )}
       </div>
     );
@@ -1128,25 +1138,47 @@ function ResultsLog({ log }) {
   const dislodged = resolved.dislodged || [];
   // Hide plain holds — only show units that actually did something.
   const orders = Object.values(log.orders || {}).filter(o => o.type !== 'hold');
+  // Group by power so a turn's moves read power-by-power (sorted by name).
+  const groups = [];
+  const idx = {};
+  for (const o of orders) {
+    const key = o.power || '?';
+    if (idx[key] == null) { idx[key] = groups.length; groups.push({ power: key, list: [] }); }
+    groups[idx[key]].list.push(o);
+  }
+  groups.sort((a, b) => (POWER_SHORT_NAMES[a.power] || 'z').localeCompare(POWER_SHORT_NAMES[b.power] || 'z'));
+
+  const orderRow = (order, key, power) => {
+    let status = '';
+    if (order.type === 'move') status = moveSuccess[order.unitLoc] ? 'moved' : 'bounced';
+    else if (cutSupports.includes(order.unitLoc)) status = 'support cut';
+    return (
+      <div key={key} className="dip-results-row" style={powerRowStyle(power)}>
+        <span>{describeOrder(order)}</span>
+        {status && <span className={`dip-results-tag tag-${status.replace(/\s/g, '-')}`}>{status}</span>}
+      </div>
+    );
+  };
+
   return (
     <div className="dip-results">
       <div className="dip-results-phase">{log.phase}</div>
       {orders.length === 0 && <div className="dip-results-row dip-results-muted">All units held.</div>}
-      {orders.map((order, i) => {
-        let status = '';
-        if (order.type === 'move') status = moveSuccess[order.unitLoc] ? 'moved' : 'bounced';
-        else if (cutSupports.includes(order.unitLoc)) status = 'support cut';
-        return (
-          <div key={i} className="dip-results-row">
-            <span>{describeOrder(order)}</span>
-            {status && <span className={`dip-results-tag tag-${status.replace(/\s/g, '-')}`}>{status}</span>}
-          </div>
-        );
-      })}
+      {groups.map(g => (
+        <div key={g.power} className="dip-results-group">
+          {expanded && (
+            <div className="dip-results-power" style={{ color: POWER_COLORS[g.power] }}>
+              <span className="dip-results-swatch" style={{ backgroundColor: POWER_COLORS[g.power] }} aria-hidden="true" />
+              {POWER_NAMES[g.power] || g.power}
+            </div>
+          )}
+          {g.list.map((order, i) => orderRow(order, i, g.power))}
+        </div>
+      ))}
       {dislodged.length > 0 && (
         <div className="dip-results-dislodged">
           {dislodged.map((d, i) => (
-            <div key={i} className="dip-results-row">
+            <div key={i} className="dip-results-row" style={powerRowStyle(d.unit.power)}>
               <span>{formatUnitType(d.unit.type)} {provinceLabel(d.unitLoc)}</span>
               <span className="dip-results-tag tag-dislodged">dislodged</span>
             </div>
