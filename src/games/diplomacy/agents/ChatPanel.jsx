@@ -44,6 +44,16 @@ export default function ChatPanel({
   const hasKey = useHasApiKey();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // Expand the whole panel into a centered modal overlay for more room.
+  const [expanded, setExpanded] = useState(false);
+
+  // Esc closes the expanded overlay.
+  useEffect(() => {
+    if (!expanded) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setExpanded(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [expanded]);
 
   const thread = selected ? getThread(memory, selected) : null;
 
@@ -93,8 +103,20 @@ export default function ChatPanel({
   }
 
   return (
-    <div className="dip-chat">
-      <div className="dip-panel-label mb-2">Negotiation</div>
+    <>
+      {expanded && <div className="dip-chat-backdrop" onClick={() => setExpanded(false)} />}
+      <div className={`dip-chat ${expanded ? 'dip-chat--modal' : ''}`}>
+      <div className="dip-chat-titlebar">
+        <div className="dip-panel-label">Negotiation</div>
+        <button
+          type="button"
+          className="dip-chat-expand"
+          onClick={() => setExpanded((v) => !v)}
+          aria-label={expanded ? 'Collapse negotiation panel' : 'Expand negotiation panel'}
+        >
+          {expanded ? '✕ Close' : '⤢ Expand'}
+        </button>
+      </div>
 
       {!hasKey ? (
         <div className="dip-chat-keygate">
@@ -177,6 +199,7 @@ export default function ChatPanel({
           </div>
         </>
       )}
-    </div>
+      </div>
+    </>
   );
 }
