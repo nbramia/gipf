@@ -213,6 +213,31 @@ describe('Diplomacy adjudication', () => {
     expect(board.pendingRetreats.some(r => r.unit.power === 'austria')).toBe(true);
   });
 
+  test('can support a move into a split-coast province (support is into the base)', () => {
+    const board = emptyBoard();
+    // Austria's army in Serbia supports Russia's fleet RUM -> BUL (a split coast).
+    setUnits(board, {
+      SER: { power: 'austria', type: 'army' },
+      RUM: { power: 'russia', type: 'fleet' },
+      BUL: { power: 'turkey', type: 'army' },
+    });
+
+    // The support option must be offered against the BASE province (BUL), even
+    // though the fleet's actual destination is the coast-specific BUL/ec.
+    const supports = board.getLegalOrdersForUnit('SER').filter(o => o.type === 'support-move');
+    expect(supports.some(o => o.from === 'RUM' && o.to === 'BUL')).toBe(true);
+
+    board.processOrders({
+      russia: [{ type: 'move', unitLoc: 'RUM', to: 'BUL' }],
+      austria: [{ type: 'support-move', unitLoc: 'SER', from: 'RUM', to: 'BUL' }],
+      turkey: [{ type: 'hold', unitLoc: 'BUL' }],
+    });
+
+    // Russia takes Bulgaria (landing on a coast) and Turkey is dislodged.
+    expect(board.units['BUL/ec'] ? board.units['BUL/ec'].power : board.units.BUL?.power).toBe('russia');
+    expect(board.pendingRetreats.some(r => r.unit.power === 'turkey')).toBe(true);
+  });
+
   test('support-move options are not truncated in dense positions', () => {
     const board = emptyBoard();
     const A = (power) => ({ power, type: 'army' });

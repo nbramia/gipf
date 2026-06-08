@@ -696,12 +696,22 @@ export default class DiplomacyBoard {
     // Diplomacy. Emit every legal support-move; the count is naturally bounded by
     // geography, so it is NOT truncated (a prior cap silently dropped legal
     // supports — often the opponent ones — in dense mid-game positions).
+    //
+    // Support is always INTO THE BASE PROVINCE: a fleet's move to a split-coast
+    // destination (e.g. RUM -> BUL/ec) is supported by any unit adjacent to the
+    // base (BUL) — so we test canSupport against, and store, the base province
+    // (deduping the two coasts of a split-coast destination).
+    const seenSupport = new Set();
     for (const [from, movingUnit] of Object.entries(this.units)) {
       if (from === loc) continue;
       for (const to of this.getMoveTargets(from, { includeConvoys: false })) {
-        if (to === from || !this.canSupport(unit.type, loc, to)) continue;
+        const toBase = baseProvince(to);
+        if (toBase === baseProvince(from) || !this.canSupport(unit.type, loc, toBase)) continue;
         if (!this.canUnitMove(movingUnit.type, from, to)) continue;
-        orders.push({ type: 'support-move', unitLoc: loc, from, to });
+        const key = `${from}|${toBase}`;
+        if (seenSupport.has(key)) continue;
+        seenSupport.add(key);
+        orders.push({ type: 'support-move', unitLoc: loc, from, to: toBase });
       }
     }
 
