@@ -792,10 +792,20 @@ export default class DiplomacyBoard {
     if (locs.length === 0) return [{ type: 'orders-plan', power, orders: [] }];
     let beam = [{ orders: [], score: 0 }];
     for (const loc of locs) {
-      const candidates = this.getLegalOrdersForUnit(loc, { includeSupport, includeConvoys: true })
+      const scored = this.getLegalOrdersForUnit(loc, { includeSupport, includeConvoys: true })
         .map(order => ({ order, score: this.scoreOrder(order, power) }))
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 10);
+        .sort((a, b) => b.score - a.score);
+      // Keep a DIVERSE shortlist so a flood of (often cross-power) support
+      // options can't crowd moves out of the search: the best moves AND the best
+      // supports both always make the cut. Without this a unit that can't reach
+      // a centre in one step would only ever consider supporting — and freeze.
+      const pick = (pred, n) => scored.filter(c => pred(c.order.type)).slice(0, n);
+      const candidates = [
+        ...pick(t => t === 'move', 6),
+        ...pick(t => t === 'support-move' || t === 'support-hold', 4),
+        ...pick(t => t === 'convoy', 1),
+        ...pick(t => t === 'hold', 1),
+      ].sort((a, b) => b.score - a.score);
       const nextBeam = [];
       for (const entry of beam) {
         for (const candidate of candidates) {
@@ -913,16 +923,19 @@ export default class DiplomacyBoard {
       case 'support-hold': {
         const target = this.units[order.target];
         if (!target) return -100;
+        // Base kept modest so it doesn't crowd out advancing moves; a support
+        // that actually matters (a threatened unit / a real attack) is rewarded
+        // by _planSynergy and the forward-model evaluation, not the base score.
         return target.power === power
-          ? 190 + this.provinceValue(power, order.target) * 0.3
-          : 60 + this.provinceValue(target.power, order.target) * 0.08;
+          ? 60 + this.provinceValue(power, order.target) * 0.3
+          : 28 + this.provinceValue(target.power, order.target) * 0.08;
       }
       case 'support-move': {
         const mover = this.units[order.from];
         if (!mover) return -100;
         const friendly = mover.power === power;
         const targetOwner = this.supplyCenters[baseProvince(order.to)];
-        return (friendly ? 230 : 70) + this.provinceValue(power, order.to) * (friendly ? 0.55 : 0.18) + (targetOwner && targetOwner !== power ? 90 : 0);
+        return (friendly ? 85 : 38) + this.provinceValue(power, order.to) * (friendly ? 0.55 : 0.18) + (targetOwner && targetOwner !== power ? 90 : 0);
       }
       case 'convoy':
         return 125 + this.provinceValue(power, order.to) * 0.3;
@@ -945,8 +958,12 @@ export default class DiplomacyBoard {
       if (count > 1) score -= (count - 1) * 180;
     }
     for (const support of supports) {
+      // A support-move that actually backs one of THIS plan's moves is the heart
+      // of a coordinated attack — reward it strongly.
       if (support.type === 'support-move' && moves.some(move => move.unitLoc === support.from && baseProvince(move.to) === baseProvince(support.to))) score += 140;
-      if (support.type === 'support-hold' && this.units[support.target]?.power === power) score += 75;
+      // Defending a held friendly unit is only mildly useful and shouldn't make
+      // an all-support, no-move plan win (that froze passive powers).
+      if (support.type === 'support-hold' && this.units[support.target]?.power === power) score += 25;
     }
     return score;
   }
