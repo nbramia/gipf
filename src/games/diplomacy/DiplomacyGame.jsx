@@ -167,12 +167,15 @@ export default function DiplomacyGame() {
   // negotiation auto-run and the no-key prompt react without a reload.
   const hasKey = useHasApiKey();
 
-  // Transient order-entry state (human power only).
-  const [pendingOrders, setPendingOrders] = useState({}); // { [unitLoc]: order }
+  // Order-entry state (human power only). Pending/retreat/build entry is restored
+  // from the save so a refresh mid-entry keeps what you typed; the purely visual
+  // selection (selectedUnit/orderType) always starts cleared.
+  const restoredUi = (restored && restored.uiState) || {};
+  const [pendingOrders, setPendingOrders] = useState(() => restoredUi.pendingOrders || {}); // { [unitLoc]: order }
   const [selectedUnit, setSelectedUnit] = useState(null);
   const [orderType, setOrderType] = useState(null);
-  const [retreatChoices, setRetreatChoices] = useState({}); // { [unitLoc]: 'DISBAND'|to }
-  const [buildOrders, setBuildOrders] = useState({}); // { [power]: order[] }
+  const [retreatChoices, setRetreatChoices] = useState(() => restoredUi.retreatChoices || {}); // { [unitLoc]: 'DISBAND'|to }
+  const [buildOrders, setBuildOrders] = useState(() => restoredUi.buildOrders || {}); // { [power]: order[] }
 
   const { computeOrders, isSupported: workerSupported } = useAIWorker();
 
@@ -196,6 +199,9 @@ export default function DiplomacyGame() {
     [board, controllers, personas, conversations, diplomaticState]
   );
 
+  // The UI phase the turn machine starts in: the saved one on resume (so there's
+  // no negotiation->orders transition that would wipe restored order entry).
+  const initialUiPhase = (restored && restored.uiPhase) || 'negotiation';
   const turn = useDiplomacyTurn({
     board,
     setBoard,
@@ -210,19 +216,19 @@ export default function DiplomacyGame() {
     workerSupported,
     computeOrders,
     onPhaseSettled,
+    initialUiPhase,
   });
 
-  // Restore the saved UI phase exactly once after a resume.
-  const uiRestoredRef = useRef(false);
+  // Reset transient entry state when the phase/turn ACTUALLY changes. Guarded by
+  // a signature (not a "skip first run" flag, which StrictMode's double-fired
+  // effects defeat) and seeded to the mount signature, so resumed order entry
+  // survives — including the restored uiPhase — and only a real gameplay
+  // transition clears it.
+  const phaseSigRef = useRef(`${board.phase}|${board.year}|${board.season}|${initialUiPhase}`);
   useEffect(() => {
-    if (!uiRestoredRef.current && restored && restored.uiPhase) {
-      turn.restoreUiPhase(restored.uiPhase);
-      uiRestoredRef.current = true;
-    }
-  }, [restored, turn]);
-
-  // Reset transient entry state whenever the phase/turn changes.
-  useEffect(() => {
+    const sig = `${board.phase}|${board.year}|${board.season}|${turn.uiPhase}`;
+    if (sig === phaseSigRef.current) return;
+    phaseSigRef.current = sig;
     setPendingOrders({});
     setSelectedUnit(null);
     setOrderType(null);
@@ -230,14 +236,17 @@ export default function DiplomacyGame() {
     setBuildOrders({});
   }, [board.phase, board.year, board.season, turn.uiPhase]);
 
-  // Persist whenever the board reference changes (every applied move) so a save
-  // exists even outside the explicit settle calls.
+  // Persist whenever the board, phase, or in-progress order entry changes, so a
+  // save always reflects the live game (including not-yet-submitted orders).
   const persistRef = useRef(null);
-  persistRef.current = { board, uiPhase: turn.uiPhase, controllers, personas, conversations, diplomaticState };
+  persistRef.current = {
+    board, uiPhase: turn.uiPhase, controllers, personas, conversations, diplomaticState,
+    uiState: { pendingOrders, retreatChoices, buildOrders },
+  };
   useEffect(() => {
     if (!inGame) return;
     saveGame(persistRef.current);
-  }, [board, turn.uiPhase, inGame]);
+  }, [board, turn.uiPhase, inGame, pendingOrders, retreatChoices, buildOrders]);
 
   // ----- negotiation auto-run + unread tracking -----
 
@@ -390,8 +399,7 @@ export default function DiplomacyGame() {
     }
     setConfirmNew(false);
     setKeyPromptDismissed(false);
-    uiRestoredRef.current = true; // don't re-restore an old phase
-    turn.setUiPhase('negotiation');
+    turn.setUiPhase('negotiation'); // a fresh game always opens in negotiation
     setInGame(true);
   }
 
@@ -932,7 +940,12 @@ export default function DiplomacyGame() {
 
 function safeLoad() {
   try {
-    return loadGame() || false;
+    const restored = loadGame();
+    if (!restored) return false;
+    // Validate the snapshot actually deserializes — a corrupt save must never
+    // crash the app on resume; fall back to a fresh setup instead.
+    DiplomacyBoard.fromSerializedState(restored.board);
+    return restored;
   } catch (_) {
     return false;
   }

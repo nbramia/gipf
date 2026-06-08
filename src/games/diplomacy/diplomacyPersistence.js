@@ -73,6 +73,9 @@ function buildEnvelope(state) {
     conversations: state.conversations || null,
     // Hidden AI↔AI diplomatic state — persisted but never rendered.
     diplomaticState: state.diplomaticState || null,
+    // Transient, not-yet-submitted order entry (pending orders / retreat
+    // choices / build orders) so a mid-entry refresh keeps what you typed.
+    uiState: state.uiState || null,
   };
 }
 
@@ -169,6 +172,7 @@ export function loadGame() {
     personas: parsed.personas || null,
     conversations: parsed.conversations || null,
     diplomaticState: parsed.diplomaticState || null,
+    uiState: parsed.uiState || null,
   };
 }
 

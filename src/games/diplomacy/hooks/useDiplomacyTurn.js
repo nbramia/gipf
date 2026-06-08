@@ -108,10 +108,11 @@ export default function useDiplomacyTurn({
   workerSupported,
   computeOrders,
   onPhaseSettled,
+  initialUiPhase,
 }) {
   // The UI phase machine. Engine phases (orders/retreats/winter) are reflected
   // from board.phase; 'negotiation' and 'resolving' are pure UI states.
-  const [uiPhase, setUiPhase] = useState('negotiation');
+  const [uiPhase, setUiPhase] = useState(initialUiPhase || 'negotiation');
   const [isBusy, setIsBusy] = useState(false);
   const [progress, setProgress] = useState('');
   const busyRef = useRef(false); // re-entrancy guard (mirrors Catan's isAiThinking)
