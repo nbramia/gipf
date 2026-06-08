@@ -623,6 +623,9 @@
   font-style: italic;
 }
 
+/* Space successive turn entries in the (scrollable) results feed. */
+.game-diplomacy .dip-results + .dip-results { margin-top: 0.8rem; }
+
 .game-diplomacy .dip-results-phase {
   font-family: 'Cormorant Garamond', Georgia, serif;
   font-size: 0.95rem;
@@ -632,6 +635,12 @@
   margin-bottom: 0.35rem;
   padding-bottom: 0.2rem;
   border-bottom: 1px solid var(--dip-rule);
+}
+
+.game-diplomacy .dip-results-muted {
+  font-size: 0.76rem;
+  color: var(--dip-text-muted);
+  font-style: italic;
 }
 
 .game-diplomacy .dip-results-row {

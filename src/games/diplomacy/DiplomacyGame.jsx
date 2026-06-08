@@ -412,7 +412,6 @@ export default function DiplomacyGame() {
   }
 
   const adjustments = board.isWinterPhase() ? board.getAdjustments() : null;
-  const lastLog = board.orderHistory[0] || null;
 
   // Pending-order overlays for the human power.
   const overlayOrders = useMemo(() => {
@@ -529,10 +528,12 @@ export default function DiplomacyGame() {
           <div className="dip-panel p-4">
             <div className="dip-panel-label mb-2">Results Log</div>
             <div className="dip-log-feed">
-              {!lastLog ? (
+              {board.orderHistory.length === 0 ? (
                 <p className="dip-log-empty">No turn resolved yet.</p>
               ) : (
-                <ResultsLog log={lastLog} board={board} />
+                board.orderHistory.map((log, i) => (
+                  <ResultsLog key={`${log.phase}-${i}`} log={log} board={board} />
+                ))
               )}
             </div>
           </div>
@@ -1008,14 +1009,32 @@ function ToggleRow({ label, checked, onChange }) {
 }
 
 function ResultsLog({ log }) {
-  const orders = Object.values(log.orders || {});
+  // Winter entries carry `adjustments` (build/disband strings), not `orders`.
+  if (Array.isArray(log.adjustments)) {
+    return (
+      <div className="dip-results">
+        <div className="dip-results-phase">{log.phase}</div>
+        {log.adjustments.length === 0 ? (
+          <div className="dip-results-row dip-results-muted">No builds or disbands.</div>
+        ) : (
+          log.adjustments.map((line, i) => (
+            <div key={i} className="dip-results-row"><span>{line}</span></div>
+          ))
+        )}
+      </div>
+    );
+  }
+
   const resolved = log.resolved || {};
   const moveSuccess = resolved.moveSuccess || {};
   const cutSupports = resolved.cutSupports || [];
   const dislodged = resolved.dislodged || [];
+  // Hide plain holds — only show units that actually did something.
+  const orders = Object.values(log.orders || {}).filter(o => o.type !== 'hold');
   return (
     <div className="dip-results">
       <div className="dip-results-phase">{log.phase}</div>
+      {orders.length === 0 && <div className="dip-results-row dip-results-muted">All units held.</div>}
       {orders.map((order, i) => {
         let status = '';
         if (order.type === 'move') status = moveSuccess[order.unitLoc] ? 'moved' : 'bounced';
