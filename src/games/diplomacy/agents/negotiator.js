@@ -255,45 +255,17 @@ const DEFAULT_OPTIONS = {
   seed: 0,
   // Proactive AI->human outreach (off by default so unit tests / headless runs
   // keep the reply-only behaviour). The app turns it on for the live turn loop.
+  // Proactive AI->human outreach: when on, EVERY alive AI power (without a
+  // pending human message to answer) independently decides whether it has
+  // something to discuss with the human and either opens talks or stays silent
+  // (an empty reply). No client-side cap or relevance filter — the agent judges.
   initiateHuman: false,
-  maxHumanReaches: 3, // hard cap on AI-initiated human messages per phase
-  outreachThreshold: 1, // minimum relevance to be CONSIDERED (the LLM then decides)
   // Per-call model routing. The hidden AI↔AI rounds (the bulk of the calls) can
   // run on a cheaper model; human-facing replies/outreach stay on the default.
   // null => the endpoint's default model.
   aiModel: null,
   humanModel: null,
 };
-
-// Do two powers' one-step reaches overlap (can they plausibly interact this
-// turn)? Looser than areNeighbors so sea powers / islands like England still
-// count as worth talking to.
-function reachOverlap(board, a, b) {
-  const ra = reach(board, a);
-  const rb = reach(board, b);
-  for (const x of ra) if (rb.has(x)) return true;
-  return false;
-}
-
-// Relevance of an AI power proactively opening talks with the human this phase.
-// Higher = more worth reaching out: powers who can interact, especially with a
-// contested centre between them or a formed (non-neutral) disposition toward the
-// human. The client only RANKS + caps with this; the LLM makes the final call on
-// whether it actually has something to say (it may return an empty message).
-function humanOutreachScore(board, state, power, human) {
-  let score = 0;
-  if (reachOverlap(board, power, human)) {
-    score += 10;
-    score += contestedCentersBetween(board, power, human) * 25;
-  }
-  const scratchpad = getScratchpad(state, power);
-  const d = scratchpad && scratchpad.dispositions ? scratchpad.dispositions[human] : null;
-  if (d && typeof d === 'object') {
-    if (d.stance && d.stance !== 'neutral') score += 22;
-    if (typeof d.trust === 'number') score += Math.abs(d.trust) * 20;
-  }
-  return score;
-}
 
 // runNegotiationPhase({ board, state, agents, askAgent, options }) -> { state, transcripts }
 //
@@ -440,23 +412,21 @@ export async function runNegotiationPhase({ board, state, agents = {}, askAgent,
       answered.add(power);
     }
 
-    // 2b) Proactive outreach: the most-relevant neighbours may open talks. Hard
-    //     capped, gated by a relevance threshold, and each may stay silent.
+    // 2b) Proactive outreach: EVERY alive AI power that the human didn't just
+    //     address gets to decide, independently, whether it has something to
+    //     discuss — it either opens talks or returns an empty message (silent).
+    //     No cap, no relevance filter: the agent judges. We only skip a power
+    //     that already spoke last and is still awaiting the human's reply, so it
+    //     doesn't monologue turn after turn.
     if (opts.initiateHuman) {
-      const candidates = aiPowers
-        .filter((p) => !answered.has(p))
-        .map((p) => ({ power: p, score: humanOutreachScore(board, nextState, p, human) }))
-        .filter((c) => c.score >= opts.outreachThreshold)
-        .sort((a, b) => b.score - a.score || a.power.localeCompare(b.power))
-        .slice(0, opts.maxHumanReaches);
-      for (const { power } of candidates) {
+      for (const power of aiPowers) {
+        if (answered.has(power)) continue;
         if (!humanThreads.threads[power]) {
           humanThreads.threads[power] = { power, messages: [], scratchpad: null, updatedAt: 0 };
         }
         const thread = humanThreads.threads[power];
-        // Don't talk over an unanswered human line or a fresh outreach.
         const last = thread.messages[thread.messages.length - 1];
-        if (last && last.role === 'assistant') continue;
+        if (last && last.role === 'assistant') continue; // awaiting the human
         await talkToHuman(power, thread, { initiate: true });
       }
     }

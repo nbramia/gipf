@@ -83,24 +83,20 @@ describe('runNegotiationPhase — budget', () => {
     expect(humanCalls.length).toBe(0);
   });
 
-  test('initiateHuman: only neighbours reach out, capped, and silence adds nothing', async () => {
+  test('initiateHuman: every alive AI power independently gets to open talks', async () => {
     const { board, state, humanPower } = freshGame(); // human = England
     const aiPowers = board.getPowerIds().filter((p) => p !== humanPower);
-    const humanThreads = createMemory(aiPowers);
-    // Every initiation call returns a message; cap should still bound how many.
+    const humanThreads = createMemory(aiPowers); // all empty -> none answered first
     const askAgent = mockAskAgent(() => ({ message: 'Shall we divide the North Sea?' }));
     await runNegotiationPhase({
       board, state, askAgent,
       agents: { humanThreads },
-      options: { maxRounds: 1, maxPairsPerRound: 4, humanPower, seed: 2, initiateHuman: true, maxHumanReaches: 3 },
+      options: { maxRounds: 1, maxPairsPerRound: 4, humanPower, seed: 2, initiateHuman: true },
     });
     const outreach = askAgent.calls.filter((c) => c.channel.startsWith('human~') && c.initiate);
-    expect(outreach.length).toBeGreaterThan(0);
-    expect(outreach.length).toBeLessThanOrEqual(3); // hard cap
-    // Outreach only targets AI powers that can interact with England (never the
-    // human itself, never a power with no reach overlap and no disposition).
-    outreach.forEach((c) => expect(aiPowers).toContain(c.power));
-    // Messages landed in the human-visible store, tagged as AI-initiated.
+    // No cap: each of the six AI powers is asked once, independently.
+    expect(outreach.map((c) => c.power).sort()).toEqual([...aiPowers].sort());
+    // Each that chose to speak (here all) landed an AI-initiated message.
     const initiated = aiPowers
       .flatMap((p) => humanThreads.threads[p].messages)
       .filter((m) => m.role === 'assistant' && m.initiated);

@@ -91,7 +91,7 @@ function buildSystemPrompt(body = {}) {
     : '';
 
   const opening = initiate
-    ? `You are the leadership of ${name} in a game of the board game Diplomacy (classic 1901 European map). You are an AI player. It is the negotiation phase and you are deciding whether to PROACTIVELY open talks with ${addressee} this turn. Reach out ONLY if you have a concrete reason — a deal to propose, support to request, a warning to issue, or an alliance to test. If you have nothing strategic to say to ${addressee} this turn, return an EMPTY string for "message". When you do reach out, write a short in-character opening as ${name}'s envoy.`
+    ? `You are the leadership of ${name} in a game of the board game Diplomacy (classic 1901 European map). You are an AI player. It is the negotiation phase. Decide INDEPENDENTLY whether ${name} has something worth discussing with ${addressee} right now — an alliance to propose or test, a DMZ or mutual-support deal on a shared border, a warning, a bluff, or intelligence to trade. Judge it from the board and your own aims. If you do have something to say, send a short, specific in-character opener as ${name}'s envoy. If you genuinely have nothing to discuss with ${addressee} this turn — they are far from you, eliminated, or you have already made your pitch and they have not responded — return an EMPTY string for "message". Don't reach out just to make noise, and don't stay silent when a deal could help you (early-game alliance-building is usually worthwhile).`
     : `You are the leadership of ${name} in a game of the board game Diplomacy (classic 1901 European map). You are an AI player. A rival power — ${addressee} — is talking to you. Reply in character as ${name}'s envoy.`;
 
   return `${opening}
