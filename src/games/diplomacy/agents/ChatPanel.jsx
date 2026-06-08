@@ -5,7 +5,7 @@
 // Visible chat is plain text only — the agent's private scratchpad is persisted
 // in memory but NEVER rendered here. Scoped under .game-diplomacy.
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { POWER_NAMES, POWER_SHORT_NAMES } from '../DiplomacyBoard.js';
 import {
   getApiKey,
@@ -63,6 +63,14 @@ export default function ChatPanel({
   useEffect(() => {
     if (selected && onViewThread) onViewThread(selected);
   }, [selected, openCount, onViewThread]);
+
+  // Keep the conversation scrolled to the latest message: on open, when the
+  // selected power changes, when a new message arrives, and on expand/collapse.
+  const threadRef = useRef(null);
+  useEffect(() => {
+    const el = threadRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [selected, openCount, expanded, busy, hasKey]);
 
   function saveKey() {
     const trimmed = keyDraft.trim();
@@ -155,7 +163,7 @@ export default function ChatPanel({
             })}
           </div>
 
-          <div className="dip-chat-thread">
+          <div className="dip-chat-thread" ref={threadRef}>
             {thread && thread.messages.length ? (
               thread.messages.map((m, i) => (
                 <div key={i} className={`dip-chat-msg dip-chat-msg-${m.role}`}>

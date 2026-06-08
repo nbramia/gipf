@@ -160,6 +160,7 @@ export default function DiplomacyGame() {
 
   const [darkMode, setDarkMode] = useState(() => JSON.parse(localStorage.getItem('diplomacyDarkMode') || 'false'));
   const [showOrders, setShowOrders] = useState(() => JSON.parse(localStorage.getItem('diplomacyShowOrders') || 'true'));
+  const [showLastMoves, setShowLastMoves] = useState(() => JSON.parse(localStorage.getItem('diplomacyShowLastMoves') || 'true'));
   const [confirmNew, setConfirmNew] = useState(false);
   const [keyPromptDismissed, setKeyPromptDismissed] = useState(false);
   // Reactive shared-key signal: re-renders this view the instant the key is set
@@ -181,6 +182,7 @@ export default function DiplomacyGame() {
 
   useEffect(() => localStorage.setItem('diplomacyDarkMode', JSON.stringify(darkMode)), [darkMode]);
   useEffect(() => localStorage.setItem('diplomacyShowOrders', JSON.stringify(showOrders)), [showOrders]);
+  useEffect(() => localStorage.setItem('diplomacyShowLastMoves', JSON.stringify(showLastMoves)), [showLastMoves]);
 
   const setBoard = useCallback((next) => setBoardState(next), []);
 
@@ -418,6 +420,17 @@ export default function DiplomacyGame() {
     return Object.values(pendingOrders).map(order => ({ power: humanPower, order }));
   }, [pendingOrders, showOrders, humanPower]);
 
+  // Previous turn's executed moves, for review on the map (success vs bounced).
+  const lastMoveOverlays = useMemo(() => {
+    if (!showLastMoves) return [];
+    const entry = (board.orderHistory || []).find(e => e && e.orders);
+    if (!entry) return [];
+    const moveSuccess = (entry.resolved && entry.resolved.moveSuccess) || {};
+    return Object.entries(entry.orders)
+      .filter(([, o]) => o.type === 'move')
+      .map(([loc, o]) => ({ power: o.power, from: o.unitLoc, to: o.to, success: !!moveSuccess[loc] }));
+  }, [board, showLastMoves]);
+
   const showKeyPrompt = !hasKey && !keyPromptDismissed && inGame;
 
   // ----- setup gate -----
@@ -470,6 +483,7 @@ export default function DiplomacyGame() {
             <div className="mt-3 space-y-2">
               <ToggleRow label="Dark Mode" checked={darkMode} onChange={() => setDarkMode(v => !v)} />
               <ToggleRow label="Show Orders" checked={showOrders} onChange={() => setShowOrders(v => !v)} />
+              <ToggleRow label="Show Last Moves" checked={showLastMoves} onChange={() => setShowLastMoves(v => !v)} />
             </div>
           </div>
 
@@ -620,6 +634,10 @@ export default function DiplomacyGame() {
           <marker id="dip-support-diamond" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto">
             <path d="M5,1 L9,5 L5,9 L1,5 Z" fill="none" stroke="currentColor" strokeWidth="1.4" />
           </marker>
+          {/* Arrowhead for the previous-turn move-review layer (inherits color). */}
+          <marker id="dip-lastmove-arrow" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+            <path d="M0,0 L6,3 L0,6 Z" fill="currentColor" stroke="none" />
+          </marker>
           {/* Faint lat/long graticule, painted into the water fill. */}
           <pattern id="dip-sea-pattern" width="84" height="84" patternUnits="userSpaceOnUse">
             <rect width="84" height="84" className="dip-sea-tile" />
@@ -687,6 +705,22 @@ export default function DiplomacyGame() {
                 </text>
               )}
             </g>
+          );
+        })}
+
+        {/* Previous turn's executed moves (review layer), under the pieces. */}
+        {lastMoveOverlays.map((m, i) => {
+          const from = unitPoint(m.from);
+          const to = unitPoint(m.to);
+          if (!from || !to) return null;
+          return (
+            <line
+              key={`lm-${i}`}
+              x1={from.x} y1={from.y} x2={to.x} y2={to.y}
+              className={`dip-last-move ${m.success ? 'is-success' : 'is-bounced'}`}
+              style={{ stroke: POWER_COLORS[m.power], color: POWER_COLORS[m.power] }}
+              markerEnd={m.success ? 'url(#dip-lastmove-arrow)' : undefined}
+            />
           );
         })}
 

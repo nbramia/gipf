@@ -479,6 +479,19 @@
   animation: diplomacy-fade-in 0.22s ease-out;
 }
 
+/* Previous-turn move review: thinner, semi-transparent lines under the pieces.
+   Successful moves are solid with an arrowhead; bounced moves are dotted. */
+.game-diplomacy .dip-last-move {
+  fill: none;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+}
+.game-diplomacy .dip-last-move.is-success { opacity: 0.5; }
+.game-diplomacy .dip-last-move.is-bounced {
+  opacity: 0.38;
+  stroke-dasharray: 2 5;
+}
+
 /* ========== Order entry panel + power switcher ========== */
 
 .game-diplomacy .dip-power-switcher {
