@@ -827,7 +827,122 @@ export default class DiplomacyBoard {
       plans.push({ type: 'orders-plan', power, orders: entry.orders, score: entry.score });
       if (plans.length >= maxPlans) break;
     }
+
+    // Goal-directed plans: explicit COORDINATED ATTACKS on supply centres we
+    // could gain — one unit moves in, others support that move. The beam scores
+    // orders independently and rarely assembles these; injecting them as
+    // candidates lets the forward-model search choose a real, supported capture.
+    // (Strategy in Diplomacy = take centres, which means self-supported moves.)
+    const objective = this.generateObjectivePlans(power);
+    if (objective.length) {
+      for (const plan of objective) {
+        const key = plan.orders.map(orderKey).sort().join('|');
+        if (seen.has(key)) continue;
+        seen.add(key);
+        plans.unshift(plan); // never dropped — evaluated first
+      }
+    }
     return plans.length ? plans : [{ type: 'orders-plan', power, orders: locs.map(unitLoc => ({ type: 'hold', unitLoc })) }];
+  }
+
+  // Tidy a power's own order set so it never looks foolish: a support-move that
+  // backs one of OUR units which isn't actually making that move (or a
+  // support-hold of our own unit that's moving away) is wasted, so demote it to
+  // a hold. Cross-power supports (backing another power's move/hold — e.g. a
+  // negotiated support) are kept: we can't see the ally's orders to verify them.
+  makeOrdersCoherent(orders) {
+    const byLoc = {};
+    for (const o of orders) byLoc[o.unitLoc] = o;
+    return orders.map((o) => {
+      if (o.type === 'support-move') {
+        const mover = byLoc[o.from]; // our own unit only (keyed by our locs)
+        if (mover === undefined) return o; // supporting another power — keep
+        const backsRealMove = mover.type === 'move' && baseProvince(mover.to) === baseProvince(o.to);
+        return backsRealMove ? o : { type: 'hold', unitLoc: o.unitLoc };
+      }
+      if (o.type === 'support-hold') {
+        const target = byLoc[o.target];
+        if (target === undefined) return o; // supporting another power — keep
+        return target.type === 'move' ? { type: 'hold', unitLoc: o.unitLoc } : o;
+      }
+      return o;
+    });
+  }
+
+  // Build ONE coordinated supported-attack plan on `targetBase`: a mover enters
+  // the province while up to `maxSupporters` other units support that move, and
+  // every remaining unit takes its best independent move (or holds). Returns null
+  // if no unit can move there. `requireSupporter` (a loc) is forced to be a
+  // supporter rather than the mover — used to honour a negotiated support deal.
+  buildSupportedAttackPlan(power, targetBase, { maxSupporters = 2, requireSupporter = null } = {}) {
+    const locs = this.getUnitLocations(power);
+    if (locs.length === 0) return null;
+    const moveOrderTo = (loc) => {
+      const to = this.getMoveTargets(loc, { includeConvoys: true }).find(t => baseProvince(t) === targetBase);
+      if (!to) return null;
+      return { type: 'move', unitLoc: loc, to, viaConvoy: this.units[loc].type === 'army' && !adjacencyFor('army', loc).includes(to) };
+    };
+    const movers = locs.filter(loc => loc !== requireSupporter && moveOrderTo(loc));
+    if (!movers.length) return null;
+    if (requireSupporter && !this.canSupport(this.units[requireSupporter]?.type, requireSupporter, targetBase)) return null;
+
+    // Pick the mover that frees the most supporters (always keeping requireSupporter).
+    let best = null;
+    for (const M of movers) {
+      const supporters = locs.filter(s => s !== M && this.canSupport(this.units[s].type, s, targetBase));
+      if (requireSupporter && !supporters.includes(requireSupporter)) continue;
+      if (!best || supporters.length > best.supporters.length) best = { M, supporters };
+    }
+    if (!best) return null;
+
+    const orders = [moveOrderTo(best.M)];
+    const assigned = new Set([best.M]);
+    const ordered = requireSupporter
+      ? [requireSupporter, ...best.supporters.filter(s => s !== requireSupporter)]
+      : best.supporters;
+    for (const s of ordered.slice(0, maxSupporters)) {
+      orders.push({ type: 'support-move', unitLoc: s, from: best.M, to: targetBase });
+      assigned.add(s);
+    }
+    for (const loc of locs) {
+      if (assigned.has(loc)) continue;
+      const bo = this.getLegalOrdersForUnit(loc, { includeSupport: false, includeConvoys: true })
+        .map(order => ({ order, score: this.scoreOrder(order, power) }))
+        .sort((a, b) => b.score - a.score)[0];
+      orders.push(bo ? bo.order : { type: 'hold', unitLoc: loc });
+    }
+    return { type: 'orders-plan', power, orders, score: 0 };
+  }
+
+  // Coordinated supported attacks on each supply centre we could gain.
+  generateObjectivePlans(power, { maxPlans = 8 } = {}) {
+    const locs = this.getUnitLocations(power);
+    if (locs.length === 0) return [];
+    // Gainable centres (not owned by us, reachable), highest priority first.
+    const targets = [];
+    for (const [base, prov] of Object.entries(PROVINCES)) {
+      if (!prov.supply || this.supplyCenters[base] === power) continue;
+      const movers = locs.filter(loc => this.getMoveTargets(loc, { includeConvoys: true }).some(t => baseProvince(t) === base));
+      if (!movers.length) continue;
+      const supporters = movers.length > 1 || locs.some(s => !movers.includes(s) && this.canSupport(this.units[s].type, s, base));
+      const enemyOnCentre = this.unitAt(base) && this.unitAt(base).power !== power;
+      const priority = (this.season === 'fall' ? 300 : 170) + (supporters ? 90 : 0) + (enemyOnCentre ? 0 : 60) + this.provinceValue(power, base) * 0.2;
+      targets.push({ base, priority });
+    }
+    targets.sort((a, b) => b.priority - a.priority);
+
+    const plans = [];
+    const used = new Set();
+    for (const { base } of targets) {
+      if (plans.length >= maxPlans) break;
+      const plan = this.buildSupportedAttackPlan(power, base);
+      if (!plan) continue;
+      const key = plan.orders.map(orderKey).sort().join('|');
+      if (used.has(key)) continue;
+      used.add(key);
+      plans.push(plan);
+    }
+    return plans;
   }
 
   generateRetreatPlans(power) {

@@ -105,7 +105,15 @@ function intentPlanBias(board, orders, intent) {
     const fulfilled = orders.some(order => {
       if (baseProvince(order.unitLoc) !== baseProvince(deal.from)) return false;
       if (order.type === 'support-hold') return baseProvince(order.target) === baseProvince(deal.to);
-      if (order.type === 'support-move') return baseProvince(order.to) === baseProvince(deal.to);
+      if (order.type === 'support-move') {
+        if (baseProvince(order.to) !== baseProvince(deal.to)) return false;
+        // Only count a support that backs a REAL move into `to`: either our own
+        // unit moving there in this same plan (a coordinated attack), or a unit
+        // that isn't ours to plan (a negotiated cross-power support we honour).
+        const mover = orders.find(o => baseProvince(o.unitLoc) === baseProvince(order.from));
+        if (!mover) return true; // supported unit is another power's — honour it
+        return mover.type === 'move' && baseProvince(mover.to) === baseProvince(deal.to);
+      }
       return false;
     });
     if (fulfilled) bias += SUPPORT_DEAL_REWARD;
@@ -239,6 +247,13 @@ function searchOrders(board, power, { intent, difficulty, seed, deterministic })
   if (board.getUnitLocations(power).length === 0) return [];
 
   const ownPlans = board.generateCandidatePlans(power, { maxPlans: budget.maxPlans });
+  // Inject a coherent plan that fulfils each agreed support deal — the beam
+  // can't reliably assemble "unit X moves into T while Y supports it", so build
+  // it explicitly; the deal reward then lets it win when honouring is best.
+  for (const deal of (intent && intent.supportDeals) || []) {
+    const plan = board.buildSupportedAttackPlan(power, baseProvince(deal.to), { requireSupporter: deal.from });
+    if (plan) ownPlans.unshift(plan);
+  }
   const predictions = predictOpponentPlans(board, power, budget.oppPlans);
 
   // Current best-known orders for each opponent (used by iterative BR).
@@ -311,7 +326,8 @@ function normalizeOptions({ intent = null, difficulty = 'normal', seed = null, d
 async function getOrders(board, power, options = {}) {
   const opts = normalizeOptions(options);
   if (!board.isOrdersPhase()) return { orders: [] };
-  return { orders: searchOrders(board, power, opts) };
+  // Demote wasted self-supports to holds so the chosen orders read coherently.
+  return { orders: board.makeOrdersCoherent(searchOrders(board, power, opts)) };
 }
 
 async function getRetreats(board, power, options = {}) {
