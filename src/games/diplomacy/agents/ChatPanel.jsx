@@ -25,6 +25,7 @@ export default function ChatPanel({
   setMemory: setMemoryProp,
   unreadByPower,
   onViewThread,
+  onScratchpad,
 }) {
   // AI powers are everyone except the human's power.
   const agents = useMemo(
@@ -107,6 +108,10 @@ export default function ChatPanel({
     }
     // sendMessage already appended the assistant reply + scratchpad into `store`.
     setMemory({ threads: { ...store.threads } });
+    // Fold the power's PRIVATE disposition (its true read of everyone, which may
+    // differ from what it just told you) into its unified state of mind, so its
+    // moves reflect this conversation — talking can win or lose you an ally.
+    if (result.scratchpad && onScratchpad) onScratchpad(selected, result.scratchpad);
     setBusy(false);
   }
 

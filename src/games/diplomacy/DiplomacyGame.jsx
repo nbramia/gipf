@@ -24,7 +24,7 @@ import DiplomacyBoard, {
 } from './DiplomacyBoard.js';
 import ChatPanel from './agents/ChatPanel.jsx';
 import { createMemory } from './agents/memory.js';
-import { createDiplomaticState } from './agents/diplomaticState.js';
+import { createDiplomaticState, setScratchpad } from './agents/diplomaticState.js';
 import { PERSONAS } from './agents/personas.js';
 import useHasApiKey from './hooks/useApiKey.js';
 import useAIWorker from './hooks/useAIWorker.js';
@@ -309,6 +309,15 @@ export default function DiplomacyGame() {
       return { ...prev, [power]: len };
     });
   }, [conversations]);
+
+  // Fold an AI power's private scratchpad (from a human-chat reply) into the
+  // shared, persistent diplomatic state — the SAME state of mind the AI↔AI
+  // negotiation evolves and the move AI reads. So talking with a power actually
+  // shifts how it plays toward you (its real disposition, not its words).
+  const foldScratchpadIntoState = useCallback((power, scratchpad) => {
+    if (!scratchpad) return;
+    setDiplomaticState((ds) => (ds ? setScratchpad(ds, power, scratchpad) : ds));
+  }, []);
 
   const phaseLabel = board.getPhaseLabel();
   const leader = board.getLeader();
@@ -638,6 +647,7 @@ export default function DiplomacyGame() {
               setMemory={setConversations}
               unreadByPower={unreadByPower}
               onViewThread={markThreadRead}
+              onScratchpad={foldScratchpadIntoState}
             />
           </div>
         </aside>
