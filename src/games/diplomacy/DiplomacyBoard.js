@@ -24,8 +24,8 @@ const POWER_SHORT_NAMES = {
 };
 
 const POWER_COLORS = {
-  austria: '#C2410C',
-  england: '#7C3AED',
+  austria: '#7C3AED',
+  england: '#C2410C',
   france: '#2563EB',
   germany: '#475569',
   italy: '#16A34A',
@@ -34,8 +34,8 @@ const POWER_COLORS = {
 };
 
 const POWER_ACCENTS = {
-  austria: '#FED7AA',
-  england: '#DDD6FE',
+  austria: '#DDD6FE',
+  england: '#FED7AA',
   france: '#BFDBFE',
   germany: '#CBD5E1',
   italy: '#BBF7D0',
@@ -613,8 +613,11 @@ export default class DiplomacyBoard {
   getConvoyTargets(armyLoc) {
     const unit = this.units[armyLoc];
     if (!unit || unit.type !== 'army' || !PROVINCES[armyLoc] || PROVINCES[armyLoc].type !== 'coast') return [];
+    // Only the army's OWN fleets can be relied on to convoy it — you can't order
+    // an enemy's (or an uncommitted neutral's) fleet to carry your army, so a
+    // convoy route through someone else's fleet isn't a move this power can make.
     const fleetSeas = Object.entries(this.units)
-      .filter(([, candidate]) => candidate.type === 'fleet')
+      .filter(([, candidate]) => candidate.type === 'fleet' && candidate.power === unit.power)
       .map(([loc]) => loc)
       .filter(isSea);
     if (fleetSeas.length === 0) return [];
