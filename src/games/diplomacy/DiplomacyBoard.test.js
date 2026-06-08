@@ -190,6 +190,48 @@ describe('Diplomacy adjudication', () => {
     expect(board.pendingRetreats.some(r => r.unit.power === 'turkey')).toBe(true);
   });
 
+  test("a unit can support ANOTHER power's move (cross-power support)", () => {
+    const board = emptyBoard();
+    // Germany's MUN supports Italy's VEN -> TYR, dislodging Austria in Tyrolia.
+    setUnits(board, {
+      VEN: { power: 'italy', type: 'army' },
+      MUN: { power: 'germany', type: 'army' },
+      TYR: { power: 'austria', type: 'army' },
+    });
+
+    // The support-move order for an opponent's unit must be offered to MUN.
+    const supports = board.getLegalOrdersForUnit('MUN').filter(o => o.type === 'support-move');
+    expect(supports.some(o => o.from === 'VEN' && o.to === 'TYR')).toBe(true);
+
+    board.processOrders({
+      italy: [{ type: 'move', unitLoc: 'VEN', to: 'TYR' }],
+      germany: [{ type: 'support-move', unitLoc: 'MUN', from: 'VEN', to: 'TYR' }],
+      austria: [{ type: 'hold', unitLoc: 'TYR' }],
+    });
+
+    expect(board.units.TYR.power).toBe('italy');
+    expect(board.pendingRetreats.some(r => r.unit.power === 'austria')).toBe(true);
+  });
+
+  test('support-move options are not truncated in dense positions', () => {
+    const board = emptyBoard();
+    const A = (power) => ({ power, type: 'army' });
+    // Pack the provinces around Munich so it has > 28 legal support-moves (the
+    // old hard cap of 28 silently dropped legal supports — often opponents').
+    setUnits(board, {
+      MUN: A('germany'),
+      RUH: A('france'), KIE: A('russia'), BER: A('russia'), SIL: A('austria'),
+      BOH: A('austria'), TYR: A('italy'), BUR: A('france'),
+      HOL: A('england'), BEL: A('england'), PIC: A('france'), PAR: A('france'),
+      GAS: A('france'), MAR: A('italy'), PIE: A('italy'), VEN: A('italy'),
+      TRI: A('austria'), VIE: A('austria'), GAL: A('russia'), WAR: A('russia'),
+      PRU: A('russia'), DEN: A('england'), SWE: A('russia'), HEL: A('england'),
+    });
+    const supports = board.getLegalOrdersForUnit('MUN').filter(o => o.type === 'support-move');
+    expect(supports.length).toBeGreaterThan(28); // no longer capped
+    expect(supports.some(o => board.units[o.from].power !== 'germany')).toBe(true);
+  });
+
   test('a support is cut by an attacker other than the supported-against unit', () => {
     const board = emptyBoard();
     // Austria BUD -> SER supported by TRI. Russia ALB attacks TRI (the supporter),

@@ -691,16 +691,19 @@ export default class DiplomacyBoard {
       orders.push({ type: 'support-hold', unitLoc: loc, target });
     }
 
-    const moveOrders = [];
+    // A unit may support ANY unit's move (own or another power's) into a
+    // province it can reach — supporting an ally's (or a rival's) attack is core
+    // Diplomacy. Emit every legal support-move; the count is naturally bounded by
+    // geography, so it is NOT truncated (a prior cap silently dropped legal
+    // supports — often the opponent ones — in dense mid-game positions).
     for (const [from, movingUnit] of Object.entries(this.units)) {
       if (from === loc) continue;
       for (const to of this.getMoveTargets(from, { includeConvoys: false })) {
         if (to === from || !this.canSupport(unit.type, loc, to)) continue;
         if (!this.canUnitMove(movingUnit.type, from, to)) continue;
-        moveOrders.push({ type: 'support-move', unitLoc: loc, from, to });
+        orders.push({ type: 'support-move', unitLoc: loc, from, to });
       }
     }
-    orders.push(...moveOrders.slice(0, 28));
 
     if (unit.type === 'fleet' && isSea(loc) && includeConvoys) {
       for (const [from, movingUnit] of Object.entries(this.units)) {
