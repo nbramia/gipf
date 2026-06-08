@@ -175,6 +175,9 @@ export default function DiplomacyGame() {
   const [pendingOrders, setPendingOrders] = useState(() => restoredUi.pendingOrders || {}); // { [unitLoc]: order }
   const [selectedUnit, setSelectedUnit] = useState(null);
   const [orderType, setOrderType] = useState(null);
+  // For two-step map targeting of support-move / convoy: the moving unit (base
+  // province) whose move is being supported/convoyed; null until picked.
+  const [supportFrom, setSupportFrom] = useState(null);
   const [retreatChoices, setRetreatChoices] = useState(() => restoredUi.retreatChoices || {}); // { [unitLoc]: 'DISBAND'|to }
   const [buildOrders, setBuildOrders] = useState(() => restoredUi.buildOrders || {}); // { [power]: order[] }
 
@@ -234,6 +237,7 @@ export default function DiplomacyGame() {
     setPendingOrders({});
     setSelectedUnit(null);
     setOrderType(null);
+    setSupportFrom(null);
     setRetreatChoices({});
     setBuildOrders({});
   }, [board.phase, board.year, board.season, turn.uiPhase]);
@@ -334,17 +338,71 @@ export default function DiplomacyGame() {
     if (!unit || unit.power !== humanPower || !isOrderEntry) return;
     setSelectedUnit(loc);
     setOrderType(null);
+    setSupportFrom(null);
   }
 
   function setPendingOrder(order) {
     setPendingOrders(prev => ({ ...prev, [order.unitLoc]: order }));
     setSelectedUnit(null);
     setOrderType(null);
+    setSupportFrom(null);
   }
 
   function chooseOrderType(type) {
     setOrderType(type);
+    setSupportFrom(null);
     if (type === 'hold') setPendingOrder({ type: 'hold', unitLoc: selectedUnit });
+  }
+
+  // Provinces (base ids) that are valid click targets on the map given the
+  // current selection + order type. Two-step for support-move / convoy: first
+  // the movable units that can be supported, then that mover's destinations.
+  const targetBaseFor = (option) => {
+    if (orderType === 'support-hold') return baseProvince(option.target);
+    return baseProvince(option.to); // move / support-move / convoy destination
+  };
+  const targetProvinces = useMemo(() => {
+    const set = new Set();
+    if (!selectedUnit || !orderType || orderType === 'hold') return set;
+    if (orderType === 'support-move' || orderType === 'convoy') {
+      if (supportFrom == null) {
+        optionsForType.forEach(o => set.add(baseProvince(o.from)));
+      } else {
+        optionsForType
+          .filter(o => baseProvince(o.from) === supportFrom)
+          .forEach(o => set.add(baseProvince(o.to)));
+      }
+    } else {
+      optionsForType.forEach(o => set.add(targetBaseFor(o)));
+    }
+    return set;
+  }, [selectedUnit, orderType, supportFrom, optionsForType]);
+
+  // A click on province `base` during order entry: finalize a target if we're
+  // targeting and it's valid; otherwise (re)select the human's unit there.
+  function handleMapClick(base) {
+    if (!isOrderEntry) return;
+    if (selectedUnit && orderType && orderType !== 'hold') {
+      if (orderType === 'move') {
+        const opt = optionsForType.find(o => baseProvince(o.to) === base);
+        if (opt) { setPendingOrder(opt); return; }
+      } else if (orderType === 'support-hold') {
+        const opt = optionsForType.find(o => baseProvince(o.target) === base);
+        if (opt) { setPendingOrder(opt); return; }
+      } else if (orderType === 'support-move' || orderType === 'convoy') {
+        if (supportFrom == null) {
+          if (optionsForType.some(o => baseProvince(o.from) === base)) { setSupportFrom(base); return; }
+        } else {
+          const opt = optionsForType.find(o => baseProvince(o.from) === supportFrom && baseProvince(o.to) === base);
+          if (opt) { setPendingOrder(opt); return; }
+          // Clicked a different mover — switch to supporting that one instead.
+          if (optionsForType.some(o => baseProvince(o.from) === base)) { setSupportFrom(base); return; }
+        }
+      }
+    }
+    // Not consumed as a target: select the human's own unit at this province.
+    const myLoc = board.unitLocAt(base);
+    if (myLoc && board.units[myLoc]?.power === humanPower) selectUnitForOrder(myLoc);
   }
 
   function clearOrderFor(unitLoc) {
@@ -655,22 +713,22 @@ export default function DiplomacyGame() {
             const shape = PROVINCE_SHAPES[id];
             if (!shape) return null;
             const owner = province.supply ? board.supplyCenters[id] : null;
-            const isSelectable = isOrderEntry
-              && board.units[id]
-              && board.units[id].power === humanPower;
-            const selectedLoc = board.unitLocAt(id);
+            const hasMyUnit = isOrderEntry && board.unitLocAt(id) && board.units[board.unitLocAt(id)]?.power === humanPower;
+            const isTarget = isOrderEntry && targetProvinces.has(id);
+            const isSupportFrom = supportFrom === id;
+            const isSelectable = hasMyUnit || isTarget;
             const isSelected = selectedUnit && baseProvince(selectedUnit) === id;
             return (
               <path
                 key={id}
                 d={shape}
-                className={`dip-province dip-province-${province.type} ${isSelectable ? 'is-selectable' : ''} ${isSelected ? 'is-selected' : ''}`}
+                className={`dip-province dip-province-${province.type} ${isSelectable ? 'is-selectable' : ''} ${isSelected ? 'is-selected' : ''} ${isTarget ? 'is-target' : ''} ${isSupportFrom ? 'is-support-from' : ''}`}
                 style={owner ? { fill: POWER_ACCENTS[owner], stroke: POWER_COLORS[owner] } : undefined}
-                onClick={() => selectedLoc && selectUnitForOrder(selectedLoc)}
+                onClick={() => handleMapClick(id)}
                 role={isSelectable ? 'button' : undefined}
                 tabIndex={isSelectable ? 0 : undefined}
-                aria-label={isSelectable ? `Select unit at ${province.name}` : undefined}
-                onKeyDown={isSelectable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectUnitForOrder(selectedLoc); } } : undefined}
+                aria-label={isSelectable ? `${isTarget ? 'Target' : 'Select unit at'} ${province.name}` : undefined}
+                onKeyDown={isSelectable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleMapClick(id); } } : undefined}
               >
                 <title>{`${province.name} (${id})${province.supply ? ` — supply center${owner ? `, ${POWER_SHORT_NAMES[owner]}` : ''}` : ''}`}</title>
               </path>
@@ -737,7 +795,7 @@ export default function DiplomacyGame() {
           // Boat hull centred on pt (flat deck, rounded keel).
           const hull = `M ${pt.x - 15} ${pt.y - 6} L ${pt.x + 15} ${pt.y - 6} L ${pt.x + 10} ${pt.y + 8} Q ${pt.x} ${pt.y + 13} ${pt.x - 10} ${pt.y + 8} Z`;
           return (
-            <g key={unit.loc} className="dip-unit-group" filter="url(#dip-piece-shadow)" onClick={() => selectUnitForOrder(unit.loc)}>
+            <g key={unit.loc} className="dip-unit-group" filter="url(#dip-piece-shadow)" onClick={() => handleMapClick(baseProvince(unit.loc))}>
               <title>{`${POWER_SHORT_NAMES[unit.power]} ${unit.type} ${provinceLabel(unit.loc)}`}</title>
               {isFleet ? (
                 <>
@@ -844,18 +902,27 @@ export default function DiplomacyGame() {
               ))}
             </div>
             {orderType && orderType !== 'hold' && (
-              <div className="mt-3 dip-target-grid">
-                {optionsForType.length === 0 && <p className="dip-log-empty">No legal targets.</p>}
-                {optionsForType.map(option => (
-                  <button
-                    key={pendingKey(option)}
-                    className="dip-target-btn"
-                    onClick={() => setPendingOrder(option)}
-                  >
-                    {describeOrder(option)}
-                  </button>
-                ))}
-              </div>
+              <>
+                <p className="dip-target-hint mt-2">
+                  {(orderType === 'support-move' || orderType === 'convoy')
+                    ? (supportFrom == null
+                        ? 'Click the highlighted unit on the map whose move you want to support — or pick from the list.'
+                        : <>Now click the highlighted destination for <strong>{supportFrom}</strong>. <button className="dip-linkbtn" onClick={() => setSupportFrom(null)}>change unit</button></>)
+                    : 'Click a highlighted province on the map — or pick from the list.'}
+                </p>
+                <div className="mt-2 dip-target-grid">
+                  {optionsForType.length === 0 && <p className="dip-log-empty">No legal targets.</p>}
+                  {optionsForType.map(option => (
+                    <button
+                      key={pendingKey(option)}
+                      className="dip-target-btn"
+                      onClick={() => setPendingOrder(option)}
+                    >
+                      {describeOrder(option)}
+                    </button>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         )}

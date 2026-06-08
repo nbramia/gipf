@@ -53,6 +53,7 @@
   --dip-piece-halo: #F8F3E7;
   --dip-selectable: #C99A2E;
   --dip-selected: #8E2B20;
+  --dip-target: #1C8A6E;
 
   --dip-shadow: 0 10px 30px rgba(48, 30, 10, 0.14);
   --dip-shadow-soft: 0 4px 14px rgba(48, 30, 10, 0.10);
@@ -105,6 +106,7 @@
   --dip-piece-halo: #ECE4D2;
   --dip-selectable: #E4C26A;
   --dip-selected: #E86A58;
+  --dip-target: #46D2A6;
 
   --dip-shadow: 0 12px 34px rgba(0, 0, 0, 0.52);
   --dip-shadow-soft: 0 6px 18px rgba(0, 0, 0, 0.4);
@@ -376,6 +378,23 @@
   filter: drop-shadow(0 0 8px var(--dip-selected));
 }
 
+/* A valid click target for the order being drafted (move/support destination,
+   or a supportable unit). Teal, distinct from selectable-gold and selected-red. */
+.game-diplomacy .dip-province.is-target {
+  cursor: pointer;
+  stroke: var(--dip-target, #1F8A70) !important;
+  stroke-width: 5.5;
+  filter: drop-shadow(0 0 7px var(--dip-target, #1F8A70));
+}
+.game-diplomacy .dip-province.is-target:hover { stroke-width: 7.5; }
+
+/* The unit whose move you've chosen to support/convoy (step 1 of two). */
+.game-diplomacy .dip-province.is-support-from {
+  stroke: var(--dip-selectable) !important;
+  stroke-width: 7;
+  filter: drop-shadow(0 0 9px var(--dip-selectable));
+}
+
 /* Supply center: a cream medallion badge with a star — brass when neutral,
    power-coloured when controlled. The medallion keeps it legible on any fill. */
 .game-diplomacy .dip-supply-medallion {
@@ -568,6 +587,23 @@
   display: flex;
   flex-wrap: wrap;
   gap: 0.3rem;
+}
+
+.game-diplomacy .dip-target-hint {
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--dip-text-muted);
+}
+.game-diplomacy .dip-target-hint strong { color: var(--dip-text); }
+.game-diplomacy .dip-linkbtn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--dip-accent);
+  font: inherit;
+  font-size: 0.76rem;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 .game-diplomacy .dip-target-grid {
