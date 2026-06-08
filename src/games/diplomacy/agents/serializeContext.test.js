@@ -63,4 +63,24 @@ describe('serializeBoardContext', () => {
     const board = new DiplomacyBoard();
     expect(() => serializeBoardContext(board, {})).toThrow();
   });
+
+  test("surfaces a power's own last orders and the attributed public move record", () => {
+    const board = new DiplomacyBoard();
+    // Spring 1901: France and Germany both try for Burgundy (they bounce).
+    board.processOrders({
+      france: [{ type: 'move', unitLoc: 'PAR', to: 'BUR' }],
+      germany: [{ type: 'move', unitLoc: 'MUN', to: 'BUR' }],
+    });
+
+    const ctx = serializeBoardContext(board, { power: 'france' });
+    // France knows its own order (the bug: agents used to deny their own moves).
+    expect(ctx.you.lastOrders.some((l) => /PAR → BUR/.test(l))).toBe(true);
+    // The public move record attributes each move to the acting power.
+    expect(ctx.lastMoves.some((l) => /France: PAR → BUR/.test(l))).toBe(true);
+    expect(ctx.lastMoves.some((l) => /Germany: MUN → BUR/.test(l))).toBe(true);
+    // Germany's context shows Germany's order, not France's, as "yours".
+    const gctx = serializeBoardContext(board, { power: 'germany' });
+    expect(gctx.you.lastOrders.some((l) => /MUN → BUR/.test(l))).toBe(true);
+    expect(gctx.you.lastOrders.some((l) => /PAR → BUR/.test(l))).toBe(false);
+  });
 });

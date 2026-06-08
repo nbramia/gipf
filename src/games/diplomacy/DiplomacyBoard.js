@@ -949,13 +949,20 @@ export default class DiplomacyBoard {
   processOrders(ordersByPower) {
     if (!this.isOrdersPhase()) return false;
     const ordersByLoc = this._normalizeOrders(ordersByPower);
+    // Capture the acting power per order location BEFORE units move, so the
+    // order history can attribute each order to a power (used by the agents'
+    // board context, since orders are public knowledge once resolved).
+    const ownerByLoc = {};
+    for (const loc of Object.keys(ordersByLoc)) {
+      if (this.units[loc]) ownerByLoc[loc] = this.units[loc].power;
+    }
     const adjudication = this._adjudicate(ordersByLoc);
     this.units = adjudication.units;
     this.pendingRetreats = adjudication.pendingRetreats;
     this.contestedProvinces = [...adjudication.contestedProvinces];
     this.orderHistory.unshift({
       phase: this.getPhaseLabel(),
-      orders: Object.fromEntries(Object.entries(ordersByLoc).map(([loc, order]) => [loc, cloneOrder(order)])),
+      orders: Object.fromEntries(Object.entries(ordersByLoc).map(([loc, order]) => [loc, { ...cloneOrder(order), power: ownerByLoc[loc] || null }])),
       resolved: adjudication.resolved,
       retreats: this.pendingRetreats.map(entry => ({ ...entry, unit: { ...entry.unit }, options: [...entry.options] })),
     });

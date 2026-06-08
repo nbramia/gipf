@@ -25,9 +25,59 @@ function reachableBases(board, power) {
   return reach;
 }
 
-// Compact, one-line descriptions of the most recent resolved turns, drawn from
-// board.orderHistory (most-recent-first). Each entry is rendered as a short
-// human-readable summary; details are kept terse to bound prompt size.
+// Render one order as a terse, human-readable line (the location identifies the
+// unit). Mirrors the UI's describeOrder.
+function describeOrderShort(order) {
+  const u = order.unitLoc;
+  switch (order.type) {
+    case 'move': return `${u} → ${order.to}${order.viaConvoy ? ' (convoy)' : ''}`;
+    case 'support-hold': return `${u} S ${order.target}`;
+    case 'support-move': return `${u} S ${order.from} → ${order.to}`;
+    case 'convoy': return `${u} C ${order.from} → ${order.to}`;
+    case 'hold':
+    default: return `${u} holds`;
+  }
+}
+
+// The most recent entry that actually resolved orders (skips adjustment phases).
+function lastOrdersEntry(board) {
+  const history = Array.isArray(board.orderHistory) ? board.orderHistory : [];
+  return history.find((e) => e && e.orders) || null;
+}
+
+// A power's OWN orders last turn, with move outcomes — the record it must not
+// contradict (its own moves are public once resolved).
+function ownLastOrders(board, power) {
+  const entry = lastOrdersEntry(board);
+  if (!entry) return [];
+  const moveSuccess = (entry.resolved && entry.resolved.moveSuccess) || {};
+  const out = [];
+  for (const [loc, order] of Object.entries(entry.orders)) {
+    if (order.power !== power) continue;
+    let line = describeOrderShort(order);
+    if (order.type === 'move') line += moveSuccess[loc] ? ' (succeeded)' : ' (bounced/failed)';
+    out.push(line);
+  }
+  return out;
+}
+
+// Every power's MOVE orders last turn, with outcome — the public record of who
+// went where, so an agent is aware of attacks and advances across the board.
+function lastTurnMoves(board, limit = 16) {
+  const entry = lastOrdersEntry(board);
+  if (!entry) return [];
+  const moveSuccess = (entry.resolved && entry.resolved.moveSuccess) || {};
+  const out = [];
+  for (const [loc, order] of Object.entries(entry.orders)) {
+    if (order.type !== 'move') continue;
+    const who = POWER_NAMES[order.power] || order.power || 'A power';
+    out.push(`${who}: ${order.unitLoc} → ${order.to} ${moveSuccess[loc] ? '✓' : '✗ (failed)'}`);
+  }
+  return out.slice(0, limit);
+}
+
+// Compact, one-line summaries of the most recent resolved turns, drawn from
+// board.orderHistory (most-recent-first). Terse, to bound prompt size.
 function recentResults(board, limit = 3) {
   const history = Array.isArray(board.orderHistory) ? board.orderHistory : [];
   return history.slice(0, limit).map((entry) => {
@@ -35,12 +85,12 @@ function recentResults(board, limit = 3) {
       const n = Object.keys(entry.adjustments).length;
       return `${entry.phase}: ${n} adjustment${n === 1 ? '' : 's'} resolved.`;
     }
-    const resolved = entry.resolved || {};
-    const moves = Object.values(resolved).filter((r) => r && r.type === 'move');
-    const succeeded = moves.filter((r) => r.success).length;
+    const orders = entry.orders || {};
+    const moveSuccess = (entry.resolved && entry.resolved.moveSuccess) || {};
+    const moveLocs = Object.entries(orders).filter(([, o]) => o.type === 'move');
+    const succeeded = moveLocs.filter(([loc]) => moveSuccess[loc]).length;
     const dislodged = Array.isArray(entry.retreats) ? entry.retreats.length : 0;
-    const parts = [];
-    parts.push(`${moves.length} move${moves.length === 1 ? '' : 's'} ordered, ${succeeded} succeeded`);
+    const parts = [`${moveLocs.length} move${moveLocs.length === 1 ? '' : 's'} ordered, ${succeeded} succeeded`];
     if (dislodged) parts.push(`${dislodged} dislodged`);
     return `${entry.phase}: ${parts.join(', ')}.`;
   });
@@ -97,9 +147,11 @@ export function serializeBoardContext(board, { power } = {}) {
       units: youUnits.length,
       centerList: youCenters.map(baseProvince),
       unitList: youUnits.map((u) => `${u.type === 'fleet' ? 'F' : 'A'} ${u.loc}`),
+      lastOrders: ownLastOrders(board, power),
     },
     rivals,
     threats,
+    lastMoves: lastTurnMoves(board),
     recentResults: recentResults(board),
   };
 }
