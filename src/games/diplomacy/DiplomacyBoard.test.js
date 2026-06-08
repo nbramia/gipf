@@ -1189,3 +1189,46 @@ describe('Diplomacy split-coast regression guards', () => {
     expect(DiplomacyBoard.fromSerializedState(board.serializeState()).getStateHash()).toBe(hash);
   });
 });
+
+describe('Diplomacy convoy coherence (AI orders)', () => {
+  test('getConvoyTargets only routes through the army owner\'s own fleets', () => {
+    const board = emptyBoard();
+    setUnits(board, { DEN: { power: 'germany', type: 'army' }, NTH: { power: 'england', type: 'fleet' } });
+    expect(board.getConvoyTargets('DEN')).not.toContain('LON'); // England's fleet won't carry it
+    setUnits(board, { DEN: { power: 'germany', type: 'army' }, NTH: { power: 'germany', type: 'fleet' } });
+    expect(board.getConvoyTargets('DEN')).toContain('LON'); // own fleet carries it
+  });
+
+  test('makeOrdersCoherent demotes a convoy move that no fleet is carrying', () => {
+    const board = emptyBoard();
+    setUnits(board, { YOR: { power: 'england', type: 'army' }, NTH: { power: 'england', type: 'fleet' } });
+    // Army told to sail to NWY but the fleet moves off to NWG instead of convoying.
+    const cleaned = board.makeOrdersCoherent(
+      [{ type: 'move', unitLoc: 'YOR', to: 'NWY', viaConvoy: true }, { type: 'move', unitLoc: 'NTH', to: 'NWG' }],
+      'england'
+    );
+    const yor = cleaned.find((o) => o.unitLoc === 'YOR');
+    expect(yor.viaConvoy).toBeFalsy(); // no dead sail
+  });
+
+  test('makeOrdersCoherent keeps a convoy move that a fleet actually carries', () => {
+    const board = emptyBoard();
+    setUnits(board, { YOR: { power: 'england', type: 'army' }, NTH: { power: 'england', type: 'fleet' } });
+    const orders = [
+      { type: 'move', unitLoc: 'YOR', to: 'NWY', viaConvoy: true },
+      { type: 'convoy', unitLoc: 'NTH', from: 'YOR', to: 'NWY' },
+    ];
+    const cleaned = board.makeOrdersCoherent(orders, 'england');
+    const yor = cleaned.find((o) => o.unitLoc === 'YOR');
+    expect(yor).toEqual({ type: 'move', unitLoc: 'YOR', to: 'NWY', viaConvoy: true });
+  });
+
+  test('buildConvoyPlan pairs the army sail with its fleet\'s convoy order', () => {
+    const board = emptyBoard();
+    setUnits(board, { YOR: { power: 'england', type: 'army' }, NTH: { power: 'england', type: 'fleet' } });
+    const plan = board.buildConvoyPlan('england', 'YOR', 'NWY');
+    expect(plan).not.toBeNull();
+    expect(plan.orders).toContainEqual({ type: 'move', unitLoc: 'YOR', to: 'NWY', viaConvoy: true });
+    expect(plan.orders).toContainEqual({ type: 'convoy', unitLoc: 'NTH', from: 'YOR', to: 'NWY' });
+  });
+});

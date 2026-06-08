@@ -836,14 +836,14 @@ export default class DiplomacyBoard {
     // orders independently and rarely assembles these; injecting them as
     // candidates lets the forward-model search choose a real, supported capture.
     // (Strategy in Diplomacy = take centres, which means self-supported moves.)
-    const objective = this.generateObjectivePlans(power);
-    if (objective.length) {
-      for (const plan of objective) {
-        const key = plan.orders.map(orderKey).sort().join('|');
-        if (seen.has(key)) continue;
-        seen.add(key);
-        plans.unshift(plan); // never dropped — evaluated first
-      }
+    // Coherent convoy plans too (army sails + its fleets carry it) — the only way
+    // a convoy reaches the search as a real, landed move rather than a dead sail.
+    const injected = [...this.generateObjectivePlans(power), ...this.generateConvoyPlans(power)];
+    for (const plan of injected) {
+      const key = plan.orders.map(orderKey).sort().join('|');
+      if (seen.has(key)) continue;
+      seen.add(key);
+      plans.unshift(plan); // never dropped — evaluated first
     }
     return plans.length ? plans : [{ type: 'orders-plan', power, orders: locs.map(unitLoc => ({ type: 'hold', unitLoc })) }];
   }
@@ -853,7 +853,10 @@ export default class DiplomacyBoard {
   // support-hold of our own unit that's moving away) is wasted, so demote it to
   // a hold. Cross-power supports (backing another power's move/hold — e.g. a
   // negotiated support) are kept: we can't see the ally's orders to verify them.
-  makeOrdersCoherent(orders) {
+  // A convoy MOVE with no actual convoying fleet in this same order set (the army
+  // ordered to sail while its fleets do other things) silently fails, so demote
+  // it to that army's best non-convoy order instead of leaving a dead convoy.
+  makeOrdersCoherent(orders, power) {
     const byLoc = {};
     for (const o of orders) byLoc[o.unitLoc] = o;
     return orders.map((o) => {
@@ -867,6 +870,15 @@ export default class DiplomacyBoard {
         const target = byLoc[o.target];
         if (target === undefined) return o; // supporting another power — keep
         return target.type === 'move' ? { type: 'hold', unitLoc: o.unitLoc } : o;
+      }
+      if (o.type === 'move' && o.viaConvoy) {
+        const carried = this.hasConvoyPath(baseProvince(o.unitLoc), baseProvince(o.to), byLoc);
+        if (carried) return o;
+        const owner = power || this.units[o.unitLoc]?.power;
+        const best = this.getLegalOrdersForUnit(o.unitLoc, { includeSupport: false, includeConvoys: false })
+          .map(order => ({ order, score: this.scoreOrder(order, owner) }))
+          .sort((a, b) => b.score - a.score)[0];
+        return best ? best.order : { type: 'hold', unitLoc: o.unitLoc };
       }
       return o;
     });
@@ -915,6 +927,62 @@ export default class DiplomacyBoard {
       orders.push(bo ? bo.order : { type: 'hold', unitLoc: loc });
     }
     return { type: 'orders-plan', power, orders, score: 0 };
+  }
+
+  // A COHERENT convoy: the army sails to `targetBase` AND every own fleet in the
+  // connected sea chain that carries it orders the convoy (so it actually lands,
+  // not a dead sail). Every other unit takes its best non-convoy order. null if
+  // the army has no own-fleet chain reaching the target.
+  buildConvoyPlan(power, armyLoc, targetBase) {
+    const unit = this.units[armyLoc];
+    if (!unit || unit.type !== 'army' || baseProvince(armyLoc) === targetBase) return null;
+    const fleetSeas = Object.entries(this.units)
+      .filter(([, u]) => u.type === 'fleet' && u.power === power)
+      .map(([loc]) => loc)
+      .filter(isSea);
+    const fleetSet = new Set(fleetSeas);
+    const starts = fleetSeas.filter(sea => FLEET_ADJACENCY[sea]?.includes(armyLoc));
+    if (!starts.length) return null;
+    const seen = new Set(starts);
+    const queue = [...starts];
+    while (queue.length) {
+      const sea = queue.shift();
+      for (const next of FLEET_ADJACENCY[sea] || []) {
+        if (fleetSet.has(next) && !seen.has(next)) { seen.add(next); queue.push(next); }
+      }
+    }
+    if (![...seen].some(sea => FLEET_ADJACENCY[sea]?.includes(targetBase))) return null;
+
+    const orders = [{ type: 'move', unitLoc: armyLoc, to: targetBase, viaConvoy: true }];
+    const assigned = new Set([armyLoc]);
+    for (const sea of seen) {
+      orders.push({ type: 'convoy', unitLoc: sea, from: armyLoc, to: targetBase });
+      assigned.add(sea);
+    }
+    for (const loc of this.getUnitLocations(power)) {
+      if (assigned.has(loc)) continue;
+      const bo = this.getLegalOrdersForUnit(loc, { includeSupport: false, includeConvoys: false })
+        .map(order => ({ order, score: this.scoreOrder(order, power) }))
+        .sort((a, b) => b.score - a.score)[0];
+      orders.push(bo ? bo.order : { type: 'hold', unitLoc: loc });
+    }
+    return { type: 'orders-plan', power, orders, score: 0 };
+  }
+
+  // One coherent convoy plan per army→centre it can reach by its own fleets.
+  generateConvoyPlans(power, { maxPlans = 4 } = {}) {
+    const plans = [];
+    for (const armyLoc of this.getUnitLocations(power)) {
+      if (this.units[armyLoc].type !== 'army') continue;
+      for (const t of this.getConvoyTargets(armyLoc)) {
+        if (plans.length >= maxPlans) break;
+        const base = baseProvince(t);
+        if (!PROVINCES[base]?.supply || this.supplyCenters[base] === power) continue;
+        const plan = this.buildConvoyPlan(power, armyLoc, base);
+        if (plan) plans.push(plan);
+      }
+    }
+    return plans;
   }
 
   // Honour a deal to back ANOTHER power's move: one of our units support-moves

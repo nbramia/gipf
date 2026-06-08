@@ -331,8 +331,8 @@ function normalizeOptions({ intent = null, difficulty = 'normal', seed = null, d
 async function getOrders(board, power, options = {}) {
   const opts = normalizeOptions(options);
   if (!board.isOrdersPhase()) return { orders: [] };
-  // Demote wasted self-supports to holds so the chosen orders read coherently.
-  return { orders: board.makeOrdersCoherent(searchOrders(board, power, opts)) };
+  // Demote wasted self-supports / unconvoyed sails so the orders read coherently.
+  return { orders: board.makeOrdersCoherent(searchOrders(board, power, opts), power) };
 }
 
 async function getRetreats(board, power, options = {}) {
