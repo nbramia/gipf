@@ -917,6 +917,25 @@ export default class DiplomacyBoard {
     return { type: 'orders-plan', power, orders, score: 0 };
   }
 
+  // Honour a deal to back ANOTHER power's move: one of our units support-moves
+  // `mover` (their unit) into `targetBase`, every other unit takes its best
+  // independent order. null if no unit of ours can reach the target.
+  buildCrossSupportPlan(power, mover, targetBase) {
+    const locs = this.getUnitLocations(power);
+    const supporter = locs.find(s => s !== mover && this.canSupport(this.units[s].type, s, targetBase));
+    if (!supporter) return null;
+    const orders = [{ type: 'support-move', unitLoc: supporter, from: mover, to: targetBase }];
+    const assigned = new Set([supporter]);
+    for (const loc of locs) {
+      if (assigned.has(loc)) continue;
+      const bo = this.getLegalOrdersForUnit(loc, { includeSupport: false, includeConvoys: true })
+        .map(order => ({ order, score: this.scoreOrder(order, power) }))
+        .sort((a, b) => b.score - a.score)[0];
+      orders.push(bo ? bo.order : { type: 'hold', unitLoc: loc });
+    }
+    return { type: 'orders-plan', power, orders, score: 0 };
+  }
+
   // Coordinated supported attacks on each supply centre we could gain.
   generateObjectivePlans(power, { maxPlans = 8 } = {}) {
     const locs = this.getUnitLocations(power);

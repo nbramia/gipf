@@ -8,9 +8,11 @@
 // is testable and reproducible.)
 //
 // Decision rule per agreement involving `power` and `partner`:
-//   honorScore = effectiveTrust(partner) * W_trust - reputationCost(partner) * W_rep
-//   breakScore = payoffGain(breaking)             *  W_payoff
+//   honorScore = effectiveTrust(partner) * W_trust
+//   breakScore = payoffGain(breaking) * W_payoff - reputationCost(partner) * W_rep
 //   BREAK iff breakScore > honorScore + MARGIN
+// Reputation is the cost of stabbing (it discounts the break payoff), not a tax
+// on honouring — a clean record makes the first stab expensive, as below.
 //
 // effectiveTrust (#44) blends the mechanical ledger trust with the LLM
 // scratchpad's self-reported trust, LEDGER-DOMINANT (W_LEDGER > W_SCRATCH), so the
@@ -34,7 +36,7 @@ import { TRUST_DELTAS } from './trustModel.js';
 
 // Named, tunable decision weights (exported for tests + downstream tuning).
 export const W_TRUST = 1.0;   // weight on trusting an ally (favors honoring)
-export const W_REP = 1.0;     // weight on reputational cost of betrayal
+export const W_REP = 0.7;     // weight on reputational cost of betrayal (discounts the break payoff)
 export const W_PAYOFF = 1.0;  // weight on the tactical gain from breaking
 export const MARGIN = 0.15;   // breaking must clear honoring by this much
 
@@ -199,6 +201,18 @@ function boardThreats(board, power) {
   return threats.sort();
 }
 
+// A unit of `partner` that can move into `toProvince` this turn (the attack we'd
+// support when honouring a "I'll support your move into T" deal). null if none.
+function partnerMoverInto(board, partner, toProvince) {
+  if (!board || !partner || !toProvince || typeof board.getUnitLocations !== 'function') return null;
+  const target = baseProvince(toProvince);
+  for (const loc of board.getUnitLocations(partner)) {
+    const targets = typeof board.getMoveTargets === 'function' ? board.getMoveTargets(loc) : [];
+    if (targets.some((t) => baseProvince(t) === target)) return loc;
+  }
+  return null;
+}
+
 // decideStrategicIntent({ board, state, power, payoff, seed }) -> strategic intent.
 //
 //   payoff: optional override for the per-agreement gain-from-breaking. Either a
@@ -241,9 +255,18 @@ export function decideStrategicIntent({ board, state, power, payoff } = {}) {
     const rep = state ? reputationCost(state, power, partner) : 0;
     const gain = payoffOf(agreement);
 
-    const honorScore = trust * W_TRUST - rep * W_REP;
-    const breakScore = gain * W_PAYOFF;
-    const broken = breakScore > honorScore + MARGIN;
+    // Reputation is the PRICE of stabbing (a clean record makes the first stab
+    // expensive), so it discounts the break payoff — it is not a tax on honouring.
+    // Trust is the standing draw of the alliance. Break only when the tactical
+    // gain, net of reputational cost, beats trust by the margin.
+    const honorScore = trust * W_TRUST;
+    const breakScore = gain * W_PAYOFF - rep * W_REP;
+    // A power whose private read of the partner has turned openly hostile stabs
+    // the deal regardless of immediate payoff — you don't keep your word to
+    // someone you've decided is an enemy (this is how antagonising a power in
+    // talks gets your standing deals with it broken).
+    const hostile = state ? scratchpadMarksHostile(scratchpadDisposition(state, power, partner)) : false;
+    const broken = hostile || breakScore > honorScore + MARGIN;
 
     if (broken) {
       brokenPartners.add(partner);
@@ -254,7 +277,12 @@ export function decideStrategicIntent({ board, state, power, payoff } = {}) {
       // Honored deals shape allies / supportDeals / dmz by type.
       if (agreement.type === 'support') {
         allies.add(partner);
-        supportDeals.push({ from: agreement.from, to: agreement.to });
+        // `from` (the moving unit we back) may be pre-set, or — for a deal struck
+        // with another power — resolved now to that partner's unit which can move
+        // into the agreed province, so we support THEIR attack.
+        let from = agreement.from;
+        if (!from && board) from = partnerMoverInto(board, partner, agreement.to);
+        if (from && agreement.to) supportDeals.push({ from, to: agreement.to });
       } else if (agreement.type === 'joint-attack') {
         allies.add(partner);
         if (agreement.target) targets.add(agreement.target);

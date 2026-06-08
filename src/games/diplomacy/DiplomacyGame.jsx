@@ -24,7 +24,7 @@ import DiplomacyBoard, {
 } from './DiplomacyBoard.js';
 import ChatPanel from './agents/ChatPanel.jsx';
 import { createMemory } from './agents/memory.js';
-import { createDiplomaticState, setScratchpad } from './agents/diplomaticState.js';
+import { createDiplomaticState, setScratchpad, recordAgreement } from './agents/diplomaticState.js';
 import { PERSONAS } from './agents/personas.js';
 import useHasApiKey from './hooks/useApiKey.js';
 import useAIWorker from './hooks/useAIWorker.js';
@@ -318,6 +318,21 @@ export default function DiplomacyGame() {
     if (!scratchpad) return;
     setDiplomaticState((ds) => (ds ? setScratchpad(ds, power, scratchpad) : ds));
   }, []);
+
+  // Record a deal a power struck with you in chat as a standing agreement between
+  // it and you. It does NOT bind: decideStrategicIntent decides each turn whether
+  // to honour or stab it from the power's remembered state of mind (trust +
+  // disposition + payoff). One deal per (power,type) — a new one replaces it.
+  const foldDealIntoState = useCallback((power, deal) => {
+    if (!deal || !power || power === humanPower) return;
+    const parties = [power, humanPower];
+    const id = `chat-${power}-${humanPower}-${deal.type}`;
+    const entry = { id, type: deal.type, parties };
+    if (deal.type === 'support') entry.to = deal.to;
+    else if (deal.type === 'dmz') entry.provinces = deal.provinces;
+    else if (deal.type === 'joint-attack') entry.target = deal.target;
+    setDiplomaticState((ds) => (ds ? recordAgreement(ds, entry) : ds));
+  }, [humanPower]);
 
   const phaseLabel = board.getPhaseLabel();
   const leader = board.getLeader();
@@ -648,6 +663,7 @@ export default function DiplomacyGame() {
               unreadByPower={unreadByPower}
               onViewThread={markThreadRead}
               onScratchpad={foldScratchpadIntoState}
+              onDeal={foldDealIntoState}
             />
           </div>
         </aside>

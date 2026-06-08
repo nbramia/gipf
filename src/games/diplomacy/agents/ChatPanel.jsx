@@ -26,6 +26,7 @@ export default function ChatPanel({
   unreadByPower,
   onViewThread,
   onScratchpad,
+  onDeal,
 }) {
   // AI powers are everyone except the human's power.
   const agents = useMemo(
@@ -112,6 +113,9 @@ export default function ChatPanel({
     // differ from what it just told you) into its unified state of mind, so its
     // moves reflect this conversation — talking can win or lose you an ally.
     if (result.scratchpad && onScratchpad) onScratchpad(selected, result.scratchpad);
+    // A concrete commitment it just voiced becomes a standing (non-binding)
+    // agreement it may honour or stab — the cold math decides from its real state.
+    if (result.deal && onDeal) onDeal(selected, result.deal);
     setBusy(false);
   }
 

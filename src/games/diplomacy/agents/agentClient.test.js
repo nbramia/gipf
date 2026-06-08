@@ -85,7 +85,7 @@ describe('sendMessage', () => {
     expect(body.addressee).toBe('France');
     expect(body.model).toBe('claude-opus-4-8');
 
-    expect(result).toEqual({ message: 'We watch Belgium too.', scratchpad: SCRATCHPAD, summary: '' });
+    expect(result).toEqual({ message: 'We watch Belgium too.', scratchpad: SCRATCHPAD, summary: '', deal: null });
   });
 
   test('wires the reply and scratchpad through a provided memory store', async () => {

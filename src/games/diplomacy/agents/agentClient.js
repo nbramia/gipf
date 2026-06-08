@@ -129,7 +129,7 @@ export async function sendMessage({ power, history, context, addressee, model, s
     return { error: 'empty', message: 'No reply came back. Try again.' };
   }
 
-  const result = { message: data.message, scratchpad: data.scratchpad || null, summary: data.summary || '' };
+  const result = { message: data.message, scratchpad: data.scratchpad || null, summary: data.summary || '', deal: data.deal || null };
 
   // Wire the result through memory when a store is supplied: append the visible
   // reply and persist the latest scratchpad.

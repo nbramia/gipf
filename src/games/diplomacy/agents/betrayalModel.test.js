@@ -326,3 +326,37 @@ describe('decideStrategicIntent — scratchpad steers intent (#44)', () => {
     expect(state).toEqual(before);
   });
 });
+
+describe('decideStrategicIntent — cross-power chat support deal', () => {
+  // Germany agreed to support England's move into BEL. The deal stores only the
+  // target province; the mover (England's unit that can enter BEL) is resolved
+  // from the live board at decision time.
+  function setup() {
+    const board = new DiplomacyBoard();
+    board.units = {
+      ENG: { power: 'england', type: 'fleet' }, // can move ENG -> BEL
+      HOL: { power: 'germany', type: 'army' },   // can support into BEL
+      BEL: { power: 'france', type: 'army' },
+    };
+    let state = createDiplomaticState({ board, humanPower: 'england' });
+    state = recordAgreement(state, { type: 'support', parties: ['germany', 'england'], to: 'BEL' });
+    return { board, state };
+  }
+
+  test('honoured: resolves the partner mover and emits a province-level support deal', () => {
+    const { board, state } = setup();
+    const friendly = withScratchpad(state, 'germany', 'england', { trust: 0.8, stance: 'ally', intent: 'work together' });
+    const intent = decideStrategicIntent({ board, state: friendly, power: 'germany', payoff: 0 });
+    expect(intent.supportDeals).toContainEqual({ from: 'ENG', to: 'BEL' });
+    expect(intent.targets).not.toContain('england');
+  });
+
+  test('a hostile private stance stabs the deal regardless of payoff', () => {
+    const { board, state } = setup();
+    const hostile = withScratchpad(state, 'germany', 'england', { trust: -0.8, stance: 'enemy', intent: 'take the Channel' });
+    const intent = decideStrategicIntent({ board, state: hostile, power: 'germany', payoff: 0 });
+    expect(intent.supportDeals).toEqual([]);
+    expect(intent.targets).toContain('england');
+    expect(intent.betrayals).toContainEqual({ type: 'support', partner: 'england' });
+  });
+});

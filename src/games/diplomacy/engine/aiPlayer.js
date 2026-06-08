@@ -248,10 +248,15 @@ function searchOrders(board, power, { intent, difficulty, seed, deterministic })
 
   const ownPlans = board.generateCandidatePlans(power, { maxPlans: budget.maxPlans });
   // Inject a coherent plan that fulfils each agreed support deal — the beam
-  // can't reliably assemble "unit X moves into T while Y supports it", so build
-  // it explicitly; the deal reward then lets it win when honouring is best.
+  // can't reliably assemble these, so build them explicitly; the deal reward then
+  // lets one win when honouring is best. Own-unit movers => a coordinated attack
+  // we make; another power's mover => we back THEIR move (a negotiated support).
   for (const deal of (intent && intent.supportDeals) || []) {
-    const plan = board.buildSupportedAttackPlan(power, baseProvince(deal.to), { requireSupporter: deal.from });
+    const toBase = baseProvince(deal.to);
+    const fromUnit = board.unitAt(baseProvince(deal.from));
+    const plan = fromUnit && fromUnit.power === power
+      ? board.buildSupportedAttackPlan(power, toBase, { requireSupporter: deal.from })
+      : board.buildCrossSupportPlan(power, deal.from, toBase);
     if (plan) ownPlans.unshift(plan);
   }
   const predictions = predictOpponentPlans(board, power, budget.oppPlans);

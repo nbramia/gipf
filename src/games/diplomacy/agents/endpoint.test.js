@@ -242,6 +242,26 @@ describe('diplomacyAgent endpoint', () => {
     expect(systemText).toContain('lure into NTH');
   });
 
+  test('a well-formed deal is returned; a malformed one becomes null', async () => {
+    // Valid support deal surfaces.
+    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Agreed — I cover Belgium.', scratchpad: VALID_SCRATCHPAD, deal: { type: 'support', to: 'BEL' } }));
+    let res = makeRes();
+    await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
+    expect(res.body.deal).toEqual({ type: 'support', to: 'BEL' });
+
+    // Malformed deal (support with no province) drops to null.
+    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Sure.', scratchpad: VALID_SCRATCHPAD, deal: { type: 'support' } }));
+    res = makeRes();
+    await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
+    expect(res.body.deal).toBeNull();
+
+    // Absent deal is null.
+    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Maybe later.', scratchpad: VALID_SCRATCHPAD }));
+    res = makeRes();
+    await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
+    expect(res.body.deal).toBeNull();
+  });
+
   test('a thrown error returns a generic 500 that never echoes the request body', async () => {
     global.fetch = jest.fn().mockRejectedValue(new Error('network down'));
     const res = makeRes();
