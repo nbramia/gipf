@@ -163,6 +163,7 @@ export default function DiplomacyGame() {
   const [showLastMoves, setShowLastMoves] = useState(() => JSON.parse(localStorage.getItem('diplomacyShowLastMoves') || 'true'));
   const [confirmNew, setConfirmNew] = useState(false);
   const [keyPromptDismissed, setKeyPromptDismissed] = useState(false);
+  const [logExpanded, setLogExpanded] = useState(false); // Results Log modal
   // Reactive shared-key signal: re-renders this view the instant the key is set
   // or cleared anywhere (this chat, another tab, or another GIPF game), so the
   // negotiation auto-run and the no-key prompt react without a reload.
@@ -186,6 +187,12 @@ export default function DiplomacyGame() {
   useEffect(() => localStorage.setItem('diplomacyDarkMode', JSON.stringify(darkMode)), [darkMode]);
   useEffect(() => localStorage.setItem('diplomacyShowOrders', JSON.stringify(showOrders)), [showOrders]);
   useEffect(() => localStorage.setItem('diplomacyShowLastMoves', JSON.stringify(showLastMoves)), [showLastMoves]);
+  useEffect(() => {
+    if (!logExpanded) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setLogExpanded(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [logExpanded]);
 
   const setBoard = useCallback((next) => setBoardState(next), []);
 
@@ -583,9 +590,20 @@ export default function DiplomacyGame() {
             </div>
           )}
 
-          <div className="dip-panel p-4">
-            <div className="dip-panel-label mb-2">Results Log</div>
-            <div className="dip-log-feed">
+          {logExpanded && <div className="dip-chat-backdrop" onClick={() => setLogExpanded(false)} />}
+          <div className={`dip-panel p-4 ${logExpanded ? 'dip-log--modal' : ''}`}>
+            <div className="dip-chat-titlebar">
+              <div className="dip-panel-label">Results Log</div>
+              <button
+                type="button"
+                className="dip-chat-expand"
+                onClick={() => setLogExpanded(v => !v)}
+                aria-label={logExpanded ? 'Collapse results log' : 'Expand results log'}
+              >
+                {logExpanded ? '✕ Close' : '⤢ Expand'}
+              </button>
+            </div>
+            <div className="dip-log-feed mt-2">
               {board.orderHistory.length === 0 ? (
                 <p className="dip-log-empty">No turn resolved yet.</p>
               ) : (
