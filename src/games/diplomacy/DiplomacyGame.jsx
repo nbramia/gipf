@@ -570,13 +570,25 @@ export default function DiplomacyGame() {
                   the other powers plan their moves at the same time.
                 </p>
               )}
-              <button
-                className="dip-primary-btn mt-3 w-full"
-                onClick={turn.proceedToOrders}
-                disabled={turn.isBusy}
-              >
-                {turn.isBusy ? 'Powers conferring…' : 'Proceed to orders'}
-              </button>
+              <div className="mt-3 flex flex-col gap-2">
+                {hasKey && (
+                  <button
+                    className="dip-tool-btn w-full"
+                    onClick={turn.runNegotiation}
+                    disabled={turn.isBusy}
+                    title="Let the AI powers talk among themselves again and reconsider reaching out — useful after you've struck a deal in chat."
+                  >
+                    {turn.isBusy ? 'Powers conferring…' : 'Let the powers confer again'}
+                  </button>
+                )}
+                <button
+                  className="dip-primary-btn w-full"
+                  onClick={turn.proceedToOrders}
+                  disabled={turn.isBusy}
+                >
+                  {turn.isBusy ? 'Powers conferring…' : 'Proceed to orders'}
+                </button>
+              </div>
             </div>
           )}
 
