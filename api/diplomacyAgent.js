@@ -248,15 +248,17 @@ export default async function handler(req, res) {
       res.status(401).json({ error: 'missing_api_key', message: 'No API key provided.' });
       return;
     }
-    // Proactive outreach can start from an empty thread: synthesize a single
-    // priming turn so the upstream call always has ≥1 message.
-    if ((!messages || messages.length === 0)) {
-      if (initiate) {
-        messages = [{ role: 'user', content: 'Negotiation phase: decide whether to open talks this turn.' }];
-      } else {
-        res.status(400).json({ error: 'bad_request', message: 'Missing messages.' });
-        return;
-      }
+    // An empty thread is legitimate: the FIRST AI↔AI proposal in a channel opens
+    // with no prior transcript, and a proactive-outreach (initiate) call opens a
+    // fresh human thread. The upstream needs ≥1 message, so synthesize a single
+    // priming user turn rather than rejecting the request.
+    if (!messages || messages.length === 0) {
+      messages = [{
+        role: 'user',
+        content: initiate
+          ? 'Negotiation phase: decide whether to open talks this turn.'
+          : 'Open the conversation.',
+      }];
     }
 
     const upstream = await fetch(ANTHROPIC_URL, {

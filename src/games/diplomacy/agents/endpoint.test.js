@@ -86,12 +86,17 @@ describe('diplomacyAgent endpoint', () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  test('missing messages returns 400', async () => {
-    global.fetch = jest.fn();
+  test('empty messages are synthesized into one priming turn (no 400)', async () => {
+    // The first AI<->AI proposal in a channel opens with no transcript; the
+    // endpoint must synthesize a priming turn, not reject it.
+    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Greetings.', scratchpad: VALID_SCRATCHPAD }));
     const res = makeRes();
     await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france' } }), res);
-    expect(res.statusCode).toBe(400);
-    expect(global.fetch).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(200);
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const sent = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(sent.messages).toHaveLength(1);
+    expect(sent.messages[0].role).toBe('user');
   });
 
   test('valid request returns 200 { message, scratchpad } and calls upstream exactly once', async () => {
