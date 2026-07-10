@@ -44,6 +44,13 @@ Thumbs.db
 # Training data
 /data/
 
+# Training run logs (checkpoints are committed under public/models/, logs are not)
+training/*.log
+training/**/*.log
+
+# Playwright MCP cache
+.playwright-mcp/
+
 # Python
 __pycache__/
 *.pyc
