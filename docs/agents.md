@@ -6,18 +6,35 @@ Practical guide for working on any part of the GIPF Project codebase. CLAUDE.md 
 
 ## Quick Orientation
 
-The codebase has five development areas:
+The codebase has eight development areas:
 
 | Area | Key Files | Test Command |
 |------|-----------|--------------|
 | **Yinsh Game Logic** | `src/games/yinsh/YinshBoard.js`, `YinshNotation.js` | `CI=true npm test` |
 | **Zertz Game Logic** | `src/games/zertz/ZertzBoard.js` | `CI=true npm test` |
+| **Chess Game Logic** | `src/games/chess/ChessBoard.js` (wraps `chess.js`), `hooks/useStockfish.js` | `CI=true npm test` |
 | **Catan Game Logic** | `src/games/catan/CatanBoard.js`, `engine/mcts.js` | `CI=true npm test` |
-| **UI (either game)** | `src/games/<name>/<Name>Game.jsx` | `npm start` (manual) |
+| **Splendor Game Logic** | `src/games/splendor/SplendorBoard.js`, `engine/mcts.js` | `CI=true npm test` |
+| **Diplomacy Game Logic** | `src/games/diplomacy/DiplomacyBoard.js`, `engine/aiPlayer.js`, `agents/` | `CI=true npm test` |
+| **UI (any game)** | `src/games/<name>/<Name>Game.jsx` | `npm start` (manual) |
 | **Yinsh AI Engine** | `src/games/yinsh/engine/mcts.js`, `aiPlayer.js` | `npm run test:engine` |
 | **Routing / Landing** | `src/App.jsx`, `src/LandingPage.jsx` | `npm run build` |
 
 Always verify your area's tests pass before and after changes.
+
+---
+
+## Conversational LLM Layer
+
+Several games now have a bring-your-own-Anthropic-key chat layer, each a Vercel serverless
+function plus a client wrapper: the chess coach (`api/chessCoach.js` / `src/games/chess/coach/coachClient.js`),
+the Catan and Splendor rules-help chats (`api/catanRules.js`, `api/splendorRules.js` +
+`coach/rulesClient.js` in each game), and the Diplomacy negotiation agents (`api/diplomacyAgent.js`
++ `src/games/diplomacy/agents/`). All of them share the same storage slot,
+`localStorage['gipfApiKey']` — a key saved in one game is reused by the others. See
+[diplomacy.md](diplomacy.md) for the fullest write-up of this pattern (negotiation, personas,
+trust/betrayal); the chess and Catan/Splendor chats follow the same bring-your-own-key model but
+are simpler single-turn rules assistants rather than persistent multi-agent negotiation.
 
 ---
 

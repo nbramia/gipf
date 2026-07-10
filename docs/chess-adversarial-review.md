@@ -5,6 +5,10 @@ dimension below lists what was attacked and the outcome. Automated checks live i
 the Jest suites and an adversarial script run during review; manual checks are
 noted as such.
 
+This review is a point-in-time pass that predates the Rated mode feature: the
+strength and UX adversary sections below do not cover the rated ladder's
+weakened-move sampling (see `docs/chess.md` for Rated mode).
+
 ## Summary
 
 No open correctness, security, or crash defects. One intentional design
@@ -87,5 +91,5 @@ wanted, it can be added behind cross-origin isolation as a follow-up.
 ## Residuals (non-blocking)
 
 - Opening book and puzzle set are intentionally compact (mainstream lines /
-  mate-in-1). Expanding them is future work, not a defect.
+  mate-in-1 and mate-in-2). Expanding them is future work, not a defect.
 - Captured-pieces tray approximates after promotions (clamped at zero) — cosmetic.

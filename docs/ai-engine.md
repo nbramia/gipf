@@ -1,6 +1,6 @@
 # AI Engine
 
-The project uses game-local AI engines. YINSH has the deepest trained neural-network pipeline; ZERTZ and CATAN follow the same MCTS/self-play shape with game-specific heuristics and feature extraction.
+The project uses game-local AI engines. YINSH and ZERTZ each have a trained neural-network pipeline; CATAN follows the same MCTS/self-play shape with game-specific heuristics and feature extraction but no trained network. Splendor, Chess, and Diplomacy use different approaches entirely (see the closing section).
 
 ## Catan
 
@@ -37,21 +37,29 @@ Users toggle between modes via the "Neural Network AI" setting in the UI (stored
 
 ## MCTS Algorithm
 
-The algorithm runs a configurable number of simulations, each consisting of four steps:
+The algorithm runs a configurable number of simulations, each consisting of four steps.
 
-**1. Selection** -- Starting from the root, traverse the tree by selecting child nodes with the highest UCB1 score:
+**1. Selection** -- Starting from the root, traverse the tree by selecting child nodes with the highest score. Selection uses one of two formulas depending on whether NN policy priors are available for this search:
 
 ```
+UCB1 (fallback, no policy available):
 UCB1 = (wins / visits) + 1.41 * sqrt(ln(parent_visits) / visits)
+
+PUCT (AlphaZero-style, used whenever NN mode has fetched a root policy):
+PUCT = normalizedQ + cPuct * prior * sqrt(parent_visits) / (1 + visits)
 ```
 
-This balances exploitation (known good moves) with exploration (untried moves).
+`cPuct = 2.5`. `normalizedQ` is the node's win rate min-max normalized against the `qMin`/`qMax` range observed so far this search (tracked during backpropagation, reset at the start of each `getBestMove()` call). `prior` comes from the network's policy output at the root (see below); non-root nodes get a prior of 0 unless a policy fetch assigned one. When NN mode hasn't produced a policy (heuristic mode, or a failed policy fetch), selection falls back to plain UCB1.
+
+This balances exploitation (known good moves) with exploration (untried moves, or moves the policy favors).
+
+**Root policy priors and Dirichlet noise** -- When NN mode is active, `getBestMove()` fetches a policy from the network before running simulations (`evaluatePositionWithPolicy`) and masks/softmaxes it over the legal moves' destination squares. The result is blended with Dirichlet noise for exploration: 75% network softmax + 25% noise, with noise sampled `Dirichlet(alpha = 0.3)`. This blended distribution becomes each root child's `prior` for PUCT.
 
 **2. Expansion** -- When a leaf node is reached, add a new child node for one untried move. The child is added to the parent's `children` Map and registered in the transposition table.
 
 **3. Simulation** -- Evaluate the expanded node. In heuristic mode, play out 12 moves with `_selectMoveByFastHeuristic()` then call `_evaluatePlayoutResult()`. In NN mode, run a single forward pass through the value network.
 
-**4. Backpropagation** -- Propagate the result back up the tree, updating visit counts and win statistics. Results are negated at each level for alternating players.
+**4. Backpropagation** -- Propagate the result back up the tree, updating visit counts and win statistics, and updating the running `qMin`/`qMax` bounds used to normalize Q for PUCT. Results are negated at each level for alternating players.
 
 After all simulations, the root's child with the most visits is selected as the best move. `getBestMove()` is `async` to support NN inference; heuristic-only calls resolve synchronously within the async wrapper.
 
@@ -66,7 +74,7 @@ This pre-filter runs in both evaluation modes.
 
 ### Transposition Table
 
-A global hash map caches board states to reuse node statistics when the same position is reached via different move orders. The table is cleared at the start of each `getBestMove()` call and cleaned periodically to manage memory (max 100,000 entries).
+A global hash map caches board states to reuse node statistics when the same position is reached via different move orders. The table is cleared at the start of each `getBestMove()` call and cleaned periodically to manage memory (max 100,000 entries for Yinsh; Zertz uses the same pattern with a 50,000-entry cap).
 
 ## Heuristic Evaluation (Default Mode)
 
@@ -93,7 +101,9 @@ Leaf positions are scored by `_evaluatePlayoutResult()` using multiple factors:
 
 ## Neural Network Evaluation
 
-### Architecture (~315K parameters)
+### Architecture: dual-head policy-value net (~345K parameters)
+
+The deployed net is trained with `--model-type policy-value` and has two heads sharing one trunk. A value-only variant (`YinshValueNet`, ~315K params) still exists as a legacy option in `training/model.py`.
 
 ```
 Input:  4 x 11 x 11 planes + 5 scalars
@@ -105,8 +115,13 @@ Value head:
   Conv2d(64, 1, 1x1) → BN → ReLU → Flatten(121)
   Concat(121 + 5 meta = 126)
   Linear(126, 128) → ReLU → Linear(128, 1) → Tanh
+  Output: scalar in [-1, +1] (current player's winning probability)
 
-Output: scalar in [-1, +1] (current player's winning probability)
+Policy head:
+  Conv2d(64, 2, 1x1) → BN → ReLU → Flatten(242)
+  Linear(242, 121)
+  Output: 121 raw logits, one per destination square on the 11x11 grid
+  (softmax + legal-move masking happens in MCTS, not in the network)
 ```
 
 ### Feature Extraction (`src/games/yinsh/engine/features.js`)
@@ -151,7 +166,7 @@ Uses `onnxruntime-node` (native backend) for CLI scripts (tournament, future tra
 
 | File | Purpose |
 |------|---------|
-| `model.py` | PyTorch model definition (YinshValueNet) |
+| `model.py` | PyTorch model definitions (`YinshValueNet`, value-only; `YinshPolicyValueNet`, dual-head, deployed) |
 | `dataset.py` | NDJSON data loader |
 | `train.py` | Training loop — Adam optimizer, cosine annealing, early stopping |
 | `export_onnx.py` | Export to ONNX, verify with onnxruntime |
@@ -175,17 +190,20 @@ npm run tournament -- --games 5 --sims 50
 
 **Data format** (NDJSON, one position per line):
 ```json
-{"board": [484 floats], "meta": [5 floats], "value": 1.0}
+{"board": [484 floats], "meta": [5 floats], "value": 1.0, "policy": [121 floats]}
 ```
 - `board`: 4 x 11 x 11 feature planes flattened
 - `meta`: 5 scalar metadata values
 - `value`: +1.0 if current player won the game, -1.0 if lost
+- `policy`: optional, 121-element move-visit distribution from self-play (`dataset.py` falls back to a uniform distribution over legal destinations when this field is absent)
+
+`dataset.py` also applies 6-fold hexagonal rotation augmentation (the 6 axial rotations of the hex grid) when enabled, expanding each recorded position into 6 training examples with the board and policy target rotated consistently (meta scalars are rotation-invariant).
 
 **Training config:** Batch size 256, Adam lr=1e-3 with cosine annealing to 1e-5, 90/10 train/val split, early stopping with patience 8.
 
-### Current Model Status (v12)
+### Model Promotion
 
-Deployed model: v12 (`public/models/yinsh-value-v1.onnx`), 315K params (64 channels, 4 residual blocks, FC 128). Model lineage: v1 -> v3 -> v5 -> v8 -> v10 -> v12, each beating its predecessor in tournament. NN wins 80% against heuristic (16-4 in 20-game tournament at 50 sims). See CLAUDE.md for the full training pipeline.
+There's no fixed "current model" to document here: checkpoints accumulate continuously and a new one only replaces the deployed model after it wins a gated match against the incumbent. The gate is a real SPRT (`scripts/tournament.mjs --sprt`): H0 p=0.5 vs H1 p=0.55, alpha=0.05, beta=0.10, capped at 40 games, with sides interleaved each game. A challenger that clears the SPRT `accept` threshold gets promoted; `reject` or hitting the game cap without a decision means it stays on the bench. This keeps the doc accurate regardless of how far training has progressed, rather than pinning a version number and win rate that go stale immediately.
 
 ## Multi-Phase Intelligence
 
@@ -235,3 +253,27 @@ npm run tournament        # Compare heuristic vs NN
 ```
 
 When modifying AI behavior, play several complete games against the AI to verify it makes legal moves in all phases and doesn't exhibit degenerate strategies. Run the tournament to verify NN changes don't regress against the heuristic baseline.
+
+## Zertz
+
+Zertz has its own trained network and training loop, structurally parallel to Yinsh's but with a few real differences.
+
+**MCTS** (`src/games/zertz/engine/mcts.js`) uses the same PUCT/UCB1 split as Yinsh: PUCT (`cPuct = 2.5`) with policy priors plus Dirichlet noise (alpha 0.3, epsilon 0.25) when NN mode has a policy, falling back to UCB1 (exploration constant 1.414) otherwise. Its transposition table caps at 50,000 entries (vs Yinsh's 100,000), cleared each `getBestMove()` call.
+
+**Network and features** (`src/games/zertz/engine/features.js`): 5 planes x 7x7 (ring presence, white/grey/black marble, free/removable rings) mapping the 37-hex board, plus 12 meta scalars. Own ONNX model, own `training/zertz/` pipeline (`model.py`, `dataset.py`, `train.py`, `export_onnx.py`), same shape as Yinsh's (self-play → train → export → tournament).
+
+**Difficulty wiring in the UI** (`src/games/zertz/ZertzGame.jsx`): three tiers, `easy` and `advanced` (the default on load) run heuristic MCTS at 100/200 simulations; `expert` is the only tier that loads the trained network (`/models/zertz-value-v1.onnx`) at 300 simulations.
+
+**Training loss adds heuristic distillation.** Unlike Yinsh, `training/zertz/train.py` blends a third loss term: `loss = value_loss + policy_loss + distill_weight * heuristic_loss`, where `heuristic_loss` regularizes the value head's prediction toward the hand-crafted heuristic evaluation (`--distill-weight`, default 0.5, 0 disables it). Yinsh's training loop has no equivalent term.
+
+**Promotion gate is simpler, not SPRT.** `scripts/zertz/tournament.mjs` plays a fixed set of games and promotes on a plain win/tie majority check (NN wins more than heuristic across the tournament), not the sequential SPRT test Yinsh uses. `scripts/zertz/continuous-train.sh` drives the self-play → train → tournament → promote loop autonomously.
+
+**API mode:** like Yinsh, `/api/zertzAiMove` is a heuristic-only serverless fallback (no NN support server-side).
+
+## Other Game AI in This Repo
+
+The rest of the GIPF suite uses approaches unrelated to the Yinsh/Zertz/Catan MCTS-plus-trained-network pattern:
+
+- **Splendor** — a maxⁿ PUCT game-tree MCTS with a hand-written evaluation function and determinized handling of hidden information (opponents' blind reserves, shuffled decks). A trained self-play network was built and evaluated but did not beat the heuristic in gated play, so the heuristic ships. See [splendor.md](splendor.md).
+- **Chess** — delegates move generation entirely to Stockfish, loaded as a self-contained asm.js build inside a same-origin Blob Web Worker (no server-side engine). See [chess.md](chess.md).
+- **Diplomacy** — a best-response tactical search over orders, paired with an LLM-driven negotiation layer that gives each of the seven powers its own persona and lets them talk (and scheme) with the human and each other. See [diplomacy.md](diplomacy.md).

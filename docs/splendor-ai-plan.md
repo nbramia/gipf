@@ -1,6 +1,13 @@
 # Splendor — "Make the AI dramatically & verifiably smarter" plan
 
-Status: **in progress**. Goal: a Splendor AI that is measurably much stronger than the
+Status: **NN flywheel (Phase 3) completed, negative result — the heuristic ships.** The
+trained net never significantly beat the heuristic rollout-leaf tree, so it's not deployed.
+See [splendor.md](splendor.md) ("Neural network (trained, did NOT beat the heuristic —
+heuristic stays)") for the full write-up and results. Of Phase 2's Track A items, single-
+determinization for hidden info is built (`determinizeForSearch` in `engine/mcts.js`); a
+transposition table and a determinization ensemble are still open, not built.
+
+Goal (as originally framed): a Splendor AI that is measurably much stronger than the
 shipped heuristic, with every gain proven, not asserted.
 
 ## What we learned from the other games

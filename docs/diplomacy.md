@@ -216,9 +216,10 @@ same turn. Tests/tuning may still inject a `payoff` override (number or function
 Settings are chosen on the new-game setup screen (`DiplomacySetup.jsx`) and persisted:
 
 - **Power** — which of the seven Great Powers you command; the other six become AI.
-- **Difficulty** — `easy` / `normal` / `hard`. Difficulty maps to the tactical search budget
-  (`diplomacySettings.js` `DIFFICULTY_BUDGET`: ~40 / 120 / 240 sims) and to how widely the
-  engine searches plans and opponent responses (`engine/aiPlayer.js`).
+- **Difficulty** — `easy` / `normal` / `hard`. Difficulty maps to a difficulty tier that
+  controls how widely the engine searches plans and opponent responses (`engine/aiPlayer.js`'s
+  own `DIFFICULTY` table: `maxPlans` / `oppPlans` / `oppSamples` / `brRounds`) — there's no
+  Monte Carlo rollout.
 - **Persona spice** — `personaSpice` in `[0, 1]`, how flavorful the AI personas play.
 - **Final year** — `maxYears` (1901–2000); if no power solos by then the game ends with the
   center leader.

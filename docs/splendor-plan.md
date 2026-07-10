@@ -1,7 +1,12 @@
 # Splendor — Build Plan (v1)
 
-Status: **planning** — not yet implemented. This document is the agreed spec for adding
-Splendor as a new GIPF Project game, following the same conventions and rigor as `/catan`.
+Status: **historical pre-build spec.** Splendor has since shipped; [splendor.md](splendor.md)
+is the current source of truth for rule coverage and AI/training details. Two known
+plan-vs-actual deviations, left here for the record rather than corrected below: the
+difficulty presets in this doc (1500/3000/6000 simulations) were superseded and shipped as
+3000/6000/12000; and the planned `splendorRulesets.js` module and `splendorShowMoves` /
+`splendorRulesetId` localStorage keys were never built — player count and difficulty are
+persisted as `splendorPlayerCount` / `splendorDifficulty` instead.
 
 ## Scope (locked)
 

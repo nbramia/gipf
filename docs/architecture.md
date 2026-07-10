@@ -13,8 +13,10 @@ src/
   games/
     yinsh/             # Complete Yinsh game (logic + UI + AI + CSS + tests)
     zertz/             # Complete Zertz game (logic + UI + CSS + tests)
-    catan/             # 3-6 player Catan game (logic + UI + AI + CSS + tests)
+    chess/             # Chess: chess.js rules engine + Stockfish opponent + LLM coach
+    catan/             # Catan base game, 3-6 players (logic + UI + AI + CSS + tests); ruleset catalog also lists unimplemented expansions
     splendor/          # 2-4 player Splendor game (logic + UI + AI + CSS + tests)
+    diplomacy/         # 7-power Diplomacy: from-scratch adjudication engine + tactical best-response AI + LLM negotiation agents
 api/                   # Vercel serverless functions
 scripts/               # CLI tools (self-play, training, tournaments)
 training/              # PyTorch training pipeline
@@ -28,8 +30,10 @@ public/models/         # ONNX neural network models
 ```jsx
 const YinshGame = lazy(() => import('./games/yinsh/YinshGame.jsx'));
 const ZertzGame = lazy(() => import('./games/zertz/ZertzGame.jsx'));
+const ChessGame = lazy(() => import('./games/chess/ChessGame.jsx'));
 const CatanGame = lazy(() => import('./games/catan/CatanGame.jsx'));
 const SplendorGame = lazy(() => import('./games/splendor/SplendorGame.jsx'));
+const DiplomacyGame = lazy(() => import('./games/diplomacy/DiplomacyGame.jsx'));
 ```
 
 This means visiting `/zertz` never loads the Yinsh MCTS engine or ONNX runtime. `LandingPage` is eagerly loaded since it's the entry point.
@@ -42,12 +46,14 @@ This means visiting `/zertz` never loads the Yinsh MCTS engine or ONNX runtime. 
 
 ## CSS Isolation
 
-Both games define CSS custom properties with overlapping names (`--color-bg-page`, `--color-accent`, etc.) but different values. They're isolated by scoping under wrapper classes:
+Each game defines CSS custom properties with overlapping names (`--color-bg-page`, `--color-accent`, etc.) but different values. They're isolated by scoping under wrapper classes:
 
 - Yinsh: `.game-yinsh` and `.game-yinsh.dark` (in `src/games/yinsh/yinsh.css`)
 - Zertz: `.game-zertz` and `.game-zertz.dark` (in `src/games/zertz/zertz.css`)
+- Chess: `.game-chess` and `.game-chess.dark` (in `src/games/chess/chess.css`)
 - Catan: `.game-catan` and `.game-catan.dark` (in `src/games/catan/catan.css`)
 - Splendor: `.game-splendor` and `.game-splendor.dark` (in `src/games/splendor/splendor.css`)
+- Diplomacy: `.game-diplomacy` and `.game-diplomacy.dark` (in `src/games/diplomacy/diplomacy.css`)
 
 Animation keyframes are prefixed (`yinsh-piece-fade-in`, `zertz-piece-fade-in`) and animation classes are scoped (`.game-yinsh .piece-enter`). The only shared keyframe is `slide-in-right` in `src/index.css`.
 
@@ -58,7 +64,7 @@ Each game component's root div includes the wrapper class:
 
 ## Game Architecture Pattern
 
-Both games follow the same separation of concerns:
+Every game follows the same separation of concerns:
 
 | Module | Responsibility |
 |--------|----------------|
@@ -243,6 +249,12 @@ zertzDarkMode, zertzShowMoves
 | `src/games/catan/engine/features.js` | Feature extraction and policy target helpers for self-play data |
 | `scripts/catan/*.mjs` | Self-play data generation and tournament harness |
 
+The playable engine is the base game (3-6 players, including the 5-6-player "Base Game Extension"
+with its own board and paired build phase). `src/games/catan/catanRulesets.js` also catalogs
+Seafarers, Cities & Knights, Traders & Barbarians, and Explorers & Pirates for the ruleset picker,
+but those are scaffolding, not implemented in the board/engine (no ships, islands, barbarians, or
+commodities; the only "knight" is the base-game development card).
+
 See [catan.md](catan.md) for rule coverage and AI/training details.
 
 ---
@@ -280,9 +292,9 @@ User Click
 
 The Board class is the single source of truth. React state holds a clone for rendering. After any mutation, `.clone()` must be called to trigger re-render.
 
-### Undo/Redo (Both Games)
+### Undo/Redo (All Games)
 
-`_captureState()` creates a deep snapshot after every successful move. Both games support:
+`_captureState()` creates a deep snapshot after every successful move. Games support:
 - History limited to prevent memory issues (50 for Yinsh, 100 for Zertz)
 - `undo()` / `redo()` restore from snapshots
 - Redo history cleared when a new move is made after undo

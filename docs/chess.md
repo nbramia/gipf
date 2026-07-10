@@ -16,8 +16,10 @@ src/games/chess/
   engine/
     stockfishLoader.js   # Loads Stockfish from a CDN inside a Blob Web Worker
     uci.js               # Pure UCI parsing (info / bestmove / MultiPV)
-    difficulty.js        # Named tiers -> UCI_Elo + per-move time
+    difficulty.js        # Named tiers -> UCI_Elo + per-move time; Rated ladder
     uci.test.js
+    rating.js            # Pure Elo math + matchmaking for Rated mode
+    ratingSync.js        # Cross-device rating sync client (keyed by key hash)
   hooks/
     useStockfish.js      # Engine lifecycle; getMove() + analyze(); serialized
   coach/
@@ -80,8 +82,11 @@ line, and the API prompt instructs the model to use only the supplied facts.
 
 The app is open source and publicly shared, so there is **no maintainer key**:
 
-- The key is entered in the UI and stored only in the browser under
-  `localStorage['chessApiKey']`.
+- The key is entered in the UI and stored only in the browser, under a single
+  slot shared across the whole app (`localStorage['gipfApiKey']`): a key saved
+  in Chess is also used by Catan's rules chat, and vice versa
+  (`coach/coachClient.js`). A legacy per-game key under `chessApiKey` is
+  migrated into the shared slot automatically the first time it's read.
 - It is sent per-request in the POST body to `/api/chessCoach` over HTTPS.
 - The server uses it for exactly one upstream call and **never** logs, persists,
   or reads a key from its own environment — there is no server-side fallback.
@@ -132,14 +137,45 @@ move-context block with prompt caching so multi-round threads stay cheap.
 - **PGN (#16):** export the current game or import one to review (`coach/pgn.js`).
 - **Accuracy summary (#17):** at game end, a per-side accuracy % plus
   blunder/mistake/inaccuracy counts (`coach/accuracy.js`, Lichess-style curve).
-- **Puzzles (#18):** mate-in-1 tactics, each verified to have a unique solution
+- **Puzzles (#18):** mate-in-1 and mate-in-2 tactics, tier-driven (lower
+  difficulty tiers train mate-in-1, higher tiers mate-in-2). Each authored
+  position is vetted offline by an exhaustive forced-mate solver
+  (`coach/mateSolver.js`) for soundness. During live play, correctness is not
+  "match a stored key": any move that keeps a forced mate within the
+  remaining ply budget counts as correct, re-solved live on each move
   (`coach/puzzles.js`).
+
+## Rated mode
+
+A rated Elo ladder mode, distinct from casual play against a fixed difficulty
+tier:
+
+- The player has a single Elo rating (`engine/rating.js`), starting at
+  `DEFAULT_RATING` (1000), that updates after every rated game from a
+  standard logistic expected-score formula.
+- **K-factor schedule:** 40 while a rating is provisional, 20 once the player
+  has some games in, 10 after that (`kFactor`, thresholds at 20 and 40 games
+  played). A rating is considered provisional under 20 games.
+- **Matchmaking:** a 9-rung opponent ladder (`RATING_LADDER` in
+  `engine/difficulty.js`, ratings 800 through 3000) is matched to the
+  player's current rating by nearest published rating (`nearestRung`). Rungs
+  below Stockfish's ~1320 Elo floor are reached by sampling a weaker move
+  from the full-strength MultiPV lines rather than by limiting engine
+  strength, so evals stay honest even against the weakest rungs.
+- **Cross-device sync (optional):** `engine/ratingSync.js` can persist the
+  rating record to the server, keyed by the SHA-256 hash of the player's
+  Anthropic API key (namespaced before hashing) rather than the key itself,
+  so the raw key never leaves the browser for this feature. Sync degrades
+  gracefully to local-only if no server-side store is configured.
 
 ## localStorage keys
 
 ```
 chessDarkMode, chessShowMoves, chessDifficulty, chessLearningGoal,
-chessShowEvalBar, chessSound, chessApiKey, chessLichessToken
+chessShowEvalBar, chessSound, chessLichessToken, chessRated, chessRating,
+chessRatedGames
+
+gipfApiKey  # shared app-wide (Chess + Catan), not chess-prefixed
 ```
 
 ## Opening coaching (master stats)
