@@ -234,6 +234,19 @@ describe('Road Building edge cases', () => {
   });
 });
 
+describe('Trade hygiene', () => {
+  test('a trade may not offer and request the same resource', () => {
+    const board = new CatanBoard({ seed: 52, skipInitialHistory: true });
+    startActionTurn(board, 1);
+    giveResources(board, 1, { brick: 2 });
+    giveResources(board, 2, { brick: 1, ore: 1 });
+
+    expect(board.proposeTrade({ brick: 2 }, { brick: 1 }, [2])).toBe(false);
+    expect(board.proposeTrade({ brick: 2 }, { brick: 1, ore: 1 }, [2])).toBe(false);
+    expect(board.proposeTrade({ brick: 2 }, { ore: 1 }, [2])).toBe(true);
+  });
+});
+
 describe('Winning only on your own turn', () => {
   test('the active player wins immediately on reaching the target', () => {
     const board = new CatanBoard({ seed: 44, skipInitialHistory: true });

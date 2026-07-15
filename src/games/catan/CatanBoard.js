@@ -929,6 +929,9 @@ export default class CatanBoard {
     if (targetList.length === 0) return false;
     if (this._bundleTotal(give) === 0 || this._bundleTotal(receive) === 0) return false;
     if (!this._validBundle(give) || !this._validBundle(receive)) return false;
+    // A resource may not appear on both sides (that's a disguised gift,
+    // which the trading rules forbid) — mirrors the bank-trade check.
+    if (RESOURCES.some(resource => (give[resource] || 0) > 0 && (receive[resource] || 0) > 0)) return false;
     if (!this._hasBundle(proposer, give)) return false;
     if (this.tradeProposalsThisTurn >= this.maxTradeProposalsPerTurn) return false;
 
