@@ -26,8 +26,12 @@ const MAX_MOVES = 100;
 // channel emits an async 'error' on the process and crashes the worker.
 // Track channel state and swallow send failures so the worker finishes its
 // games and writes its output file regardless.
+// NOTE: this listener keeps the IPC channel (and event loop) alive, so the
+// worker must explicitly process.exit() when done. On disconnect the worker
+// finishes its current game, flushes output, and exits.
 let ipcOpen = typeof process.send === 'function';
-process.on('disconnect', () => { ipcOpen = false; });
+let parentGone = false;
+process.on('disconnect', () => { ipcOpen = false; parentGone = true; });
 function send(msg) {
   if (!ipcOpen || typeof process.send !== 'function') return;
   try {
@@ -141,6 +145,7 @@ async function main() {
   send({ type: 'started', workerId: WORKER_ID, games: NUM_GAMES });
 
   for (let g = 0; g < NUM_GAMES; g++) {
+    if (parentGone) break; // parent died — flush what we have and exit
     const useRandom = g % 2 === 1;
     const board = setupBoard(useRandom);
 
@@ -210,7 +215,9 @@ async function main() {
   send({ type: 'done', workerId: WORKER_ID, positions: totalPositions });
 }
 
-main().catch(err => {
+main().then(() => {
+  process.exit(0);
+}).catch(err => {
   send({ type: 'error', workerId: WORKER_ID, error: err.message });
   console.error(`[Worker ${WORKER_ID}] Fatal:`, err);
   process.exit(1);
