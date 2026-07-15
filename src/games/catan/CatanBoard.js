@@ -772,6 +772,9 @@ export default class CatanBoard {
 
     this.vertices[vertexId].building = { player: this.currentPlayer, type: 'settlement' };
     player.settlements.push(vertexId);
+    // A settlement can sever an opponent's road, so longest road must be
+    // re-evaluated here, not just on road builds.
+    this._updateLongestRoad();
     this.lastAction = `${player.name} built a settlement.`;
     this._checkWin();
     this._captureState();
@@ -1028,6 +1031,18 @@ export default class CatanBoard {
     this.currentPlayer = this._nextPlayerId(previousPrimary);
     this.primaryTurnPlayer = this.currentPlayer;
     if (this.currentPlayer === this.firstPlayer) this.turnNumber++; // round boundary
+
+    // A player who reached the target off-turn (longest-road transfer, special
+    // build) wins the moment their own turn begins.
+    const startPoints = this.getVictoryPoints(this.currentPlayer);
+    if (startPoints >= this.victoryTarget) {
+      this.phase = 'game-over';
+      this.winner = this.currentPlayer;
+      this.winningPoints = startPoints;
+      this.lastAction = `${this.players[this.currentPlayer].name} wins with ${startPoints} points at the start of their turn.`;
+      this._captureState();
+      return true;
+    }
 
     // Safety net: a board's reachable VP ceiling can sit below the target (no
     // expansion VP sources), which would never end. After an unreasonable number
@@ -1384,16 +1399,23 @@ export default class CatanBoard {
       lengths[player] = this._longestRoadForPlayer(player);
     }
 
-    let bestPlayer = this.longestRoadHolder;
-    let bestLength = bestPlayer ? lengths[bestPlayer] : 4;
-    for (const player of this.getPlayerIds()) {
-      if (lengths[player] >= 5 && lengths[player] > bestLength) {
-        bestPlayer = player;
-        bestLength = lengths[player];
-      }
+    // The incumbent keeps the card while their road still qualifies (>= 5),
+    // including on ties. A challenger must be strictly longer. If the road is
+    // severed and the incumbent no longer qualifies (or challengers tie among
+    // themselves), a unique longest road >= 5 takes the card; a tie sets it
+    // aside (nobody holds it) per the official rule.
+    const incumbent = this.longestRoadHolder && lengths[this.longestRoadHolder] >= 5
+      ? this.longestRoadHolder
+      : null;
+    let bestPlayer = incumbent;
+    const toBeat = incumbent ? lengths[incumbent] : 4;
+    const challengers = this.getPlayerIds().filter(player => lengths[player] >= 5 && lengths[player] > toBeat);
+    if (challengers.length > 0) {
+      const best = Math.max(...challengers.map(player => lengths[player]));
+      const atBest = challengers.filter(player => lengths[player] === best);
+      bestPlayer = atBest.length === 1 ? atBest[0] : null;
     }
 
-    if (bestPlayer && lengths[bestPlayer] < 5) bestPlayer = null;
     for (const player of this.getPlayerIds()) {
       this.players[player].longestRoad = player === bestPlayer;
     }
@@ -1429,15 +1451,17 @@ export default class CatanBoard {
   }
 
   _checkWin() {
-    for (const player of this.getPlayerIds()) {
-      const points = this.getVictoryPoints(player);
-      if (points >= this.victoryTarget) {
-        this.phase = 'game-over';
-        this.winner = player;
-        this.winningPoints = points;
-        this.lastAction = `${this.players[player].name} wins with ${points} points.`;
-        return true;
-      }
+    // Official rule: you can only win during your own turn. A player pushed to
+    // the target off-turn (longest-road transfer, special build) wins at the
+    // start of their next turn instead (see endTurn).
+    if (this.currentPlayer !== this.primaryTurnPlayer) return false;
+    const points = this.getVictoryPoints(this.currentPlayer);
+    if (points >= this.victoryTarget) {
+      this.phase = 'game-over';
+      this.winner = this.currentPlayer;
+      this.winningPoints = points;
+      this.lastAction = `${this.players[this.currentPlayer].name} wins with ${points} points.`;
+      return true;
     }
     return false;
   }
