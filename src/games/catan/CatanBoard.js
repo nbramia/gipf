@@ -653,9 +653,15 @@ export default class CatanBoard {
 
     for (const [resource, amount] of Object.entries(needed)) {
       if (this.bank[resource] < amount) {
-        payouts.forEach(payout => {
-          if (payout.resource === resource) payout.skip = true;
-        });
+        // Official bank-shortage rule: only a multi-player shortage voids the
+        // payout. A single affected player receives the remaining stock
+        // (_gainResource caps each grant at what the bank holds).
+        const claimants = new Set(payouts.filter(payout => payout.resource === resource).map(payout => payout.player));
+        if (claimants.size > 1) {
+          payouts.forEach(payout => {
+            if (payout.resource === resource) payout.skip = true;
+          });
+        }
       }
     }
 

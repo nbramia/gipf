@@ -124,6 +124,47 @@ describe('Longest road severing', () => {
   });
 });
 
+describe('Bank shortage', () => {
+  function productionTile(board) {
+    return board.tiles.find(t => t.resource !== 'desert' && t.number && t.id !== board.robberTileId);
+  }
+
+  test('a shortage affecting a single player pays out the remaining stock', () => {
+    const board = new CatanBoard({ seed: 46, skipInitialHistory: true });
+    const tile = productionTile(board);
+    board.vertices[tile.vertices[0]].building = { player: 1, type: 'city' }; // owed 2
+    board.players[1].cities.push(tile.vertices[0]);
+    board.bank[tile.resource] = 1;
+
+    board.phase = 'roll';
+    board.currentPlayer = 2;
+    board.primaryTurnPlayer = 2;
+    expect(board.rollDice(tile.number)).toBe(true);
+
+    expect(board.players[1].resources[tile.resource]).toBe(1);
+    expect(board.bank[tile.resource]).toBe(0);
+  });
+
+  test('a shortage affecting multiple players voids that resource payout', () => {
+    const board = new CatanBoard({ seed: 47, skipInitialHistory: true });
+    const tile = productionTile(board);
+    board.vertices[tile.vertices[0]].building = { player: 1, type: 'settlement' };
+    board.vertices[tile.vertices[2]].building = { player: 2, type: 'settlement' };
+    board.players[1].settlements.push(tile.vertices[0]);
+    board.players[2].settlements.push(tile.vertices[2]);
+    board.bank[tile.resource] = 1;
+
+    board.phase = 'roll';
+    board.currentPlayer = 3;
+    board.primaryTurnPlayer = 3;
+    expect(board.rollDice(tile.number)).toBe(true);
+
+    expect(board.players[1].resources[tile.resource]).toBe(0);
+    expect(board.players[2].resources[tile.resource]).toBe(0);
+    expect(board.bank[tile.resource]).toBe(1);
+  });
+});
+
 describe('Winning only on your own turn', () => {
   test('the active player wins immediately on reaching the target', () => {
     const board = new CatanBoard({ seed: 44, skipInitialHistory: true });
