@@ -219,6 +219,7 @@ requires a Vercel KV store linked to the project (injects `KV_REST_API_URL` +
 | `coach/rulesClient.js` | Rules-assistant client + BYO Anthropic key storage (shared `gipfApiKey`, reused across chess + Catan) |
 | `api/catanRules.js` | Vercel serverless rules assistant (Claude API, **bring-your-own key**, ruleset-aware) |
 | `CatanBoard.test.js` | Jest tests covering core Catan logic and AI legality |
+| `CatanConformance.test.js` | Official-rules conformance tests + seeded self-play invariant soak |
 
 See [docs/catan.md](docs/catan.md) for rule coverage and AI/training details.
 

@@ -69,6 +69,101 @@ function startActionTurn(board, playerId) {
   board.primaryTurnPlayer = playerId;
 }
 
+// Structural invariants that must hold after every single move of any game.
+function assertInvariants(board, bankSize) {
+  // Resource conservation: bank + all hands account for every card.
+  for (const resource of RESOURCES) {
+    const held = board.getPlayerIds().reduce((sum, id) => sum + board.players[id].resources[resource], 0);
+    expect(board.bank[resource] + held).toBe(bankSize);
+    expect(board.bank[resource]).toBeGreaterThanOrEqual(0);
+  }
+
+  // Longest road award consistency against a fresh recompute.
+  const lengths = {};
+  for (const id of board.getPlayerIds()) lengths[id] = board._longestRoadForPlayer(id);
+  const holder = board.longestRoadHolder;
+  for (const id of board.getPlayerIds()) {
+    expect(board.players[id].longestRoad).toBe(id === holder);
+  }
+  if (holder) {
+    expect(lengths[holder]).toBeGreaterThanOrEqual(5);
+    for (const id of board.getPlayerIds()) {
+      expect(lengths[id]).toBeLessThanOrEqual(lengths[holder]);
+    }
+  } else {
+    // With the card unheld (or set aside), no player may have a unique
+    // qualifying longest road — that player should have been awarded it.
+    const qualifying = board.getPlayerIds().filter(id => lengths[id] >= 5);
+    if (qualifying.length > 0) {
+      const best = Math.max(...qualifying.map(id => lengths[id]));
+      expect(qualifying.filter(id => lengths[id] === best).length).toBeGreaterThan(1);
+    }
+  }
+
+  // Largest army: holder has >= 3 knights and nobody strictly more.
+  const army = board.largestArmyHolder;
+  for (const id of board.getPlayerIds()) {
+    expect(board.players[id].largestArmy).toBe(id === army);
+  }
+  if (army) {
+    expect(board.players[army].knightsPlayed).toBeGreaterThanOrEqual(3);
+    for (const id of board.getPlayerIds()) {
+      expect(board.players[id].knightsPlayed).toBeLessThanOrEqual(board.players[army].knightsPlayed);
+    }
+  } else {
+    for (const id of board.getPlayerIds()) {
+      expect(board.players[id].knightsPlayed).toBeLessThan(3);
+    }
+  }
+
+  if (board.phase !== 'game-over') expect(board.winner).toBe(null);
+}
+
+describe('Self-play invariant soak', () => {
+  async function soakGame({ playerCount, rulesetId, seed }) {
+    const board = new CatanBoard({ seed, playerCount, rulesetId });
+    const bankSize = board.mapProfile.bankSize || 19;
+    const mcts = new MCTS({ maxChildren: 10 });
+
+    let moves = 0;
+    while (board.phase !== 'game-over' && moves < 1600) {
+      // Periodically prove EVERY enumerated legal move applies on a clone —
+      // the human UI and the AI both project this list.
+      if (moves % 25 === 0) {
+        for (const legal of board.getLegalMoves()) {
+          const probe = board.clone();
+          probe._skipHistory = true;
+          expect(probe.applyMove(legal)).toBe(true);
+        }
+      }
+      const move = await mcts.getBestMove(board, 6);
+      expect(move).toBeTruthy();
+      expect(board.applyMove(move)).toBe(true);
+      moves++;
+      assertInvariants(board, bankSize);
+    }
+
+    expect(board.phase).toBe('game-over');
+    if (!/game-length limit/.test(board.lastAction)) {
+      // Wins land only on (or at the start of) the winner's own turn.
+      expect(board.winner).toBe(board.currentPlayer);
+      expect(board.winningPoints).toBeGreaterThanOrEqual(board.victoryTarget);
+    }
+  }
+
+  test('3-player game holds every invariant to termination', async () => {
+    await soakGame({ playerCount: 3, rulesetId: 'base-classic', seed: 61 });
+  }, 90000);
+
+  test('4-player game holds every invariant to termination', async () => {
+    await soakGame({ playerCount: 4, rulesetId: 'base-classic', seed: 62 });
+  }, 90000);
+
+  test('6-player game holds every invariant to termination', async () => {
+    await soakGame({ playerCount: 6, rulesetId: 'base-5-6', seed: 63 });
+  }, 90000);
+});
+
 describe('Longest road severing', () => {
   test('a settlement that cuts the holder road below 5 sets the card aside', () => {
     const board = new CatanBoard({ seed: 41, skipInitialHistory: true });

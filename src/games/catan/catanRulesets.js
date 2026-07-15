@@ -103,7 +103,7 @@ const CATAN_RULESETS = [
     modules: [
       '30-hex extension island',
       'Expanded resource bank',
-      'Paired-player build phase',
+      'Special building phase',
       'Robber on 7',
       'Development cards',
     ],

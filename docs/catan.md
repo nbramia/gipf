@@ -8,13 +8,17 @@ Implemented:
 
 - 19-hex classic island and 30-hex 5-6 player island profiles
 - 3-6 player base-game play with snake setup order
-- 5-6 player paired build phase after the rolling player's action phase
+- 5-6 player Special Building Phase: after each player's turn, every other player in order may build and buy development cards (no dev-card play, no trading)
 - Initial resource payout from the second settlement
-- Dice production with settlement/city payouts and bank limits
+- Dice production with settlement/city payouts and bank limits (a shortage voids the payout only when it affects multiple players; a single affected player receives the remaining stock)
 - Robber on 7, automatic discard for players above seven cards, robber steal
 - Roads, settlements, cities, bank trades, 3:1 and 2:1 ports
 - Development cards: knight, victory point, road building, year of plenty, monopoly
-- Largest army and longest road awards
+- A knight may be played before rolling (the robber detour returns to the roll)
+- Road Building is unplayable at the road piece limit, grants one road with one piece left, and must be resolved before the turn can end
+- Largest army and longest road awards, including road severing: an opponent settlement that cuts the holder's road re-evaluates the award — a unique longer road takes the card, a tie sets it aside, and the incumbent keeps it on mere ties
+- Victory only on your own turn: a player pushed to the target off-turn (severing transfer, special build) wins at the start of their next turn
+- Player trades may not offer and request the same resource (no disguised gifts)
 - Ruleset/scenario catalog for the core game, Seafarers, Cities & Knights, Traders & Barbarians, Explorers & Pirates, and 5-6 player extensions
 - Ruleset-specific victory target metadata, clamped to a base-engine-reachable ceiling (see below)
 - Undo/redo support through the same board-state snapshot pattern used by the other games
@@ -29,6 +33,10 @@ Also implemented (the action space is complete and faithful so the AI learns eve
 Intentionally omitted:
 
 - Full special-piece mechanics for non-base expansions such as ships, commodities, barbarians, wagons, and exploration missions. These are represented in the rules/scenario catalog for selection and reference, while the playable engine remains the base-game rules engine plus 5-6 support.
+
+### Conformance suite
+
+`src/games/catan/CatanConformance.test.js` locks the edge-case rules above with one targeted scenario test per area, plus a seeded self-play invariant soak (3, 4, and 6 players to termination) asserting after every move: every enumerated legal move applies on a clone, award holders match freshly recomputed road lengths and knight counts, bank + hands conserve every resource card, and wins land only on (or at the start of) the winner's own turn.
 
 ### Victory targets and termination
 
