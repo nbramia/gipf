@@ -22,11 +22,15 @@ src/games/chess/
     ratingSync.js        # Cross-device rating sync client (keyed by key hash)
   hooks/
     useStockfish.js      # Engine lifecycle; getMove() + analyze(); serialized
+    useMistakeDrill.js   # Drill session state machine for the mistake library (#23)
+  components/
+    MistakeReviewPanel.jsx # Post-game mistake list with Retry (#23)
   coach/
     classify.js          # Eval-swing -> blunder..best; formatEval
     analyzeMove.js       # Build engine-grounded coaching payloads; pv -> SAN
     templates.js         # Deterministic fallback prose (never fabricates)
     coachClient.js       # BYO key + POST /api/chessCoach + fallback + thread loop
+    mistakeStore.js      # Persistent mistake library + spaced-repetition scheduler (#23)
     analysisTools.js     # analyze_position tool: Claude-callable Stockfish
     openings.js          # ECO opening detection (#15)
     pgn.js               # PGN import/export glue (#16)
@@ -145,6 +149,37 @@ move-context block with prompt caching so multi-round threads stay cheap.
   remaining ply budget counts as correct, re-solved live on each move
   (`coach/puzzles.js`).
 
+## Mistake library & drills
+
+Every mistake/blunder the human plays in a normal game is captured into a
+persistent library (`coach/mistakeStore.js`, `localStorage['chessMistakes']`):
+the position it was played from, the move, the engine's best line, centipawn
+loss, classification, opening, and move number. Capture happens in the coaching
+pipeline, so it costs nothing extra; puzzles, drills, and rated games are
+excluded. Entries dedupe by position (repeating a mistake makes it due again)
+and the library caps at 200 entries, evicting oldest solved first.
+
+Two ways back into a captured position:
+
+- **Post-game review:** at game end, `components/MistakeReviewPanel.jsx` lists
+  the mistakes from that game with a Retry button each.
+- **Train my mistakes:** a button next to Puzzles drills every entry currently
+  due under the spaced-repetition schedule — a solved entry returns in 1 day,
+  then 3, then 7; a miss makes it due again immediately.
+
+A drill (`hooks/useMistakeDrill.js`) loads the position the mistake was played
+from. The stored best move solves it instantly; any other move is judged by
+live full-strength analysis and counts when it concedes under 50 centipawns —
+the puzzle checker's honesty principle, so alternate good moves get credit.
+Feedback flows through the normal `requestCommentary` pipeline (Claude when a
+key is set, engine-grounded templates otherwise). "Show solution" reveals the
+stored line and schedules the entry for another review.
+
+The library also feeds coaching: `weaknessProfile()` condenses it into one line
+(counts, dominant phase, repeated opening) that rides along in the coach
+payload next to the learning goal, so live commentary can connect a move to the
+player's recurring patterns.
+
 ## Rated mode
 
 A rated Elo ladder mode, distinct from casual play against a fixed difficulty
@@ -173,7 +208,7 @@ tier:
 ```
 chessDarkMode, chessShowMoves, chessDifficulty, chessLearningGoal,
 chessShowEvalBar, chessSound, chessLichessToken, chessRated, chessRating,
-chessRatedGames
+chessRatedGames, chessMistakes
 
 gipfApiKey  # shared app-wide (Chess + Catan), not chess-prefixed
 ```

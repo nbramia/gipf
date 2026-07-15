@@ -12,7 +12,7 @@ import ChessBoard from './ChessBoard.js';
 import useStockfish from './hooks/useStockfish.js';
 import useMistakeDrill from './hooks/useMistakeDrill.js';
 import MistakeReviewPanel from './components/MistakeReviewPanel.jsx';
-import { loadMistakes, saveMistakes, captureMistake, dueMistakes } from './coach/mistakeStore.js';
+import { loadMistakes, saveMistakes, captureMistake, dueMistakes, weaknessProfile } from './coach/mistakeStore.js';
 import { DIFFICULTY_TIERS, DEFAULT_TIER_KEY, RATING_LADDER } from './engine/difficulty.js';
 import { DEFAULT_RATING, nearestRung, updateRating, scoreFor, isProvisional, mergeRating } from './engine/rating.js';
 import { ratingIdFromKey, fetchRemoteRating, putRemoteRating } from './engine/ratingSync.js';
@@ -342,6 +342,13 @@ export default function ChessGame() {
         // Attach opening context (#15) so the coach can name it / flag leaving book.
         if (opening.name) payload.opening = opening.name;
         if (opening.leftBookAtPly === ply) payload.leftBook = true;
+
+        // Attach the player's recurring-weakness profile (#23) so the coach can
+        // connect this move to patterns from earlier games.
+        if (kind === 'player-move') {
+          const weakness = weaknessProfile(loadMistakes());
+          if (weakness) payload.weaknessProfile = weakness;
+        }
 
         // Realistic opening coaching: openings have many sound paths, so don't
         // judge them by eval-loss vs. the single engine top move. Two layers:
