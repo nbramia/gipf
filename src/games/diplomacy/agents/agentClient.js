@@ -147,11 +147,13 @@ export async function sendMessage({ power, history, context, addressee, model, s
 // memory store itself — the orchestrator owns transcript/state persistence and
 // keeps AI↔AI text out of the human-visible thread store.
 //   { power, counterparties, channel, boardContext, persona, messages, model,
-//     priorSummary, memory }
-//   - priorSummary: a brief carried summary of where this channel stands (#44)
-//   - memory:       the agent's own prior private note about this rival (#44)
-// Returns { reply: { message, scratchpad, summary } } on success, or
-// { error, reply } mirroring sendMessage's error contract.
+//     priorSummary, memory, proposedDeal }
+//   - priorSummary:  a brief carried summary of where this channel stands (#44)
+//   - memory:        the agent's own prior private note about this rival (#44)
+//   - proposedDeal:  a deal the counterparty formally proposed; the endpoint
+//                    requires an accept:true/false answer (bilateral consent)
+// Returns { reply: { message, scratchpad, summary, deal, accept } } on success,
+// or { error, reply } mirroring sendMessage's error contract.
 export async function askAgent({
   power,
   counterparties = [],
@@ -162,6 +164,7 @@ export async function askAgent({
   model,
   priorSummary,
   memory,
+  proposedDeal,
   initiate,
 } = {}) {
   const apiKey = getApiKey();
@@ -188,6 +191,7 @@ export async function askAgent({
         model,
         priorSummary,
         memory,
+        proposedDeal,
         initiate,
       }),
     });
@@ -205,6 +209,8 @@ export async function askAgent({
       message: (data && data.message) || '',
       scratchpad: (data && data.scratchpad) || null,
       summary: (data && data.summary) || '',
+      deal: (data && data.deal) || null,
+      accept: data && typeof data.accept === 'boolean' ? data.accept : null,
     },
   };
 }

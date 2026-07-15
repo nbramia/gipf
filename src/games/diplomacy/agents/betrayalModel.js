@@ -203,12 +203,13 @@ function boardThreats(board, power) {
 
 // A unit of `partner` that can move into `toProvince` this turn (the attack we'd
 // support when honouring a "I'll support your move into T" deal). null if none.
+// Case-insensitive: negotiated deals may store lower-case province ids.
 function partnerMoverInto(board, partner, toProvince) {
   if (!board || !partner || !toProvince || typeof board.getUnitLocations !== 'function') return null;
-  const target = baseProvince(toProvince);
+  const target = baseProvince(toProvince).toUpperCase();
   for (const loc of board.getUnitLocations(partner)) {
     const targets = typeof board.getMoveTargets === 'function' ? board.getMoveTargets(loc) : [];
-    if (targets.some((t) => baseProvince(t) === target)) return loc;
+    if (targets.some((t) => baseProvince(t).toUpperCase() === target)) return loc;
   }
   return null;
 }
@@ -277,12 +278,22 @@ export function decideStrategicIntent({ board, state, power, payoff } = {}) {
       // Honored deals shape allies / supportDeals / dmz by type.
       if (agreement.type === 'support') {
         allies.add(partner);
-        // `from` (the moving unit we back) may be pre-set, or — for a deal struck
-        // with another power — resolved now to that partner's unit which can move
-        // into the agreed province, so we support THEIR attack.
-        let from = agreement.from;
-        if (!from && board) from = partnerMoverInto(board, partner, agreement.to);
-        if (from && agreement.to) supportDeals.push({ from, to: agreement.to });
+        // An AI↔AI deal records the SUPPORTER as actingPower; the mover side of
+        // that deal owes no support order — it just keeps the ally relationship.
+        if (!agreement.actingPower || agreement.actingPower === power) {
+          // `from` (the moving unit we back) may be pre-set, or — for a deal
+          // struck with another power — resolved now to that partner's unit
+          // which can move into the agreed province, so we support THEIR attack.
+          let from = agreement.from;
+          // Negotiated deals carry a model-supplied mover province: trust it
+          // only while the partner actually has a unit there, else re-resolve.
+          if (agreement.actingPower && from && board && typeof board.unitAt === 'function') {
+            const unit = board.unitAt(baseProvince(from).toUpperCase());
+            if (!unit || unit.power !== partner) from = null;
+          }
+          if (!from && board) from = partnerMoverInto(board, partner, agreement.to);
+          if (from && agreement.to) supportDeals.push({ from, to: agreement.to });
+        }
       } else if (agreement.type === 'joint-attack') {
         allies.add(partner);
         if (agreement.target) targets.add(agreement.target);

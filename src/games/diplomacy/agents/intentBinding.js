@@ -194,7 +194,10 @@ async function bindOrders(board, intentByPower, getOrders, { difficulty } = {}) 
     let orders = null;
     if (useIntent) {
       try {
-        const fragment = await getOrders(board, power, { intent: rawIntent, difficulty });
+        // The full intent map rides along so the tactical search predicts each
+        // opponent under ITS OWN recorded intent (allies stay unattacked in the
+        // forecast, negotiated supports are anticipated).
+        const fragment = await getOrders(board, power, { intent: rawIntent, intents: intentByPower, difficulty });
         orders = ordersFromFragment(fragment);
       } catch (_) {
         orders = null; // fall through to no-intent fallback

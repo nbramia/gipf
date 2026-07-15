@@ -1,5 +1,5 @@
 import DiplomacyBoard from '../DiplomacyBoard.js';
-import { getOrders, getRetreats, getAdjustments, evaluatePosition } from './aiPlayer.js';
+import { getOrders, getRetreats, getAdjustments, evaluatePosition, predictOpponentPlans } from './aiPlayer.js';
 
 // ---------------------------------------------------------------------------
 // Helpers (mirror DiplomacyBoard.test.js fixtures)
@@ -222,6 +222,40 @@ describe('Diplomacy AI -- intent bias', () => {
     });
     const { orders } = await getOrders(board, 'france', { intent: { dmz: ['BUR'] } });
     expect(orders.some(o => o.type === 'move' && o.to === 'BUR')).toBe(false);
+  });
+
+  test('opponent prediction honours a known opponent intent (allies not attacked)', () => {
+    // Austria BUD's natural objective is Rumania (a Russian-held supply
+    // center); with Austria's recorded intent naming Russia an ally, the plans
+    // France PREDICTS for Austria no longer attack it.
+    const board = emptyBoard({ phase: 'spring-orders', season: 'spring' });
+    board.supplyCenters = { RUM: 'russia' };
+    setUnits(board, {
+      BUD: { power: 'austria', type: 'army' },
+      RUM: { power: 'russia', type: 'army' },
+      PAR: { power: 'france', type: 'army' },
+    });
+    const attacksRum = (plans) =>
+      plans.some((orders) => orders.some((o) => o.type === 'move' && o.to === 'RUM'));
+
+    const blind = predictOpponentPlans(board, 'france', 3, null);
+    expect(attacksRum(blind.austria)).toBe(true);
+
+    const informed = predictOpponentPlans(board, 'france', 3, {
+      austria: { allies: ['russia'], targets: [], supportDeals: [], dmz: [], betrayals: [] },
+    });
+    expect(attacksRum(informed.austria)).toBe(false);
+  });
+
+  test('getOrders accepts an intents map and stays deterministic', async () => {
+    const board = new DiplomacyBoard({ skipInitialHistory: true });
+    const intents = {
+      germany: { allies: ['russia'], targets: [], supportDeals: [], dmz: [], betrayals: [] },
+    };
+    const a = await getOrders(board, 'france', { seed: 3, intents });
+    const b = await getOrders(board, 'france', { seed: 3, intents });
+    expect(a.orders).toEqual(b.orders);
+    expect(a.orders.length).toBeGreaterThan(0);
   });
 });
 

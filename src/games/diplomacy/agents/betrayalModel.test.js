@@ -123,6 +123,57 @@ describe('decideStrategicIntent — honor vs betray', () => {
   });
 });
 
+describe('decideStrategicIntent — AI↔AI support agreements (actingPower)', () => {
+  test('only the supporter (actingPower) emits the supportDeal; the mover keeps ally status', () => {
+    const board = new DiplomacyBoard();
+    let state = createDiplomaticState({ board, humanPower: 'england' });
+    // France committed to support Germany's Munich move into Ruhr (recorded by
+    // the negotiator with actingPower = the proposer/supporter).
+    state = recordAgreement(state, {
+      id: 'ai-france~germany-support', type: 'support',
+      parties: ['france', 'germany'], actingPower: 'france', from: 'MUN', to: 'RUH',
+    });
+    state = withTrust(state, 'france', 'germany', 0.9);
+    state = withTrust(state, 'germany', 'france', 0.9);
+
+    const france = decideStrategicIntent({ board, state, power: 'france', payoff: 0.05 });
+    expect(france.allies).toContain('germany');
+    expect(france.supportDeals).toContainEqual({ from: 'MUN', to: 'RUH' });
+
+    const germany = decideStrategicIntent({ board, state, power: 'germany', payoff: 0.05 });
+    expect(germany.allies).toContain('france');
+    expect(germany.supportDeals).toEqual([]); // mover side owes no support order
+  });
+
+  test('a stale mover province re-resolves against the live board', () => {
+    const board = new DiplomacyBoard();
+    let state = createDiplomaticState({ board, humanPower: 'england' });
+    // `from` names PAR — a FRENCH unit, not the German mover — so the model
+    // resolves the real mover: Germany's Munich army can enter Ruhr.
+    state = recordAgreement(state, {
+      id: 'x', type: 'support', parties: ['france', 'germany'],
+      actingPower: 'france', from: 'PAR', to: 'RUH',
+    });
+    state = withTrust(state, 'france', 'germany', 0.9);
+    const intent = decideStrategicIntent({ board, state, power: 'france', payoff: 0.05 });
+    const deal = intent.supportDeals.find((d) => d.to === 'RUH');
+    expect(deal).toBeTruthy();
+    expect(deal.from).toBe('MUN');
+  });
+
+  test('lower-case province ids from the model still resolve the mover', () => {
+    const board = new DiplomacyBoard();
+    let state = createDiplomaticState({ board, humanPower: 'england' });
+    state = recordAgreement(state, {
+      id: 'x', type: 'support', parties: ['france', 'germany'],
+      actingPower: 'france', from: null, to: 'ruh',
+    });
+    state = withTrust(state, 'france', 'germany', 0.9);
+    const intent = decideStrategicIntent({ board, state, power: 'france', payoff: 0.05 });
+    expect(intent.supportDeals).toContainEqual({ from: 'MUN', to: 'ruh' });
+  });
+});
+
 describe('decideStrategicIntent — determinism', () => {
   test('identical inputs produce identical output', () => {
     const board = new DiplomacyBoard();

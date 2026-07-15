@@ -97,12 +97,23 @@ agent layers touch the board only through `clone()` / `applyMove()` and read-onl
   board so the human can negotiate with it. The same machinery runs **AI↔AI** private
   channels.
 - **AI↔AI negotiation** — the orchestrator runs a bounded number of private pairwise
-  conversations among the AI powers each negotiation phase, extracts concrete deals
-  (DMZs, mutual support, who takes which center) into the diplomatic state, and keeps these
-  transcripts **separate** from the human's threads.
+  conversations among the AI powers each negotiation phase. Each pair is a **bilateral
+  two-call exchange**: the proposer speaks, then the counterparty answers with the
+  structured proposal in front of it (a PENDING PROPOSAL section in its prompt) and must
+  accept or decline. A deal (DMZ, support, non-aggression, joint attack) is recorded into
+  the diplomatic state **only on the counterparty's consent**, normalized at the recording
+  site so the bound parties are always the two channel powers — a model can never bind a
+  third power or the human. Support deals record the proposer as `actingPower` (the
+  supporter); the mover's province is re-validated against the live board at intent time.
+  Transcripts stay **separate** from the human's threads.
 - **Intent binding** — the bridge from words to moves: a power's validated strategic intent
   is turned into actual legal orders by the tactical engine, so dialogue measurably changes
-  what units do — not just chat text.
+  what units do — not just chat text. The tactical search also predicts every opponent
+  **under that opponent's own recorded intent** (an allied power is not forecast to attack
+  its ally), keeping the forecast consistent with the diplomatic state.
+  `agents/negotiationAdherence.test.js` drives a headless all-AI game through the real
+  pipeline and asserts deals record every year and ≥ 70% of committed support deals appear
+  as issued support orders.
 - **Negotiation loop** — `useDiplomacyTurn` ties everything into one playable cycle:
   `negotiation → orders → resolving → retreats → winter → (next) negotiation`. The
   negotiation phase is **UI-only** and precedes each engine orders phase; `DiplomacyBoard`
