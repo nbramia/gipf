@@ -10,6 +10,9 @@ import { Link } from 'react-router-dom';
 import { Chessboard } from 'react-chessboard';
 import ChessBoard from './ChessBoard.js';
 import useStockfish from './hooks/useStockfish.js';
+import useMistakeDrill from './hooks/useMistakeDrill.js';
+import MistakeReviewPanel from './components/MistakeReviewPanel.jsx';
+import { loadMistakes, saveMistakes, captureMistake, dueMistakes } from './coach/mistakeStore.js';
 import { DIFFICULTY_TIERS, DEFAULT_TIER_KEY, RATING_LADDER } from './engine/difficulty.js';
 import { DEFAULT_RATING, nearestRung, updateRating, scoreFor, isProvisional, mergeRating } from './engine/rating.js';
 import { ratingIdFromKey, fetchRemoteRating, putRemoteRating } from './engine/ratingSync.js';
@@ -143,6 +146,18 @@ export default function ChessGame() {
   const [puzzleBudget, setPuzzleBudget] = useState(1);
   const [puzzleState, setPuzzleState] = useState('idle'); // idle | solving | solved | wrong
   const [puzzleMsg, setPuzzleMsg] = useState('');
+
+  // Mistake library (#23): the mistakes captured this game (for the post-game
+  // review panel), how many stored entries are due for drilling, and the drill
+  // session itself. Capture is gated to normal play (not puzzles/drills/rated).
+  const [gameMistakes, setGameMistakes] = useState([]);
+  const [dueCount, setDueCount] = useState(() => dueMistakes(loadMistakes()).length);
+  const puzzleModeRef = useRef(puzzleMode);
+  useEffect(() => { puzzleModeRef.current = puzzleMode; }, [puzzleMode]);
+  const drill = useMistakeDrill({
+    analyze,
+    onStoreChange: (list) => setDueCount(dueMistakes(list).length),
+  });
 
   // Game/Settings panels auto-collapse once the first move is made, freeing the
   // screen for the board + coach. Native <details> keeps them user-toggleable.
@@ -361,6 +376,30 @@ export default function ChessGame() {
           }
         }
 
+        // Mistake library (#23): capture human mistakes/blunders as replayable
+        // drills. Normal games only — puzzle moves are excluded here, drill
+        // moves never reach coachOnMove, and rated games return early above.
+        if (
+          kind === 'player-move' &&
+          !puzzleModeRef.current &&
+          (payload.classification === 'mistake' || payload.classification === 'blunder') &&
+          payload.bestMove
+        ) {
+          const { list, entry } = captureMistake(loadMistakes(), {
+            fenBefore,
+            movePlayed: movePlayedSan,
+            bestSan: payload.bestMove.san,
+            bestPv: payload.bestMove.pv || [],
+            cpLoss: payload.cpLoss || 0,
+            classification: payload.classification,
+            opening: opening.name || null,
+            moveNo: Math.ceil(ply / 2),
+          });
+          saveMistakes(list);
+          setGameMistakes((g) => [...g.filter((e) => e.id !== entry.id), entry]);
+          setDueCount(dueMistakes(list).length);
+        }
+
         // Record per-move accuracy data (#17), replacing any prior entry at this ply.
         setMoveStats((s) => [
           ...s.filter((x) => x.ply !== ply),
@@ -427,6 +466,7 @@ export default function ChessGame() {
   // Declared AFTER coachOnMove because it depends on it (avoid TDZ at render).
   useEffect(() => {
     if (puzzleMode) return; // no engine opponent while solving puzzles
+    if (drill.active) return; // no engine opponent while drilling mistakes
     if (gameOver) return;
     if (board.turn() !== aiColor) return;
     if (engineStatus !== 'ready') return;
@@ -461,7 +501,7 @@ export default function ChessGame() {
     return () => {
       cancelled = true;
     };
-  }, [board, aiColor, engineStatus, moveSpec, gameOver, getMove, coachOnMove, puzzleMode]);
+  }, [board, aiColor, engineStatus, moveSpec, gameOver, getMove, coachOnMove, puzzleMode, drill.active]);
 
   const squareStyles = useMemo(() => {
     const styles = {};
@@ -537,8 +577,33 @@ export default function ChessGame() {
     [board, puzzlePool, puzzleIndex, puzzleBudget, puzzleState, coachOnMove]
   );
 
+  // Attempt a drill move (#23): apply optimistically (drop callbacks must
+  // answer synchronously), then let the hook judge it; wrong moves roll back.
+  const tryDrillMove = useCallback(
+    (from, to, promotion) => {
+      if (drill.state !== 'solving') return false;
+      const mv = board.move(from, to, promotion || 'q');
+      if (!mv) return false;
+      setSelected(null);
+      if (soundRef.current) playSound(moveSoundKind(mv, board.isCheck(), board.isGameOver()));
+      setBoard(board.clone());
+      drill.evaluate(from, to, promotion || 'q').then((res) => {
+        if (!res || res.stale || !res.legal) return;
+        if (!res.correct) {
+          board.undo();
+          setBoard(board.clone());
+        }
+      });
+      return true;
+    },
+    [board, drill]
+  );
+
   const tryHumanMove = useCallback(
     (from, to, promotion) => {
+      if (drill.active) {
+        return tryDrillMove(from, to, promotion);
+      }
       if (puzzleMode) {
         if (puzzleState === 'solved') return false;
         return tryPuzzleMove(from, to, promotion);
@@ -556,11 +621,15 @@ export default function ChessGame() {
       coachOnMove(fenBefore, fenAfter, mv.san, mv.color, 'player-move', ply, sanAfter);
       return true;
     },
-    [board, humanToMove, coachOnMove, puzzleMode, puzzleState, tryPuzzleMove]
+    [board, humanToMove, coachOnMove, puzzleMode, puzzleState, tryPuzzleMove, drill.active, tryDrillMove]
   );
 
-  // Whether the user may move a piece right now (normal play or active puzzle).
-  const canInteract = puzzleMode ? puzzleState !== 'solved' : humanToMove;
+  // Whether the user may move a piece right now (normal play, puzzle, or drill).
+  const canInteract = drill.active
+    ? drill.state === 'solving'
+    : puzzleMode
+      ? puzzleState !== 'solved'
+      : humanToMove;
 
   const onPieceDrop = useCallback(
     (from, to, piece) => {
@@ -608,6 +677,8 @@ export default function ChessGame() {
     ratedAppliedRef.current = false;
     setRatedDelta(null);
     setPuzzleMode(false);
+    drill.exit();
+    setGameMistakes([]);
     setHumanColor(c);
     setOrientation(c === 'w' ? 'white' : 'black');
     setResigned(null);
@@ -637,6 +708,8 @@ export default function ChessGame() {
     const puzzle = pool[i];
     const next = new ChessBoard(puzzle.fen);
     coachSeqRef.current += 1;
+    drill.exit();
+    setGameMistakes([]);
     setPuzzlePool(pool);
     setPuzzleMode(true);
     setPuzzleIndex(i);
@@ -658,6 +731,38 @@ export default function ChessGame() {
   const startPuzzles = () => loadPuzzle(0);
   const nextPuzzle = () => loadPuzzle(puzzleIndex + 1);
   const retryPuzzle = () => loadPuzzle(puzzleIndex);
+
+  // Mistake drills (#23): load an entry's position; the drill hook owns the
+  // session state, this glue owns the board.
+  const loadDrillBoard = (entry) => {
+    const next = new ChessBoard(entry.fenBefore);
+    setOrientation(next.turn() === 'w' ? 'white' : 'black');
+    setSelected(null);
+    setBoard(next);
+  };
+  const startDrills = (entries) => {
+    const first = drill.start(entries);
+    if (!first) return;
+    coachSeqRef.current += 1; // invalidate any in-flight coaching
+    setPuzzleMode(false);
+    setResigned(null);
+    setDialogue([]);
+    setMoveStats([]);
+    setEvalWhite(0);
+    setEvalMate(null);
+    setCoaching(false);
+    thinkingRef.current = false;
+    setIsThinking(false);
+    loadDrillBoard(first);
+  };
+  const trainMistakes = () => startDrills(dueMistakes(loadMistakes()));
+  const retryMistake = (entry) => startDrills([entry]);
+  const nextDrill = () => {
+    const entry = drill.next();
+    if (entry) loadDrillBoard(entry);
+    else startGame(humanColor);
+  };
+  const exitDrills = () => startGame(humanColor);
 
   const undo = () => {
     // Undo back to the human's turn: pop AI move + human move when possible.
@@ -781,6 +886,8 @@ export default function ChessGame() {
         return;
       }
       coachSeqRef.current += 1; // invalidate in-flight coaching
+      drill.exit();
+      setGameMistakes([]);
       setDialogue([]);
       setMoveStats([]);
       setCoaching(false);
@@ -818,7 +925,12 @@ export default function ChessGame() {
   const aiSide = accuracyReport ? (humanColor === 'w' ? accuracyReport.black : accuracyReport.white) : null;
 
   let statusText;
-  if (puzzleMode) {
+  if (drill.active) {
+    const e = drill.entry;
+    statusText = e
+      ? `Mistake ${drill.index + 1}/${drill.total}: you played ${e.movePlayed} here${e.opening ? ` (${e.opening})` : ''}. Find a better move.`
+      : 'No mistakes to drill.';
+  } else if (puzzleMode) {
     const puzzle = puzzlePool[puzzleIndex];
     const toMove = board.turn() === 'w' ? 'White' : 'Black';
     const movesLeft = Math.max(1, Math.ceil(puzzleBudget / 2));
@@ -916,7 +1028,7 @@ export default function ChessGame() {
                 </div>
               )}
               <div className="flex gap-3 w-full max-w-[680px] mx-auto">
-                {showEvalBar && !puzzleMode && !rated && (
+                {showEvalBar && !puzzleMode && !drill.active && !rated && (
                   <div
                     className="w-3 sm:w-4 rounded overflow-hidden shrink-0 self-stretch flex flex-col border"
                     style={{ backgroundColor: '#3f3f46', borderColor: 'var(--color-border)' }}
@@ -932,7 +1044,7 @@ export default function ChessGame() {
                   {/* Top tray = pieces captured by the side shown at top */}
                   <div className="flex items-center justify-between mb-1">
                     <Tray pieces={orientation === 'white' ? capturedByBlack : capturedByWhite} plus={0} />
-                    {showEvalBar && !puzzleMode && !rated && (
+                    {showEvalBar && !puzzleMode && !drill.active && !rated && (
                       <span className="font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
                         {material > 0 ? `White +${material}` : material < 0 ? `Black +${-material}` : 'Even'}
                       </span>
@@ -964,7 +1076,34 @@ export default function ChessGame() {
                 </div>
               </div>
 
-              {puzzleMode ? (
+              {drill.active ? (
+                <>
+                  <div className="flex flex-wrap gap-2 justify-center mt-4">
+                    <button
+                      onClick={drill.reveal}
+                      disabled={drill.state !== 'solving'}
+                      className="px-4 py-2 rounded-lg font-body text-sm panel disabled:opacity-40"
+                    >
+                      Show solution
+                    </button>
+                    <button onClick={nextDrill} className="px-4 py-2 rounded-lg font-body text-sm panel">
+                      {drill.index + 1 < drill.total ? 'Next mistake →' : 'Finish'}
+                    </button>
+                    <button onClick={exitDrills} className="px-4 py-2 rounded-lg font-body text-sm panel">
+                      Exit drills
+                    </button>
+                  </div>
+                  {drill.message && (
+                    <p
+                      className="mt-3 font-body text-sm text-center w-full max-w-[680px] mx-auto"
+                      style={{ color: 'var(--color-text-secondary)' }}
+                      aria-live="polite"
+                    >
+                      {drill.message}
+                    </p>
+                  )}
+                </>
+              ) : puzzleMode ? (
                 <div className="flex flex-wrap gap-2 justify-center mt-4">
                   <button onClick={retryPuzzle} className="px-4 py-2 rounded-lg font-body text-sm panel">
                     Reset puzzle
@@ -1005,6 +1144,16 @@ export default function ChessGame() {
                   {!rated && (
                     <button onClick={startPuzzles} className="px-4 py-2 rounded-lg font-body text-sm panel">
                       Puzzles
+                    </button>
+                  )}
+                  {!rated && (
+                    <button
+                      onClick={trainMistakes}
+                      disabled={dueCount === 0}
+                      className="px-4 py-2 rounded-lg font-body text-sm panel disabled:opacity-40"
+                      title={dueCount === 0 ? 'No mistakes due for review — play some games first' : undefined}
+                    >
+                      Train my mistakes{dueCount > 0 ? ` (${dueCount})` : ''}
                     </button>
                   )}
                 </div>
@@ -1060,6 +1209,11 @@ export default function ChessGame() {
             </div>
 
             <div className="flex flex-col gap-4 lg:min-h-[calc(100vh-7rem)]">
+              {/* Post-game mistake review (#23) — retry this game's mistakes */}
+              {accuracyReport && !rated && gameMistakes.length > 0 && (
+                <MistakeReviewPanel mistakes={gameMistakes} onRetry={retryMistake} />
+              )}
+
               {/* Post-game accuracy summary (#17) */}
               {accuracyReport && (
                 <div className="panel rounded-xl p-4">
