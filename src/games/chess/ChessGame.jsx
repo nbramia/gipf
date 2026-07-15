@@ -28,7 +28,10 @@ import {
 } from './coach/openingCoach.js';
 import { withHeaders, downloadPgn, readPgnFile, looksLikePgn } from './coach/pgn.js';
 import { summarizeAccuracy } from './coach/accuracy.js';
-import { puzzlesForDifficulty, budgetPliesFor, evaluatePuzzleMove } from './coach/puzzles.js';
+import { PUZZLES, budgetPliesFor, evaluatePuzzleMove, evaluateSolutionMove } from './coach/puzzles.js';
+import { loadProgress, saveProgress, recordPuzzleResult, selectSession } from './coach/puzzleProgress.js';
+import { fetchDailyPuzzle } from './coach/lichessPuzzle.js';
+import { hintFor, buildHintPayload, buildFailPayload, MAX_HINT_STAGE } from './coach/puzzleCoach.js';
 import { capturedPieces, materialBalance } from './coach/material.js';
 import { playSound, moveSoundKind } from './coach/sound.js';
 import { formatEval } from './coach/classify.js';
@@ -138,14 +141,23 @@ export default function ChessGame() {
   const fileInputRef = useRef(null);
   const [pgnError, setPgnError] = useState('');
 
-  // Puzzle mode (#18). The pool is chosen by difficulty (mate-in-1/2/3); budget
-  // is the remaining plies to force mate and shrinks as a multi-move puzzle plays.
+  // Puzzle mode (#18, overhauled #24). Sessions are adaptive: due reviews
+  // first, then fresh puzzles nearest the player's puzzle rating; the Lichess
+  // daily puzzle joins when reachable. Mate puzzles are solver-checked (budget
+  // = remaining plies to force mate); 'solution'-kind puzzles follow a
+  // scripted UCI line. Hints escalate theme -> piece; wrong attempts get
+  // engine-grounded coaching. First outcome per puzzle rates + schedules it.
   const [puzzleMode, setPuzzleMode] = useState(false);
   const [puzzlePool, setPuzzlePool] = useState([]);
   const [puzzleIndex, setPuzzleIndex] = useState(0);
   const [puzzleBudget, setPuzzleBudget] = useState(1);
   const [puzzleState, setPuzzleState] = useState('idle'); // idle | solving | solved | wrong
   const [puzzleMsg, setPuzzleMsg] = useState('');
+  const [puzzleSolution, setPuzzleSolution] = useState([]); // remaining scripted UCI line
+  const [puzzleHintStage, setPuzzleHintStage] = useState(0);
+  const [puzzleCoachMsg, setPuzzleCoachMsg] = useState('');
+  const [puzzleProgressState, setPuzzleProgressState] = useState(() => loadProgress());
+  const puzzleRecordedRef = useRef(new Set()); // one rating/schedule write per puzzle per session
 
   // Mistake library (#23): the mistakes captured this game (for the post-game
   // review panel), how many stored entries are due for drilling, and the drill
@@ -546,14 +558,24 @@ export default function ChessGame() {
       if (!puzzle) return false;
 
       const fenBefore = board.fen();
-      const res = evaluatePuzzleMove(fenBefore, puzzleBudget, from, to, promotion || 'q');
+      const res =
+        puzzle.kind === 'solution'
+          ? evaluateSolutionMove(fenBefore, puzzleSolution, from, to, promotion || 'q')
+          : evaluatePuzzleMove(fenBefore, puzzleBudget, from, to, promotion || 'q');
       if (!res.legal) return false; // snap the piece back
       setSelected(null);
 
       if (!res.correct) {
-        // Legal, but it lets the forced mate slip — snap back and hint.
+        // Legal, but it fails the puzzle — snap back, rate it, and coach the
+        // refutation (#24). Retries stay open as practice.
+        recordPuzzleOutcome(puzzle, false);
         setPuzzleState('wrong');
-        setPuzzleMsg(`${res.played} lets the win slip — ${puzzle.hint}`);
+        setPuzzleMsg(
+          puzzle.kind === 'solution'
+            ? `${res.played} isn't it — try again.`
+            : `${res.played} lets the win slip — ${puzzle.hint}`
+        );
+        coachPuzzleFail(puzzle, fenBefore, from, to, promotion, res.played);
         return true;
       }
 
@@ -564,24 +586,30 @@ export default function ChessGame() {
       if (soundRef.current) playSound(moveSoundKind(mv, board.isCheck(), board.isGameOver()));
 
       if (res.solved) {
+        recordPuzzleOutcome(puzzle, true);
         setBoard(board.clone());
         setPuzzleState('solved');
         setPuzzleMsg(`Solved — ${res.played}! ${puzzle.theme}.`);
+        setPuzzleCoachMsg('');
         coachOnMove(fenBefore, fenAfterPlayer, mv.san, mv.color, 'player-move', ply, board.sanHistory());
         return true;
       }
 
-      // Not mate yet: engine plays its longest-resisting defense; keep solving.
+      // Not solved yet: the reply comes from the solver (mate puzzles, the
+      // longest-resisting defense) or the script (solution puzzles).
       const rmv = board.move(res.reply.from, res.reply.to, res.reply.promotion);
       if (soundRef.current && rmv) playSound(moveSoundKind(rmv, board.isCheck(), false));
-      setPuzzleBudget(res.budgetPlies);
+      if (puzzle.kind === 'solution') setPuzzleSolution(res.solution);
+      else setPuzzleBudget(res.budgetPlies);
       setPuzzleState('solving');
       setPuzzleMsg(`Good — ${res.played}. Now find the finish.`);
       setBoard(board.clone());
       coachOnMove(fenBefore, fenAfterPlayer, mv.san, mv.color, 'player-move', ply, board.sanHistory());
       return true;
     },
-    [board, puzzlePool, puzzleIndex, puzzleBudget, puzzleState, coachOnMove]
+    // recordPuzzleOutcome/coachPuzzleFail read fresh state via refs/storage,
+    // so only the directly-closed-over state is listed here.
+    [board, puzzlePool, puzzleIndex, puzzleBudget, puzzleSolution, puzzleState, coachOnMove]
   );
 
   // Attempt a drill move (#23): apply optimistically (drop callbacks must
@@ -707,10 +735,11 @@ export default function ChessGame() {
     startGame();
   };
 
-  // Puzzle mode (#18): the pool is chosen by the difficulty tier, so the
-  // difficulty selector controls puzzle hardness (mate-in-1/2/3).
-  const loadPuzzle = (index) => {
-    const pool = puzzlesForDifficulty(difficulty);
+  // Puzzle mode (#18, overhauled #24): sessions come from the adaptive
+  // selector over the whole bank (due reviews first, then fresh puzzles
+  // nearest the player's rating); the difficulty tier no longer gates them.
+  const loadPuzzleFrom = (pool, index) => {
+    if (!pool.length) return;
     const i = ((index % pool.length) + pool.length) % pool.length;
     const puzzle = pool[i];
     const next = new ChessBoard(puzzle.fen);
@@ -720,7 +749,10 @@ export default function ChessGame() {
     setPuzzlePool(pool);
     setPuzzleMode(true);
     setPuzzleIndex(i);
-    setPuzzleBudget(budgetPliesFor(puzzle.mateIn));
+    setPuzzleBudget(puzzle.mateIn ? budgetPliesFor(puzzle.mateIn) : 1);
+    setPuzzleSolution(puzzle.solution || []);
+    setPuzzleHintStage(0);
+    setPuzzleCoachMsg('');
     setPuzzleState('solving');
     setPuzzleMsg('');
     setSelected(null);
@@ -735,9 +767,71 @@ export default function ChessGame() {
     setOrientation(next.turn() === 'w' ? 'white' : 'black');
     setBoard(next);
   };
-  const startPuzzles = () => loadPuzzle(0);
-  const nextPuzzle = () => loadPuzzle(puzzleIndex + 1);
-  const retryPuzzle = () => loadPuzzle(puzzleIndex);
+  const startPuzzles = () => {
+    const progress = loadProgress();
+    setPuzzleProgressState(progress);
+    puzzleRecordedRef.current = new Set();
+    loadPuzzleFrom(selectSession(progress, PUZZLES), 0);
+    // The Lichess daily puzzle joins the session when reachable (and not
+    // already solved recently); offline it just isn't there.
+    fetchDailyPuzzle().then((daily) => {
+      if (!daily) return;
+      const rec = progress.puzzles[daily.id];
+      if (rec && (rec.nextDueAt || 0) > Date.now()) return;
+      setPuzzlePool((cur) =>
+        cur.length && !cur.some((p) => p.id === daily.id) ? [...cur, daily] : cur
+      );
+    });
+  };
+  const nextPuzzle = () => loadPuzzleFrom(puzzlePool, puzzleIndex + 1);
+  const retryPuzzle = () => loadPuzzleFrom(puzzlePool, puzzleIndex);
+
+  // First outcome per puzzle per session rates the player and (re)schedules
+  // the puzzle; retries and further attempts are practice.
+  const recordPuzzleOutcome = (puzzle, solved) => {
+    if (!puzzle || puzzleRecordedRef.current.has(puzzle.id)) return;
+    puzzleRecordedRef.current.add(puzzle.id);
+    const next = recordPuzzleResult(loadProgress(), puzzle, solved);
+    saveProgress(next);
+    setPuzzleProgressState(next);
+  };
+
+  // Coaching after a failed attempt (#24): analyze the position the wrong
+  // move creates and explain the refutation — never the solution. Works
+  // keyless via the deterministic template.
+  const coachPuzzleFail = (puzzle, fenBefore, from, to, promotion, playedSan) => {
+    const tmp = new ChessBoard(fenBefore);
+    if (!tmp.move(from, to, promotion || 'q')) return;
+    const fenAfter = tmp.fen();
+    const seq = coachSeqRef.current;
+    analyze(fenAfter, { multipv: 1 })
+      .then((analysisAfter) => {
+        if (seq !== coachSeqRef.current) return;
+        const payload = buildFailPayload({ puzzle, fen: fenBefore, fenAfter, playedSan, analysisAfter });
+        return requestCommentary(payload).then(({ text }) => {
+          if (seq === coachSeqRef.current && text) setPuzzleCoachMsg(text);
+        });
+      })
+      .catch(() => {});
+  };
+
+  // Staged hints (#24): theme first, then the key piece + square. The piece
+  // hint spends the puzzle (counts as a miss). Claude rephrases when a key is
+  // set; the deterministic text is shown either way.
+  const requestPuzzleHint = () => {
+    const puzzle = puzzlePool[puzzleIndex];
+    if (!puzzle || puzzleState === 'solved') return;
+    const stage = Math.min(puzzleHintStage + 1, MAX_HINT_STAGE);
+    setPuzzleHintStage(stage);
+    setPuzzleCoachMsg(`Hint: ${hintFor(puzzle, stage, board.fen())}`);
+    if (stage >= MAX_HINT_STAGE) recordPuzzleOutcome(puzzle, false);
+    const seq = coachSeqRef.current;
+    requestCommentary(buildHintPayload(puzzle, stage, board.fen())).then(({ text, source }) => {
+      if (seq === coachSeqRef.current && source === 'claude' && text) {
+        setPuzzleCoachMsg(`Hint: ${text}`);
+      }
+    });
+  };
 
   // Mistake drills (#23): load an entry's position; the drill hook owns the
   // session state, this glue owns the board.
@@ -946,7 +1040,9 @@ export default function ChessGame() {
         ? `✓ ${puzzleMsg}`
         : puzzleState === 'wrong'
           ? puzzleMsg
-          : `Puzzle ${puzzleIndex + 1}/${puzzlePool.length}: ${toMove} to play, mate in ${movesLeft}.${puzzle ? ` (${puzzle.theme})` : ''}`;
+          : puzzle && puzzle.kind === 'solution'
+            ? `Puzzle ${puzzleIndex + 1}/${puzzlePool.length}: ${toMove} to play — find the best move. (${puzzle.theme} · rated ${puzzle.rating})`
+            : `Puzzle ${puzzleIndex + 1}/${puzzlePool.length}: ${toMove} to play, mate in ${movesLeft}.${puzzle ? ` (${puzzle.theme} · rated ${puzzle.rating})` : ''}`;
   } else if (gameResult) {
     statusText =
       gameResult.type === 'checkmate'
@@ -1111,17 +1207,39 @@ export default function ChessGame() {
                   )}
                 </>
               ) : puzzleMode ? (
-                <div className="flex flex-wrap gap-2 justify-center mt-4">
-                  <button onClick={retryPuzzle} className="px-4 py-2 rounded-lg font-body text-sm panel">
-                    Reset puzzle
-                  </button>
-                  <button onClick={nextPuzzle} className="px-4 py-2 rounded-lg font-body text-sm panel">
-                    Next puzzle &rarr;
-                  </button>
-                  <button onClick={() => startGame()} className="px-4 py-2 rounded-lg font-body text-sm panel">
-                    Exit puzzles
-                  </button>
-                </div>
+                <>
+                  <div className="flex flex-wrap gap-2 justify-center mt-4">
+                    <button
+                      onClick={requestPuzzleHint}
+                      disabled={puzzleState === 'solved' || puzzleHintStage >= MAX_HINT_STAGE}
+                      className="px-4 py-2 rounded-lg font-body text-sm panel disabled:opacity-40"
+                      title={puzzleHintStage === 0 ? 'Theme hint (free)' : 'Piece hint (counts as a miss)'}
+                    >
+                      Hint{puzzleHintStage > 0 ? ` (${puzzleHintStage}/${MAX_HINT_STAGE})` : ''}
+                    </button>
+                    <button onClick={retryPuzzle} className="px-4 py-2 rounded-lg font-body text-sm panel">
+                      Reset puzzle
+                    </button>
+                    <button onClick={nextPuzzle} className="px-4 py-2 rounded-lg font-body text-sm panel">
+                      Next puzzle &rarr;
+                    </button>
+                    <button onClick={() => startGame()} className="px-4 py-2 rounded-lg font-body text-sm panel">
+                      Exit puzzles
+                    </button>
+                  </div>
+                  {puzzleCoachMsg && (
+                    <p
+                      className="mt-3 font-body text-sm text-center w-full max-w-[680px] mx-auto"
+                      style={{ color: 'var(--color-text-secondary)' }}
+                      aria-live="polite"
+                    >
+                      {puzzleCoachMsg}
+                    </p>
+                  )}
+                  <p className="mt-2 font-body text-xs text-center" style={{ color: 'var(--color-text-muted)' }}>
+                    Your puzzle rating: {puzzleProgressState.rating}
+                  </p>
+                </>
               ) : (
                 <div className="flex flex-wrap gap-2 justify-center mt-4">
                   <button onClick={() => startGame()} className="px-4 py-2 rounded-lg font-body text-sm panel">

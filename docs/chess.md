@@ -35,7 +35,10 @@ src/games/chess/
     openings.js          # ECO opening detection (#15)
     pgn.js               # PGN import/export glue (#16)
     accuracy.js          # Post-game accuracy summary (#17)
-    puzzles.js           # Tiered mate-in-1/2 tactics + solver-based checker (#18)
+    puzzles.js           # Rated mate-in-1/2/3 bank + solver & scripted-line checkers (#18, #24)
+    puzzleProgress.js    # Player puzzle Elo + per-puzzle spaced repetition + session selection (#24)
+    puzzleCoach.js       # Staged no-spoiler hints + refutation-grounded fail coaching (#24)
+    lichessPuzzle.js     # Lichess daily puzzle fetch + vetted parser (#24)
     mateSolver.js        # Exhaustive forced-mate search (vets puzzles)
     material.js          # Captured pieces + material balance (#21)
     sound.js             # WebAudio move cues (#21)
@@ -141,13 +144,40 @@ move-context block with prompt caching so multi-round threads stay cheap.
 - **PGN (#16):** export the current game or import one to review (`coach/pgn.js`).
 - **Accuracy summary (#17):** at game end, a per-side accuracy % plus
   blunder/mistake/inaccuracy counts (`coach/accuracy.js`, Lichess-style curve).
-- **Puzzles (#18):** mate-in-1 and mate-in-2 tactics, tier-driven (lower
-  difficulty tiers train mate-in-1, higher tiers mate-in-2). Each authored
-  position is vetted offline by an exhaustive forced-mate solver
-  (`coach/mateSolver.js`) for soundness. During live play, correctness is not
-  "match a stored key": any move that keeps a forced mate within the
-  remaining ply budget counts as correct, re-solved live on each move
-  (`coach/puzzles.js`).
+- **Puzzles (#18, overhauled #24):** a rated, adaptive, coached trainer.
+  See "Puzzle trainer" below.
+
+## Puzzle trainer
+
+The puzzle system (#24) is a rated, adaptive, coached trainer rather than a
+fixed tier-gated list:
+
+- **Bank:** mate-in-1/2/3 positions (`coach/puzzles.js`), each carrying a
+  difficulty rating, theme, hint, and its canonical solver-derived solution
+  line. Every mate-in-1/2 is re-proven by the exhaustive solver on each test
+  run; mate-in-3 positions are proven exhaustively offline at authoring time
+  and their stored line + key move re-verified in tests (the depth-5 proof is
+  too slow per-run). Checking mate puzzles stays solver-based: any move that
+  keeps a forced mate within the remaining budget counts.
+- **Lichess daily puzzle:** each session tries the public, CORS-open,
+  CC0-licensed `/api/puzzle/daily` (`coach/lichessPuzzle.js`); the parser
+  replays the whole UCI solution to prove legality before accepting. These
+  "solution"-kind puzzles use strict only-move checking (any checkmate also
+  wins), with the opponent's replies scripted. Offline, the session simply
+  has no daily puzzle.
+- **Adaptive sessions + spaced repetition** (`coach/puzzleProgress.js`,
+  `localStorage['chessPuzzleProgress']`): every first outcome per puzzle
+  rates the player against the puzzle (Elo via `engine/rating.js`) and
+  schedules the puzzle on the same 1d/3d/7d ladder as the mistake library.
+  Sessions are due reviews first (longest overdue leading), then fresh
+  puzzles nearest the player's rating.
+- **Hints on request** (`coach/puzzleCoach.js`): stage 1 names only the
+  theme (free); stage 2 names the key piece and its square — never the move —
+  and counts as a miss. The Claude path is only ever sent what the stage
+  allows it to say, so it cannot spoil; keyless, the deterministic text shows.
+- **Fail coaching:** a wrong attempt is snapped back, rated, and explained
+  from the engine's actual refutation line (one post-move analysis) without
+  naming the correct move — Claude-phrased with a key, template otherwise.
 
 ## Mistake library & drills
 
@@ -208,7 +238,7 @@ tier:
 ```
 chessDarkMode, chessShowMoves, chessDifficulty, chessLearningGoal,
 chessShowEvalBar, chessSound, chessLichessToken, chessRated, chessRating,
-chessRatedGames, chessMistakes
+chessRatedGames, chessMistakes, chessPuzzleProgress
 
 gipfApiKey  # shared app-wide (Chess + Catan), not chess-prefixed
 ```
