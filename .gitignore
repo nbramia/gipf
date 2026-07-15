@@ -47,6 +47,8 @@ Thumbs.db
 # Training run logs (checkpoints are committed under public/models/, logs are not)
 training/*.log
 training/**/*.log
+training/batch-*.out
+training/.batch-pid
 
 # Playwright MCP cache
 .playwright-mcp/
