@@ -22,8 +22,19 @@ const RAMP_MOVES = parseInt(process.env.RAMP || '10', 10);
 const TEMP_MOVES = parseInt(process.env.TEMP_MOVES || '15', 10);
 const MAX_MOVES = 100;
 
+// IPC guard: if the parent dies (sleep/kill), process.send on the closed
+// channel emits an async 'error' on the process and crashes the worker.
+// Track channel state and swallow send failures so the worker finishes its
+// games and writes its output file regardless.
+let ipcOpen = typeof process.send === 'function';
+process.on('disconnect', () => { ipcOpen = false; });
 function send(msg) {
-  if (process.send) process.send(msg);
+  if (!ipcOpen || typeof process.send !== 'function') return;
+  try {
+    process.send(msg, (err) => { if (err) ipcOpen = false; });
+  } catch {
+    ipcOpen = false;
+  }
 }
 
 function extractPolicyTarget(rootNode) {
