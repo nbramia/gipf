@@ -247,6 +247,77 @@ describe('Trade hygiene', () => {
   });
 });
 
+describe('Special Building Phase (5-6 players)', () => {
+  function sbpBoard() {
+    const board = new CatanBoard({ seed: 53, rulesetId: 'base-5-6', playerCount: 6, skipInitialHistory: true });
+    board.phase = 'action';
+    board.currentPlayer = 1;
+    board.primaryTurnPlayer = 1;
+    expect(board.endTurn()).toBe(true);
+    expect(board.phase).toBe('paired-action');
+    expect(board.currentPlayer).toBe(2);
+    return board;
+  }
+
+  test('only building and buying dev cards are legal; play/trade are rejected', () => {
+    const board = sbpBoard();
+    board.players[2].devCards.knight = 1;
+    board.players[2].devCards.monopoly = 1;
+    giveResources(board, 2, { wool: 4, grain: 4, ore: 4, brick: 4, lumber: 4 });
+    giveResources(board, 3, { ore: 1 });
+
+    const types = new Set(board.getLegalMoves().map(move => move.type));
+    expect(types.has('buy-dev')).toBe(true);
+    expect(types.has('end-turn')).toBe(true);
+    expect(types.has('play-knight')).toBe(false);
+    expect(types.has('play-monopoly')).toBe(false);
+    expect(types.has('trade')).toBe(false);
+    expect(types.has('propose-trade')).toBe(false);
+
+    expect(board.playKnight()).toBe(false);
+    expect(board.playMonopoly('wool')).toBe(false);
+    expect(board.tradeWithBank('wool', 'ore')).toBe(false);
+    expect(board.proposeTrade({ wool: 1 }, { ore: 1 }, [3])).toBe(false);
+    expect(board.buyDevelopmentCard()).toBe(true);
+  });
+
+  test('a special-build win is deferred to the start of that player\'s turn', () => {
+    const board = sbpBoard();
+    board.victoryTarget = 1;
+    const spot = Object.keys(board.vertices).find(id =>
+      !board.vertices[id].building &&
+      board.vertices[id].adjacent.every(adj => !board.vertices[adj].building));
+    const edgeId = board.vertices[spot].edgeIds[0];
+    board.edges[edgeId].owner = 2;
+    board.players[2].roads.push(edgeId);
+    giveResources(board, 2, COSTS.settlement);
+
+    expect(board.buildSettlement(spot)).toBe(true);
+    expect(board.getVictoryPoints(2)).toBe(1);
+    expect(board.phase).toBe('paired-action'); // not game-over: it's not their turn
+
+    // Draining the queue reaches player 2's own turn, where the win lands.
+    while (board.phase === 'paired-action') expect(board.endTurn()).toBe(true);
+    expect(board.phase).toBe('game-over');
+    expect(board.winner).toBe(2);
+  });
+
+  test('the special build queue survives a serialize/restore round trip and old saves', () => {
+    const board = sbpBoard();
+    const restored = CatanBoard.fromSerializedState(board.serializeState());
+    expect(restored.specialBuildQueue).toEqual([3, 4, 5, 6]);
+    expect(restored.phase).toBe('paired-action');
+    expect(restored.currentPlayer).toBe(2);
+
+    const legacy = board.serializeState();
+    delete legacy.specialBuildQueue;
+    const tolerant = CatanBoard.fromSerializedState(legacy);
+    expect(tolerant.specialBuildQueue).toEqual([]);
+    expect(tolerant.endTurn()).toBe(true); // ends the in-flight phase gracefully
+    expect(tolerant.phase).toBe('roll');
+  });
+});
+
 describe('Winning only on your own turn', () => {
   test('the active player wins immediately on reaching the target', () => {
     const board = new CatanBoard({ seed: 44, skipInitialHistory: true });

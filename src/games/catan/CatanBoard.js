@@ -395,6 +395,7 @@ export default class CatanBoard {
     this.pendingAfterRobberPhase = null;
     this.freeRoadsRemaining = 0;
     this.discardQueue = [];
+    this.specialBuildQueue = [];
     this.pendingTrade = null;
     this.tradeProposalsThisTurn = 0;
     this.maxTradeProposalsPerTurn = 4;
@@ -447,14 +448,6 @@ export default class CatanBoard {
     const ids = this.getPlayerIds();
     const index = ids.indexOf(playerId);
     return ids[(index + 1) % ids.length] || ids[0];
-  }
-
-  _pairedPlayerFor(playerId = this.primaryTurnPlayer) {
-    if (!this.pairedPlayers || this.playerCount < 5) return null;
-    const ids = this.getPlayerIds();
-    const index = ids.indexOf(playerId);
-    if (index < 0) return null;
-    return ids[(index + 3) % ids.length];
   }
 
   _isActionPhase() {
@@ -817,8 +810,9 @@ export default class CatanBoard {
 
   playKnight() {
     // A knight may also be played before rolling (classic pre-roll unblock);
-    // the robber detour then returns to the roll phase.
-    if (!this._isActionPhase() && this.phase !== 'roll') return false;
+    // the robber detour then returns to the roll phase. Not allowed in the
+    // Special Building Phase.
+    if (this.phase !== 'action' && this.phase !== 'roll') return false;
     const player = this.getCurrentPlayer();
     if (player.playedDevThisTurn || player.devCards.knight <= 0) return false;
     player.devCards.knight--;
@@ -835,7 +829,7 @@ export default class CatanBoard {
   }
 
   playYearOfPlenty(resourceA, resourceB) {
-    if (!this._isActionPhase()) return false;
+    if (this.phase !== 'action') return false;
     const player = this.getCurrentPlayer();
     if (player.playedDevThisTurn || player.devCards.yearOfPlenty <= 0) return false;
     if (!RESOURCES.includes(resourceA) || !RESOURCES.includes(resourceB)) return false;
@@ -851,7 +845,7 @@ export default class CatanBoard {
   }
 
   playMonopoly(resource) {
-    if (!this._isActionPhase()) return false;
+    if (this.phase !== 'action') return false;
     const player = this.getCurrentPlayer();
     if (player.playedDevThisTurn || player.devCards.monopoly <= 0) return false;
     if (!RESOURCES.includes(resource)) return false;
@@ -872,7 +866,7 @@ export default class CatanBoard {
   }
 
   playRoadBuilding() {
-    if (!this._isActionPhase()) return false;
+    if (this.phase !== 'action') return false;
     const player = this.getCurrentPlayer();
     if (player.playedDevThisTurn || player.devCards.roadBuilding <= 0) return false;
     // The card is unplayable with no road pieces left — it must not be wasted.
@@ -886,7 +880,7 @@ export default class CatanBoard {
   }
 
   tradeWithBank(give, receive, ratio = null) {
-    if (!this._isActionPhase()) return false;
+    if (this.phase !== 'action') return false;
     if (!RESOURCES.includes(give) || !RESOURCES.includes(receive) || give === receive) return false;
     const actualRatio = this.getTradeRatio(this.currentPlayer, give);
     const tradeRatio = ratio || actualRatio;
@@ -922,7 +916,7 @@ export default class CatanBoard {
   // first to accept completes the trade. Arbitrary bundles/targets are accepted
   // so the human UI has full freedom; the AI enumerates a curated subset.
   proposeTrade(give, receive, targets) {
-    if (!this._isActionPhase()) return false;
+    if (this.phase !== 'action') return false;
     const proposer = this.currentPlayer;
     let targetList = (Array.isArray(targets) ? targets : [targets])
       .filter(id => id !== proposer && this.players[id]);
@@ -1033,15 +1027,20 @@ export default class CatanBoard {
     this.pendingTrade = null;
     this.dice = null;
 
+    // Official 5-6 player Special Building Phase: after the active player's
+    // turn, EVERY other player in order may build and buy development cards
+    // (no dev-card play, no trading, no roll).
     if (this.pairedPlayers && endingPhase === 'action') {
-      const pairedPlayer = this._pairedPlayerFor(this.primaryTurnPlayer);
-      if (pairedPlayer && pairedPlayer !== this.currentPlayer) {
-        this.currentPlayer = pairedPlayer;
-        this.phase = 'paired-action';
-        this.lastAction = `${this.players[this.currentPlayer].name}'s paired build phase.`;
-        this._captureState();
-        return true;
-      }
+      const ids = this.getPlayerIds();
+      const start = ids.indexOf(this.primaryTurnPlayer);
+      this.specialBuildQueue = [...ids.slice(start + 1), ...ids.slice(0, start)];
+    }
+    if (this.pairedPlayers && this.specialBuildQueue.length > 0) {
+      this.currentPlayer = this.specialBuildQueue.shift();
+      this.phase = 'paired-action';
+      this.lastAction = `${this.players[this.currentPlayer].name}'s special building phase.`;
+      this._captureState();
+      return true;
     }
 
     const previousPrimary = this.primaryTurnPlayer || this.currentPlayer;
@@ -1169,6 +1168,13 @@ export default class CatanBoard {
 
     if (this.devDeck.length > 0 && this.canAfford(this.currentPlayer, COSTS.dev)) {
       moves.push({ type: 'buy-dev' });
+    }
+
+    // Special Building Phase: building and buying development cards only —
+    // no dev-card play, no bank or player trading.
+    if (this.phase === 'paired-action') {
+      moves.push({ type: 'end-turn' });
+      return moves;
     }
 
     const player = this.getCurrentPlayer();
@@ -1562,6 +1568,7 @@ export default class CatanBoard {
       pendingAfterRobberPhase: this.pendingAfterRobberPhase,
       freeRoadsRemaining: this.freeRoadsRemaining,
       discardQueue: this.discardQueue.map(entry => ({ ...entry })),
+      specialBuildQueue: [...this.specialBuildQueue],
       pendingTrade: this.pendingTrade
         ? {
             ...this.pendingTrade,
@@ -1643,6 +1650,9 @@ export default class CatanBoard {
     board.pendingAfterRobberPhase = state.pendingAfterRobberPhase;
     board.freeRoadsRemaining = state.freeRoadsRemaining || 0;
     board.discardQueue = (state.discardQueue || []).map(entry => ({ ...entry }));
+    // Older saves (single paired-player scheme) have no queue; they just end
+    // the in-flight special phase after the current segment.
+    board.specialBuildQueue = [...(state.specialBuildQueue || [])];
     board.pendingTrade = state.pendingTrade
       ? {
           ...state.pendingTrade,

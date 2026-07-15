@@ -661,7 +661,7 @@ export default function CatanGame() {
     if (board.phase === 'discard') return `${currentPlayer.name}: discard`;
     if (board.phase === 'trade-response') return `${currentPlayer.name}: respond to trade`;
     if (board.phase === 'robber') return `${currentPlayer.name}: robber`;
-    if (board.phase === 'paired-action') return `${currentPlayer.name}: paired build`;
+    if (board.phase === 'paired-action') return `${currentPlayer.name}: special build`;
     return `${currentPlayer.name}: build or trade`;
   };
 
@@ -777,7 +777,7 @@ export default function CatanGame() {
     // Every button is a projection of the engine's legal moves, so the human
     // can never be offered an action the engine (and the AI) would reject.
     const legalTypes = new Set(board.getLegalMoves().map(move => move.type));
-    const trades = board.getStrategicTradeOptions(HUMAN_PLAYER, 8);
+    const trades = board.phase === 'action' ? board.getStrategicTradeOptions(HUMAN_PLAYER, 8) : [];
     const playableDev = [
       legalTypes.has('play-knight') && { key: 'knight', label: 'Knight', onClick: () => applyMove({ type: 'play-knight' }) },
       legalTypes.has('play-road-building') && { key: 'roadBuilding', label: 'Road Building', onClick: () => applyMove({ type: 'play-road-building' }) },
@@ -828,13 +828,15 @@ export default function CatanGame() {
           </div>
         )}
 
-        <button
-          className="catan-tool-btn w-full"
-          disabled={resourceTotal(human.resources) === 0 || board.tradeProposalsThisTurn >= board.maxTradeProposalsPerTurn}
-          onClick={openTradeBuilder}
-        >
-          Propose Trade to Players
-        </button>
+        {board.phase === 'action' && (
+          <button
+            className="catan-tool-btn w-full"
+            disabled={resourceTotal(human.resources) === 0 || board.tradeProposalsThisTurn >= board.maxTradeProposalsPerTurn}
+            onClick={openTradeBuilder}
+          >
+            Propose Trade to Players
+          </button>
+        )}
 
         {trades.length > 0 && (
           <div>
@@ -859,7 +861,7 @@ export default function CatanGame() {
           title={legalTypes.has('end-turn') ? undefined : 'Place your free Road Building roads first'}
           onClick={() => applyMove({ type: 'end-turn' })}
         >
-          {board.phase === 'paired-action' ? 'Finish Paired Phase' : 'End Turn'}
+          {board.phase === 'paired-action' ? 'Finish Special Build' : 'End Turn'}
         </button>
       </div>
     );
@@ -1313,7 +1315,7 @@ export default function CatanGame() {
               <p>Roll 7 to move the robber. Each player holding more than 7 cards chooses which cards to discard (down to half), one at a time, then the roller moves the robber to block one tile and steals from an adjacent opponent.</p>
               <p>On your turn you can propose a trade to one or more opponents: pick the resources you give and the resources you want in return, then choose who to offer it to.</p>
               {board.pairedPlayers && (
-                <p>5-6 player mode uses a paired-player build phase after the rolling player ends their action phase.</p>
+                <p>5-6 player mode uses the Special Building Phase: after each player's turn, every other player in order may build and buy development cards (no trading or dev-card play).</p>
               )}
               <div className="catan-rules-columns">
                 {CATAN_RULESETS.map(ruleset => (
