@@ -42,6 +42,7 @@ function buildPrompt(body) {
     leftBook,
     openingStats,
     inOpening,
+    weaknessProfile,
   } = body;
 
   const lines = [];
@@ -94,11 +95,16 @@ function buildPrompt(body) {
     ? `\n\nThe student told you they want to focus on: "${learningGoal}". Tailor your explanation toward that goal when relevant.`
     : '';
 
+  const weaknessNote = weaknessProfile
+    ? `\n\nThe student's recurring weaknesses from recent games: ${weaknessProfile} When this move fits one of those patterns, point out the connection.`
+    : '';
+
   return (
     `${task}\n\n` +
     `Here is the engine analysis — use ONLY these facts. Do NOT invent moves, lines, or evaluations beyond what is given.\n\n` +
     lines.join('\n') +
     goalNote +
+    weaknessNote +
     openingNote +
     `\n\nRespond in 2–4 sentences of plain, instructive prose. Refer to moves in standard algebraic notation.`
   );
