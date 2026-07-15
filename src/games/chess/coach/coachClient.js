@@ -6,6 +6,7 @@
 // grounded templates so the dialogue never breaks and never fabricates lines.
 
 import { describeAiMove, describePlayerMove } from './templates.js';
+import { describePuzzleFail } from './puzzleCoach.js';
 import { runTool } from './analysisTools.js';
 import { getLichessToken } from './openingCoach.js';
 
@@ -63,7 +64,11 @@ export async function requestCommentary(payload) {
     text:
       payload.kind === 'player-move'
         ? describePlayerMove(payload)
-        : describeAiMove(payload),
+        : payload.kind === 'puzzle-fail'
+          ? describePuzzleFail(payload)
+          : payload.kind === 'puzzle-hint'
+            ? payload.hint
+            : describeAiMove(payload),
     source: 'template',
   });
 

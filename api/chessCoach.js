@@ -43,6 +43,10 @@ function buildPrompt(body) {
     openingStats,
     inOpening,
     weaknessProfile,
+    theme,
+    stage,
+    hint,
+    refutationPv,
   } = body;
 
   const lines = [];
@@ -62,6 +66,16 @@ function buildPrompt(body) {
     });
   }
   if (opening) lines.push(`Opening: ${opening}${leftBook ? ' (this move leaves known theory)' : ''}`);
+  // Puzzle coaching (#24): the model only ever receives what it may reveal.
+  if (theme && (kind === 'puzzle-hint' || kind === 'puzzle-fail')) {
+    lines.push(`Puzzle theme: ${theme}`);
+  }
+  if (kind === 'puzzle-hint' && hint) {
+    lines.push(`Allowed hint content (stage ${stage || 1}): ${hint}`);
+  }
+  if (kind === 'puzzle-fail' && Array.isArray(refutationPv) && refutationPv.length) {
+    lines.push(`Engine refutation of the played move: ${refutationPv.join(' ')}`);
+  }
   if (openingStats) {
     const alts = (openingStats.alternatives || [])
       .map((a) => `${a.san} (${a.sharePct}%, scores ${a.scorePct}%)`)
@@ -89,7 +103,11 @@ function buildPrompt(body) {
   const task =
     kind === 'player-move'
       ? "Evaluate the human player's move as a friendly coach: name the quality, explain what they may have missed, and give the stronger move and its idea. Be encouraging but honest."
-      : "Explain the move you (the engine) just played: why it's good, which other moves you considered (use the candidates above), and why you chose this one over them.";
+      : kind === 'puzzle-hint'
+        ? 'The student asked for a hint in a tactics puzzle. Rephrase the allowed hint content as one short, encouraging sentence. You MUST NOT name any move, piece, or square that is not already in the allowed hint content — under no circumstances reveal the solution.'
+        : kind === 'puzzle-fail'
+          ? "The student's move failed a tactics puzzle. Using ONLY the engine refutation line given, explain in one or two sentences why the move falls short, then point them back to the puzzle theme. Do NOT reveal, name, or guess the correct move."
+          : "Explain the move you (the engine) just played: why it's good, which other moves you considered (use the candidates above), and why you chose this one over them.";
 
   const goalNote = learningGoal
     ? `\n\nThe student told you they want to focus on: "${learningGoal}". Tailor your explanation toward that goal when relevant.`
