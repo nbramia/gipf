@@ -191,6 +191,49 @@ describe('Pre-roll knight', () => {
   });
 });
 
+describe('Road Building edge cases', () => {
+  test('the card is unplayable at the road piece limit and is not consumed', () => {
+    const board = new CatanBoard({ seed: 49, skipInitialHistory: true });
+    startActionTurn(board, 1);
+    board.players[1].devCards.roadBuilding = 1;
+    buildChain(board, 1, board.pieceLimits.roads);
+
+    expect(board.getLegalMoves().some(move => move.type === 'play-road-building')).toBe(false);
+    expect(board.playRoadBuilding()).toBe(false);
+    expect(board.players[1].devCards.roadBuilding).toBe(1);
+    expect(board.freeRoadsRemaining).toBe(0);
+  });
+
+  test('with one road piece left the card grants a single free road', () => {
+    const board = new CatanBoard({ seed: 50, skipInitialHistory: true });
+    startActionTurn(board, 1);
+    board.players[1].devCards.roadBuilding = 1;
+    buildChain(board, 1, board.pieceLimits.roads - 1);
+
+    expect(board.playRoadBuilding()).toBe(true);
+    expect(board.freeRoadsRemaining).toBe(1);
+  });
+
+  test('the turn cannot end while free roads are placeable, for humans and AI alike', () => {
+    const board = new CatanBoard({ seed: 51, skipInitialHistory: true });
+    startActionTurn(board, 1);
+    board.players[1].devCards.roadBuilding = 1;
+    buildChain(board, 1, 2);
+
+    expect(board.playRoadBuilding()).toBe(true);
+    expect(board.freeRoadsRemaining).toBe(2);
+    expect(board.getLegalMoves().some(move => move.type === 'end-turn')).toBe(false);
+    expect(board.endTurn()).toBe(false); // direct call (human path) matches getLegalMoves
+
+    const freeEdges = board.getValidRoadEdges(1, true);
+    expect(board.buildRoad(freeEdges[0], { free: true })).toBe(true);
+    expect(board.buildRoad(board.getValidRoadEdges(1, true)[0], { free: true })).toBe(true);
+    expect(board.freeRoadsRemaining).toBe(0);
+    expect(board.getLegalMoves().some(move => move.type === 'end-turn')).toBe(true);
+    expect(board.endTurn()).toBe(true);
+  });
+});
+
 describe('Winning only on your own turn', () => {
   test('the active player wins immediately on reaching the target', () => {
     const board = new CatanBoard({ seed: 44, skipInitialHistory: true });

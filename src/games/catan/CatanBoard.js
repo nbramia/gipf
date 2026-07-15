@@ -875,6 +875,8 @@ export default class CatanBoard {
     if (!this._isActionPhase()) return false;
     const player = this.getCurrentPlayer();
     if (player.playedDevThisTurn || player.devCards.roadBuilding <= 0) return false;
+    // The card is unplayable with no road pieces left — it must not be wasted.
+    if (player.roads.length >= this.pieceLimits.roads) return false;
     player.devCards.roadBuilding--;
     player.playedDevThisTurn = true;
     this.freeRoadsRemaining = Math.min(2, this.pieceLimits.roads - player.roads.length);
@@ -1012,6 +1014,10 @@ export default class CatanBoard {
 
   endTurn() {
     if (!this._isActionPhase()) return false;
+    // Road Building must be resolved first: while free roads remain and a
+    // legal spot exists, the turn cannot end (mirrors getLegalMoves, so the
+    // human path and the AI path live under the same rule).
+    if (this.freeRoadsRemaining > 0 && this.getValidRoadEdges(this.currentPlayer, true).length > 0) return false;
     const endingPhase = this.phase;
     const player = this.getCurrentPlayer();
     for (const card of Object.keys(player.newDevCards)) {

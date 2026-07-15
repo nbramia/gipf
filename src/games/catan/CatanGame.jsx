@@ -774,12 +774,15 @@ export default function CatanGame() {
       );
     }
 
+    // Every button is a projection of the engine's legal moves, so the human
+    // can never be offered an action the engine (and the AI) would reject.
+    const legalTypes = new Set(board.getLegalMoves().map(move => move.type));
     const trades = board.getStrategicTradeOptions(HUMAN_PLAYER, 8);
-    const playableDev = human.playedDevThisTurn ? [] : [
-      human.devCards.knight > 0 && { key: 'knight', label: 'Knight', onClick: () => applyMove({ type: 'play-knight' }) },
-      human.devCards.roadBuilding > 0 && { key: 'roadBuilding', label: 'Road Building', onClick: () => applyMove({ type: 'play-road-building' }) },
-      human.devCards.yearOfPlenty > 0 && { key: 'yearOfPlenty', label: 'Year of Plenty', onClick: openYopPicker },
-      human.devCards.monopoly > 0 && { key: 'monopoly', label: 'Monopoly', onClick: () => setShowMonopolyPicker(true) },
+    const playableDev = [
+      legalTypes.has('play-knight') && { key: 'knight', label: 'Knight', onClick: () => applyMove({ type: 'play-knight' }) },
+      legalTypes.has('play-road-building') && { key: 'roadBuilding', label: 'Road Building', onClick: () => applyMove({ type: 'play-road-building' }) },
+      legalTypes.has('play-year-of-plenty') && { key: 'yearOfPlenty', label: 'Year of Plenty', onClick: openYopPicker },
+      legalTypes.has('play-monopoly') && { key: 'monopoly', label: 'Monopoly', onClick: () => setShowMonopolyPicker(true) },
     ].filter(Boolean);
 
     return (
@@ -808,7 +811,7 @@ export default function CatanGame() {
 
         <button
           className="catan-tool-btn w-full"
-          disabled={board.devDeck.length === 0 || !board.canAfford(HUMAN_PLAYER, COSTS.dev)}
+          disabled={!legalTypes.has('buy-dev')}
           title={formatCost(COSTS.dev)}
           onClick={() => applyMove({ type: 'buy-dev' })}
         >
@@ -850,7 +853,12 @@ export default function CatanGame() {
           </div>
         )}
 
-        <button className="catan-primary-btn w-full" onClick={() => applyMove({ type: 'end-turn' })}>
+        <button
+          className="catan-primary-btn w-full"
+          disabled={!legalTypes.has('end-turn')}
+          title={legalTypes.has('end-turn') ? undefined : 'Place your free Road Building roads first'}
+          onClick={() => applyMove({ type: 'end-turn' })}
+        >
           {board.phase === 'paired-action' ? 'Finish Paired Phase' : 'End Turn'}
         </button>
       </div>
