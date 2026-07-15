@@ -6,7 +6,16 @@
 # sequenced (never simultaneous) — both want ~6 workers on this machine.
 #
 # Usage: ./scripts/run-training-batch.sh [yinsh-iterations] [zertz-iterations]
-#        nohup ./scripts/run-training-batch.sh > /dev/null 2>&1 &
+#        ./scripts/run-training-batch.sh --detach [yinsh-iterations] [zertz-iterations]
+#
+# --detach relaunches the batch via nohup, fully disowned from the calling
+# session — it survives terminal close, SSH drop, or the launching process
+# dying. PID is written to training/.batch-pid.
+#
+# Both loops are resume-safe: state files (.current-version /
+# .deployed-checkpoint, and the zertz copies under training/zertz/) mean a
+# batch interrupted by reboot or kill continues where it left off when
+# relaunched.
 #
 # Logs: training/batch-<timestamp>.log (combined), plus each loop's own
 #       continuous.log as before.
@@ -16,6 +25,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
+
+if [ "${1:-}" = "--detach" ]; then
+  shift
+  STAMP=$(date '+%Y%m%d-%H%M%S')
+  nohup "$0" "$@" < /dev/null >> "training/batch-${STAMP}.out" 2>&1 &
+  PID=$!
+  echo "$PID" > training/.batch-pid
+  echo "Detached training batch started (PID ${PID})."
+  echo "Follow with: tail -f training/batch-${STAMP}.out"
+  exit 0
+fi
 
 YINSH_ITERS=${1:-8}
 ZERTZ_ITERS=${2:-8}
