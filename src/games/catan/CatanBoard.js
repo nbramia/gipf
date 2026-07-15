@@ -816,7 +816,9 @@ export default class CatanBoard {
   }
 
   playKnight() {
-    if (!this._isActionPhase()) return false;
+    // A knight may also be played before rolling (classic pre-roll unblock);
+    // the robber detour then returns to the roll phase.
+    if (!this._isActionPhase() && this.phase !== 'roll') return false;
     const player = this.getCurrentPlayer();
     if (player.playedDevThisTurn || player.devCards.knight <= 0) return false;
     player.devCards.knight--;
@@ -1109,7 +1111,12 @@ export default class CatanBoard {
     }
 
     if (this.phase === 'roll') {
-      return [{ type: 'roll' }];
+      const moves = [{ type: 'roll' }];
+      const roller = this.getCurrentPlayer();
+      if (!roller.playedDevThisTurn && roller.devCards.knight > 0) {
+        moves.push({ type: 'play-knight' });
+      }
+      return moves;
     }
 
     if (this.phase === 'discard') {

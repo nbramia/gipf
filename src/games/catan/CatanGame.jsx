@@ -679,10 +679,18 @@ export default function CatanGame() {
     }
 
     if (board.phase === 'roll') {
+      const canPreRollKnight = board.getLegalMoves().some(move => move.type === 'play-knight');
       return (
-        <button className="catan-primary-btn w-full" onClick={() => applyMove({ type: 'roll' })}>
-          Roll Dice
-        </button>
+        <div className="space-y-2">
+          <button className="catan-primary-btn w-full" onClick={() => applyMove({ type: 'roll' })}>
+            Roll Dice
+          </button>
+          {canPreRollKnight && (
+            <button className="catan-tool-btn w-full" onClick={() => applyMove({ type: 'play-knight' })}>
+              Play Knight Before Rolling
+            </button>
+          )}
+        </div>
       );
     }
 

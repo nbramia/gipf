@@ -165,6 +165,32 @@ describe('Bank shortage', () => {
   });
 });
 
+describe('Pre-roll knight', () => {
+  test('a knight can be played before rolling and the turn returns to the roll', () => {
+    const board = new CatanBoard({ seed: 48, skipInitialHistory: true });
+    board.phase = 'roll';
+    board.currentPlayer = 1;
+    board.primaryTurnPlayer = 1;
+    board.players[1].devCards.knight = 1;
+
+    const types = board.getLegalMoves().map(move => move.type);
+    expect(types).toContain('roll');
+    expect(types).toContain('play-knight');
+
+    expect(board.applyMove({ type: 'play-knight' })).toBe(true);
+    expect(board.phase).toBe('robber');
+    const robberMove = board.getLegalMoves()[0];
+    expect(board.applyMove(robberMove)).toBe(true);
+
+    // Back to the roll; one-dev-per-turn blocks a second knight.
+    expect(board.phase).toBe('roll');
+    expect(board.getLegalMoves().map(move => move.type)).toEqual(['roll']);
+    expect(board.rollDice(6)).toBe(true);
+    expect(board.phase).toBe('action');
+    expect(board.playKnight()).toBe(false);
+  });
+});
+
 describe('Winning only on your own turn', () => {
   test('the active player wins immediately on reaching the target', () => {
     const board = new CatanBoard({ seed: 44, skipInitialHistory: true });
