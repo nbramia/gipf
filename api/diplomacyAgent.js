@@ -74,6 +74,14 @@ function buildSystemPrompt(body = {}) {
   const initiate = !!body.initiate;
   const board = serializeContextLines(context);
 
+  // A formally proposed deal from the counterparty ([AI Negotiation] bilateral
+  // consent): when present, the agent is REQUIRED to answer accept true/false so
+  // the orchestrator only records deals both sides agreed to.
+  const proposedDeal = validateDeal(body.proposedDeal) ? body.proposedDeal : null;
+  const pendingProposal = proposedDeal
+    ? `\nPENDING PROPOSAL\n${addressee} has formally proposed this deal to you: ${JSON.stringify(proposedDeal)}\nDecide in character whether your power commits to it. Your JSON reply MUST include "accept": true or false. Accepting means you publicly commit (your private scratchpad still records your true intent).\n`
+    : '';
+
   // Prior-memory injection (issue #44): a brief carried summary of where this
   // channel stands and the agent's own last private note about this rival, so
   // negotiation has continuity across phases without an extra summarization call.
@@ -104,7 +112,7 @@ ${dispoLines || '  - (no fixed dispositions; judge each power on the board state
 
 CURRENT BOARD
 ${board}
-${priorMemory}
+${priorMemory}${pendingProposal}
 HOW DIPLOMACY WORKS (play to win)
 - Victory needs 18 of the 34 supply centers. Growth comes from taking centers, which usually requires another power's help (support) — so alliances are essential, and so are well-timed betrayals.
 - Orders are written and resolved simultaneously; words are not binding. You may promise anything. You may lie, mislead, or break a deal when it serves ${name} — that is core Diplomacy. But a reputation for treachery makes future deals harder, so weigh it.
@@ -129,10 +137,11 @@ Return ONLY a single JSON object, no prose around it, with these fields:
   },
   "summary": "<optional, <=200 chars: one private line on where THIS conversation now stands, for your own future reference>",
   "deal": <optional — include ONLY when you VERBALLY COMMIT to a concrete arrangement with the rival THIS message; otherwise omit. One of:
-    { "type": "support", "to": "<province you promise to support a move into>" }
+    { "type": "support", "from": "<province where the rival's unit that you will support stands — include when you know it>", "to": "<province you promise to support their move into>" }
     { "type": "non-aggression" }
     { "type": "dmz", "provinces": ["<province>", ...] }
-    { "type": "joint-attack", "target": "<power-id you both agree to attack>" }>
+    { "type": "joint-attack", "target": "<power-id you both agree to attack>" }>,
+  "accept": <REQUIRED true/false when a PENDING PROPOSAL section appears above: true commits your power to that deal, false declines it. Omit otherwise.>
 }
 The "scratchpad" is your PRIVATE strategic disposition — your true (possibly deceptive) intent toward each other power. It is never shown to the rival. Include one dispositions entry per other power you have a view on. The optional "summary" is a private one-liner you write to your future self about this channel's state; keep it under 200 characters. Emit "deal" whenever you tell the rival you AGREE to something concrete — even if you secretly mean to break it (your scratchpad records your true intent; whether you actually honour it is decided later from that). Use real province / power ids from the board. Output valid JSON only.`;
 }
@@ -174,8 +183,9 @@ function serializeContextLines(context) {
 
 // Defensively parse the model's reply: extract the visible message, validate the
 // scratchpad, and pull an optional one-line summary. Returns { message,
-// scratchpad, summary } where scratchpad is null when missing/malformed and
-// summary is '' when absent or oversized (> 200 chars). NEVER throws.
+// scratchpad, summary, deal, accept } where scratchpad is null when
+// missing/malformed, summary is '' when absent or oversized (> 200 chars), and
+// accept is a strict boolean or null (absent / non-boolean). NEVER throws.
 function parseAgentReply(rawText, { allowEmpty = false } = {}) {
   const text = String(rawText || '').trim();
   let parsed = null;
@@ -198,6 +208,7 @@ function parseAgentReply(rawText, { allowEmpty = false } = {}) {
   let scratchpad = null;
   let summary = '';
   let deal = null;
+  let accept = null;
   if (parsed && typeof parsed === 'object') {
     if (typeof parsed.message === 'string') message = parsed.message.trim();
     scratchpad = validateScratchpad(parsed.scratchpad) ? parsed.scratchpad : null;
@@ -207,13 +218,14 @@ function parseAgentReply(rawText, { allowEmpty = false } = {}) {
       if (s && s.length <= 200) summary = s;
     }
     deal = validateDeal(parsed.deal) ? parsed.deal : null;
+    if (typeof parsed.accept === 'boolean') accept = parsed.accept;
   }
   // Fallback: if JSON parsing failed entirely, surface the raw text as the
   // visible message (still strip obvious markdown emphasis) so the chat never
   // comes back empty. In `allowEmpty` (proactive-outreach) mode an empty message
   // is a deliberate "stay silent", so we DON'T force a fallback.
   if (!message && !allowEmpty) message = text.replace(/\*\*/g, '').replace(/^#+\s*/gm, '').trim();
-  return { message, scratchpad, summary, deal };
+  return { message, scratchpad, summary, deal, accept };
 }
 
 // Returns true only for a well-formed deal of a known type. Never throws. The
@@ -222,7 +234,9 @@ function validateDeal(d) {
   if (!d || typeof d !== 'object' || Array.isArray(d)) return false;
   const isProv = (p) => typeof p === 'string' && /^[A-Za-z]{2,4}(\/(nc|sc|ec))?$/.test(p);
   switch (d.type) {
-    case 'support': return isProv(d.to);
+    // `from` (the supported mover's province) is optional: the recording side
+    // resolves it from the board when omitted.
+    case 'support': return isProv(d.to) && (d.from == null || isProv(d.from));
     case 'non-aggression': return true;
     case 'dmz': return Array.isArray(d.provinces) && d.provinces.length > 0 && d.provinces.every(isProv);
     case 'joint-attack': return typeof d.target === 'string' && d.target.length > 0;
@@ -326,8 +340,8 @@ export default async function handler(req, res) {
       .join('')
       .trim();
 
-    const { message, scratchpad, summary, deal } = parseAgentReply(rawText, { allowEmpty: initiate });
-    res.status(200).json({ message, scratchpad, summary, deal });
+    const { message, scratchpad, summary, deal, accept } = parseAgentReply(rawText, { allowEmpty: initiate });
+    res.status(200).json({ message, scratchpad, summary, deal, accept });
   } catch (err) {
     // Never include the request body (which holds the key) in error output.
     applyCors(req, res);

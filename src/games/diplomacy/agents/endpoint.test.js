@@ -262,6 +262,58 @@ describe('diplomacyAgent endpoint', () => {
     expect(res.body.deal).toBeNull();
   });
 
+  test('a support deal with a mover province (from) validates; a bad from drops the deal', async () => {
+    // New schema: from = province of the supported mover, optional.
+    global.fetch = mockUpstreamText(JSON.stringify({ message: 'I back your Picardy army into Belgium.', scratchpad: VALID_SCRATCHPAD, deal: { type: 'support', from: 'pic', to: 'bel' } }));
+    let res = makeRes();
+    await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
+    expect(res.body.deal).toEqual({ type: 'support', from: 'pic', to: 'bel' });
+
+    // Malformed from (not a province id) invalidates the deal.
+    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Sure.', scratchpad: VALID_SCRATCHPAD, deal: { type: 'support', from: 'not-a-province', to: 'bel' } }));
+    res = makeRes();
+    await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
+    expect(res.body.deal).toBeNull();
+  });
+
+  test('a proposedDeal is rendered into the system prompt with the accept requirement', async () => {
+    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Agreed.', scratchpad: VALID_SCRATCHPAD, accept: true }));
+    const res = makeRes();
+    await handler(
+      makeReq({
+        body: {
+          apiKey: 'sk-test',
+          power: 'germany',
+          counterparties: ['france'],
+          messages: [{ role: 'user', content: 'A DMZ in Burgundy?' }],
+          proposedDeal: { type: 'dmz', provinces: ['bur'] },
+        },
+      }),
+      res
+    );
+    const systemText = JSON.parse(global.fetch.mock.calls[0][1].body).system[0].text;
+    expect(systemText).toContain('PENDING PROPOSAL');
+    expect(systemText).toContain('"provinces":["bur"]');
+    expect(systemText).toContain('"accept": true or false');
+    expect(res.body.accept).toBe(true);
+  });
+
+  test('accept is a strict boolean in the response: false passes, junk becomes null', async () => {
+    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Never.', scratchpad: VALID_SCRATCHPAD, accept: false }));
+    let res = makeRes();
+    await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
+    expect(res.body.accept).toBe(false);
+
+    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Hm.', scratchpad: VALID_SCRATCHPAD, accept: 'yes' }));
+    res = makeRes();
+    await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
+    expect(res.body.accept).toBeNull();
+
+    // No PENDING PROPOSAL section when no proposedDeal was sent.
+    const systemText = JSON.parse(global.fetch.mock.calls[0][1].body).system[0].text;
+    expect(systemText).not.toContain('has formally proposed this deal');
+  });
+
   test('a thrown error returns a generic 500 that never echoes the request body', async () => {
     global.fetch = jest.fn().mockRejectedValue(new Error('network down'));
     const res = makeRes();
