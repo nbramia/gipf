@@ -5,9 +5,9 @@
 # Usage: ./scripts/zertz/continuous-train.sh [--max-iterations N]
 #        caffeinate -s ./scripts/zertz/continuous-train.sh
 #
-# State files:
-#   .current-version    — next version number to try
-#   .deployed-checkpoint — path to best .pt file
+# State files (zertz-specific — the yinsh loop owns the root-level ones):
+#   training/zertz/.current-version     — next version number to try
+#   training/zertz/.deployed-checkpoint — path to best .pt file
 #
 # Press Ctrl+C to pause gracefully after the current step.
 
@@ -21,6 +21,10 @@ VENV=training/.venv/bin/python3
 LOG_FILE=training/zertz/continuous.log
 CHECKPOINT_DIR=training/zertz/checkpoints
 DATA_DIR=data/zertz
+# Zertz keeps its own state files; the root .current-version/.deployed-checkpoint
+# belong to the yinsh loop and sharing them cross-corrupts both resumes.
+STATE_VERSION=training/zertz/.current-version
+STATE_CHECKPOINT=training/zertz/.deployed-checkpoint
 MAX_ITERATIONS=${MAX_ITERATIONS:-999}
 GAMES=${GAMES:-100}
 SIMS=${SIMS:-300}
@@ -77,8 +81,8 @@ verify_file() {
 }
 
 # Initialize state
-if [ -f .current-version ]; then
-  VERSION=$(cat .current-version)
+if [ -f "$STATE_VERSION" ]; then
+  VERSION=$(cat "$STATE_VERSION")
 else
   LATEST=$(ls -1 "$CHECKPOINT_DIR"/v*.pt 2>/dev/null | sort -V | tail -1 | sed 's/.*v\([0-9]*\)\.pt/\1/')
   if [ -z "$LATEST" ]; then
@@ -86,15 +90,15 @@ else
   else
     VERSION=$((LATEST + 1))
   fi
-  echo "$VERSION" > .current-version
+  echo "$VERSION" > "$STATE_VERSION"
 fi
 
-if [ -f .deployed-checkpoint ]; then
-  DEPLOYED_PT=$(cat .deployed-checkpoint)
+if [ -f "$STATE_CHECKPOINT" ]; then
+  DEPLOYED_PT=$(cat "$STATE_CHECKPOINT")
 else
   DEPLOYED_PT=$(ls -1 "$CHECKPOINT_DIR"/v*.pt 2>/dev/null | sort -V | tail -1)
   if [ -n "$DEPLOYED_PT" ]; then
-    echo "$DEPLOYED_PT" > .deployed-checkpoint
+    echo "$DEPLOYED_PT" > "$STATE_CHECKPOINT"
   fi
 fi
 
@@ -134,7 +138,7 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
   if ! verify_file "${DATA_DIR}/v${VERSION}_selfplay.ndjson" "Self-play data"; then
     log "Skipping v${VERSION} due to data generation failure"
     VERSION=$((VERSION + 1))
-    echo "$VERSION" > .current-version
+    echo "$VERSION" > "$STATE_VERSION"
     continue
   fi
   POSITIONS=$(wc -l < "${DATA_DIR}/v${VERSION}_selfplay.ndjson" | tr -d ' ')
@@ -179,7 +183,7 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
   if ! verify_file "${CHECKPOINT_DIR}/v${VERSION}.pt" "Checkpoint"; then
     log "Skipping v${VERSION} due to training failure"
     VERSION=$((VERSION + 1))
-    echo "$VERSION" > .current-version
+    echo "$VERSION" > "$STATE_VERSION"
     continue
   fi
 
@@ -193,7 +197,7 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
   if ! verify_file "public/models/zertz-value-v${VERSION}.onnx" "ONNX model"; then
     log "Skipping v${VERSION} due to export failure"
     VERSION=$((VERSION + 1))
-    echo "$VERSION" > .current-version
+    echo "$VERSION" > "$STATE_VERSION"
     continue
   fi
 
@@ -223,7 +227,7 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
     cp "public/models/zertz-value-v${VERSION}.onnx" public/models/zertz-value-v1.onnx
 
     DEPLOYED_PT="${CHECKPOINT_DIR}/v${VERSION}.pt"
-    echo "$DEPLOYED_PT" > .deployed-checkpoint
+    echo "$DEPLOYED_PT" > "$STATE_CHECKPOINT"
     DEPLOYED_VERSION=$VERSION
 
     # Git commit + push
@@ -247,7 +251,7 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
 
   # Increment version
   VERSION=$((VERSION + 1))
-  echo "$VERSION" > .current-version
+  echo "$VERSION" > "$STATE_VERSION"
 
   log "Next version: v${VERSION}"
 done
