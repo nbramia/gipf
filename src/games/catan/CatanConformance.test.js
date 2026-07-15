@@ -1,0 +1,484 @@
+// Official-rules conformance tests for the Catan engine, one block per audited
+// rule area, plus a seeded self-play invariant soak. Companion to
+// CatanBoard.test.js (which covers the core mechanics these build on).
+
+import CatanBoard, { COSTS, RESOURCES, resourceTotal } from './CatanBoard.js';
+import { MCTS } from './engine/mcts.js';
+
+function giveResources(board, playerId, resources) {
+  Object.entries(resources).forEach(([resource, amount]) => {
+    board.players[playerId].resources[resource] += amount;
+    board.bank[resource] -= amount;
+  });
+}
+
+// Walk `length` connected, unowned edges from some vertex and assign them to
+// playerId. Returns { edges, vertices } of the chain (vertices has length+1).
+function buildChain(board, playerId, length) {
+  for (const startId of Object.keys(board.vertices)) {
+    const walk = tryWalk(board, startId, length);
+    if (!walk) continue;
+    walk.edges.forEach(edgeId => {
+      board.edges[edgeId].owner = playerId;
+      board.players[playerId].roads.push(edgeId);
+    });
+    return walk;
+  }
+  throw new Error('no chain found');
+}
+
+function tryWalk(board, startId, length) {
+  const edges = [];
+  const vertices = [startId];
+  const visited = new Set([startId]);
+  let current = startId;
+  for (let i = 0; i < length; i++) {
+    const edgeId = board.vertices[current].edgeIds.find(candidate => {
+      if (board.edges[candidate].owner) return false;
+      const next = board.edges[candidate].vertices.find(v => v !== current);
+      return !visited.has(next);
+    });
+    if (!edgeId) return null;
+    edges.push(edgeId);
+    current = board.edges[edgeId].vertices.find(v => v !== current);
+    visited.add(current);
+    vertices.push(current);
+  }
+  return { edges, vertices };
+}
+
+// A mid-chain vertex where an opponent settlement can legally sever the road:
+// interior to the chain, has a free third edge, and no adjacent buildings.
+// Prefers the middle so the cut leaves both segments below 5.
+function severableVertex(board, walk) {
+  const interior = walk.vertices.slice(1, -1);
+  const mid = (interior.length - 1) / 2;
+  const vertexId = [...interior]
+    .sort((a, b) => Math.abs(interior.indexOf(a) - mid) - Math.abs(interior.indexOf(b) - mid))
+    .find(id =>
+      !board.vertices[id].building &&
+      board.vertices[id].adjacent.every(adj => !board.vertices[adj].building) &&
+      board.vertices[id].edgeIds.some(edgeId => !board.edges[edgeId].owner));
+  expect(vertexId).toBeTruthy();
+  return vertexId;
+}
+
+function startActionTurn(board, playerId) {
+  board.phase = 'action';
+  board.currentPlayer = playerId;
+  board.primaryTurnPlayer = playerId;
+}
+
+// Structural invariants that must hold after every single move of any game.
+function assertInvariants(board, bankSize) {
+  // Resource conservation: bank + all hands account for every card.
+  for (const resource of RESOURCES) {
+    const held = board.getPlayerIds().reduce((sum, id) => sum + board.players[id].resources[resource], 0);
+    expect(board.bank[resource] + held).toBe(bankSize);
+    expect(board.bank[resource]).toBeGreaterThanOrEqual(0);
+  }
+
+  // Longest road award consistency against a fresh recompute.
+  const lengths = {};
+  for (const id of board.getPlayerIds()) lengths[id] = board._longestRoadForPlayer(id);
+  const holder = board.longestRoadHolder;
+  for (const id of board.getPlayerIds()) {
+    expect(board.players[id].longestRoad).toBe(id === holder);
+  }
+  if (holder) {
+    expect(lengths[holder]).toBeGreaterThanOrEqual(5);
+    for (const id of board.getPlayerIds()) {
+      expect(lengths[id]).toBeLessThanOrEqual(lengths[holder]);
+    }
+  } else {
+    // With the card unheld (or set aside), no player may have a unique
+    // qualifying longest road — that player should have been awarded it.
+    const qualifying = board.getPlayerIds().filter(id => lengths[id] >= 5);
+    if (qualifying.length > 0) {
+      const best = Math.max(...qualifying.map(id => lengths[id]));
+      expect(qualifying.filter(id => lengths[id] === best).length).toBeGreaterThan(1);
+    }
+  }
+
+  // Largest army: holder has >= 3 knights and nobody strictly more.
+  const army = board.largestArmyHolder;
+  for (const id of board.getPlayerIds()) {
+    expect(board.players[id].largestArmy).toBe(id === army);
+  }
+  if (army) {
+    expect(board.players[army].knightsPlayed).toBeGreaterThanOrEqual(3);
+    for (const id of board.getPlayerIds()) {
+      expect(board.players[id].knightsPlayed).toBeLessThanOrEqual(board.players[army].knightsPlayed);
+    }
+  } else {
+    for (const id of board.getPlayerIds()) {
+      expect(board.players[id].knightsPlayed).toBeLessThan(3);
+    }
+  }
+
+  if (board.phase !== 'game-over') expect(board.winner).toBe(null);
+}
+
+describe('Self-play invariant soak', () => {
+  async function soakGame({ playerCount, rulesetId, seed }) {
+    const board = new CatanBoard({ seed, playerCount, rulesetId });
+    const bankSize = board.mapProfile.bankSize || 19;
+    const mcts = new MCTS({ maxChildren: 10 });
+
+    let moves = 0;
+    while (board.phase !== 'game-over' && moves < 1600) {
+      // Periodically prove EVERY enumerated legal move applies on a clone —
+      // the human UI and the AI both project this list.
+      if (moves % 25 === 0) {
+        for (const legal of board.getLegalMoves()) {
+          const probe = board.clone();
+          probe._skipHistory = true;
+          expect(probe.applyMove(legal)).toBe(true);
+        }
+      }
+      const move = await mcts.getBestMove(board, 6);
+      expect(move).toBeTruthy();
+      expect(board.applyMove(move)).toBe(true);
+      moves++;
+      assertInvariants(board, bankSize);
+    }
+
+    expect(board.phase).toBe('game-over');
+    if (!/game-length limit/.test(board.lastAction)) {
+      // Wins land only on (or at the start of) the winner's own turn.
+      expect(board.winner).toBe(board.currentPlayer);
+      expect(board.winningPoints).toBeGreaterThanOrEqual(board.victoryTarget);
+    }
+  }
+
+  test('3-player game holds every invariant to termination', async () => {
+    await soakGame({ playerCount: 3, rulesetId: 'base-classic', seed: 61 });
+  }, 90000);
+
+  test('4-player game holds every invariant to termination', async () => {
+    await soakGame({ playerCount: 4, rulesetId: 'base-classic', seed: 62 });
+  }, 90000);
+
+  test('6-player game holds every invariant to termination', async () => {
+    await soakGame({ playerCount: 6, rulesetId: 'base-5-6', seed: 63 });
+  }, 90000);
+});
+
+describe('Longest road severing', () => {
+  test('a settlement that cuts the holder road below 5 sets the card aside', () => {
+    const board = new CatanBoard({ seed: 41, skipInitialHistory: true });
+    const walk = buildChain(board, 2, 6);
+    board._updateLongestRoad();
+    expect(board.longestRoadHolder).toBe(2);
+
+    const cutVertex = severableVertex(board, walk);
+    const freeEdge = board.vertices[cutVertex].edgeIds.find(edgeId => !board.edges[edgeId].owner);
+    board.edges[freeEdge].owner = 1;
+    board.players[1].roads.push(freeEdge);
+
+    startActionTurn(board, 1);
+    giveResources(board, 1, COSTS.settlement);
+    expect(board.buildSettlement(cutVertex)).toBe(true);
+
+    expect(board._longestRoadForPlayer(2)).toBeLessThan(5);
+    expect(board.longestRoadHolder).toBe(null);
+    expect(board.players[2].longestRoad).toBe(false);
+  });
+
+  test('severing transfers the card to a unique qualifying opponent', () => {
+    const board = new CatanBoard({ seed: 42, skipInitialHistory: true });
+    const walk = buildChain(board, 2, 6);
+    const cutVertex = severableVertex(board, walk);
+    // Claim player 1's connecting road first so player 3's chain can't take it.
+    const freeEdge = board.vertices[cutVertex].edgeIds.find(edgeId => !board.edges[edgeId].owner);
+    board.edges[freeEdge].owner = 1;
+    board.players[1].roads.push(freeEdge);
+
+    buildChain(board, 3, 5);
+    board._updateLongestRoad();
+    expect(board.longestRoadHolder).toBe(2);
+
+    startActionTurn(board, 1);
+    giveResources(board, 1, COSTS.settlement);
+    expect(board.buildSettlement(cutVertex)).toBe(true);
+
+    expect(board.longestRoadHolder).toBe(3);
+    expect(board.players[3].longestRoad).toBe(true);
+    expect(board.players[2].longestRoad).toBe(false);
+  });
+
+  test('the incumbent keeps the card when an opponent merely ties', () => {
+    const board = new CatanBoard({ seed: 43, skipInitialHistory: true });
+    buildChain(board, 2, 5);
+    board._updateLongestRoad();
+    expect(board.longestRoadHolder).toBe(2);
+
+    buildChain(board, 3, 5);
+    board._updateLongestRoad();
+    expect(board.longestRoadHolder).toBe(2);
+  });
+});
+
+describe('Bank shortage', () => {
+  function productionTile(board) {
+    return board.tiles.find(t => t.resource !== 'desert' && t.number && t.id !== board.robberTileId);
+  }
+
+  test('a shortage affecting a single player pays out the remaining stock', () => {
+    const board = new CatanBoard({ seed: 46, skipInitialHistory: true });
+    const tile = productionTile(board);
+    board.vertices[tile.vertices[0]].building = { player: 1, type: 'city' }; // owed 2
+    board.players[1].cities.push(tile.vertices[0]);
+    board.bank[tile.resource] = 1;
+
+    board.phase = 'roll';
+    board.currentPlayer = 2;
+    board.primaryTurnPlayer = 2;
+    expect(board.rollDice(tile.number)).toBe(true);
+
+    expect(board.players[1].resources[tile.resource]).toBe(1);
+    expect(board.bank[tile.resource]).toBe(0);
+  });
+
+  test('a shortage affecting multiple players voids that resource payout', () => {
+    const board = new CatanBoard({ seed: 47, skipInitialHistory: true });
+    const tile = productionTile(board);
+    board.vertices[tile.vertices[0]].building = { player: 1, type: 'settlement' };
+    board.vertices[tile.vertices[2]].building = { player: 2, type: 'settlement' };
+    board.players[1].settlements.push(tile.vertices[0]);
+    board.players[2].settlements.push(tile.vertices[2]);
+    board.bank[tile.resource] = 1;
+
+    board.phase = 'roll';
+    board.currentPlayer = 3;
+    board.primaryTurnPlayer = 3;
+    expect(board.rollDice(tile.number)).toBe(true);
+
+    expect(board.players[1].resources[tile.resource]).toBe(0);
+    expect(board.players[2].resources[tile.resource]).toBe(0);
+    expect(board.bank[tile.resource]).toBe(1);
+  });
+});
+
+describe('Pre-roll knight', () => {
+  test('a knight can be played before rolling and the turn returns to the roll', () => {
+    const board = new CatanBoard({ seed: 48, skipInitialHistory: true });
+    board.phase = 'roll';
+    board.currentPlayer = 1;
+    board.primaryTurnPlayer = 1;
+    board.players[1].devCards.knight = 1;
+
+    const types = board.getLegalMoves().map(move => move.type);
+    expect(types).toContain('roll');
+    expect(types).toContain('play-knight');
+
+    expect(board.applyMove({ type: 'play-knight' })).toBe(true);
+    expect(board.phase).toBe('robber');
+    const robberMove = board.getLegalMoves()[0];
+    expect(board.applyMove(robberMove)).toBe(true);
+
+    // Back to the roll; one-dev-per-turn blocks a second knight.
+    expect(board.phase).toBe('roll');
+    expect(board.getLegalMoves().map(move => move.type)).toEqual(['roll']);
+    expect(board.rollDice(6)).toBe(true);
+    expect(board.phase).toBe('action');
+    expect(board.playKnight()).toBe(false);
+  });
+});
+
+describe('Road Building edge cases', () => {
+  test('the card is unplayable at the road piece limit and is not consumed', () => {
+    const board = new CatanBoard({ seed: 49, skipInitialHistory: true });
+    startActionTurn(board, 1);
+    board.players[1].devCards.roadBuilding = 1;
+    buildChain(board, 1, board.pieceLimits.roads);
+
+    expect(board.getLegalMoves().some(move => move.type === 'play-road-building')).toBe(false);
+    expect(board.playRoadBuilding()).toBe(false);
+    expect(board.players[1].devCards.roadBuilding).toBe(1);
+    expect(board.freeRoadsRemaining).toBe(0);
+  });
+
+  test('with one road piece left the card grants a single free road', () => {
+    const board = new CatanBoard({ seed: 50, skipInitialHistory: true });
+    startActionTurn(board, 1);
+    board.players[1].devCards.roadBuilding = 1;
+    buildChain(board, 1, board.pieceLimits.roads - 1);
+
+    expect(board.playRoadBuilding()).toBe(true);
+    expect(board.freeRoadsRemaining).toBe(1);
+  });
+
+  test('the turn cannot end while free roads are placeable, for humans and AI alike', () => {
+    const board = new CatanBoard({ seed: 51, skipInitialHistory: true });
+    startActionTurn(board, 1);
+    board.players[1].devCards.roadBuilding = 1;
+    buildChain(board, 1, 2);
+
+    expect(board.playRoadBuilding()).toBe(true);
+    expect(board.freeRoadsRemaining).toBe(2);
+    expect(board.getLegalMoves().some(move => move.type === 'end-turn')).toBe(false);
+    expect(board.endTurn()).toBe(false); // direct call (human path) matches getLegalMoves
+
+    const freeEdges = board.getValidRoadEdges(1, true);
+    expect(board.buildRoad(freeEdges[0], { free: true })).toBe(true);
+    expect(board.buildRoad(board.getValidRoadEdges(1, true)[0], { free: true })).toBe(true);
+    expect(board.freeRoadsRemaining).toBe(0);
+    expect(board.getLegalMoves().some(move => move.type === 'end-turn')).toBe(true);
+    expect(board.endTurn()).toBe(true);
+  });
+});
+
+describe('Trade hygiene', () => {
+  test('a trade may not offer and request the same resource', () => {
+    const board = new CatanBoard({ seed: 52, skipInitialHistory: true });
+    startActionTurn(board, 1);
+    giveResources(board, 1, { brick: 2 });
+    giveResources(board, 2, { brick: 1, ore: 1 });
+
+    expect(board.proposeTrade({ brick: 2 }, { brick: 1 }, [2])).toBe(false);
+    expect(board.proposeTrade({ brick: 2 }, { brick: 1, ore: 1 }, [2])).toBe(false);
+    expect(board.proposeTrade({ brick: 2 }, { ore: 1 }, [2])).toBe(true);
+  });
+});
+
+describe('Special Building Phase (5-6 players)', () => {
+  function sbpBoard() {
+    const board = new CatanBoard({ seed: 53, rulesetId: 'base-5-6', playerCount: 6, skipInitialHistory: true });
+    board.phase = 'action';
+    board.currentPlayer = 1;
+    board.primaryTurnPlayer = 1;
+    expect(board.endTurn()).toBe(true);
+    expect(board.phase).toBe('paired-action');
+    expect(board.currentPlayer).toBe(2);
+    return board;
+  }
+
+  test('only building and buying dev cards are legal; play/trade are rejected', () => {
+    const board = sbpBoard();
+    board.players[2].devCards.knight = 1;
+    board.players[2].devCards.monopoly = 1;
+    giveResources(board, 2, { wool: 4, grain: 4, ore: 4, brick: 4, lumber: 4 });
+    giveResources(board, 3, { ore: 1 });
+
+    const types = new Set(board.getLegalMoves().map(move => move.type));
+    expect(types.has('buy-dev')).toBe(true);
+    expect(types.has('end-turn')).toBe(true);
+    expect(types.has('play-knight')).toBe(false);
+    expect(types.has('play-monopoly')).toBe(false);
+    expect(types.has('trade')).toBe(false);
+    expect(types.has('propose-trade')).toBe(false);
+
+    expect(board.playKnight()).toBe(false);
+    expect(board.playMonopoly('wool')).toBe(false);
+    expect(board.tradeWithBank('wool', 'ore')).toBe(false);
+    expect(board.proposeTrade({ wool: 1 }, { ore: 1 }, [3])).toBe(false);
+    expect(board.buyDevelopmentCard()).toBe(true);
+  });
+
+  test('a special-build win is deferred to the start of that player\'s turn', () => {
+    const board = sbpBoard();
+    board.victoryTarget = 1;
+    const spot = Object.keys(board.vertices).find(id =>
+      !board.vertices[id].building &&
+      board.vertices[id].adjacent.every(adj => !board.vertices[adj].building));
+    const edgeId = board.vertices[spot].edgeIds[0];
+    board.edges[edgeId].owner = 2;
+    board.players[2].roads.push(edgeId);
+    giveResources(board, 2, COSTS.settlement);
+
+    expect(board.buildSettlement(spot)).toBe(true);
+    expect(board.getVictoryPoints(2)).toBe(1);
+    expect(board.phase).toBe('paired-action'); // not game-over: it's not their turn
+
+    // Draining the queue reaches player 2's own turn, where the win lands.
+    while (board.phase === 'paired-action') expect(board.endTurn()).toBe(true);
+    expect(board.phase).toBe('game-over');
+    expect(board.winner).toBe(2);
+  });
+
+  test('the special build queue survives a serialize/restore round trip and old saves', () => {
+    const board = sbpBoard();
+    const restored = CatanBoard.fromSerializedState(board.serializeState());
+    expect(restored.specialBuildQueue).toEqual([3, 4, 5, 6]);
+    expect(restored.phase).toBe('paired-action');
+    expect(restored.currentPlayer).toBe(2);
+
+    const legacy = board.serializeState();
+    delete legacy.specialBuildQueue;
+    const tolerant = CatanBoard.fromSerializedState(legacy);
+    expect(tolerant.specialBuildQueue).toEqual([]);
+    expect(tolerant.endTurn()).toBe(true); // ends the in-flight phase gracefully
+    expect(tolerant.phase).toBe('roll');
+  });
+});
+
+describe('Winning only on your own turn', () => {
+  test('the active player wins immediately on reaching the target', () => {
+    const board = new CatanBoard({ seed: 44, skipInitialHistory: true });
+    board.victoryTarget = 1;
+    startActionTurn(board, 1);
+
+    const walk = buildChain(board, 1, 1);
+    const vertexId = walk.vertices[0];
+    giveResources(board, 1, COSTS.settlement);
+    expect(board.buildSettlement(vertexId)).toBe(true);
+
+    expect(board.phase).toBe('game-over');
+    expect(board.winner).toBe(1);
+  });
+
+  test('an off-turn qualifier via severing waits until their own turn starts', () => {
+    const board = new CatanBoard({ seed: 45, playerCount: 3, skipInitialHistory: true });
+    board.victoryTarget = 5;
+
+    // Player 2 holds longest road with a 6-chain.
+    const walk = buildChain(board, 2, 6);
+    board._updateLongestRoad();
+    expect(board.longestRoadHolder).toBe(2);
+
+    // Player 3: three settlements plus a 5-road chain (3 VP now, 5 with the
+    // card). Settlements stay clear of player 2's chain and its neighbors so
+    // they neither shorten that road nor block the cut vertex.
+    buildChain(board, 3, 5);
+    const banned = new Set();
+    walk.vertices.forEach(v => {
+      banned.add(v);
+      board.vertices[v].adjacent.forEach(adj => banned.add(adj));
+    });
+    for (const vertexId of Object.keys(board.vertices)) {
+      if (board.players[3].settlements.length >= 3) break;
+      if (banned.has(vertexId) || board.vertices[vertexId].building) continue;
+      if (!board.vertices[vertexId].adjacent.every(adj => !board.vertices[adj].building)) continue;
+      board.vertices[vertexId].building = { player: 3, type: 'settlement' };
+      board.players[3].settlements.push(vertexId);
+    }
+    expect(board.players[3].settlements).toHaveLength(3);
+    expect(board.getVictoryPoints(3)).toBe(3);
+
+    // Player 1 severs it; the card passes to player 3, reaching the target off-turn.
+    const cutVertex = severableVertex(board, walk);
+    const freeEdge = board.vertices[cutVertex].edgeIds.find(edgeId => !board.edges[edgeId].owner);
+    board.edges[freeEdge].owner = 1;
+    board.players[1].roads.push(freeEdge);
+    startActionTurn(board, 1);
+    giveResources(board, 1, COSTS.settlement);
+    expect(board.buildSettlement(cutVertex)).toBe(true);
+
+    expect(board.longestRoadHolder).toBe(3);
+    expect(board.getVictoryPoints(3)).toBe(5);
+    expect(board.phase).toBe('action'); // game not over — player 3 is off-turn
+
+    // Player 2 still gets a full turn before player 3's win lands.
+    expect(board.endTurn()).toBe(true);
+    expect(board.currentPlayer).toBe(2);
+    expect(board.phase).toBe('roll');
+    expect(board.rollDice(4)).toBe(true);
+    expect(board.phase).toBe('action');
+
+    // Player 3's turn begins: they win at the start of it.
+    expect(board.endTurn()).toBe(true);
+    expect(board.phase).toBe('game-over');
+    expect(board.winner).toBe(3);
+  });
+});

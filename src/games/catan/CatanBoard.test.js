@@ -95,18 +95,21 @@ describe('Catan setup', () => {
     expect(board.getValidSettlementVertices(1, true)).not.toContain(adjacentId);
   });
 
-  test('5-6 player mode adds paired build phases after the active turn', () => {
+  test('5-6 player mode gives every other player a special building phase', () => {
     const board = new CatanBoard({ seed: 12, rulesetId: 'base-5-6', playerCount: 6, skipInitialHistory: true });
 
     board.phase = 'action';
     board.currentPlayer = 1;
     board.primaryTurnPlayer = 1;
 
+    const specialBuilders = [];
     expect(board.endTurn()).toBe(true);
-    expect(board.phase).toBe('paired-action');
-    expect(board.currentPlayer).toBe(4);
+    while (board.phase === 'paired-action') {
+      specialBuilders.push(board.currentPlayer);
+      expect(board.endTurn()).toBe(true);
+    }
 
-    expect(board.endTurn()).toBe(true);
+    expect(specialBuilders).toEqual([2, 3, 4, 5, 6]);
     expect(board.phase).toBe('roll');
     expect(board.currentPlayer).toBe(2);
     expect(board.primaryTurnPlayer).toBe(2);

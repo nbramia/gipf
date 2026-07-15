@@ -395,6 +395,7 @@ export default class CatanBoard {
     this.pendingAfterRobberPhase = null;
     this.freeRoadsRemaining = 0;
     this.discardQueue = [];
+    this.specialBuildQueue = [];
     this.pendingTrade = null;
     this.tradeProposalsThisTurn = 0;
     this.maxTradeProposalsPerTurn = 4;
@@ -447,14 +448,6 @@ export default class CatanBoard {
     const ids = this.getPlayerIds();
     const index = ids.indexOf(playerId);
     return ids[(index + 1) % ids.length] || ids[0];
-  }
-
-  _pairedPlayerFor(playerId = this.primaryTurnPlayer) {
-    if (!this.pairedPlayers || this.playerCount < 5) return null;
-    const ids = this.getPlayerIds();
-    const index = ids.indexOf(playerId);
-    if (index < 0) return null;
-    return ids[(index + 3) % ids.length];
   }
 
   _isActionPhase() {
@@ -653,9 +646,15 @@ export default class CatanBoard {
 
     for (const [resource, amount] of Object.entries(needed)) {
       if (this.bank[resource] < amount) {
-        payouts.forEach(payout => {
-          if (payout.resource === resource) payout.skip = true;
-        });
+        // Official bank-shortage rule: only a multi-player shortage voids the
+        // payout. A single affected player receives the remaining stock
+        // (_gainResource caps each grant at what the bank holds).
+        const claimants = new Set(payouts.filter(payout => payout.resource === resource).map(payout => payout.player));
+        if (claimants.size > 1) {
+          payouts.forEach(payout => {
+            if (payout.resource === resource) payout.skip = true;
+          });
+        }
       }
     }
 
@@ -772,6 +771,9 @@ export default class CatanBoard {
 
     this.vertices[vertexId].building = { player: this.currentPlayer, type: 'settlement' };
     player.settlements.push(vertexId);
+    // A settlement can sever an opponent's road, so longest road must be
+    // re-evaluated here, not just on road builds.
+    this._updateLongestRoad();
     this.lastAction = `${player.name} built a settlement.`;
     this._checkWin();
     this._captureState();
@@ -807,7 +809,10 @@ export default class CatanBoard {
   }
 
   playKnight() {
-    if (!this._isActionPhase()) return false;
+    // A knight may also be played before rolling (classic pre-roll unblock);
+    // the robber detour then returns to the roll phase. Not allowed in the
+    // Special Building Phase.
+    if (this.phase !== 'action' && this.phase !== 'roll') return false;
     const player = this.getCurrentPlayer();
     if (player.playedDevThisTurn || player.devCards.knight <= 0) return false;
     player.devCards.knight--;
@@ -824,7 +829,7 @@ export default class CatanBoard {
   }
 
   playYearOfPlenty(resourceA, resourceB) {
-    if (!this._isActionPhase()) return false;
+    if (this.phase !== 'action') return false;
     const player = this.getCurrentPlayer();
     if (player.playedDevThisTurn || player.devCards.yearOfPlenty <= 0) return false;
     if (!RESOURCES.includes(resourceA) || !RESOURCES.includes(resourceB)) return false;
@@ -840,7 +845,7 @@ export default class CatanBoard {
   }
 
   playMonopoly(resource) {
-    if (!this._isActionPhase()) return false;
+    if (this.phase !== 'action') return false;
     const player = this.getCurrentPlayer();
     if (player.playedDevThisTurn || player.devCards.monopoly <= 0) return false;
     if (!RESOURCES.includes(resource)) return false;
@@ -861,9 +866,11 @@ export default class CatanBoard {
   }
 
   playRoadBuilding() {
-    if (!this._isActionPhase()) return false;
+    if (this.phase !== 'action') return false;
     const player = this.getCurrentPlayer();
     if (player.playedDevThisTurn || player.devCards.roadBuilding <= 0) return false;
+    // The card is unplayable with no road pieces left — it must not be wasted.
+    if (player.roads.length >= this.pieceLimits.roads) return false;
     player.devCards.roadBuilding--;
     player.playedDevThisTurn = true;
     this.freeRoadsRemaining = Math.min(2, this.pieceLimits.roads - player.roads.length);
@@ -873,7 +880,7 @@ export default class CatanBoard {
   }
 
   tradeWithBank(give, receive, ratio = null) {
-    if (!this._isActionPhase()) return false;
+    if (this.phase !== 'action') return false;
     if (!RESOURCES.includes(give) || !RESOURCES.includes(receive) || give === receive) return false;
     const actualRatio = this.getTradeRatio(this.currentPlayer, give);
     const tradeRatio = ratio || actualRatio;
@@ -909,13 +916,16 @@ export default class CatanBoard {
   // first to accept completes the trade. Arbitrary bundles/targets are accepted
   // so the human UI has full freedom; the AI enumerates a curated subset.
   proposeTrade(give, receive, targets) {
-    if (!this._isActionPhase()) return false;
+    if (this.phase !== 'action') return false;
     const proposer = this.currentPlayer;
     let targetList = (Array.isArray(targets) ? targets : [targets])
       .filter(id => id !== proposer && this.players[id]);
     if (targetList.length === 0) return false;
     if (this._bundleTotal(give) === 0 || this._bundleTotal(receive) === 0) return false;
     if (!this._validBundle(give) || !this._validBundle(receive)) return false;
+    // A resource may not appear on both sides (that's a disguised gift,
+    // which the trading rules forbid) — mirrors the bank-trade check.
+    if (RESOURCES.some(resource => (give[resource] || 0) > 0 && (receive[resource] || 0) > 0)) return false;
     if (!this._hasBundle(proposer, give)) return false;
     if (this.tradeProposalsThisTurn >= this.maxTradeProposalsPerTurn) return false;
 
@@ -1001,6 +1011,10 @@ export default class CatanBoard {
 
   endTurn() {
     if (!this._isActionPhase()) return false;
+    // Road Building must be resolved first: while free roads remain and a
+    // legal spot exists, the turn cannot end (mirrors getLegalMoves, so the
+    // human path and the AI path live under the same rule).
+    if (this.freeRoadsRemaining > 0 && this.getValidRoadEdges(this.currentPlayer, true).length > 0) return false;
     const endingPhase = this.phase;
     const player = this.getCurrentPlayer();
     for (const card of Object.keys(player.newDevCards)) {
@@ -1013,21 +1027,38 @@ export default class CatanBoard {
     this.pendingTrade = null;
     this.dice = null;
 
+    // Official 5-6 player Special Building Phase: after the active player's
+    // turn, EVERY other player in order may build and buy development cards
+    // (no dev-card play, no trading, no roll).
     if (this.pairedPlayers && endingPhase === 'action') {
-      const pairedPlayer = this._pairedPlayerFor(this.primaryTurnPlayer);
-      if (pairedPlayer && pairedPlayer !== this.currentPlayer) {
-        this.currentPlayer = pairedPlayer;
-        this.phase = 'paired-action';
-        this.lastAction = `${this.players[this.currentPlayer].name}'s paired build phase.`;
-        this._captureState();
-        return true;
-      }
+      const ids = this.getPlayerIds();
+      const start = ids.indexOf(this.primaryTurnPlayer);
+      this.specialBuildQueue = [...ids.slice(start + 1), ...ids.slice(0, start)];
+    }
+    if (this.pairedPlayers && this.specialBuildQueue.length > 0) {
+      this.currentPlayer = this.specialBuildQueue.shift();
+      this.phase = 'paired-action';
+      this.lastAction = `${this.players[this.currentPlayer].name}'s special building phase.`;
+      this._captureState();
+      return true;
     }
 
     const previousPrimary = this.primaryTurnPlayer || this.currentPlayer;
     this.currentPlayer = this._nextPlayerId(previousPrimary);
     this.primaryTurnPlayer = this.currentPlayer;
     if (this.currentPlayer === this.firstPlayer) this.turnNumber++; // round boundary
+
+    // A player who reached the target off-turn (longest-road transfer, special
+    // build) wins the moment their own turn begins.
+    const startPoints = this.getVictoryPoints(this.currentPlayer);
+    if (startPoints >= this.victoryTarget) {
+      this.phase = 'game-over';
+      this.winner = this.currentPlayer;
+      this.winningPoints = startPoints;
+      this.lastAction = `${this.players[this.currentPlayer].name} wins with ${startPoints} points at the start of their turn.`;
+      this._captureState();
+      return true;
+    }
 
     // Safety net: a board's reachable VP ceiling can sit below the target (no
     // expansion VP sources), which would never end. After an unreasonable number
@@ -1088,7 +1119,12 @@ export default class CatanBoard {
     }
 
     if (this.phase === 'roll') {
-      return [{ type: 'roll' }];
+      const moves = [{ type: 'roll' }];
+      const roller = this.getCurrentPlayer();
+      if (!roller.playedDevThisTurn && roller.devCards.knight > 0) {
+        moves.push({ type: 'play-knight' });
+      }
+      return moves;
     }
 
     if (this.phase === 'discard') {
@@ -1132,6 +1168,13 @@ export default class CatanBoard {
 
     if (this.devDeck.length > 0 && this.canAfford(this.currentPlayer, COSTS.dev)) {
       moves.push({ type: 'buy-dev' });
+    }
+
+    // Special Building Phase: building and buying development cards only —
+    // no dev-card play, no bank or player trading.
+    if (this.phase === 'paired-action') {
+      moves.push({ type: 'end-turn' });
+      return moves;
     }
 
     const player = this.getCurrentPlayer();
@@ -1384,16 +1427,23 @@ export default class CatanBoard {
       lengths[player] = this._longestRoadForPlayer(player);
     }
 
-    let bestPlayer = this.longestRoadHolder;
-    let bestLength = bestPlayer ? lengths[bestPlayer] : 4;
-    for (const player of this.getPlayerIds()) {
-      if (lengths[player] >= 5 && lengths[player] > bestLength) {
-        bestPlayer = player;
-        bestLength = lengths[player];
-      }
+    // The incumbent keeps the card while their road still qualifies (>= 5),
+    // including on ties. A challenger must be strictly longer. If the road is
+    // severed and the incumbent no longer qualifies (or challengers tie among
+    // themselves), a unique longest road >= 5 takes the card; a tie sets it
+    // aside (nobody holds it) per the official rule.
+    const incumbent = this.longestRoadHolder && lengths[this.longestRoadHolder] >= 5
+      ? this.longestRoadHolder
+      : null;
+    let bestPlayer = incumbent;
+    const toBeat = incumbent ? lengths[incumbent] : 4;
+    const challengers = this.getPlayerIds().filter(player => lengths[player] >= 5 && lengths[player] > toBeat);
+    if (challengers.length > 0) {
+      const best = Math.max(...challengers.map(player => lengths[player]));
+      const atBest = challengers.filter(player => lengths[player] === best);
+      bestPlayer = atBest.length === 1 ? atBest[0] : null;
     }
 
-    if (bestPlayer && lengths[bestPlayer] < 5) bestPlayer = null;
     for (const player of this.getPlayerIds()) {
       this.players[player].longestRoad = player === bestPlayer;
     }
@@ -1429,15 +1479,17 @@ export default class CatanBoard {
   }
 
   _checkWin() {
-    for (const player of this.getPlayerIds()) {
-      const points = this.getVictoryPoints(player);
-      if (points >= this.victoryTarget) {
-        this.phase = 'game-over';
-        this.winner = player;
-        this.winningPoints = points;
-        this.lastAction = `${this.players[player].name} wins with ${points} points.`;
-        return true;
-      }
+    // Official rule: you can only win during your own turn. A player pushed to
+    // the target off-turn (longest-road transfer, special build) wins at the
+    // start of their next turn instead (see endTurn).
+    if (this.currentPlayer !== this.primaryTurnPlayer) return false;
+    const points = this.getVictoryPoints(this.currentPlayer);
+    if (points >= this.victoryTarget) {
+      this.phase = 'game-over';
+      this.winner = this.currentPlayer;
+      this.winningPoints = points;
+      this.lastAction = `${this.players[this.currentPlayer].name} wins with ${points} points.`;
+      return true;
     }
     return false;
   }
@@ -1516,6 +1568,7 @@ export default class CatanBoard {
       pendingAfterRobberPhase: this.pendingAfterRobberPhase,
       freeRoadsRemaining: this.freeRoadsRemaining,
       discardQueue: this.discardQueue.map(entry => ({ ...entry })),
+      specialBuildQueue: [...this.specialBuildQueue],
       pendingTrade: this.pendingTrade
         ? {
             ...this.pendingTrade,
@@ -1597,6 +1650,9 @@ export default class CatanBoard {
     board.pendingAfterRobberPhase = state.pendingAfterRobberPhase;
     board.freeRoadsRemaining = state.freeRoadsRemaining || 0;
     board.discardQueue = (state.discardQueue || []).map(entry => ({ ...entry }));
+    // Older saves (single paired-player scheme) have no queue; they just end
+    // the in-flight special phase after the current segment.
+    board.specialBuildQueue = [...(state.specialBuildQueue || [])];
     board.pendingTrade = state.pendingTrade
       ? {
           ...state.pendingTrade,
