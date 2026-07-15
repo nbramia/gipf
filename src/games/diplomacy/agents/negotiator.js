@@ -10,7 +10,8 @@
 // call is injected as `askAgent` so tests can mock it (no real key in CI); in the
 // app this is the reused agent endpoint via agentClient.js. Pair selection is
 // deterministic given a seed, and the number of AI↔AI calls is hard-capped at
-// maxRounds × maxPairsPerRound.
+// maxRounds × maxPairsPerRound × 2 (each pair is a bilateral two-call exchange:
+// proposer, then counterparty — a deal binds only on the counterparty's consent).
 
 import {
   POWERS,
@@ -20,7 +21,6 @@ import {
   baseProvince,
 } from '../DiplomacyBoard.js';
 import {
-  recordPromise,
   recordAgreement,
   getTrust,
   setScratchpad,
@@ -157,13 +157,15 @@ function keyOf(pair) {
 
 // Parse a structured deal proposal from an agent reply. Only a constrained,
 // explicit `deal` field is honored — free text never auto-creates an agreement
-// (prompt-injection mitigation). Returns a normalized deal or null.
+// (prompt-injection mitigation). Returns the raw deal or null; normalization
+// (party binding) happens at the RECORDING site so a model can never bind
+// powers outside its own channel.
 //
-// Accepted deal shapes (mirroring the diplomatic-state agreement/promise types):
-//   { type:'support', from, to, expectedOrder, durable? }   -> promise
-//   { type:'dmz', parties:[a,b], provinces:[...] }           -> agreement
-//   { type:'non-aggression', parties:[a,b] }                 -> agreement
-//   { type:'joint-attack', parties:[a,b], target }           -> agreement
+// Deal shapes as the endpoint (api/diplomacyAgent.js) documents them:
+//   { type:'support', from?, to }        from/to are PROVINCES (mover, target)
+//   { type:'dmz', provinces:[...] }
+//   { type:'non-aggression' }
+//   { type:'joint-attack', target }      target is a power id
 function extractDeal(reply) {
   if (!reply || typeof reply !== 'object') return null;
   const deal = reply.deal;
@@ -172,54 +174,68 @@ function extractDeal(reply) {
   return deal;
 }
 
-// Apply an extracted deal to the state, returning the new state. Support deals
-// become promises (verifiable next turn) tagged with the acting power; the rest
-// become standing agreements. `accepted` powers are the channel participants, so
-// a deal is only recorded when the counterparty did not reject it.
-function applyDeal(state, deal, { phase }) {
+// Record a counterparty-accepted deal, normalized against the channel context:
+// parties are ALWAYS the two channel powers (whatever the model claimed), and a
+// support deal is recorded as an agreement whose actingPower is the PROPOSER
+// (the power that verbally committed to issue the support). `from` — the
+// supported mover's province — is kept when the model supplied it; otherwise
+// decideStrategicIntent resolves the mover from the live board at intent time.
+// Ids are stable per channel+type so a renegotiated deal replaces its
+// predecessor instead of accumulating (mirrors foldDealIntoState).
+function recordDeal(state, deal, { proposer, counterparty, channel, phase }) {
+  const parties = [proposer, counterparty];
+  const id = `ai-${channel}-${deal.type}`;
   if (deal.type === 'support') {
-    if (!deal.from || !deal.to) return state;
-    return recordPromise(state, {
+    if (!deal.to) return state;
+    return recordAgreement(state, {
+      id,
       type: 'support',
-      from: deal.from,
+      parties,
+      actingPower: proposer,
+      from: typeof deal.from === 'string' ? deal.from : null,
       to: deal.to,
-      actingPower: deal.actingPower || deal.from,
-      expectedOrder: deal.expectedOrder || null,
-      madePhase: phase,
-      durable: !!deal.durable,
+      phase,
     });
   }
   if (deal.type === 'dmz') {
-    if (!Array.isArray(deal.parties) || !Array.isArray(deal.provinces)) return state;
-    return recordAgreement(state, {
-      type: 'dmz',
-      parties: deal.parties,
-      provinces: deal.provinces,
-      phase,
-    });
+    if (!Array.isArray(deal.provinces) || deal.provinces.length === 0) return state;
+    return recordAgreement(state, { id, type: 'dmz', parties, provinces: deal.provinces, phase });
   }
   if (deal.type === 'non-aggression') {
-    if (!Array.isArray(deal.parties)) return state;
-    return recordAgreement(state, { type: 'non-aggression', parties: deal.parties, phase });
+    return recordAgreement(state, { id, type: 'non-aggression', parties, phase });
   }
   if (deal.type === 'joint-attack') {
-    if (!Array.isArray(deal.parties) || !deal.target) return state;
-    return recordAgreement(state, {
-      type: 'joint-attack',
-      parties: deal.parties,
-      target: deal.target,
-      phase,
-    });
+    if (!deal.target) return state;
+    return recordAgreement(state, { id, type: 'joint-attack', parties, target: deal.target, phase });
   }
   return state;
 }
 
-// True if a reply from the counterparty rejects the proposal (so no deal lands).
-function isAccepted(reply) {
+// True when two extracted deals are the same arrangement (an echo), so a
+// counterparty that restates the proposal in its own `deal` field has accepted
+// it even if it forgot the explicit accept flag.
+function dealsMatch(a, b) {
+  if (!a || !b || a.type !== b.type) return false;
+  if (a.type === 'support') {
+    return String(a.to).toLowerCase() === String(b.to).toLowerCase();
+  }
+  if (a.type === 'dmz') {
+    const norm = (d) => (Array.isArray(d.provinces) ? d.provinces.map((p) => String(p).toLowerCase()).sort().join(',') : '');
+    return norm(a) === norm(b);
+  }
+  if (a.type === 'joint-attack') return a.target === b.target;
+  return a.type === 'non-aggression';
+}
+
+// Bilateral consent: the COUNTERPARTY's reply must accept the proposal for it to
+// bind — an explicit accept:true, or an echo of the same deal (absent an
+// explicit rejection). Silence, a rejection, or an unrelated counter-proposal
+// records nothing.
+function counterpartyAccepts(reply, proposedDeal) {
   if (!reply || typeof reply !== 'object') return false;
-  // Explicit rejection wins; otherwise an echoed `deal` counts as acceptance.
   if (reply.accept === false) return false;
-  return reply.accept === true || !!reply.deal;
+  if (reply.accept === true) return true;
+  return dealsMatch(extractDeal(reply), proposedDeal);
 }
 
 // --- channel ids ------------------------------------------------------------
@@ -250,7 +266,9 @@ function priorNoteFor(state, power, rival) {
 
 const DEFAULT_OPTIONS = {
   maxRounds: 2,
-  maxPairsPerRound: 4,
+  // Each pair is a TWO-call bilateral exchange (proposer + counterparty), so the
+  // default pair count is half the old monologue default — same total budget.
+  maxPairsPerRound: 2,
   humanPower: null,
   seed: 0,
   // Proactive AI->human outreach (off by default so unit tests / headless runs
@@ -281,9 +299,10 @@ const DEFAULT_OPTIONS = {
 //             folds reply.scratchpad/summary into the returned state (#44).
 //   options:  { maxRounds, maxPairsPerRound, humanPower, seed }.
 //
-// Budget (hard): ≤ maxRounds × maxPairsPerRound AI↔AI askAgent calls, plus ≤ 1
-// askAgent call per AI power for its human-thread turn. Dead powers (not in
-// board.getPowerIds()) are never selected.
+// Budget (hard): ≤ maxRounds × maxPairsPerRound × 2 AI↔AI askAgent calls (two
+// per pair — proposer and counterparty), plus ≤ 1 askAgent call per AI power for
+// its human-thread turn. Dead powers (not in board.getPowerIds()) are never
+// selected.
 export async function runNegotiationPhase({ board, state, agents = {}, askAgent, options = {} } = {}) {
   if (!board || typeof board.getPowerIds !== 'function') {
     throw new Error('runNegotiationPhase requires a board');
@@ -304,61 +323,66 @@ export async function runNegotiationPhase({ board, state, agents = {}, askAgent,
   const transcripts = {};
   let nextState = state;
 
-  // 1) AI↔AI rounds (private; never written to the human thread store).
+  // One side of an AI↔AI exchange: ask `power` in its channel with `rival`,
+  // append the visible line to the private transcript, and persist the power's
+  // scratchpad + the channel summary into the hidden diplomatic state (never
+  // agents.humanThreads — the secrecy invariant). Returns the normalized reply.
+  async function speakInChannel(power, rival, { channel, round, proposedDeal }) {
+    const ctx = agents[power] || {};
+    const res = await askAgent({
+      power,
+      counterparties: [rival],
+      channel,
+      round,
+      phase,
+      model: opts.aiModel || undefined, // hidden AI↔AI rounds: cheaper model
+      boardContext: ctx.boardContext || null,
+      persona: ctx.persona || null,
+      // Carry the conversation forward (#44): the brief per-channel summary and
+      // this power's own prior private note about the rival, both from the
+      // persisted diplomatic state (never the human-visible store).
+      priorSummary: getSummary(nextState, channel),
+      memory: priorNoteFor(nextState, power, rival),
+      scratchpad: getScratchpad(nextState, power),
+      messages: transcriptMessages(transcripts[channel], power),
+      // The proposer's structured deal, when answering one: the endpoint renders
+      // it as a PENDING PROPOSAL and requires an accept:true/false answer.
+      proposedDeal,
+    });
+    const reply = res && res.reply ? res.reply : res;
+    transcripts[channel].push({
+      round,
+      power,
+      counterparty: rival,
+      message: messageText(reply),
+    });
+    if (reply && typeof reply === 'object') {
+      if (reply.scratchpad) nextState = setScratchpad(nextState, power, reply.scratchpad);
+      if (reply.summary) nextState = setSummary(nextState, channel, reply.summary);
+    }
+    return reply;
+  }
+
+  // 1) AI↔AI rounds (private; never written to the human thread store). Each
+  //    pair is a BILATERAL exchange — the proposer speaks, then the counterparty
+  //    answers with the proposal in front of it — so a deal binds only with both
+  //    sides' words on record, and both sides' private memory evolves.
   for (let round = 0; round < opts.maxRounds; round++) {
     const pairs = selectPairs(board, nextState, aiPowers, opts.maxPairsPerRound, rng);
     for (const { a, b } of pairs) {
       const channel = channelId(a, b);
       if (!transcripts[channel]) transcripts[channel] = [];
 
-      // Proposer speaks first, then the counterparty replies (one askAgent call
-      // each — but both count toward the AI↔AI budget, so we make a SINGLE call
-      // representing the pair's exchange to honor ≤ maxRounds×maxPairsPerRound).
-      const aCtx = agents[a] || {};
-      const proposal = await askAgent({
-        power: a,
-        counterparties: [b],
-        channel,
-        round,
-        phase,
-        model: opts.aiModel || undefined, // hidden AI↔AI rounds: cheaper model
-        boardContext: aCtx.boardContext || null,
-        persona: aCtx.persona || null,
-        // Carry the conversation forward (#44): the brief per-channel summary and
-        // this power's own prior private note about the rival, both from the
-        // persisted diplomatic state (never the human-visible store).
-        priorSummary: getSummary(nextState, channel),
-        memory: priorNoteFor(nextState, a, b),
-        scratchpad: getScratchpad(nextState, a),
-        messages: transcriptMessages(transcripts[channel], a),
-      });
-
-      const proposalReply = proposal && proposal.reply ? proposal.reply : proposal;
-      transcripts[channel].push({
-        round,
-        power: a,
-        counterparty: b,
-        message: messageText(proposalReply),
-      });
-
-      // Persist the proposer's scratchpad + the channel summary so they carry
-      // into the next phase. These live ONLY in the hidden diplomatic state —
-      // never written to agents.humanThreads (the secrecy invariant).
-      if (proposalReply && typeof proposalReply === 'object') {
-        if (proposalReply.scratchpad) {
-          nextState = setScratchpad(nextState, a, proposalReply.scratchpad);
-        }
-        if (proposalReply.summary) {
-          nextState = setSummary(nextState, channel, proposalReply.summary);
-        }
-      }
-
-      // Record any concrete, structured deal the proposer offered AND the
-      // counterparty implicitly/explicitly accepted (acceptance is the proposer
-      // emitting a `deal` field; a separate reject reply would clear it).
+      const proposalReply = await speakInChannel(a, b, { channel, round, proposedDeal: null });
       const deal = extractDeal(proposalReply);
-      if (deal && isAccepted(proposalReply)) {
-        nextState = applyDeal(nextState, deal, { phase });
+
+      const counterReply = await speakInChannel(b, a, { channel, round, proposedDeal: deal });
+
+      // Record the deal ONLY on the counterparty's consent (accept:true or an
+      // echo of the same deal). A counter-proposal in the counterparty's reply
+      // is NOT recorded — the pair can confirm it in a later round.
+      if (deal && counterpartyAccepts(counterReply, deal)) {
+        nextState = recordDeal(nextState, deal, { proposer: a, counterparty: b, channel, phase });
       }
     }
   }

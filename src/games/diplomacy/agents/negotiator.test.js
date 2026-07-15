@@ -29,26 +29,51 @@ function freshGame(humanPower = 'england') {
 }
 
 describe('runNegotiationPhase — budget', () => {
-  test('AI↔AI calls never exceed maxRounds × maxPairsPerRound', async () => {
+  test('AI↔AI calls never exceed maxRounds × maxPairsPerRound × 2 (bilateral)', async () => {
     const { board, state, humanPower } = freshGame();
     const askAgent = mockAskAgent();
     await runNegotiationPhase({
       board, state, askAgent,
-      options: { maxRounds: 2, maxPairsPerRound: 4, humanPower, seed: 7 },
+      options: { maxRounds: 2, maxPairsPerRound: 2, humanPower, seed: 7 },
     });
-    expect(aiToAiCalls(askAgent, humanPower).length).toBeLessThanOrEqual(2 * 4);
-    expect(aiToAiCalls(askAgent, humanPower).length).toBe(8); // 6 AI powers → ≥4 pairs available
+    expect(aiToAiCalls(askAgent, humanPower).length).toBeLessThanOrEqual(2 * 2 * 2);
+    expect(aiToAiCalls(askAgent, humanPower).length).toBe(8); // 6 AI powers → ≥2 pairs available
   });
 
-  test('budget scales with R × N', async () => {
+  test('budget scales with R × N × 2', async () => {
     const { board, state, humanPower } = freshGame();
     const askAgent = mockAskAgent();
     await runNegotiationPhase({
       board, state, askAgent,
       options: { maxRounds: 3, maxPairsPerRound: 2, humanPower, seed: 1 },
     });
-    expect(aiToAiCalls(askAgent, humanPower).length).toBeLessThanOrEqual(3 * 2);
-    expect(aiToAiCalls(askAgent, humanPower).length).toBe(6);
+    expect(aiToAiCalls(askAgent, humanPower).length).toBeLessThanOrEqual(3 * 2 * 2);
+    expect(aiToAiCalls(askAgent, humanPower).length).toBe(12);
+  });
+
+  test('each pair is a two-call exchange: the counterparty hears the proposer', async () => {
+    const { board, state, humanPower } = freshGame();
+    const askAgent = mockAskAgent((power, ctx) =>
+      ctx.proposedDeal !== undefined && ctx.messages.length > 0
+        ? { message: `Reply from ${power}.` }
+        : { message: `Opening from ${power}.` }
+    );
+    await runNegotiationPhase({
+      board, state, askAgent,
+      options: { maxRounds: 1, maxPairsPerRound: 2, humanPower, seed: 7 },
+    });
+    const ai = aiToAiCalls(askAgent, humanPower);
+    expect(ai.length).toBe(4);
+    // Calls come in proposer/counterparty pairs on the same channel; the
+    // counterparty sees the proposer's message as a 'user' turn.
+    for (let i = 0; i < ai.length; i += 2) {
+      const proposer = ai[i];
+      const counter = ai[i + 1];
+      expect(counter.channel).toBe(proposer.channel);
+      expect(counter.power).toBe(proposer.counterparties[0]);
+      const last = counter.messages[counter.messages.length - 1];
+      expect(last).toEqual({ role: 'user', content: `Opening from ${proposer.power}.` });
+    }
   });
 
   test('model routing: AI↔AI uses aiModel, human-facing uses humanModel', async () => {
@@ -162,48 +187,53 @@ describe('runNegotiationPhase — determinism', () => {
   });
 });
 
-describe('runNegotiationPhase — deal extraction', () => {
-  test('a proposed support deal is recorded as a promise with the acting power', async () => {
-    const { board, state, humanPower } = freshGame();
-    const askAgent = mockAskAgent((power, ctx) => {
-      // Only the very first proposer offers a support deal toward its counterparty.
-      if (askAgent.calls.length === 1) {
-        return {
-          message: 'I will back you into the channel.',
-          deal: {
-            type: 'support',
-            from: power,
-            to: ctx.counterparties[0],
-            expectedOrder: { type: 'support-move', unitLoc: 'bur', from: 'mun', to: 'ruh' },
-          },
-        };
+describe('runNegotiationPhase — bilateral deals (endpoint schema)', () => {
+  // Script one exchange: the FIRST proposer in the run offers `deal` exactly as
+  // the endpoint documents it; its counterparty replies with `counter`. Everyone
+  // else stays silent.
+  function scriptFirstExchange(deal, counter) {
+    const fn = mockAskAgent((power, ctx) => {
+      if (ctx.channel.startsWith('human~')) return { message: '' };
+      if (ctx.proposedDeal) return { message: counter.message || 'Noted.', ...counter };
+      if (fn.calls.filter((c) => !c.channel.startsWith('human~')).length === 1) {
+        return { message: 'A concrete offer.', deal };
       }
       return { message: '' };
     });
+    return fn;
+  }
 
+  test('an endpoint-shaped support deal (only `to`) lands as an agreement when accepted', async () => {
+    const { board, state, humanPower } = freshGame();
+    // EXACTLY what api/diplomacyAgent.js documents: no parties, no power ids.
+    const askAgent = scriptFirstExchange({ type: 'support', to: 'bel' }, { accept: true });
     const { state: next } = await runNegotiationPhase({
       board, state, askAgent,
       options: { maxRounds: 1, maxPairsPerRound: 4, humanPower, seed: 5 },
     });
-    expect(next.promises.length).toBe(1);
-    const p = next.promises[0];
-    expect(p.type).toBe('support');
-    expect(p.actingPower).toBe(p.from);
-    expect(p.expectedOrder).toMatchObject({ type: 'support-move', unitLoc: 'bur' });
+    const support = next.agreements.filter((a) => a.type === 'support');
+    expect(support).toHaveLength(1);
+    const firstAiCall = askAgent.calls.find((c) => !c.channel.startsWith('human~'));
+    expect(support[0].actingPower).toBe(firstAiCall.power); // proposer is the supporter
+    expect(support[0].parties.sort()).toEqual(
+      [firstAiCall.power, firstAiCall.counterparties[0]].sort()
+    );
+    expect(support[0].to).toBe('bel');
   });
 
-  test('an accepted DMZ proposal becomes a dmz agreement', async () => {
+  test('a support deal with a mover province keeps `from`', async () => {
     const { board, state, humanPower } = freshGame();
-    const askAgent = mockAskAgent((power, ctx) => {
-      if (askAgent.calls.length === 1) {
-        return {
-          message: 'Pie and Tyr stay empty.',
-          accept: true,
-          deal: { type: 'dmz', parties: [power, ctx.counterparties[0]], provinces: ['pie', 'tyr'] },
-        };
-      }
-      return { message: '' };
+    const askAgent = scriptFirstExchange({ type: 'support', from: 'pic', to: 'bel' }, { accept: true });
+    const { state: next } = await runNegotiationPhase({
+      board, state, askAgent,
+      options: { maxRounds: 1, maxPairsPerRound: 4, humanPower, seed: 5 },
     });
+    expect(next.agreements.filter((a) => a.type === 'support')[0]).toMatchObject({ from: 'pic', to: 'bel' });
+  });
+
+  test('an endpoint-shaped DMZ (only `provinces`) lands with the channel pair as parties', async () => {
+    const { board, state, humanPower } = freshGame();
+    const askAgent = scriptFirstExchange({ type: 'dmz', provinces: ['pie', 'tyr'] }, { accept: true });
     const { state: next } = await runNegotiationPhase({
       board, state, askAgent,
       options: { maxRounds: 1, maxPairsPerRound: 4, humanPower, seed: 9 },
@@ -211,6 +241,84 @@ describe('runNegotiationPhase — deal extraction', () => {
     const dmz = next.agreements.filter((a) => a.type === 'dmz');
     expect(dmz).toHaveLength(1);
     expect(dmz[0].provinces).toEqual(['pie', 'tyr']);
+    const firstAiCall = askAgent.calls.find((c) => !c.channel.startsWith('human~'));
+    expect(dmz[0].parties.sort()).toEqual([firstAiCall.power, firstAiCall.counterparties[0]].sort());
+  });
+
+  test('endpoint-shaped non-aggression and joint-attack land with parties attached', async () => {
+    const { board, state, humanPower } = freshGame();
+    const naAsk = scriptFirstExchange({ type: 'non-aggression' }, { accept: true });
+    const { state: afterNa } = await runNegotiationPhase({
+      board, state, askAgent: naAsk,
+      options: { maxRounds: 1, maxPairsPerRound: 4, humanPower, seed: 9 },
+    });
+    expect(afterNa.agreements.filter((a) => a.type === 'non-aggression')).toHaveLength(1);
+    expect(afterNa.agreements[0].parties).toHaveLength(2);
+
+    const jaAsk = scriptFirstExchange({ type: 'joint-attack', target: 'russia' }, { accept: true });
+    const { state: afterJa } = await runNegotiationPhase({
+      board, state, askAgent: jaAsk,
+      options: { maxRounds: 1, maxPairsPerRound: 4, humanPower, seed: 9 },
+    });
+    const ja = afterJa.agreements.filter((a) => a.type === 'joint-attack');
+    expect(ja).toHaveLength(1);
+    expect(ja[0].target).toBe('russia');
+    expect(ja[0].parties).toHaveLength(2);
+  });
+
+  test('bilateral consent: a rejected proposal records nothing', async () => {
+    const { board, state, humanPower } = freshGame();
+    const askAgent = scriptFirstExchange(
+      { type: 'dmz', provinces: ['pie'] },
+      { accept: false, message: 'Never.' }
+    );
+    const { state: next } = await runNegotiationPhase({
+      board, state, askAgent,
+      options: { maxRounds: 1, maxPairsPerRound: 4, humanPower, seed: 9 },
+    });
+    expect(next.agreements).toHaveLength(0);
+    expect(next.promises).toHaveLength(0);
+  });
+
+  test('a silent counterparty (no accept, no echo) records nothing', async () => {
+    const { board, state, humanPower } = freshGame();
+    const askAgent = scriptFirstExchange({ type: 'non-aggression' }, { message: 'Hm.' });
+    const { state: next } = await runNegotiationPhase({
+      board, state, askAgent,
+      options: { maxRounds: 1, maxPairsPerRound: 4, humanPower, seed: 9 },
+    });
+    expect(next.agreements).toHaveLength(0);
+  });
+
+  test('an echoed matching deal counts as acceptance even without accept:true', async () => {
+    const { board, state, humanPower } = freshGame();
+    const askAgent = scriptFirstExchange(
+      { type: 'dmz', provinces: ['pie', 'tyr'] },
+      { message: 'Pie and Tyr stay empty, agreed.', deal: { type: 'dmz', provinces: ['tyr', 'pie'] } }
+    );
+    const { state: next } = await runNegotiationPhase({
+      board, state, askAgent,
+      options: { maxRounds: 1, maxPairsPerRound: 4, humanPower, seed: 9 },
+    });
+    expect(next.agreements.filter((a) => a.type === 'dmz')).toHaveLength(1);
+  });
+
+  test('model-claimed parties are ignored: the channel pair is always bound (injection safe)', async () => {
+    const { board, state, humanPower } = freshGame();
+    // A malicious/hallucinating model tries to bind the human and a third power.
+    const askAgent = scriptFirstExchange(
+      { type: 'non-aggression', parties: [humanPower, 'turkey'] },
+      { accept: true }
+    );
+    const { state: next } = await runNegotiationPhase({
+      board, state, askAgent,
+      options: { maxRounds: 1, maxPairsPerRound: 4, humanPower, seed: 9 },
+    });
+    const firstAiCall = askAgent.calls.find((c) => !c.channel.startsWith('human~'));
+    expect(next.agreements[0].parties.sort()).toEqual(
+      [firstAiCall.power, firstAiCall.counterparties[0]].sort()
+    );
+    expect(next.agreements[0].parties).not.toContain(humanPower);
   });
 
   test('free text with no structured deal records nothing (prompt-injection safe)', async () => {
@@ -224,6 +332,29 @@ describe('runNegotiationPhase — deal extraction', () => {
     });
     expect(next.promises).toHaveLength(0);
     expect(next.agreements).toHaveLength(0);
+  });
+
+  test('BOTH sides of an exchange persist their scratchpads', async () => {
+    const { board, state, humanPower } = freshGame();
+    const padFor = (power, rival) => ({
+      self: power,
+      dispositions: { [rival]: { trust: 0.1, stance: 'neutral', intent: 'Watch.' } },
+      priority: 'Grow.',
+      confidence: 0.5,
+    });
+    const askAgent = mockAskAgent((power, ctx) => {
+      if (ctx.channel.startsWith('human~')) return { message: '' };
+      return { message: 'Words.', scratchpad: padFor(power, ctx.counterparties[0]) };
+    });
+    const { state: next } = await runNegotiationPhase({
+      board, state, askAgent,
+      options: { maxRounds: 1, maxPairsPerRound: 1, humanPower, seed: 5 },
+    });
+    const ai = askAgent.calls.filter((c) => !c.channel.startsWith('human~'));
+    expect(ai).toHaveLength(2);
+    // Proposer AND counterparty both landed their pads in the hidden state.
+    expect(getScratchpad(next, ai[0].power)).toMatchObject({ self: ai[0].power });
+    expect(getScratchpad(next, ai[1].power)).toMatchObject({ self: ai[1].power });
   });
 });
 
