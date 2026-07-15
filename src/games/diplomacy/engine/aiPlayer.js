@@ -167,7 +167,12 @@ function evaluatePosition(board, power) {
 
 // Predict each opponent's likely orders: their own top heuristic plan(s).
 // Returns { power -> [plan, plan, ...] } limited to `oppPlans` each.
-function predictOpponentPlans(board, power, oppPlans) {
+//
+// `intents` (optional) maps opponents to their KNOWN strategic intents (from
+// the diplomatic state): a slightly larger candidate pool is re-ranked with the
+// same intent bias the opponent itself plays under, so a power with recorded
+// allies/DMZs is not predicted to attack them. Exported for tests.
+function predictOpponentPlans(board, power, oppPlans, intents) {
   const predictions = {};
   for (const other of POWERS) {
     if (other === power) continue;
@@ -175,8 +180,15 @@ function predictOpponentPlans(board, power, oppPlans) {
       predictions[other] = [[]];
       continue;
     }
-    const plans = board.generateCandidatePlans(other, { maxPlans: oppPlans });
-    predictions[other] = plans.slice(0, oppPlans).map(plan => plan.orders);
+    const known = intents && intents[other] ? normalizeIntent(intents[other]) : null;
+    const plans = board.generateCandidatePlans(other, { maxPlans: known ? oppPlans + 4 : oppPlans });
+    const ranked = known
+      ? plans
+          .map((plan, i) => ({ plan, i, adj: (plan.score || 0) + intentPlanBias(board, plan.orders, known) }))
+          .sort((x, y) => y.adj - x.adj || x.i - y.i)
+          .map((x) => x.plan)
+      : plans;
+    predictions[other] = ranked.slice(0, oppPlans).map(plan => plan.orders);
   }
   return predictions;
 }
@@ -240,7 +252,7 @@ function bestResponse(board, power, ownPlans, combos, intent) {
 // best-responds. With brRounds > 0 it runs bounded iterative best-response: each
 // round the opponents' current best replaces their predicted top plan, and the
 // power best-responds again, converging toward an equilibrium.
-function searchOrders(board, power, { intent, difficulty, seed, deterministic }) {
+function searchOrders(board, power, { intent, intents, difficulty, seed, deterministic }) {
   const budget = budgetFor(difficulty);
   const rng = makeRng(resolveSeed(seed, deterministic));
 
@@ -259,7 +271,7 @@ function searchOrders(board, power, { intent, difficulty, seed, deterministic })
       : board.buildCrossSupportPlan(power, deal.from, toBase);
     if (plan) ownPlans.unshift(plan);
   }
-  const predictions = predictOpponentPlans(board, power, budget.oppPlans);
+  const predictions = predictOpponentPlans(board, power, budget.oppPlans, intents);
 
   // Current best-known orders for each opponent (used by iterative BR).
   const oppBest = {};
@@ -269,13 +281,15 @@ function searchOrders(board, power, { intent, difficulty, seed, deterministic })
   let result = bestResponse(board, power, ownPlans, combos, intent);
 
   for (let round = 0; round < budget.brRounds; round++) {
-    // Each opponent best-responds to the others' current best plus our latest.
+    // Each opponent best-responds to the others' current best plus our latest,
+    // under its own known intent (recorded allies/deals constrain its response).
     for (const o of Object.keys(predictions)) {
       if (board.getUnitLocations(o).length === 0) continue;
       const oppPlans = board.generateCandidatePlans(o, { maxPlans: budget.oppPlans });
       const fixed = { ...oppBest, [power]: result.orders };
       const oppCombos = [fixed];
-      const oppResult = bestResponse(board, o, oppPlans, oppCombos, null);
+      const oppIntent = intents && intents[o] ? normalizeIntent(intents[o]) : null;
+      const oppResult = bestResponse(board, o, oppPlans, oppCombos, oppIntent);
       oppBest[o] = oppResult.orders;
     }
     combos = [{ ...oppBest }];
@@ -324,8 +338,10 @@ function searchAdjustments(board, power, { intent }) {
 // public async interface
 // ---------------------------------------------------------------------------
 
-function normalizeOptions({ intent = null, difficulty = 'normal', seed = null, deterministic = false } = {}) {
-  return { intent: normalizeIntent(intent), difficulty, seed, deterministic };
+// `intents` (a { power -> raw strategic intent } map) is passed through raw and
+// normalized per-opponent inside predictOpponentPlans.
+function normalizeOptions({ intent = null, intents = null, difficulty = 'normal', seed = null, deterministic = false } = {}) {
+  return { intent: normalizeIntent(intent), intents, difficulty, seed, deterministic };
 }
 
 async function getOrders(board, power, options = {}) {
@@ -347,4 +363,4 @@ async function getAdjustments(board, power, options = {}) {
   return { adjustments: searchAdjustments(board, power, opts) };
 }
 
-export { getOrders, getRetreats, getAdjustments, evaluatePosition };
+export { getOrders, getRetreats, getAdjustments, evaluatePosition, predictOpponentPlans };
