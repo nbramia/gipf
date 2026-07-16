@@ -296,6 +296,15 @@ Accepted risks, both judged fine for data this low-stakes (game history plus
 an encrypted key blob): no rate limiting (online password guessing against a
 username is possible) and no recovery.
 
+The BYO Lichess opening-explorer token (`chessLichessToken`,
+`coach/openingCoach.js`) rides along the same account the same way --
+encrypted client-side under the same AES key and stored as an optional
+`encLichess` sibling ciphertext, so accounts created before this addition
+simply have none and behave exactly as before. Both Settings' Account block
+and the landing-page widget decrypt it into `chessLichessToken` on sign-in,
+and saving a new token from Settings while signed in re-encrypts and pushes
+it, exactly like the API key.
+
 Settings' Account block offers Create Account / Sign In / Sign Out. Signing
 in fetches the stored `enc` record and decrypts it into the shared
 `gipfApiKey` slot, so the coach lights up with nothing else entered; profile
@@ -336,8 +345,10 @@ the single engine best move. A move that stays in a known ECO line
 (`coach/openings.js`) — or is within a wide eval band — is labeled **Book**
 (neutral), never inaccuracy/mistake. This works with no network dependency.
 
-When a **Lichess token** is set (`coach/openingCoach.js`, BYO, stored only in
-`localStorage['chessLichessToken']`), the coach also fetches the Lichess masters
+When a **Lichess token** is set (`coach/openingCoach.js`, BYO, stored in
+`localStorage['chessLichessToken']` and, for a signed-in account, synced the
+same encrypted way as the API key -- see Accounts above), the coach also
+fetches the Lichess masters
 opening explorer and reports real popularity — "the Nth most-common master move,
 played in X% of games, scoring Y%" — plus the other popular choices. The explorer
 is auth-gated (locked down after DDoS attacks), so it requires a free read-only

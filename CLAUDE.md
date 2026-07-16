@@ -202,7 +202,7 @@ Before modifying game logic for either game:
 | `api/chessCoach.js` | Vercel serverless coach (Claude API, **bring-your-own key**, no server fallback) |
 | `api/chessRating.js` | Vercel serverless Rated-mode store (Vercel KV; keyed by API-key hash, raw key never sent). Returns `{configured:false}` and the client stays local when no KV env is set |
 | `api/chessProfile.js` | Vercel serverless profile sync store -- four domains (rating, history, puzzles, mistakes) keyed by the same API-key hash; mirrors rating writes to the legacy `chessRating` key for old clients |
-| `api/chessAccount.js` | Vercel serverless account store (username+password); Vercel KV keyed by a SHA-256 username hash, auth token stored only as its hash, API key stored only as client-encrypted ciphertext |
+| `api/chessAccount.js` | Vercel serverless account store (username+password); Vercel KV keyed by a SHA-256 username hash, auth token stored only as its hash, API key and Lichess explorer token stored only as client-encrypted ciphertext |
 
 See [docs/chess.md](docs/chess.md) for the engine + coaching pipeline and the BYO-key security model.
 
@@ -213,8 +213,8 @@ new syncs by the unified profile endpoint `api/chessProfile.js`, which also carr
 opponent history and puzzle/mistake progress) is OPTIONAL and requires a Vercel KV
 store linked to the project (injects `KV_REST_API_URL` + `KV_REST_API_TOKEN`); without
 it, ratings persist in localStorage only. A username+password account (`api/chessAccount.js`,
-`engine/account.js`) now also carries the API key + profile across devices, keyed by a
-password-derived id instead of the API-key hash.
+`engine/account.js`) now also carries the API key + Lichess explorer token + profile across
+devices, keyed by a password-derived id instead of the API-key hash.
 
 ### Catan (`src/games/catan/`)
 
@@ -430,7 +430,8 @@ gipfAccount  # username+password account session (derived credentials, cached
              # locally so the client isn't re-running PBKDF2 every load).
              # App-wide: landing-page widget + chess settings block; Catan,
              # Splendor, and Diplomacy show signed-in awareness only. Signing
-             # out drops the session but keeps the local key.
+             # out drops the session but keeps the local key(s) (API key,
+             # chess's Lichess explorer token).
 ```
 
 Never rename or restructure these without migration logic.
