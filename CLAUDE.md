@@ -194,12 +194,14 @@ Before modifying game logic for either game:
 | `engine/rating.js` | Pure Elo math: K-factor, expected score, `updateRating`, `nearestRung`, `mergeRating` |
 | `engine/ratingSync.js` | Cross-device rating sync client (SHA-256 of the API key -> opaque id) |
 | `engine/profileSync.js` | Cross-device profile sync client -- supersedes ratingSync (rating + opponent history + puzzles + mistakes, same key-hash id) |
+| `engine/account.js` | Username+password accounts: client-side PBKDF2 credential derivation, API-key encryption, session cache |
 | `engine/playerHistory.js` | localStorage store: per-opponent W/L/D history (`chessOppHistory`) |
 | `hooks/useStockfish.js` | Engine lifecycle; `getMove()` (opponent) + `analyze()` (coaching), serialized |
 | `coach/*.js` | classify, analyzeMove, templates, coachClient, openings, pgn, accuracy, puzzles, material, sound |
 | `api/chessCoach.js` | Vercel serverless coach (Claude API, **bring-your-own key**, no server fallback) |
 | `api/chessRating.js` | Vercel serverless Rated-mode store (Vercel KV; keyed by API-key hash, raw key never sent). Returns `{configured:false}` and the client stays local when no KV env is set |
 | `api/chessProfile.js` | Vercel serverless profile sync store -- four domains (rating, history, puzzles, mistakes) keyed by the same API-key hash; mirrors rating writes to the legacy `chessRating` key for old clients |
+| `api/chessAccount.js` | Vercel serverless account store (username+password); Vercel KV keyed by a SHA-256 username hash, auth token stored only as its hash, API key stored only as client-encrypted ciphertext |
 
 See [docs/chess.md](docs/chess.md) for the engine + coaching pipeline and the BYO-key security model.
 
@@ -209,7 +211,9 @@ are locked out while rated. Cross-device sync via `api/chessRating.js` (supersed
 new syncs by the unified profile endpoint `api/chessProfile.js`, which also carries
 opponent history and puzzle/mistake progress) is OPTIONAL and requires a Vercel KV
 store linked to the project (injects `KV_REST_API_URL` + `KV_REST_API_TOKEN`); without
-it, ratings persist in localStorage only.
+it, ratings persist in localStorage only. A username+password account (`api/chessAccount.js`,
+`engine/account.js`) now also carries the API key + profile across devices, keyed by a
+password-derived id instead of the API-key hash.
 
 ### Catan (`src/games/catan/`)
 
@@ -421,6 +425,9 @@ gipfApiKey   # one BYO Anthropic key, used by the chess coach, the Catan rules
              # chat, and the Splendor rules chat. Legacy chessApiKey / catanApiKey
              # are migrated into it on first read. Each game keeps an identical
              # copy of the storage helper (no cross-game import).
+gipfAccount  # username+password account session (derived credentials, cached
+             # locally so the client isn't re-running PBKDF2 every load).
+             # gipf-prefixed for future app-wide reuse, but chess-side only today.
 ```
 
 Never rename or restructure these without migration logic.

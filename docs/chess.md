@@ -21,6 +21,7 @@ src/games/chess/
     rating.js            # Pure Elo math + matchmaking for Rated mode
     ratingSync.js        # Cross-device rating sync client (keyed by key hash)
     profileSync.js       # Cross-device profile sync -- supersedes ratingSync (rating + history + puzzles + mistakes)
+    account.js           # Username+password accounts: PBKDF2 credential derivation, API-key encryption, session cache
     playerHistory.js     # localStorage: per-opponent W/L/D history (chessOppHistory)
   hooks/
     useStockfish.js      # Engine lifecycle; getMove() + analyze(); serialized
@@ -46,6 +47,7 @@ src/games/chess/
     sound.js             # WebAudio move cues (#21)
 api/chessCoach.js        # Vercel serverless coach endpoint
 api/chessProfile.js      # Vercel serverless profile sync endpoint (rating + history + puzzles + mistakes)
+api/chessAccount.js      # Vercel serverless account store (username+password, encrypted API key)
 ```
 
 ## Engine (Stockfish)
@@ -268,7 +270,47 @@ out, then re-applying the 200-entry cap.
 Like rated-mode sync, this is entirely optional: without a configured Vercel
 KV store the endpoint replies `{configured: false}` and every helper no-ops
 back to local-only, and without a BYO API key there's no id to sync under at
-all -- everything just works from localStorage as it always has.
+all -- everything just works from localStorage as it always has. Signed into
+an account (see "Accounts" below), the profile id is the account's
+password-derived id instead of the key hash.
+
+## Accounts (username + password)
+
+On top of the key-hash sync above, Chess also offers a lightweight
+username+password account, so a player can sign in once per machine instead
+of re-pasting an Anthropic API key everywhere. It's the same profile sync
+underneath -- an account just gives it a memorable id and lets it carry the
+API key too.
+
+Every secret is derived client-side from the password
+(`engine/account.js#deriveCredentials`: PBKDF2-SHA256, 310k iterations, salt
+`'gipf-chess-account:v1:' + lowercase(username)`). The 768 derived bits split
+into an `authToken` (sent to the server for read/write authorization, stored
+there only as its SHA-256 hash), an AES-GCM-256 key that never leaves the
+browser, and a `profileId` that's unguessable without the password. The
+Anthropic API key is encrypted client-side under that AES key before it's
+ever sent, so **the server can never read anyone's API key** --
+`api/chessAccount.js` stores it only as `{iv, ct}` ciphertext. There is no
+email and no password reset: a forgotten password just means a new account.
+Accepted risks, both judged fine for data this low-stakes (game history plus
+an encrypted key blob): no rate limiting (online password guessing against a
+username is possible) and no recovery.
+
+Settings' Account block offers Create Account / Sign In / Sign Out. Signing
+in fetches the stored `enc` record and decrypts it into the shared
+`gipfApiKey` slot, so the coach lights up with nothing else entered; profile
+sync switches from the key-hash id to the account's `profileId`, and any
+existing local profile plus legacy key-hash remote profile are merged into
+the account profile via the same per-domain merge functions `profileSync.js`
+already uses. Changing the API key while signed in re-encrypts it and pushes
+the new ciphertext (`pushEncryptedKey`). Account profiles reuse
+`api/chessProfile.js` unchanged -- the `profileId` doubles as the opaque id
+that endpoint already expects.
+
+Like every other optional sync path in this app, it degrades cleanly: without
+a configured Vercel KV store `api/chessAccount.js` replies
+`{configured: false}`; signed out, everything is exactly the old behavior
+(key-hash sync, or local-only with no key at all).
 
 ## localStorage keys
 
@@ -278,6 +320,7 @@ chessShowEvalBar, chessSound, chessLichessToken, chessRated, chessRating,
 chessRatedGames, chessMistakes, chessOppHistory, chessPuzzleProgress
 
 gipfApiKey  # shared app-wide (Chess + Catan), not chess-prefixed
+gipfAccount # shared app-wide naming (like gipfApiKey), chess-only today; cached account session
 ```
 
 ## Opening coaching (master stats)
