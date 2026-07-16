@@ -61,7 +61,7 @@ npm start
 
 Opens at `http://localhost:3000` with a landing page. Navigate to `/yinsh`, `/zertz`, `/chess`, `/catan`, `/splendor`, or `/diplomacy`.
 
-The bring-your-own-key features (the chess coach, the Catan and Splendor rules chat, and Diplomacy negotiation) call Anthropic through Vercel serverless functions, so they only work on the deployed site or under `vercel dev`, not plain `npm start`.
+The bring-your-own-key features (the chess coach, the Catan and Splendor rules chat, and Diplomacy negotiation) call Anthropic through Vercel serverless functions, so they only work on the deployed site or under `vercel dev`, not plain `npm start`. An optional account (username + password, no email) syncs your API key across devices from a widget on the landing page.
 
 ## Development
 

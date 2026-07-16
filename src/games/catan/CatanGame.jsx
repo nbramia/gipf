@@ -7,7 +7,7 @@ import { CATAN_RULESETS, RULESET_GROUPS, getDefaultScenario, getRuleset, normali
 import useAIWorker from './hooks/useAIWorker.js';
 import { MCTS } from './engine/mcts.js';
 import { applyAIMove } from './engine/aiPlayer.js';
-import { askRules, setApiKey as setRulesKey, hasApiKey as hasRulesKey } from './coach/rulesClient.js';
+import { askRules, setApiKey as setRulesKey, hasApiKey as hasRulesKey, getAccountUsername } from './coach/rulesClient.js';
 import './catan.css';
 
 const HUMAN_PLAYER = 1;
@@ -303,6 +303,7 @@ export default function CatanGame() {
   const [rulesError, setRulesError] = useState('');
   const [rulesKeySet, setRulesKeySet] = useState(() => hasRulesKey());
   const [rulesKeyInput, setRulesKeyInput] = useState('');
+  const [accountUsername] = useState(() => getAccountUsername());
   const aiTimerRef = useRef(null);
   const lastLoggedActionRef = useRef(null);
   const logEndRef = useRef(null);
@@ -1728,6 +1729,11 @@ export default function CatanGame() {
                   {rulesBusy && <div className="catan-rules-msg is-bot catan-rules-thinking">Thinking…</div>}
                 </div>
                 {rulesError && <p className="catan-rules-error">{rulesError}</p>}
+                {accountUsername && (
+                  <p className="catan-rules-keynote">
+                    Signed in as {accountUsername} — your API key is synced from your account. Manage it on the home page.
+                  </p>
+                )}
                 {rulesKeySet ? (
                   <>
                     <div className="catan-rules-inputrow">

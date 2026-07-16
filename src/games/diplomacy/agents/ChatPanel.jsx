@@ -12,6 +12,7 @@ import {
   setApiKey,
   sendMessage,
   createMemory,
+  getAccountUsername,
 } from './agentClient.js';
 import useHasApiKey from '../hooks/useApiKey.js';
 import { appendMessage, getThread } from './memory.js';
@@ -44,6 +45,7 @@ export default function ChatPanel({
   const [keyDraft, setKeyDraft] = useState('');
   // Reactive: reflects a key set here OR in another tab / GIPF game, live.
   const hasKey = useHasApiKey();
+  const [accountUsername] = useState(() => getAccountUsername());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   // Expand the whole panel into a centered modal overlay for more room.
@@ -134,6 +136,12 @@ export default function ChatPanel({
           {expanded ? '✕ Close' : '⤢ Expand'}
         </button>
       </div>
+
+      {accountUsername && (
+        <p className="dip-chat-keygate-hint">
+          Signed in as {accountUsername} — your API key is synced from your account. Manage it on the home page.
+        </p>
+      )}
 
       {!hasKey ? (
         <div className="dip-chat-keygate">
