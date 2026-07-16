@@ -17,6 +17,17 @@ import { DIFFICULTY_TIERS, DEFAULT_TIER_KEY, RATING_LADDER } from './engine/diff
 import { DEFAULT_RATING, nearestRung, updateRating, scoreFor, isProvisional, mergeRating } from './engine/rating.js';
 import { profileIdFromKey, fetchRemoteProfile, putRemoteProfile, mergeHistory, mergePuzzles, mergeMistakes } from './engine/profileSync.js';
 import {
+  deriveCredentials,
+  encryptApiKey,
+  decryptApiKey,
+  createAccount,
+  loginAccount,
+  pushEncryptedKey,
+  loadSession,
+  saveSession,
+  clearSession,
+} from './engine/account.js';
+import {
   loadOppHistory,
   saveOppHistory,
   recordGameResult,
@@ -96,9 +107,18 @@ export default function ChessGame() {
     return saved ? JSON.parse(saved) : 0;
   });
   const [ratedDelta, setRatedDelta] = useState(null); // {delta, opp} for the just-finished rated game
-  // Cross-device rating sync (opt-in, keyed by a hash of the Anthropic key).
+  // Cross-device rating sync (opt-in, keyed by a hash of the Anthropic key, or
+  // by an account's password-derived profileId when signed in).
   const [syncId, setSyncId] = useState(null);
   const [syncStatus, setSyncStatus] = useState('off'); // off | local | syncing | synced | error
+
+  // Username+password account (engine/account.js): unlocks the API key +
+  // profile on any device via a password-derived id, no email/recovery.
+  const [account, setAccount] = useState(() => loadSession());
+  const [accountUsername, setAccountUsername] = useState('');
+  const [accountPassword, setAccountPassword] = useState('');
+  const [accountBusy, setAccountBusy] = useState(false);
+  const [accountError, setAccountError] = useState('');
   const [history, setHistory] = useState(() => loadOppHistory()); // per-opponent W/L/D record
   const [humanColor, setHumanColor] = useState('w'); // 'w' | 'b'
   const [orientation, setOrientation] = useState('white');
@@ -220,9 +240,77 @@ export default function ChessGame() {
     localStorage.setItem('chessRatedGames', JSON.stringify(ratedGames));
   }, [ratedGames]);
 
-  // Derive the opaque sync id from the Anthropic key (or clear it when no key).
+  // Merge a remote profile snapshot into local storage/state for every domain
+  // (rating, opponent history, puzzle progress, mistake library), returning
+  // the subset that moved past what the server had (for the caller to push
+  // back, if it wants to). Shared by the sync-pull effect below and the
+  // one-time legacy-key merge on account sign-in/creation.
+  const mergeRemoteProfileIntoLocal = useCallback((remote) => {
+    const push = {};
+
+    const localRating = { rating: ratingRef.current, ratedGames: ratedGamesRef.current };
+    const mergedRating = mergeRating(localRating, remote.rating);
+    if (mergedRating !== localRating) {
+      setRating(mergedRating.rating);
+      setRatedGames(mergedRating.ratedGames);
+    }
+    if (JSON.stringify(mergedRating) !== JSON.stringify(remote.rating)) {
+      push.rating = mergedRating;
+    }
+
+    const mergedHistory = mergeHistory(loadOppHistory(), remote.history);
+    saveOppHistory(mergedHistory);
+    setHistory(mergedHistory);
+    if (JSON.stringify(mergedHistory) !== JSON.stringify(remote.history)) {
+      push.history = mergedHistory;
+    }
+
+    const mergedPuzzles = mergePuzzles(loadProgress(), remote.puzzles);
+    saveProgress(mergedPuzzles);
+    setPuzzleProgressState(mergedPuzzles);
+    if (JSON.stringify(mergedPuzzles) !== JSON.stringify(remote.puzzles)) {
+      push.puzzles = mergedPuzzles;
+    }
+
+    const remoteMistakeEntries = remote.mistakes && remote.mistakes.entries;
+    const mergedMistakes = mergeMistakes(loadMistakes(), remoteMistakeEntries);
+    saveMistakes(mergedMistakes);
+    setDueCount(dueMistakes(mergedMistakes).length);
+    if (JSON.stringify(mergedMistakes) !== JSON.stringify(remoteMistakeEntries || null)) {
+      push.mistakes = mergedMistakes;
+    }
+
+    return push;
+  }, []);
+
+  // Best-effort, one-time merge of a legacy key-hash profile into local
+  // storage when an account is created/signed into while an Anthropic key is
+  // already present under a *different* id. Never throws — called before the
+  // account takes over syncId, so its [syncId] pull-effect below folds the
+  // now-enriched local state into the account profile and pushes it up.
+  const mergeLegacyProfile = useCallback(async (creds) => {
+    const key = getApiKey();
+    if (!key) return;
+    try {
+      const legacyId = await profileIdFromKey(key);
+      if (!legacyId || legacyId === creds.profileId) return;
+      const remote = await fetchRemoteProfile(legacyId);
+      if (remote && remote.configured === false) return;
+      mergeRemoteProfileIntoLocal(remote);
+    } catch (_) {
+      /* best-effort */
+    }
+  }, [mergeRemoteProfileIntoLocal]);
+
+  // Derive the opaque sync id: an account's password-derived profileId takes
+  // priority when signed in; otherwise fall back to a hash of the Anthropic
+  // key (or clear it when neither is present).
   useEffect(() => {
     let cancelled = false;
+    if (account) {
+      setSyncId(account.profileId);
+      return undefined;
+    }
     const key = getApiKey();
     if (!key) {
       setSyncId(null);
@@ -233,7 +321,7 @@ export default function ChessGame() {
       if (!cancelled) setSyncId(id || null);
     });
     return () => { cancelled = true; };
-  }, [keySet]);
+  }, [keySet, account]);
 
   // On a fresh sync id, pull the remote profile and reconcile every domain with
   // local (rating, opponent history, puzzle progress, mistake library), then
@@ -247,49 +335,16 @@ export default function ChessGame() {
       .then((remote) => {
         if (cancelled) return;
         if (remote && remote.configured === false) {
-          setSyncStatus('local'); // key present, but no store provisioned server-side
+          setSyncStatus('local'); // key/account present, but no store provisioned server-side
           return;
         }
-        const push = {};
-
-        const localRating = { rating: ratingRef.current, ratedGames: ratedGamesRef.current };
-        const mergedRating = mergeRating(localRating, remote.rating);
-        if (mergedRating !== localRating) {
-          setRating(mergedRating.rating);
-          setRatedGames(mergedRating.ratedGames);
-        }
-        if (JSON.stringify(mergedRating) !== JSON.stringify(remote.rating)) {
-          push.rating = mergedRating;
-        }
-
-        const mergedHistory = mergeHistory(loadOppHistory(), remote.history);
-        saveOppHistory(mergedHistory);
-        setHistory(mergedHistory);
-        if (JSON.stringify(mergedHistory) !== JSON.stringify(remote.history)) {
-          push.history = mergedHistory;
-        }
-
-        const mergedPuzzles = mergePuzzles(loadProgress(), remote.puzzles);
-        saveProgress(mergedPuzzles);
-        setPuzzleProgressState(mergedPuzzles);
-        if (JSON.stringify(mergedPuzzles) !== JSON.stringify(remote.puzzles)) {
-          push.puzzles = mergedPuzzles;
-        }
-
-        const remoteMistakeEntries = remote.mistakes && remote.mistakes.entries;
-        const mergedMistakes = mergeMistakes(loadMistakes(), remoteMistakeEntries);
-        saveMistakes(mergedMistakes);
-        setDueCount(dueMistakes(mergedMistakes).length);
-        if (JSON.stringify(mergedMistakes) !== JSON.stringify(remoteMistakeEntries || null)) {
-          push.mistakes = mergedMistakes;
-        }
-
+        const push = mergeRemoteProfileIntoLocal(remote);
         if (Object.keys(push).length > 0) putRemoteProfile(syncId, push);
         setSyncStatus('synced');
       })
       .catch(() => { if (!cancelled) setSyncStatus('error'); });
     return () => { cancelled = true; };
-  }, [syncId]);
+  }, [syncId, mergeRemoteProfileIntoLocal]);
 
   // Auto-scroll the transcript to the newest entry (now rendered at the top).
   useEffect(() => {
@@ -941,15 +996,133 @@ export default function ChessGame() {
   };
 
   const saveKey = () => {
-    setApiKey(apiKeyInput.trim());
+    const trimmed = apiKeyInput.trim();
+    setApiKey(trimmed);
     setKeySet(hasApiKey());
     setApiKeyInput('');
     setShowKeyField(false);
+    // Signed in + key changed: push the freshly-encrypted key to the account
+    // so other devices pick it up. Fire-and-forget — never blocks the UI.
+    if (account && trimmed) {
+      encryptApiKey(account.aesKey, trimmed).then((enc) =>
+        pushEncryptedKey({ usernameId: account.usernameId, authToken: account.authToken, enc }),
+      );
+    }
   };
   const removeKey = () => {
     setApiKey('');
     setKeySet(false);
     setShowKeyField(false);
+  };
+
+  const handleCreateAccount = async () => {
+    const username = accountUsername.trim();
+    if (!username || accountPassword.length < 6) {
+      setAccountError(!username ? 'Enter a username.' : 'Password must be at least 6 characters.');
+      return;
+    }
+    setAccountBusy(true);
+    setAccountError('');
+    try {
+      const creds = await deriveCredentials(username, accountPassword);
+      if (!creds) {
+        setAccountError("Your browser doesn't support the required crypto.");
+        return;
+      }
+      const currentKey = getApiKey();
+      const enc = currentKey ? await encryptApiKey(creds.aesKey, currentKey) : null;
+      let res;
+      try {
+        res = await createAccount({ usernameId: creds.usernameId, authToken: creds.authToken, enc });
+      } catch (_) {
+        setAccountError('Network error — try again.');
+        return;
+      }
+      if (res.configured === false) {
+        setAccountError("Accounts aren't configured on the server.");
+        return;
+      }
+      if (res.error === 'taken') {
+        setAccountError('That username is taken.');
+        return;
+      }
+      if (res.error) {
+        setAccountError(res.message || 'Something went wrong.');
+        return;
+      }
+      await mergeLegacyProfile(creds);
+      saveSession(creds);
+      setAccount(creds);
+      setAccountUsername('');
+      setAccountPassword('');
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const handleSignIn = async () => {
+    const username = accountUsername.trim();
+    if (!username || !accountPassword) {
+      setAccountError('Enter a username and password.');
+      return;
+    }
+    setAccountBusy(true);
+    setAccountError('');
+    try {
+      const creds = await deriveCredentials(username, accountPassword);
+      if (!creds) {
+        setAccountError("Your browser doesn't support the required crypto.");
+        return;
+      }
+      let res;
+      try {
+        res = await loginAccount({ usernameId: creds.usernameId, authToken: creds.authToken });
+      } catch (_) {
+        setAccountError('Network error — try again.');
+        return;
+      }
+      if (res.configured === false) {
+        setAccountError("Accounts aren't configured on the server.");
+        return;
+      }
+      if (res.error === 'no_account') {
+        setAccountError('No account with that username.');
+        return;
+      }
+      if (res.error === 'bad_credentials') {
+        setAccountError('Wrong username or password.');
+        return;
+      }
+      if (res.error) {
+        setAccountError(res.message || 'Something went wrong.');
+        return;
+      }
+      if (res.enc) {
+        let key;
+        try {
+          key = await decryptApiKey(creds.aesKey, res.enc);
+        } catch (_) {
+          setAccountError('Wrong username or password.');
+          return;
+        }
+        if (key) {
+          setApiKey(key);
+          setKeySet(hasApiKey());
+        }
+      }
+      await mergeLegacyProfile(creds);
+      saveSession(creds);
+      setAccount(creds);
+      setAccountUsername('');
+      setAccountPassword('');
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const handleSignOut = () => {
+    clearSession();
+    setAccount(null);
   };
 
   const saveLichess = () => {
@@ -1552,11 +1725,13 @@ export default function ChessGame() {
                       className="font-body text-xs mt-2"
                       style={{ color: syncStatus === 'synced' ? 'var(--color-accent)' : 'var(--color-text-muted)' }}
                     >
-                      {syncStatus === 'synced' && '☁ Synced to your API key — your rating follows you across devices.'}
+                      {syncStatus === 'synced' && (account
+                        ? '☁ Synced to your account — your progress follows you across devices.'
+                        : '☁ Synced to your API key — your rating follows you across devices.')}
                       {syncStatus === 'syncing' && '☁ Syncing…'}
                       {syncStatus === 'error' && '⚠ Couldn’t reach the rating store — using your rating on this device.'}
                       {syncStatus === 'local' && 'Saved on this device. (Rating sync isn’t configured on the server.)'}
-                      {syncStatus === 'off' && 'Add an Anthropic API key in Settings to sync your rating across devices.'}
+                      {syncStatus === 'off' && 'Create an account or add an Anthropic API key in Settings to sync your rating across devices.'}
                     </p>
                   </div>
                 ) : (
@@ -1663,6 +1838,70 @@ export default function ChessGame() {
                   <p className="mt-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
                     Stored only in your browser. Never sent anywhere but Anthropic. Coaching works without it using built-in analysis.
                   </p>
+                </div>
+
+                <div>
+                  <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+                    Account
+                  </label>
+                  {account ? (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <span className="font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                          Signed in as {account.username}
+                        </span>
+                        <button onClick={handleSignOut} className="px-2 py-1 rounded font-body text-xs panel">
+                          Sign out
+                        </button>
+                      </div>
+                      <p className="mt-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                        Your API key and profile sync through this account.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex flex-col gap-2">
+                        <input
+                          type="text"
+                          value={accountUsername}
+                          onChange={(e) => setAccountUsername(e.target.value)}
+                          placeholder="Username"
+                          className="w-full px-3 py-2 rounded-lg font-body text-sm panel"
+                          style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
+                        />
+                        <input
+                          type="password"
+                          value={accountPassword}
+                          onChange={(e) => setAccountPassword(e.target.value)}
+                          placeholder="Password"
+                          className="w-full px-3 py-2 rounded-lg font-body text-sm panel"
+                          style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={handleSignIn}
+                            disabled={accountBusy || !accountUsername.trim() || !accountPassword}
+                            className="flex-1 px-3 py-2 rounded-lg font-body text-sm panel disabled:opacity-40"
+                          >
+                            {accountBusy ? 'Working…' : 'Sign in'}
+                          </button>
+                          <button
+                            onClick={handleCreateAccount}
+                            disabled={accountBusy || !accountUsername.trim() || !accountPassword}
+                            className="flex-1 px-3 py-2 rounded-lg font-body text-sm panel disabled:opacity-40"
+                          >
+                            {accountBusy ? 'Working…' : 'Create account'}
+                          </button>
+                        </div>
+                      </div>
+                      {accountError && (
+                        <p className="mt-1 font-body text-xs tone-bad">{accountError}</p>
+                      )}
+                      <p className="mt-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                        One password unlocks your coach key and game history on any device. No email, no reset — if you forget the password, you'll need a new account.
+                      </p>
+                    </>
+                  )}
                 </div>
 
                 <div>
