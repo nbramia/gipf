@@ -16,7 +16,7 @@ import {
 import useAIWorker from './hooks/useAIWorker.js';
 import { MCTS } from './engine/mcts.js';
 import { applyAIMove } from './engine/aiPlayer.js';
-import { askRules, setApiKey as setRulesKey, hasApiKey as hasRulesKey } from './coach/rulesClient.js';
+import { askRules, setApiKey as setRulesKey, hasApiKey as hasRulesKey, getAccountUsername } from './coach/rulesClient.js';
 import './splendor.css';
 
 const HUMAN_PLAYER = 1;
@@ -248,6 +248,7 @@ export default function SplendorGame() {
   const [chatBusy, setChatBusy] = useState(false);
   const [keyInput, setKeyInput] = useState('');
   const [hasKey, setHasKey] = useState(hasRulesKey());
+  const [accountUsername] = useState(() => getAccountUsername());
 
   const { computeMove, isSupported: workerSupported } = useAIWorker();
   const aiTimerRef = useRef(null);
@@ -455,6 +456,11 @@ export default function SplendorGame() {
                   <input type="password" value={keyInput} onChange={e => setKeyInput(e.target.value)} placeholder="sk-ant-..." />
                   <button type="button" className="spl-btn" onClick={saveKey}>Save</button>
                 </div>
+              )}
+              {accountUsername && (
+                <p className="spl-chat-hint">
+                  Signed in as {accountUsername} — your API key is synced from your account. Manage it on the home page.
+                </p>
               )}
             </div>
           </div>

@@ -9,6 +9,7 @@ import {
   sendMessage,
   askAgent,
   createMemory,
+  getAccountUsername,
 } from './agentClient.js';
 
 beforeEach(() => {
@@ -52,6 +53,21 @@ describe('shared key storage', () => {
     localStorage.setItem('catanApiKey', 'sk-from-catan');
     expect(getApiKey()).toBe('sk-from-catan');
     expect(localStorage.getItem('gipfApiKey')).toBe('sk-from-catan');
+  });
+});
+
+describe('getAccountUsername', () => {
+  test('returns the username from a valid v1 session', () => {
+    localStorage.setItem('gipfAccount', JSON.stringify({ v: 1, username: 'nate' }));
+    expect(getAccountUsername()).toBe('nate');
+  });
+
+  test('returns null when no session, or a malformed one, is present', () => {
+    expect(getAccountUsername()).toBeNull();
+    localStorage.setItem('gipfAccount', 'not-json');
+    expect(getAccountUsername()).toBeNull();
+    localStorage.setItem('gipfAccount', JSON.stringify({ v: 2, username: 'nate' }));
+    expect(getAccountUsername()).toBeNull();
   });
 });
 
