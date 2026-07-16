@@ -7,7 +7,9 @@
 // authToken — a password-derived 64-hex secret used purely for authorization,
 // stored only as its SHA-256 hash, and (c) enc — the user's Anthropic API key
 // encrypted client-side with an AES-GCM key that never leaves the browser.
-// The server can never read anyone's API key. No email, no recovery: a
+// The account record also carries encLichess — same encryption model — for
+// the user's Lichess explorer token. The server can never read anyone's API
+// key or Lichess token. No email, no recovery: a
 // forgotten password means a new account. No rate limiting — accepted risk
 // for low-stakes data.
 //
@@ -110,7 +112,7 @@ export default async function handler(req, res) {
       return;
     }
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
-    const { action, u, auth, enc } = body;
+    const { action, u, auth, enc, encLichess } = body;
 
     if (!isHex64(u) || !isHex64(auth)) {
       res.status(400).json({ error: 'bad_request', message: 'Invalid username or auth token.' });
@@ -120,6 +122,12 @@ export default async function handler(req, res) {
     const encProvided = enc !== undefined;
     if (encProvided && enc !== null && !isValidEncShape(enc)) {
       res.status(400).json({ error: 'bad_request', message: 'Invalid enc payload.' });
+      return;
+    }
+
+    const encLichessProvided = encLichess !== undefined;
+    if (encLichessProvided && encLichess !== null && !isValidEncShape(encLichess)) {
+      res.status(400).json({ error: 'bad_request', message: 'Invalid encLichess payload.' });
       return;
     }
 
@@ -136,7 +144,12 @@ export default async function handler(req, res) {
         res.status(409).json({ error: 'taken', message: 'That username is taken.' });
         return;
       }
-      await kvSet(accountKey(u), { authHash: sha256Hex(auth), enc: enc || null, createdAt: Date.now() });
+      await kvSet(accountKey(u), {
+        authHash: sha256Hex(auth),
+        enc: enc || null,
+        encLichess: encLichess || null,
+        createdAt: Date.now(),
+      });
       res.status(200).json({ configured: true, created: true });
       return;
     }
@@ -151,13 +164,21 @@ export default async function handler(req, res) {
         res.status(401).json({ error: 'bad_credentials', message: 'Incorrect password.' });
         return;
       }
-      res.status(200).json({ configured: true, enc: record.enc || null });
+      res.status(200).json({ configured: true, enc: record.enc || null, encLichess: record.encLichess || null });
       return;
     }
 
     if (action === 'setKey') {
-      if (!encProvided || enc === null) {
-        res.status(400).json({ error: 'bad_request', message: 'enc is required.' });
+      if (encProvided && enc === null) {
+        res.status(400).json({ error: 'bad_request', message: 'enc must not be null.' });
+        return;
+      }
+      if (encLichessProvided && encLichess === null) {
+        res.status(400).json({ error: 'bad_request', message: 'encLichess must not be null.' });
+        return;
+      }
+      if (!encProvided && !encLichessProvided) {
+        res.status(400).json({ error: 'bad_request', message: 'enc or encLichess is required.' });
         return;
       }
       const record = await kvGet(accountKey(u));
@@ -169,7 +190,12 @@ export default async function handler(req, res) {
         res.status(401).json({ error: 'bad_credentials', message: 'Incorrect password.' });
         return;
       }
-      await kvSet(accountKey(u), { authHash: record.authHash, enc, createdAt: record.createdAt });
+      await kvSet(accountKey(u), {
+        authHash: record.authHash,
+        enc: encProvided ? enc : record.enc || null,
+        encLichess: encLichessProvided ? encLichess : record.encLichess || null,
+        createdAt: record.createdAt,
+      });
       res.status(200).json({ configured: true, saved: true });
       return;
     }

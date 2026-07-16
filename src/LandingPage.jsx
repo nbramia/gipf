@@ -11,6 +11,8 @@ import {
   clearSession,
   getSharedApiKey,
   setSharedApiKey,
+  getSharedLichessToken,
+  setSharedLichessToken,
 } from './account';
 
 const games = [
@@ -89,9 +91,11 @@ export default function LandingPage() {
       }
       const currentKey = getSharedApiKey();
       const enc = currentKey ? await encryptApiKey(creds.aesKey, currentKey) : null;
+      const currentLichess = getSharedLichessToken();
+      const encLichess = currentLichess ? await encryptApiKey(creds.aesKey, currentLichess) : null;
       let res;
       try {
-        res = await createAccount({ usernameId: creds.usernameId, authToken: creds.authToken, enc });
+        res = await createAccount({ usernameId: creds.usernameId, authToken: creds.authToken, enc, encLichess });
       } catch (_) {
         setError('Network error — try again.');
         return;
@@ -164,6 +168,14 @@ export default function LandingPage() {
           return;
         }
         if (key) setSharedApiKey(key);
+      }
+      if (res.encLichess) {
+        try {
+          const token = await decryptApiKey(creds.aesKey, res.encLichess);
+          if (token) setSharedLichessToken(token);
+        } catch (_) {
+          /* best-effort — the key decrypt already validated the password */
+        }
       }
       // No profile merge here — chess performs the profile merge itself on
       // its next mount, once it sees this session.

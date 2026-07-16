@@ -1031,9 +1031,11 @@ export default function ChessGame() {
       }
       const currentKey = getApiKey();
       const enc = currentKey ? await encryptApiKey(creds.aesKey, currentKey) : null;
+      const token = getLichessToken();
+      const encLichess = token ? await encryptApiKey(creds.aesKey, token) : null;
       let res;
       try {
-        res = await createAccount({ usernameId: creds.usernameId, authToken: creds.authToken, enc });
+        res = await createAccount({ usernameId: creds.usernameId, authToken: creds.authToken, enc, encLichess });
       } catch (_) {
         setAccountError('Network error — try again.');
         return;
@@ -1110,6 +1112,17 @@ export default function ChessGame() {
           setKeySet(hasApiKey());
         }
       }
+      if (res.encLichess) {
+        try {
+          const token = await decryptApiKey(creds.aesKey, res.encLichess);
+          if (token) {
+            setLichessToken(token);
+            setLichessSet(hasLichessToken());
+          }
+        } catch (_) {
+          /* best-effort — the key decrypt already validated the password */
+        }
+      }
       await mergeLegacyProfile(creds);
       saveSession(creds);
       setAccount(creds);
@@ -1126,10 +1139,19 @@ export default function ChessGame() {
   };
 
   const saveLichess = () => {
-    setLichessToken(lichessInput.trim());
+    const trimmed = lichessInput.trim();
+    setLichessToken(trimmed);
     setLichessSet(hasLichessToken());
     setLichessInput('');
     setShowLichessField(false);
+    // Signed in + token changed: push the freshly-encrypted token to the
+    // account so other devices pick it up. Fire-and-forget — never blocks
+    // the UI. Mirrors saveKey's pattern.
+    if (account && trimmed) {
+      encryptApiKey(account.aesKey, trimmed).then((encLichess) =>
+        pushEncryptedKey({ usernameId: account.usernameId, authToken: account.authToken, encLichess }),
+      );
+    }
   };
   const removeLichess = () => {
     setLichessToken('');

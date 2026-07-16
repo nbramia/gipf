@@ -12,6 +12,7 @@ import LandingPage from './LandingPage';
 
 const ACCOUNT_KEY = 'gipfAccount';
 const API_KEY = 'gipfApiKey';
+const LICHESS_KEY = 'chessLichessToken';
 
 function renderLanding() {
   return render(
@@ -62,6 +63,7 @@ describe('LandingPage', () => {
       })
     );
     localStorage.setItem(API_KEY, 'sk-test-key');
+    localStorage.setItem(LICHESS_KEY, 'lip-test-token');
 
     renderLanding();
 
@@ -74,5 +76,6 @@ describe('LandingPage', () => {
     expect(screen.getByRole('button', { name: 'Sign in / Create account' })).toBeInTheDocument();
     expect(screen.queryByText('Signed in as Nathan')).not.toBeInTheDocument();
     expect(localStorage.getItem(API_KEY)).toBe('sk-test-key');
+    expect(localStorage.getItem(LICHESS_KEY)).toBe('lip-test-token');
   });
 });
