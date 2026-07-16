@@ -15,7 +15,16 @@ import MistakeReviewPanel from './components/MistakeReviewPanel.jsx';
 import { loadMistakes, saveMistakes, captureMistake, dueMistakes, weaknessProfile } from './coach/mistakeStore.js';
 import { DIFFICULTY_TIERS, DEFAULT_TIER_KEY, RATING_LADDER } from './engine/difficulty.js';
 import { DEFAULT_RATING, nearestRung, updateRating, scoreFor, isProvisional, mergeRating } from './engine/rating.js';
-import { ratingIdFromKey, fetchRemoteRating, putRemoteRating } from './engine/ratingSync.js';
+import { profileIdFromKey, fetchRemoteProfile, putRemoteProfile, mergeHistory, mergePuzzles, mergeMistakes } from './engine/profileSync.js';
+import {
+  loadOppHistory,
+  saveOppHistory,
+  recordGameResult,
+  formatRecord,
+  loadPuzzleProgress,
+  savePuzzleProgress,
+  recordPuzzleAttempt,
+} from './engine/playerHistory.js';
 import { buildMovePayload } from './coach/analyzeMove.js';
 import { detectOpening } from './coach/openings.js';
 import {
@@ -93,6 +102,7 @@ export default function ChessGame() {
   // Cross-device rating sync (opt-in, keyed by a hash of the Anthropic key).
   const [syncId, setSyncId] = useState(null);
   const [syncStatus, setSyncStatus] = useState('off'); // off | local | syncing | synced | error
+  const [history, setHistory] = useState(() => loadOppHistory()); // per-opponent W/L/D record
   const [humanColor, setHumanColor] = useState('w'); // 'w' | 'b'
   const [orientation, setOrientation] = useState('white');
   const [selected, setSelected] = useState(null);
@@ -132,6 +142,7 @@ export default function ChessGame() {
   const ratedRef = useRef(rated); // latest value usable inside coachOnMove
   useEffect(() => { ratedRef.current = rated; }, [rated]);
   const ratedAppliedRef = useRef(false); // guard: score each rated game exactly once
+  const historyAppliedRef = useRef(false); // guard: record opponent history once per game (casual + rated)
   const ratingRef = useRef(rating); // latest rating/games for the sync-pull closure
   const ratedGamesRef = useRef(ratedGames);
   useEffect(() => { ratingRef.current = rating; }, [rating]);
@@ -221,36 +232,61 @@ export default function ChessGame() {
       setSyncStatus('off');
       return undefined;
     }
-    ratingIdFromKey(key).then((id) => {
+    profileIdFromKey(key).then((id) => {
       if (!cancelled) setSyncId(id || null);
     });
     return () => { cancelled = true; };
   }, [keySet]);
 
-  // On a fresh sync id, pull the remote record and reconcile with local: adopt
-  // whichever has played more games (then write the winner back so both
-  // devices converge). Runs once per id — reads latest local values via refs.
+  // On a fresh sync id, pull the remote profile and reconcile every domain with
+  // local (rating, opponent history, puzzle progress, mistake library), then
+  // write back only the domains where the merge moved past what the server had.
+  // Runs once per id — reads latest local values via refs/localStorage.
   useEffect(() => {
     if (!syncId) return undefined;
     let cancelled = false;
     setSyncStatus('syncing');
-    fetchRemoteRating(syncId)
+    fetchRemoteProfile(syncId)
       .then((remote) => {
         if (cancelled) return;
         if (remote && remote.configured === false) {
           setSyncStatus('local'); // key present, but no store provisioned server-side
           return;
         }
-        const local = { rating: ratingRef.current, ratedGames: ratedGamesRef.current };
-        const merged = mergeRating(local, remote);
-        if (merged !== local) {
-          setRating(merged.rating);
-          setRatedGames(merged.ratedGames);
+        const push = {};
+
+        const localRating = { rating: ratingRef.current, ratedGames: ratedGamesRef.current };
+        const mergedRating = mergeRating(localRating, remote.rating);
+        if (mergedRating !== localRating) {
+          setRating(mergedRating.rating);
+          setRatedGames(mergedRating.ratedGames);
         }
-        // Push local up when the server is behind or empty.
-        if (!remote || merged === local) {
-          putRemoteRating(syncId, merged.rating, merged.ratedGames);
+        if (JSON.stringify(mergedRating) !== JSON.stringify(remote.rating)) {
+          push.rating = mergedRating;
         }
+
+        const mergedHistory = mergeHistory(loadOppHistory(), remote.history);
+        saveOppHistory(mergedHistory);
+        setHistory(mergedHistory);
+        if (JSON.stringify(mergedHistory) !== JSON.stringify(remote.history)) {
+          push.history = mergedHistory;
+        }
+
+        const mergedPuzzles = mergePuzzles(loadPuzzleProgress(), remote.puzzles);
+        savePuzzleProgress(mergedPuzzles);
+        if (JSON.stringify(mergedPuzzles) !== JSON.stringify(remote.puzzles)) {
+          push.puzzles = mergedPuzzles;
+        }
+
+        const remoteMistakeEntries = remote.mistakes && remote.mistakes.entries;
+        const mergedMistakes = mergeMistakes(loadMistakes(), remoteMistakeEntries);
+        saveMistakes(mergedMistakes);
+        setDueCount(dueMistakes(mergedMistakes).length);
+        if (JSON.stringify(mergedMistakes) !== JSON.stringify(remoteMistakeEntries || null)) {
+          push.mistakes = mergedMistakes;
+        }
+
+        if (Object.keys(push).length > 0) putRemoteProfile(syncId, push);
         setSyncStatus('synced');
       })
       .catch(() => { if (!cancelled) setSyncStatus('error'); });
@@ -294,6 +330,9 @@ export default function ChessGame() {
   const lastMove = board.lastMove();
   const checkedSquare = board.checkedKingSquare();
   const humanToMove = !gameOver && board.turn() === humanColor;
+  // The opponent identity used to key per-opponent history: the matched rated
+  // rung, or the chosen casual difficulty tier.
+  const opponentKey = rated ? String(ratedRung.rating) : difficulty;
 
   // Score a finished rated game exactly once: derive win/loss/draw from the
   // human's POV, update the Elo against the matched rung, and record the delta.
@@ -311,8 +350,28 @@ export default function ChessGame() {
     setRating(next);
     setRatedGames((g) => g + 1);
     setRatedDelta({ delta, opp });
-    if (syncId) putRemoteRating(syncId, next, ratedGames + 1); // cross-device write-through
+    // cross-device write-through
+    if (syncId) putRemoteProfile(syncId, { rating: { rating: next, ratedGames: ratedGames + 1 } });
   }, [rated, puzzleMode, gameResult, humanColor, ratedRung, rating, ratedGames, syncId]);
+
+  // Record per-opponent history at every game end (casual and rated), once per
+  // game. Independent of rated scoring so casual games are tracked too; skipped
+  // in puzzle mode and mistake drills (those aren't games vs an opponent).
+  useEffect(() => {
+    if (puzzleMode || drill.active || !gameResult || historyAppliedRef.current) return;
+    historyAppliedRef.current = true;
+    const humanWord = humanColor === 'w' ? 'white' : 'black';
+    const result = gameResult.winner == null
+      ? 'draw'
+      : gameResult.winner === humanWord
+        ? 'win'
+        : 'loss';
+    const h = recordGameResult(loadOppHistory(), { rated, opponentKey, result });
+    saveOppHistory(h);
+    setHistory(h);
+    // Mistakes accumulated during the game get synced at game end too.
+    if (syncId) putRemoteProfile(syncId, { history: h, mistakes: loadMistakes() });
+  }, [puzzleMode, drill.active, gameResult, humanColor, rated, opponentKey, syncId]);
 
   // Produce coaching for a move that was just played. Runs two full-strength
   // analyses (position before + after the move) so commentary is engine-true,
@@ -710,6 +769,7 @@ export default function ChessGame() {
     const c = color || (Math.random() < 0.5 ? 'w' : 'b');
     coachSeqRef.current += 1; // invalidate any in-flight coaching
     ratedAppliedRef.current = false;
+    historyAppliedRef.current = false;
     setRatedDelta(null);
     setPuzzleMode(false);
     drill.exit();
@@ -1112,6 +1172,11 @@ export default function ChessGame() {
               <div className="mb-3 font-body text-sm" style={{ color: 'var(--color-text-secondary)' }} aria-live="polite">
                 {statusText}
               </div>
+              {gameOver && !puzzleMode && !drill.active && formatRecord(history, rated, opponentKey) && (
+                <div className="mb-3 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                  Record vs this opponent: {formatRecord(history, rated, opponentKey)}
+                </div>
+              )}
               {rated && (
                 <div className="mb-3 flex items-center gap-2 font-body text-sm" aria-live="polite">
                   <span className="px-2 py-0.5 rounded font-semibold" style={{ backgroundColor: 'var(--color-accent-soft)', color: 'var(--color-text-primary)' }}>
@@ -1476,6 +1541,11 @@ export default function ChessGame() {
                         ? `Provisional — ${ratedGames}/20 games played. Facing ${ratedRung.rating}.`
                         : `${ratedGames} games played. Facing ${ratedRung.rating}.`}
                     </p>
+                    {formatRecord(history, true, String(ratedRung.rating)) && (
+                      <p className="font-body text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                        Record: {formatRecord(history, true, String(ratedRung.rating))}
+                      </p>
+                    )}
                     <p className="font-body text-xs mt-2" style={{ color: 'var(--color-text-muted)' }}>
                       Random color each game. Undo, flip, and coaching are disabled so the result is honest. Resigning counts as a loss.
                     </p>
@@ -1508,6 +1578,11 @@ export default function ChessGame() {
                           </option>
                         ))}
                       </select>
+                      {formatRecord(history, false, difficulty) && (
+                        <p className="font-body text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                          Record: {formatRecord(history, false, difficulty)}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
