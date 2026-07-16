@@ -20,6 +20,8 @@ src/games/chess/
     uci.test.js
     rating.js            # Pure Elo math + matchmaking for Rated mode
     ratingSync.js        # Cross-device rating sync client (keyed by key hash)
+    profileSync.js       # Cross-device profile sync -- supersedes ratingSync (rating + history + puzzles + mistakes)
+    playerHistory.js     # localStorage: per-opponent W/L/D history + puzzle attempt/solve counters
   hooks/
     useStockfish.js      # Engine lifecycle; getMove() + analyze(); serialized
     useMistakeDrill.js   # Drill session state machine for the mistake library (#23)
@@ -43,6 +45,7 @@ src/games/chess/
     material.js          # Captured pieces + material balance (#21)
     sound.js             # WebAudio move cues (#21)
 api/chessCoach.js        # Vercel serverless coach endpoint
+api/chessProfile.js      # Vercel serverless profile sync endpoint (rating + history + puzzles + mistakes)
 ```
 
 ## Engine (Stockfish)
@@ -227,18 +230,46 @@ tier:
   below Stockfish's ~1320 Elo floor are reached by sampling a weaker move
   from the full-strength MultiPV lines rather than by limiting engine
   strength, so evals stay honest even against the weakest rungs.
-- **Cross-device sync (optional):** `engine/ratingSync.js` can persist the
-  rating record to the server, keyed by the SHA-256 hash of the player's
-  Anthropic API key (namespaced before hashing) rather than the key itself,
-  so the raw key never leaves the browser for this feature. Sync degrades
-  gracefully to local-only if no server-side store is configured.
+- **Cross-device sync (optional):** rating is one of four domains synced by
+  `engine/profileSync.js` -- see "Player profile & cross-device sync" below.
+  The id is the SHA-256 hash of the player's Anthropic API key (namespaced
+  before hashing), the same id `ratingSync.js` used, so a rating already
+  synced under the old endpoint carries over unchanged. `api/chessProfile.js`
+  mirrors every rating write to the legacy `chess:rating:{id}` key, so a
+  client still calling `api/chessRating.js` directly stays coherent.
+
+## Player profile & cross-device sync
+
+Beyond the rating, two more per-player records make returning play feel
+continuous: a per-opponent win/loss/draw history, kept in separate buckets
+for casual difficulty tiers and rated ladder rungs (they're scored on
+different curves), and per-puzzle attempt/solve counters. Both live in
+localStorage (`chessOppHistory`, `chessPuzzleProgress`, managed by
+`engine/playerHistory.js`) alongside the existing `chessRating` and
+`chessMistakes` library.
+
+`engine/profileSync.js` syncs all four as one profile -- rating, history,
+puzzles, mistakes -- against `api/chessProfile.js`, under the same opaque
+key-hash id as rated-mode sync. On load it fetches the remote profile,
+merges it with the local one, and writes the merged result back both
+locally and remotely; pushes also happen at game end, on a puzzle attempt,
+and after a rated result. Merges are pure and conflict-free: rating reuses
+the existing monotonic `mergeRating`, history and puzzles take a per-counter
+max per opponent/puzzle id, and mistakes union by position (`fenBefore`),
+keeping whichever entry has more attempts or is due further out, then
+re-applying the 200-entry cap.
+
+Like rated-mode sync, this is entirely optional: without a configured Vercel
+KV store the endpoint replies `{configured: false}` and every helper no-ops
+back to local-only, and without a BYO API key there's no id to sync under at
+all -- everything just works from localStorage as it always has.
 
 ## localStorage keys
 
 ```
 chessDarkMode, chessShowMoves, chessDifficulty, chessLearningGoal,
 chessShowEvalBar, chessSound, chessLichessToken, chessRated, chessRating,
-chessRatedGames, chessMistakes, chessPuzzleProgress
+chessRatedGames, chessMistakes, chessOppHistory, chessPuzzleProgress
 
 gipfApiKey  # shared app-wide (Chess + Catan), not chess-prefixed
 ```
