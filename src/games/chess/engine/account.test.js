@@ -122,6 +122,35 @@ describe('encryptApiKey / decryptApiKey', () => {
   });
 });
 
+describe('encryptApiKey / decryptApiKey — two independent secrets under one account', () => {
+  // The account carries two BYO secrets (the Anthropic API key and the
+  // Lichess explorer token) encrypted under the same password-derived AES
+  // key. encryptApiKey/decryptApiKey are generic string encryptors, so this
+  // just confirms they don't cross-contaminate when used twice per account.
+  let aesKey;
+
+  beforeAll(async () => {
+    ({ aesKey } = await deriveCredentials('Alice', 'correct horse battery staple'));
+  }, 30000);
+
+  test('the same AES key independently encrypts/decrypts an API key and a Lichess token', async () => {
+    const apiKey = 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789';
+    const lichessToken = 'lip_abcdefghijklmnopqrstuvwxyz012345';
+
+    const encKey = await encryptApiKey(aesKey, apiKey);
+    const encLichess = await encryptApiKey(aesKey, lichessToken);
+
+    expect(await decryptApiKey(aesKey, encKey)).toBe(apiKey);
+    expect(await decryptApiKey(aesKey, encLichess)).toBe(lichessToken);
+  });
+
+  test('wrong key still rejects for the Lichess token ciphertext', async () => {
+    const { aesKey: wrongKey } = await deriveCredentials('Bob', 'a different password entirely');
+    const encLichess = await encryptApiKey(aesKey, 'lip_some-lichess-token');
+    await expect(decryptApiKey(wrongKey, encLichess)).rejects.toBeTruthy();
+  });
+});
+
 describe('session persistence', () => {
   afterEach(() => {
     clearSession();

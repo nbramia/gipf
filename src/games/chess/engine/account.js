@@ -4,8 +4,9 @@
 // No email, no recovery: a forgotten password means a new account. Every
 // secret is derived client-side from the password via PBKDF2 — the server
 // (api/chessAccount.js) never sees the password, and stores only a hash of
-// an auth token plus an AES-GCM ciphertext of the user's Anthropic API key.
-// The AES key that decrypts that ciphertext never leaves the client. The
+// an auth token plus AES-GCM ciphertexts of the user's two BYO secrets: the
+// Anthropic API key (`enc`) and the Lichess explorer token (`encLichess`).
+// The AES key that decrypts those ciphertexts never leaves the client. The
 // profileId is one of the password-derived secrets, so it's unguessable
 // without the password — that's what lets account profiles reuse the
 // existing /api/chessProfile endpoint unchanged: the profileId doubles as
@@ -70,11 +71,16 @@ export async function deriveCredentials(username, password) {
 }
 
 // ---- API key encryption ---------------------------------------------------
+//
+// encryptApiKey/decryptApiKey are generic string encryptors despite the
+// name — they serve both BYO secrets carried on the account (the Anthropic
+// API key and the Lichess explorer token), each independently, under the
+// same password-derived AES key.
 
-// Encrypt the user's Anthropic API key under the password-derived AES key.
-// `aesKeyB64` is the `aesKey` field from deriveCredentials. Returns
-// { iv, ct } as base64 strings — both are safe to send to the server, since
-// only the client holds the AES key.
+// Encrypt a secret string (the Anthropic API key or the Lichess token) under
+// the password-derived AES key. `aesKeyB64` is the `aesKey` field from
+// deriveCredentials. Returns { iv, ct } as base64 strings — both are safe to
+// send to the server, since only the client holds the AES key.
 export async function encryptApiKey(aesKeyB64, apiKey) {
   const subtle = globalThis.crypto.subtle;
   const rawKey = base64ToBytes(aesKeyB64);
@@ -122,27 +128,38 @@ async function postAccount(payload) {
 }
 
 // Register a brand-new account. `enc` (optional, from encryptApiKey) is the
-// initial encrypted API key, or null to create the account without one yet.
-export async function createAccount({ usernameId, authToken, enc }) {
-  return postAccount({ action: 'create', u: usernameId, auth: authToken, enc: enc || null });
+// initial encrypted API key, and `encLichess` (optional, same shape) is the
+// initial encrypted Lichess token — either or both may be null to create the
+// account without that secret yet.
+export async function createAccount({ usernameId, authToken, enc, encLichess }) {
+  return postAccount({
+    action: 'create',
+    u: usernameId,
+    auth: authToken,
+    enc: enc || null,
+    encLichess: encLichess || null,
+  });
 }
 
 // Authenticate an existing account. On success the response carries the
-// stored `enc` record (if any) for the caller to decrypt with the
-// password-derived AES key.
+// stored `enc` and `encLichess` records (if any) for the caller to decrypt
+// with the password-derived AES key.
 export async function loginAccount({ usernameId, authToken }) {
   return postAccount({ action: 'login', u: usernameId, auth: authToken });
 }
 
-// Push a (re-)encrypted API key to an already-authenticated account. Never
-// throws — sync failures must not interrupt play — resolves true/false,
-// matching putRemoteProfile's style.
-export async function pushEncryptedKey({ usernameId, authToken, enc }) {
+// Push a (re-)encrypted secret to an already-authenticated account — `enc`
+// (API key) and/or `encLichess` (Lichess token), whichever the caller has a
+// fresh ciphertext for. Only the provided field(s) are updated server-side;
+// the other secret is preserved untouched. Never throws — sync failures must
+// not interrupt play — resolves true/false, matching putRemoteProfile's
+// style.
+export async function pushEncryptedKey({ usernameId, authToken, enc, encLichess }) {
   try {
     const r = await fetch(ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'setKey', u: usernameId, auth: authToken, enc }),
+      body: JSON.stringify({ action: 'setKey', u: usernameId, auth: authToken, enc, encLichess }),
     });
     if (!r.ok) return false;
     const data = await r.json();
