@@ -147,7 +147,8 @@ Before modifying game logic for either game:
 | File | Purpose |
 |------|---------|
 | `src/App.jsx` | React Router with lazy-loaded game routes |
-| `src/LandingPage.jsx` | Landing page linking to each game |
+| `src/LandingPage.jsx` | Landing page linking to each game + the app-wide account widget |
+| `src/account.js` | App-level account module -- identical copy of chess's `engine/account.js` (per-consumer copy convention); landing-page sign-in/out, key decrypt into `gipfApiKey` |
 | `src/index.css` | Tailwind directives + shared keyframes only |
 | `vercel.json` | API rewrites + SPA catch-all for client-side routing |
 | `public/index.html` | HTML shell with Google Fonts (Syne + Outfit) |
@@ -427,7 +428,9 @@ gipfApiKey   # one BYO Anthropic key, used by the chess coach, the Catan rules
              # copy of the storage helper (no cross-game import).
 gipfAccount  # username+password account session (derived credentials, cached
              # locally so the client isn't re-running PBKDF2 every load).
-             # gipf-prefixed for future app-wide reuse, but chess-side only today.
+             # App-wide: landing-page widget + chess settings block; Catan,
+             # Splendor, and Diplomacy show signed-in awareness only. Signing
+             # out drops the session but keeps the local key.
 ```
 
 Never rename or restructure these without migration logic.

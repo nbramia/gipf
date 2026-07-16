@@ -313,3 +313,7 @@ The full suite is auto-discovered by `testMatch: ['**/*.test.js']`, including:
 ```bash
 CI=true npm test          # Full suite must pass before deployment
 ```
+
+### Accounts (Optional, App-Wide)
+
+A username+password account is optional and never gates play -- anonymous use is unchanged. It can be created or signed into from a widget on `LandingPage.jsx` (`src/account.js`) or from Chess's settings block (`engine/account.js`); the two are intentionally identical copies, following the per-consumer-copy convention used elsewhere in the codebase rather than a shared import. Signing in decrypts the account's Anthropic API key into the shared `gipfApiKey` slot, which lights up the AI chat features in every game -- chess coach, Catan and Splendor rules chat, Diplomacy agent chat. Signing out clears the session but leaves the key in place locally; only Chess's profile sync (history, puzzles, mistakes, rating) is tied to the account beyond the key itself.

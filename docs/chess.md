@@ -312,6 +312,12 @@ a configured Vercel KV store `api/chessAccount.js` replies
 `{configured: false}`; signed out, everything is exactly the old behavior
 (key-hash sync, or local-only with no key at all).
 
+The same account can also be created or signed into from the landing page
+(`src/account.js`, an identical copy of `engine/account.js` per the
+per-consumer-copy convention) -- the synced key lights up every game's AI
+chat feature (chess coach, Catan/Splendor rules chat, Diplomacy agent chat),
+while profile sync (history/puzzles/mistakes/Elo) stays chess-only.
+
 ## localStorage keys
 
 ```
@@ -319,8 +325,8 @@ chessDarkMode, chessShowMoves, chessDifficulty, chessLearningGoal,
 chessShowEvalBar, chessSound, chessLichessToken, chessRated, chessRating,
 chessRatedGames, chessMistakes, chessOppHistory, chessPuzzleProgress
 
-gipfApiKey  # shared app-wide (Chess + Catan), not chess-prefixed
-gipfAccount # shared app-wide naming (like gipfApiKey), chess-only today; cached account session
+gipfApiKey  # shared app-wide (all games), not chess-prefixed
+gipfAccount # shared app-wide (landing page + chess settings block); cached account session
 ```
 
 ## Opening coaching (master stats)
