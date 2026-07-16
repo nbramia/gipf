@@ -94,19 +94,57 @@ export function mergeHistory(local, remote) {
   };
 }
 
-// Reconcile local and remote puzzle progress: union by puzzle id, per-field
-// max (attempts/solves/last-activity are all monotonic per device).
-// Tolerates null on either side.
+// Reconcile local and remote puzzle-trainer progress (coach/puzzleProgress.js
+// shape: { rating, attempts, puzzles: { [id]: {attempts, solves, streak,
+// nextDueAt, lastResult} } }). Tolerates null on either side.
 export function mergePuzzles(local, remote) {
-  const l = (local && local.puzzles) || {};
-  const r = (remote && remote.puzzles) || {};
+  if (!remote) return local || { rating: 1000, attempts: 0, puzzles: {} };
+  if (!local) return remote;
+
+  // Top level (rating/attempts): the same "monotonic counter, no wall
+  // clocks" philosophy as rating.js's mergeRating — attempts only grows per
+  // device, so the side with more total attempts is the more authoritative
+  // one; ties favour the higher rating.
+  const top =
+    remote.attempts > local.attempts
+      ? remote
+      : remote.attempts < local.attempts
+        ? local
+        : remote.rating >= local.rating
+          ? remote
+          : local;
+
+  // Per-puzzle records: union by id. attempts/solves are monotonic per
+  // device (max wins). The scheduling fields (streak/nextDueAt/lastResult)
+  // move as a unit — they only make sense together — taken from whichever
+  // side most recently rescheduled the puzzle (later nextDueAt wins; ties
+  // favour the entry with more attempts).
+  const l = local.puzzles || {};
+  const r = remote.puzzles || {};
   const puzzles = {};
   for (const id of new Set([...Object.keys(l), ...Object.keys(r)])) {
-    const lp = l[id] || { a: 0, s: 0, t: 0 };
-    const rp = r[id] || { a: 0, s: 0, t: 0 };
-    puzzles[id] = { a: Math.max(lp.a, rp.a), s: Math.max(lp.s, rp.s), t: Math.max(lp.t, rp.t) };
+    const lp = l[id];
+    const rp = r[id];
+    if (!lp) { puzzles[id] = rp; continue; }
+    if (!rp) { puzzles[id] = lp; continue; }
+    const sched =
+      rp.nextDueAt > lp.nextDueAt
+        ? rp
+        : rp.nextDueAt < lp.nextDueAt
+          ? lp
+          : rp.attempts >= lp.attempts
+            ? rp
+            : lp;
+    puzzles[id] = {
+      attempts: Math.max(lp.attempts, rp.attempts),
+      solves: Math.max(lp.solves, rp.solves),
+      streak: sched.streak,
+      nextDueAt: sched.nextDueAt,
+      lastResult: sched.lastResult,
+    };
   }
-  return { v: 1, puzzles };
+
+  return { rating: top.rating, attempts: top.attempts, puzzles };
 }
 
 // Pick the more up-to-date of two conflicting entries for the same

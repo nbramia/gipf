@@ -67,28 +67,58 @@ describe('mergeHistory', () => {
 });
 
 describe('mergePuzzles', () => {
+  const rec = (over = {}) => ({ attempts: 1, solves: 1, streak: 1, nextDueAt: 1000, lastResult: 'solved', ...over });
+
   test('tolerates null/undefined on either side', () => {
-    expect(mergePuzzles(null, null)).toEqual({ v: 1, puzzles: {} });
-    const local = { v: 1, puzzles: { p1: { a: 1, s: 0, t: 10 } } };
+    expect(mergePuzzles(null, null)).toEqual({ rating: 1000, attempts: 0, puzzles: {} });
+    const local = { rating: 1200, attempts: 5, puzzles: { p1: rec() } };
     expect(mergePuzzles(local, null)).toEqual(local);
     expect(mergePuzzles(null, local)).toEqual(local);
   });
 
-  test('unions puzzle ids', () => {
-    const local = { v: 1, puzzles: { p1: { a: 2, s: 1, t: 100 } } };
-    const remote = { v: 1, puzzles: { p2: { a: 1, s: 0, t: 50 } } };
+  test('top level: more total attempts wins the (rating, attempts) pair', () => {
+    const local = { rating: 1100, attempts: 3, puzzles: {} };
+    const remote = { rating: 1300, attempts: 7, puzzles: {} };
+    expect(mergePuzzles(local, remote)).toMatchObject({ rating: 1300, attempts: 7 });
+    expect(mergePuzzles(remote, local)).toMatchObject({ rating: 1300, attempts: 7 });
+  });
+
+  test('top level tiebreak: equal attempts -> higher rating wins', () => {
+    const local = { rating: 1400, attempts: 4, puzzles: {} };
+    const remote = { rating: 1250, attempts: 4, puzzles: {} };
+    expect(mergePuzzles(local, remote)).toMatchObject({ rating: 1400, attempts: 4 });
+  });
+
+  test('unions disjoint puzzle ids', () => {
+    const local = { rating: 1000, attempts: 1, puzzles: { p1: rec() } };
+    const remote = { rating: 1000, attempts: 1, puzzles: { p2: rec({ lastResult: 'failed' }) } };
     const merged = mergePuzzles(local, remote);
     expect(merged.puzzles).toEqual({
-      p1: { a: 2, s: 1, t: 100 },
-      p2: { a: 1, s: 0, t: 50 },
+      p1: rec(),
+      p2: rec({ lastResult: 'failed' }),
     });
   });
 
-  test('takes the per-field max on overlapping ids', () => {
-    const local = { v: 1, puzzles: { p1: { a: 5, s: 1, t: 100 } } };
-    const remote = { v: 1, puzzles: { p1: { a: 3, s: 2, t: 200 } } };
+  test('conflict: attempts/solves take the per-field max', () => {
+    const local = { rating: 1000, attempts: 1, puzzles: { p1: rec({ attempts: 5, solves: 1, nextDueAt: 1000 }) } };
+    const remote = { rating: 1000, attempts: 1, puzzles: { p1: rec({ attempts: 3, solves: 2, nextDueAt: 1000 }) } };
     const merged = mergePuzzles(local, remote);
-    expect(merged.puzzles.p1).toEqual({ a: 5, s: 2, t: 200 });
+    expect(merged.puzzles.p1.attempts).toBe(5);
+    expect(merged.puzzles.p1.solves).toBe(2);
+  });
+
+  test('conflict: scheduling fields travel as a unit from the later nextDueAt', () => {
+    const local = { rating: 1000, attempts: 1, puzzles: { p1: rec({ streak: 1, nextDueAt: 1000, lastResult: 'failed' }) } };
+    const remote = { rating: 1000, attempts: 1, puzzles: { p1: rec({ streak: 3, nextDueAt: 5000, lastResult: 'solved' }) } };
+    const merged = mergePuzzles(local, remote);
+    expect(merged.puzzles.p1).toMatchObject({ streak: 3, nextDueAt: 5000, lastResult: 'solved' });
+  });
+
+  test('conflict tiebreak: equal nextDueAt -> the entry with more attempts wins the scheduling unit', () => {
+    const local = { rating: 1000, attempts: 1, puzzles: { p1: rec({ attempts: 2, streak: 1, nextDueAt: 1000, lastResult: 'failed' }) } };
+    const remote = { rating: 1000, attempts: 1, puzzles: { p1: rec({ attempts: 5, streak: 4, nextDueAt: 1000, lastResult: 'solved' }) } };
+    const merged = mergePuzzles(local, remote);
+    expect(merged.puzzles.p1).toMatchObject({ streak: 4, nextDueAt: 1000, lastResult: 'solved' });
   });
 });
 

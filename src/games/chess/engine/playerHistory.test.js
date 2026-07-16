@@ -1,17 +1,13 @@
-// playerHistory.test.js — opponent-record and puzzle-progress stores:
-// malformed-JSON recovery, result/attempt accumulation, formatting, and
-// localStorage round-tripping. Style mirrors coach/mistakeStore.test.js.
+// playerHistory.test.js — opponent-record store: malformed-JSON recovery,
+// result accumulation, formatting, and localStorage round-tripping. Style
+// mirrors coach/mistakeStore.test.js.
 
 import {
   OPP_HISTORY_KEY,
-  PUZZLE_PROGRESS_KEY,
   loadOppHistory,
   saveOppHistory,
   recordGameResult,
   formatRecord,
-  loadPuzzleProgress,
-  savePuzzleProgress,
-  recordPuzzleAttempt,
 } from './playerHistory.js';
 
 describe('loadOppHistory', () => {
@@ -73,37 +69,9 @@ describe('formatRecord', () => {
   });
 });
 
-describe('puzzle progress', () => {
-  afterEach(() => localStorage.removeItem(PUZZLE_PROGRESS_KEY));
-
-  test('loadPuzzleProgress returns an empty structure on missing/malformed data', () => {
-    expect(loadPuzzleProgress()).toEqual({ v: 1, puzzles: {} });
-    localStorage.setItem(PUZZLE_PROGRESS_KEY, 'not json');
-    expect(loadPuzzleProgress()).toEqual({ v: 1, puzzles: {} });
-    localStorage.setItem(PUZZLE_PROGRESS_KEY, '{"nope":1}');
-    expect(loadPuzzleProgress()).toEqual({ v: 1, puzzles: {} });
-  });
-
-  test('recordPuzzleAttempt increments attempts, solves when solved, and stamps time', () => {
-    let p = loadPuzzleProgress();
-    p = recordPuzzleAttempt(p, 'puz1', false, 1000);
-    expect(p.puzzles.puz1).toEqual({ a: 1, s: 0, t: 1000 });
-    p = recordPuzzleAttempt(p, 'puz1', true, 2000);
-    expect(p.puzzles.puz1).toEqual({ a: 2, s: 1, t: 2000 });
-  });
-
-  test('does not mutate the input progress object', () => {
-    const p = loadPuzzleProgress();
-    const next = recordPuzzleAttempt(p, 'puz1', true, 500);
-    expect(p.puzzles).toEqual({});
-    expect(next).not.toBe(p);
-  });
-});
-
 describe('localStorage persistence', () => {
   afterEach(() => {
     localStorage.removeItem(OPP_HISTORY_KEY);
-    localStorage.removeItem(PUZZLE_PROGRESS_KEY);
   });
 
   test('opponent history round-trips through localStorage', () => {
@@ -111,12 +79,5 @@ describe('localStorage persistence', () => {
     h = recordGameResult(h, { rated: true, opponentKey: '2000', result: 'loss' });
     saveOppHistory(h);
     expect(loadOppHistory()).toEqual(h);
-  });
-
-  test('puzzle progress round-trips through localStorage', () => {
-    let p = loadPuzzleProgress();
-    p = recordPuzzleAttempt(p, 'puz1', true, 500);
-    savePuzzleProgress(p);
-    expect(loadPuzzleProgress()).toEqual(p);
   });
 });

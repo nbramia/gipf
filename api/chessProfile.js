@@ -138,27 +138,37 @@ function sanitizeHistory(data) {
   return { v: 1, casual, rated };
 }
 
+// Wire shape is the puzzle trainer's store verbatim (coach/puzzleProgress.js:
+// { rating, attempts, puzzles }) — no v field.
 function sanitizePuzzles(data) {
-  if (!data || typeof data !== 'object' || data.v !== 1) return null;
+  if (!data || typeof data !== 'object') return null;
+  const rating = Math.round(Number(data.rating));
+  const attempts = Math.round(Number(data.attempts));
+  if (!Number.isFinite(rating) || rating < MIN_RATING || rating > MAX_RATING) return null;
+  if (!Number.isFinite(attempts) || attempts < 0 || attempts > 1_000_000) return null;
+
   const puzzles = data.puzzles;
   if (!puzzles || typeof puzzles !== 'object' || Array.isArray(puzzles)) return null;
   const keys = Object.keys(puzzles);
-  if (keys.length > 200) return null;
+  if (keys.length > 500) return null;
 
   const out = {};
   for (const key of keys) {
     if (key.length > 64) return null;
     const rec = puzzles[key];
     if (!rec || typeof rec !== 'object') return null;
-    const a = Math.round(Number(rec.a));
-    const s = Math.round(Number(rec.s));
-    const t = Math.round(Number(rec.t));
-    if (!Number.isFinite(a) || a < 0 || a > 1_000_000) return null;
-    if (!Number.isFinite(s) || s < 0 || s > 1_000_000) return null;
-    if (!Number.isFinite(t) || t < 0 || t > MAX_EPOCH_MS) return null;
-    out[key] = { a, s, t };
+    const recAttempts = Math.round(Number(rec.attempts));
+    const solves = Math.round(Number(rec.solves));
+    const streak = Math.round(Number(rec.streak));
+    const nextDueAt = Math.round(Number(rec.nextDueAt));
+    if (!Number.isFinite(recAttempts) || recAttempts < 0 || recAttempts > 1_000_000) return null;
+    if (!Number.isFinite(solves) || solves < 0 || solves > 1_000_000) return null;
+    if (!Number.isFinite(streak) || streak < 0 || streak > 1_000_000) return null;
+    if (!Number.isFinite(nextDueAt) || nextDueAt < 0 || nextDueAt > MAX_EPOCH_MS) return null;
+    const lastResult = rec.lastResult === 'solved' ? 'solved' : 'failed';
+    out[key] = { attempts: recAttempts, solves, streak, nextDueAt, lastResult };
   }
-  return { v: 1, puzzles: out };
+  return { rating, attempts, puzzles: out };
 }
 
 // Fields kept from a mistake-drill entry; everything else is dropped on write.

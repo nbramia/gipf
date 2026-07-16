@@ -21,9 +21,6 @@ import {
   saveOppHistory,
   recordGameResult,
   formatRecord,
-  loadPuzzleProgress,
-  savePuzzleProgress,
-  recordPuzzleAttempt,
 } from './engine/playerHistory.js';
 import { buildMovePayload } from './coach/analyzeMove.js';
 import { detectOpening } from './coach/openings.js';
@@ -272,8 +269,9 @@ export default function ChessGame() {
           push.history = mergedHistory;
         }
 
-        const mergedPuzzles = mergePuzzles(loadPuzzleProgress(), remote.puzzles);
-        savePuzzleProgress(mergedPuzzles);
+        const mergedPuzzles = mergePuzzles(loadProgress(), remote.puzzles);
+        saveProgress(mergedPuzzles);
+        setPuzzleProgressState(mergedPuzzles);
         if (JSON.stringify(mergedPuzzles) !== JSON.stringify(remote.puzzles)) {
           push.puzzles = mergedPuzzles;
         }
@@ -854,6 +852,7 @@ export default function ChessGame() {
     const next = recordPuzzleResult(loadProgress(), puzzle, solved);
     saveProgress(next);
     setPuzzleProgressState(next);
+    if (syncId) putRemoteProfile(syncId, { puzzles: next });
   };
 
   // Coaching after a failed attempt (#24): analyze the position the wrong

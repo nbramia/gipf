@@ -194,7 +194,7 @@ Before modifying game logic for either game:
 | `engine/rating.js` | Pure Elo math: K-factor, expected score, `updateRating`, `nearestRung`, `mergeRating` |
 | `engine/ratingSync.js` | Cross-device rating sync client (SHA-256 of the API key -> opaque id) |
 | `engine/profileSync.js` | Cross-device profile sync client -- supersedes ratingSync (rating + opponent history + puzzles + mistakes, same key-hash id) |
-| `engine/playerHistory.js` | localStorage stores: per-opponent W/L/D history (`chessOppHistory`) + puzzle attempt/solve counters (`chessPuzzleProgress`) |
+| `engine/playerHistory.js` | localStorage store: per-opponent W/L/D history (`chessOppHistory`) |
 | `hooks/useStockfish.js` | Engine lifecycle; `getMove()` (opponent) + `analyze()` (coaching), serialized |
 | `coach/*.js` | classify, analyzeMove, templates, coachClient, openings, pgn, accuracy, puzzles, material, sound |
 | `api/chessCoach.js` | Vercel serverless coach (Claude API, **bring-your-own key**, no server fallback) |

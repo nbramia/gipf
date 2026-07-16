@@ -21,7 +21,7 @@ src/games/chess/
     rating.js            # Pure Elo math + matchmaking for Rated mode
     ratingSync.js        # Cross-device rating sync client (keyed by key hash)
     profileSync.js       # Cross-device profile sync -- supersedes ratingSync (rating + history + puzzles + mistakes)
-    playerHistory.js     # localStorage: per-opponent W/L/D history + puzzle attempt/solve counters
+    playerHistory.js     # localStorage: per-opponent W/L/D history (chessOppHistory)
   hooks/
     useStockfish.js      # Engine lifecycle; getMove() + analyze(); serialized
     useMistakeDrill.js   # Drill session state machine for the mistake library (#23)
@@ -243,21 +243,27 @@ tier:
 Beyond the rating, two more per-player records make returning play feel
 continuous: a per-opponent win/loss/draw history, kept in separate buckets
 for casual difficulty tiers and rated ladder rungs (they're scored on
-different curves), and per-puzzle attempt/solve counters. Both live in
-localStorage (`chessOppHistory`, `chessPuzzleProgress`, managed by
-`engine/playerHistory.js`) alongside the existing `chessRating` and
+different curves), and the puzzle trainer's own store (see "Puzzle trainer"
+above) -- a player puzzle Elo plus per-puzzle spaced-repetition state. History
+lives in localStorage (`chessOppHistory`, managed by `engine/playerHistory.js`);
+puzzle progress lives in `chessPuzzleProgress`, managed by
+`coach/puzzleProgress.js`. Both sit alongside the existing `chessRating` and
 `chessMistakes` library.
 
 `engine/profileSync.js` syncs all four as one profile -- rating, history,
 puzzles, mistakes -- against `api/chessProfile.js`, under the same opaque
 key-hash id as rated-mode sync. On load it fetches the remote profile,
 merges it with the local one, and writes the merged result back both
-locally and remotely; pushes also happen at game end, on a puzzle attempt,
+locally and remotely; pushes also happen at game end, on a puzzle result,
 and after a rated result. Merges are pure and conflict-free: rating reuses
-the existing monotonic `mergeRating`, history and puzzles take a per-counter
-max per opponent/puzzle id, and mistakes union by position (`fenBefore`),
-keeping whichever entry has more attempts or is due further out, then
-re-applying the 200-entry cap.
+the existing monotonic `mergeRating`; history takes a per-counter max per
+opponent; puzzles mirror that same monotonic logic at the top level (the
+side with more total attempts wins the player-rating pair) and union
+per-puzzle records by id, taking the max of attempts/solves and moving the
+scheduling fields (streak/nextDueAt/lastResult) together from whichever side
+rescheduled the puzzle more recently; mistakes union by position
+(`fenBefore`), keeping whichever entry has more attempts or is due further
+out, then re-applying the 200-entry cap.
 
 Like rated-mode sync, this is entirely optional: without a configured Vercel
 KV store the endpoint replies `{configured: false}` and every helper no-ops
