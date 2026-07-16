@@ -41,8 +41,9 @@ export function saveMistakes(list) {
 }
 
 // Evict down to the cap: oldest solved entries (streak > 0) go first — they've
-// been learned — then oldest overall.
-function evictToCap(list) {
+// been learned — then oldest overall. Exported for reuse by profileSync's
+// cross-device mistake merge, which must enforce the same cap.
+export function evictToCap(list) {
   let next = list;
   while (next.length > MISTAKE_CAP) {
     const byAge = (a, b) => a.createdAt - b.createdAt;
