@@ -13,6 +13,9 @@ const AI_MODE = 'local'; // Local mode now fixed - removed excessive logging
 const API_ENDPOINT = '/api/aiMove'; // Use relative URL to work from any domain
 
 // Difficulty presets: model path, simulations, evaluation mode
+// easy = v63 (early-lineage, deliberately weak), advanced = v140 (long-standing
+// former champion, SPRT-beaten starting at v142 — a real, evidence-based
+// mid tier), expert = v1.onnx (always the current deployed best, currently v158).
 const DIFFICULTY_CONFIG = {
   easy:     { modelPath: '/models/yinsh-value-easy.onnx',     simulations: 100, evaluationMode: 'nn' },
   advanced: { modelPath: '/models/yinsh-value-advanced.onnx', simulations: 150, evaluationMode: 'nn' },
