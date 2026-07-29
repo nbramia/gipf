@@ -25,6 +25,7 @@ export default function LandingPage() {
   const [password2, setPassword2] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [creatingAccount, setCreatingAccount] = useState(false);
+  const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -37,15 +38,13 @@ export default function LandingPage() {
     setError('');
   };
 
-  const handleSignOut = () => {
-    // Signing out does not remove the saved API key/Lichess token from this
-    // device — matters on a shared computer. Confirm before dropping the
-    // session (matches chess's confirmation dialog in substance).
-    const ok = window.confirm(
-      'Sign out?\n\nYour saved Anthropic key and Lichess token stay on this device — signing out ' +
-        'does not remove them. On a shared computer, remove them separately in a game\'s settings.'
-    );
-    if (!ok) return;
+  // Signing out does not remove the saved API key/Lichess token from this
+  // device — which matters on a shared computer, so it's confirmed first.
+  // Inline rather than window.confirm: a native dialog is jarring against the
+  // rest of the page and can't carry the explanation legibly.
+  const handleSignOut = () => setConfirmingSignOut(true);
+  const confirmSignOut = () => {
+    setConfirmingSignOut(false);
     clearSession();
     setAccount(null);
     // The local gipfApiKey is deliberately retained — matches chess's sign-out.
@@ -178,18 +177,46 @@ export default function LandingPage() {
 
       <div className="mb-16 w-full max-w-sm flex flex-col items-center">
         {account ? (
-          <div className="flex items-center gap-3">
-            <span className="font-body text-sm text-neutral-300">
-              Signed in as {account.username}
-            </span>
-            <button
-              type="button"
-              onClick={handleSignOut}
-              className="text-sm font-body text-neutral-400 border border-neutral-800 rounded px-3 py-1 hover:border-neutral-600 hover:text-neutral-200 transition-colors"
-            >
-              Sign out
-            </button>
-          </div>
+          confirmingSignOut ? (
+            <div className="w-full rounded-lg border border-neutral-800 bg-neutral-900/60 p-4 text-center">
+              <p className="font-body text-sm text-neutral-200 mb-1">
+                Sign out of <span className="font-semibold">{account.username}</span>?
+              </p>
+              <p className="font-body text-sm text-neutral-400 mb-3">
+                Your saved Anthropic key and Lichess token stay on this device — signing out doesn’t remove them. On
+                a shared computer, remove them separately in a game’s settings.
+              </p>
+              <div className="flex gap-2 justify-center">
+                <button
+                  type="button"
+                  onClick={() => setConfirmingSignOut(false)}
+                  className="text-sm font-body text-neutral-400 border border-neutral-800 rounded px-3 py-1 hover:border-neutral-600 hover:text-neutral-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmSignOut}
+                  className="text-sm font-body text-neutral-100 border border-neutral-600 bg-neutral-800 rounded px-3 py-1 hover:bg-neutral-700 transition-colors"
+                >
+                  Sign out
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3">
+              <span className="font-body text-sm text-neutral-300">
+                Signed in as {account.username}
+              </span>
+              <button
+                type="button"
+                onClick={handleSignOut}
+                className="text-sm font-body text-neutral-400 border border-neutral-800 rounded px-3 py-1 hover:border-neutral-600 hover:text-neutral-200 transition-colors"
+              >
+                Sign out
+              </button>
+            </div>
+          )
         ) : !open ? (
           <button
             type="button"

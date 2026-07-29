@@ -90,23 +90,22 @@ describe('LandingPage', () => {
     localStorage.setItem(API_KEY, 'sk-test-key');
     localStorage.setItem(LICHESS_KEY, 'lip-test-token');
 
-    const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
-
     renderLanding();
 
     expect(screen.getByText('Signed in as Nathan')).toBeInTheDocument();
-    const signOutButton = screen.getByRole('button', { name: 'Sign out' });
-    expect(signOutButton).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
 
-    fireEvent.click(signOutButton);
+    // Inline confirmation names the account and explains the keys stay put.
+    expect(screen.getByText(/stay on this device/i)).toBeInTheDocument();
+    expect(screen.getByText(/Sign out of/)).toBeInTheDocument();
 
-    expect(confirmSpy).toHaveBeenCalled();
+    // The second "Sign out" is the confirm action inside the prompt.
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+
     expect(screen.getByRole('button', { name: 'Sign in / Create account' })).toBeInTheDocument();
     expect(screen.queryByText('Signed in as Nathan')).not.toBeInTheDocument();
     expect(localStorage.getItem(API_KEY)).toBe('sk-test-key');
     expect(localStorage.getItem(LICHESS_KEY)).toBe('lip-test-token');
-
-    confirmSpy.mockRestore();
   });
 
   test('declining the sign-out confirmation keeps the session', () => {
@@ -122,14 +121,13 @@ describe('LandingPage', () => {
       })
     );
 
-    const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false);
-
     renderLanding();
 
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
     expect(screen.getByText('Signed in as Nathan')).toBeInTheDocument();
-
-    confirmSpy.mockRestore();
+    expect(screen.queryByText(/stay on this device/i)).not.toBeInTheDocument();
+    expect(localStorage.getItem(ACCOUNT_KEY)).not.toBeNull();
   });
 });
