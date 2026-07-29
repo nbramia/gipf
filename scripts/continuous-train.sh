@@ -223,6 +223,16 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
     # HEAD:main, not main — this clone is not always ON main (worktrees hold it),
     # and `push origin main` pushes the stale local main ref, which is rejected
     # non-fast-forward. Pushing HEAD sends the commit we just made.
+    #
+    # Merge origin/main first: other worktrees push there too, and HEAD:main is
+    # only accepted if this branch descends from it. Abort a conflicted merge
+    # rather than leaving the loop wedged mid-merge — the next win retries.
+    # Safe point: the iteration is over, nothing is reading the model files.
+    git fetch origin --quiet 2>/dev/null || true
+    if ! git merge --no-edit origin/main >/dev/null 2>&1; then
+      git merge --abort 2>/dev/null || true
+      log "WARNING: could not merge origin/main (conflict); push will likely fail"
+    fi
     git push origin HEAD:main || log "WARNING: git push failed (will retry next win)"
 
     # Advanced model is pinned to v104 — no auto-promotion
