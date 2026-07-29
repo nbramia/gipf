@@ -1839,7 +1839,9 @@ export default function ChessGame() {
             <h1 className="font-display text-2xl font-bold tracking-wide" style={{ color: 'var(--color-text-primary)' }}>
               CHESS
             </h1>
-            <div className="w-24" />
+            {/* Balances the centred title on wide screens; collapses on small
+                phones where a fixed 96px would crowd the row. */}
+            <div className="hidden sm:block w-24" />
           </div>
 
           {/* First run: the app has coaching, puzzles, a rated ladder and a
@@ -1865,7 +1867,10 @@ export default function ChessGame() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+          {/* Two columns from md (tablets) and on short-but-wide viewports —
+              a landscape phone is only ~390px tall, the worst place to be
+              stuck in the tall single-column stack. */}
+          <div className="grid grid-cols-1 md:grid-cols-2 landscape-2col gap-6 items-start">
             <div>
               <div className="mb-3 flex items-center gap-2 font-body text-sm" style={{ color: 'var(--color-text-secondary)' }} aria-live="polite">
                 {(isThinking || engineStatus === 'loading') && <span className="engine-spinner" aria-hidden="true" />}
@@ -1922,10 +1927,10 @@ export default function ChessGame() {
                   ))}
                 </div>
               )}
-              <div className="flex gap-3 w-full max-w-[680px] mx-auto">
+              <div className="board-row flex gap-3 w-full max-w-[680px] mx-auto">
                 {showEvalBar && !puzzleMode && !drill.active && !rated && (
                   <div
-                    className="w-3 sm:w-4 rounded overflow-hidden shrink-0 self-stretch flex flex-col border"
+                    className="eval-bar w-3 sm:w-4 rounded overflow-hidden shrink-0 self-stretch flex flex-col border"
                     style={{ backgroundColor: '#3f3f46', borderColor: 'var(--color-border)' }}
                     title={`Evaluation ${evalLabel}`}
                     aria-label={`Evaluation ${evalLabel}`}
@@ -1970,6 +1975,11 @@ export default function ChessGame() {
                     customNotationStyle={{
                       color: '#ffffff',
                       fontWeight: 700,
+                      // react-chessboard defaults rank/file labels to
+                      // boardWidth/48, which is ~6px on a phone. It renders
+                      // them as bare inline-styled divs with no class, so this
+                      // prop is the only place the size can be set.
+                      fontSize: 'clamp(11px, 3.2vw, 14px)',
                       textShadow:
                         '0 0 2px rgba(0,0,0,0.85), 0 1px 1px rgba(0,0,0,0.7), 0 -1px 1px rgba(0,0,0,0.7)',
                     }}
@@ -2207,7 +2217,7 @@ export default function ChessGame() {
 
             </div>
 
-            <div className="flex flex-col gap-4 lg:min-h-[calc(100vh-7rem)]">
+            <div className="flex flex-col gap-4 md:min-h-[calc(100vh-7rem)]">
               {/* Post-game mistake review (#23) — retry this game's mistakes */}
               {accuracyReport && gameMistakes.length > 0 && (
                 <MistakeReviewPanel mistakes={gameMistakes} onRetry={retryMistake} />
@@ -2374,7 +2384,7 @@ export default function ChessGame() {
                 )}
                 <div
                   ref={transcriptRef}
-                  className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-2 max-h-[55vh] lg:max-h-none"
+                  className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-2 max-h-[55vh] md:max-h-none"
                   aria-live="polite"
                 >
                   {dialogue.length === 0 ? (
@@ -2850,7 +2860,7 @@ export default function ChessGame() {
             {/* Keyboard move entry — the board is pointer-only, which locks out
                 keyboard-only players. SAN or UCI, validated before it's played. */}
             {canInteract && (
-              <div className="w-full max-w-[680px] mx-auto mt-3 lg:col-start-1">
+              <div className="w-full max-w-[680px] mx-auto mt-3 md:col-start-1">
                 <form
                   onSubmit={(ev) => {
                     ev.preventDefault();
@@ -2888,7 +2898,7 @@ export default function ChessGame() {
 
             {/* Moves — a direct grid child: under the board on desktop,
                 after the coach on phones (source order = mobile order). */}
-            <div className="panel rounded-xl p-4 mt-4 w-full max-w-[680px] mx-auto moves-panel lg:col-start-1">
+            <div className="panel rounded-xl p-4 mt-4 w-full max-w-[680px] mx-auto moves-panel md:col-start-1">
                 <div className="flex items-center justify-between mb-2">
                   <h2 className="font-heading text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                     Moves
@@ -2959,7 +2969,7 @@ export default function ChessGame() {
       {/* Imported PGN: which side is "you"? */}
       {importPrompt && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center modal-safe-area"
           style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
           role="dialog"
           aria-modal="true"
@@ -2997,7 +3007,7 @@ export default function ChessGame() {
       {/* Confirmation for anything that destroys state the user can't recover */}
       {confirmPrompt && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center modal-safe-area"
           style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
           onClick={() => setConfirmPrompt(null)}
           role="dialog"
@@ -3039,7 +3049,7 @@ export default function ChessGame() {
       {/* Move-thread Q&A modal (tool-use, Stockfish-grounded) */}
       {threadEntry && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 flex items-center justify-center modal-safe-area"
           style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
           onClick={() => setThreadEntryId(null)}
           role="dialog"

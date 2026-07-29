@@ -242,12 +242,23 @@
 
 /* Moves panel renders after the coach panel on phones (single-column stack);
  * natural source order returns at the lg 2-column breakpoint. */
-@media (max-width: 1023px) {
+@media (max-width: 767px) {
   .game-chess .moves-panel {
     order: 20;
   }
 }
-@media (min-width: 1024px) {
+@media (min-width: 768px) {
+  .game-chess .moves-panel {
+    order: 0;
+  }
+}
+/* A landscape phone is wide but very short — the single-column stack is at its
+ * worst there, so go two-column even below the md width breakpoint. The moves
+ * panel returns to natural order alongside it. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .game-chess .landscape-2col {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .game-chess .moves-panel {
     order: 0;
   }
