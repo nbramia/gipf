@@ -99,3 +99,181 @@
 .game-chess .tone-good { color: var(--tone-good); }
 .game-chess .tone-warn { color: var(--tone-warn); }
 .game-chess .tone-bad { color: var(--tone-bad); }
+
+/* --- Mobile: safe-area insets (notched phones) -----------------------------
+ * Pair with viewport-fit=cover in public/index.html; env() resolves to 0 on
+ * devices without a notch, so these are no-ops there. */
+
+/* Full-bleed modal backdrop: keep content clear of the notch/home-indicator
+ * on all sides while preserving the existing p-4 breathing room. */
+.game-chess .modal-safe-area {
+  padding-top: max(1rem, env(safe-area-inset-top));
+  padding-right: max(1rem, env(safe-area-inset-right));
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  padding-left: max(1rem, env(safe-area-inset-left));
+}
+
+/* Bottom edge of a fixed modal (e.g. the input row sitting flush against the
+ * bottom, border-t, no bottom chrome below it) -- extra bottom padding on
+ * notched phones so the home-indicator gesture bar doesn't sit on top of it. */
+.game-chess .modal-safe-bottom {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom)) !important;
+}
+
+/* --- Mobile: 44x44px minimum touch targets --------------------------------
+ * Expands the *hit area* only via an absolutely-positioned pseudo-element,
+ * leaving the element's visual size untouched. */
+.game-chess .tap-target {
+  position: relative;
+}
+.game-chess .tap-target::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 100%;
+  height: 100%;
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* Accent-filled primary button, distinct from the neutral .panel style --
+ * used for dialog confirm actions and the game-over "Rematch" CTA. The
+ * dark-mode accent (--color-accent) is a lighter indigo than the light-mode
+ * one, so dark text reads better against it there than white does. */
+.game-chess .btn-primary {
+  background-color: var(--color-accent);
+  color: #ffffff;
+  border: 1px solid transparent;
+}
+.game-chess.dark .btn-primary {
+  color: #1c1917;
+}
+.game-chess .btn-primary:disabled {
+  opacity: 0.6;
+}
+
+/* --- Dark mode: contrast fixes ---------------------------------------------
+ * Tailwind's disabled:opacity-40 drops disabled buttons (Undo, Export, ...)
+ * to near-invisible against the dark panel background. */
+.game-chess.dark .panel:disabled {
+  opacity: 0.6;
+}
+
+/* --- Mobile: board width vs. eval bar --------------------------------------
+ * Below this width, shrink the eval bar and the gap between it and the board
+ * so the board keeps the maximum share of a narrow phone screen. */
+@media (max-width: 400px) {
+  .game-chess .board-row {
+    gap: 0.375rem;
+  }
+  .game-chess .eval-bar {
+    width: 6px;
+  }
+}
+
+/* Selected state for the Play-as White/Black buttons -- accent border +
+ * soft accent fill so the active color choice is unambiguous. */
+.game-chess .is-selected {
+  border-color: var(--color-accent);
+  background-color: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+/* Small uppercase muted header inside the Settings panel. */
+.game-chess .settings-section {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+/* Small spinner shown next to "thinking..." engine status text. */
+@keyframes chess-spin {
+  to { transform: rotate(360deg); }
+}
+.game-chess .engine-spinner {
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: chess-spin 700ms linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .game-chess .engine-spinner { animation: none; }
+}
+
+/* Highlights the current move in the move list. */
+.game-chess .move-current {
+  background-color: var(--color-accent-soft);
+  color: var(--color-accent);
+  border-radius: 0.25rem;
+  font-weight: 600;
+}
+
+/* One-shot green/red flash on the board wrapper for puzzle feedback. Single
+ * run (no infinite), matching the caller clearing the class on animationend. */
+@keyframes chess-flash-solved {
+  0% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.6); }
+  50% { box-shadow: 0 0 0 12px rgba(22, 163, 74, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0); }
+}
+@keyframes chess-flash-wrong {
+  0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.6); }
+  50% { box-shadow: 0 0 0 12px rgba(220, 38, 38, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+}
+.game-chess .puzzle-flash-solved {
+  animation: chess-flash-solved 500ms ease-out;
+}
+.game-chess .puzzle-flash-wrong {
+  animation: chess-flash-wrong 500ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .game-chess .puzzle-flash-solved,
+  .game-chess .puzzle-flash-wrong {
+    animation: none;
+  }
+}
+
+/* Moves panel renders after the coach panel on phones (single-column stack);
+ * natural source order returns at the lg 2-column breakpoint. */
+@media (max-width: 1023px) {
+  .game-chess .moves-panel {
+    order: 20;
+  }
+}
+@media (min-width: 1024px) {
+  .game-chess .moves-panel {
+    order: 0;
+  }
+}
+
+/* Screen-reader-only label (the typed-move input's <label>). */
+.game-chess .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Clocks: the side to move is emphasised; under ten seconds turns urgent. */
+.game-chess .clock-active {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.game-chess .clock-low {
+  color: #dc2626 !important;
+}
+.game-chess.dark .clock-low {
+  color: #f87171 !important;
+}

@@ -197,6 +197,8 @@ Before modifying game logic for either game:
 | `engine/profileSync.js` | Cross-device profile sync client -- supersedes ratingSync (rating + opponent history + puzzles + mistakes, same key-hash id) |
 | `engine/account.js` | Username+password accounts: client-side PBKDF2 credential derivation, API-key encryption, session cache |
 | `engine/playerHistory.js` | localStorage store: per-opponent W/L/D history (`chessOppHistory`) |
+| `coach/motifs.js` | Pure chess.js position facts (hanging piece, fork, pin, king-shelter, development) feeding the keyless commentary |
+| `coach/tacticSolver.js` | Depth-limited material search verifying non-mate tactical puzzles (mirrors `mateSolver.js`) |
 | `hooks/useStockfish.js` | Engine lifecycle; `getMove()` (opponent) + `analyze()` (coaching), serialized |
 | `coach/*.js` | classify, analyzeMove, templates, coachClient, openings, pgn, accuracy, puzzles, material, sound |
 | `api/chessCoach.js` | Vercel serverless coach (Claude API, **bring-your-own key**, no server fallback) |
@@ -395,7 +397,11 @@ chessShowEvalBar, chessSound,
 chessRated, chessRating, chessRatedGames,  # Rated mode: toggle, current Elo, games played
 chessMistakes,                             # Mistake library: captured positions + review schedule
 chessOppHistory,                           # Per-opponent W/L/D record (casual tiers + rated rungs)
-chessPuzzleProgress                        # Puzzle trainer: player puzzle Elo + per-puzzle review schedule
+chessPuzzleProgress,                       # Puzzle trainer: player puzzle Elo + per-puzzle review schedule
+chessGameState,                            # In-progress game snapshot (PGN + colour + dialogue) so a refresh resumes
+chessTimeControl,                          # Optional clock: off | 3+2 | 5+0 | 10+0 | 15+10
+chessPuzzleShowTheme,                      # Opt in to seeing the puzzle theme/mate-in-N before solving
+chessIntroSeen, chessKeyNudgeDismissed     # One-time onboarding banner + BYO-key nudge dismissals
 ```
 
 **Catan:**

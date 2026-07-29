@@ -18,6 +18,20 @@ export const CATEGORIES = {
   blunder: { label: 'Blunder', tone: 'bad' },
 };
 
+// Plain-language legend for the six move-quality labels, paired with their
+// centipawn-loss threshold, so a beginner can learn what separates them
+// instead of just seeing color-coded vibes (issue 3.9). Order matches the
+// bucketing in classifyMove below.
+export const CLASSIFICATION_LEGEND = [
+  { key: 'best', label: 'Best', description: "The engine's own top choice." },
+  { key: 'excellent', label: 'Excellent', description: 'Gives up 15 centipawns or less.' },
+  { key: 'good', label: 'Good', description: 'Gives up between 15 and 60 centipawns.' },
+  { key: 'book', label: 'Book', description: 'A recognized opening move — judged by theory, not eval loss.' },
+  { key: 'inaccuracy', label: 'Inaccuracy', description: 'Gives up between 60 and 130 centipawns.' },
+  { key: 'mistake', label: 'Mistake', description: 'Gives up between 130 and 300 centipawns.' },
+  { key: 'blunder', label: 'Blunder', description: 'Gives up more than 300 centipawns, or throws away a forced mate.' },
+];
+
 // Convert a White-perspective score to the perspective of `color` ('w'|'b').
 export function toPerspective(cpWhite, color) {
   return color === 'w' ? cpWhite : -cpWhite;

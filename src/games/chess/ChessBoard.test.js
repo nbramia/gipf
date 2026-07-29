@@ -152,3 +152,36 @@ describe('ChessBoard — PGN and cloning', () => {
     expect(c.sanHistory()).toEqual(['e4', 'e5']);
   });
 });
+
+describe('pgn round-trip after clone', () => {
+  test('pgn() keeps the move list once the board has been cloned', () => {
+    // Regression: pgn() used to delegate to the internal chess.js instance,
+    // which clone() rebuilds from the current FEN — so a cloned board produced
+    // a FEN-header-only PGN with no moves, breaking export and persistence.
+    let b = new ChessBoard();
+    for (const [from, to] of [['e2', 'e4'], ['e7', 'e5'], ['g1', 'f3']]) {
+      b.move(from, to);
+      b = b.clone();
+    }
+    const pgn = b.pgn();
+    expect(pgn).toContain('1. e4 e5 2. Nf3');
+
+    const restored = new ChessBoard();
+    expect(restored.loadPgn(pgn)).toBe(true);
+    expect(restored.sanHistory()).toEqual(['e4', 'e5', 'Nf3']);
+  });
+
+  test('pgn() from a custom start position keeps the FEN header and the moves', () => {
+    const fen = '4k3/8/8/8/8/8/4P3/4K3 w - - 0 1';
+    let b = new ChessBoard(fen);
+    b.move('e2', 'e4');
+    b = b.clone();
+    const pgn = b.pgn();
+    expect(pgn).toContain(fen);
+    expect(pgn).toContain('e4');
+
+    const restored = new ChessBoard();
+    expect(restored.loadPgn(pgn)).toBe(true);
+    expect(restored.sanHistory()).toEqual(['e4']);
+  });
+});

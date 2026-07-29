@@ -7,13 +7,30 @@
 //
 // `analysisMovetimeMs` is the time used for COACHING analysis (always full
 // strength, independent of the opponent tier) so move evaluation stays honest.
+//
+// `blurb` is a plain-language descriptor for players who don't know their own
+// rating — the raw Elo number alone calibrates nothing for them (issue 5.1).
+
+// Optional clocks. `base` is per-side seconds, `inc` the Fischer increment.
+// 'off' keeps the untimed behaviour the game shipped with.
+export const TIME_CONTROLS = [
+  { key: 'off', label: 'No clock', base: 0, inc: 0 },
+  { key: '3+2', label: 'Blitz 3+2', base: 180, inc: 2 },
+  { key: '5+0', label: 'Blitz 5+0', base: 300, inc: 0 },
+  { key: '10+0', label: 'Rapid 10+0', base: 600, inc: 0 },
+  { key: '15+10', label: 'Classical 15+10', base: 900, inc: 10 },
+];
+
+export function getTimeControl(key) {
+  return TIME_CONTROLS.find((t) => t.key === key) || TIME_CONTROLS[0];
+}
 
 export const DIFFICULTY_TIERS = [
-  { key: 'beginner', label: 'Beginner', elo: 1320, moveTimeMs: 200 },
-  { key: 'casual', label: 'Casual', elo: 1500, moveTimeMs: 350 },
-  { key: 'intermediate', label: 'Intermediate', elo: 1750, moveTimeMs: 500 },
-  { key: 'advanced', label: 'Advanced', elo: 2100, moveTimeMs: 800 },
-  { key: 'master', label: 'Master', elo: 2850, moveTimeMs: 1200 },
+  { key: 'beginner', label: 'Beginner', elo: 1320, moveTimeMs: 200, blurb: 'Makes clear mistakes' },
+  { key: 'casual', label: 'Casual', elo: 1500, moveTimeMs: 350, blurb: 'Occasional slips' },
+  { key: 'intermediate', label: 'Intermediate', elo: 1750, moveTimeMs: 500, blurb: 'Solid, punishes obvious blunders' },
+  { key: 'advanced', label: 'Advanced', elo: 2100, moveTimeMs: 800, blurb: 'Strong club-player strength' },
+  { key: 'master', label: 'Master', elo: 2850, moveTimeMs: 1200, blurb: 'Superhuman' },
 ];
 
 export const DEFAULT_TIER_KEY = 'casual';

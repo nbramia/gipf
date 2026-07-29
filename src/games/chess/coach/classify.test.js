@@ -1,4 +1,4 @@
-import { classifyMove, centipawnLoss, formatEval, toPerspective, MATE_SCORE } from './classify';
+import { classifyMove, centipawnLoss, formatEval, toPerspective, MATE_SCORE, CATEGORIES, CLASSIFICATION_LEGEND } from './classify';
 
 describe('classify — toPerspective', () => {
   test('white keeps sign, black flips it', () => {
@@ -35,6 +35,24 @@ describe('classify — centipawnLoss', () => {
   test('non-negative and symmetric to perspective', () => {
     expect(centipawnLoss({ bestEvalWhite: 30, playedEvalWhite: -70, moverColor: 'w' })).toBe(100);
     expect(centipawnLoss({ bestEvalWhite: 30, playedEvalWhite: 30, moverColor: 'w' })).toBe(0);
+  });
+});
+
+describe('classify — CLASSIFICATION_LEGEND', () => {
+  test('has an entry for every category, in plain words', () => {
+    const legendKeys = CLASSIFICATION_LEGEND.map((e) => e.key);
+    expect(new Set(legendKeys)).toEqual(new Set(Object.keys(CATEGORIES)));
+    CLASSIFICATION_LEGEND.forEach((e) => {
+      expect(typeof e.label).toBe('string');
+      expect(typeof e.description).toBe('string');
+      expect(e.description.length).toBeGreaterThan(0);
+    });
+  });
+
+  test('label matches the CATEGORIES label for the same key', () => {
+    CLASSIFICATION_LEGEND.forEach((e) => {
+      expect(e.label).toBe(CATEGORIES[e.key].label);
+    });
   });
 });
 

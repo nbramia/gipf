@@ -48,21 +48,47 @@ export function hasLichessToken() {
   return !!getLichessToken();
 }
 
+// Discriminated failure reasons for fetchOpeningStatsDetailed — a token that
+// expired mid-session (http-error, usually 401) shouldn't look the same to the
+// user as never having set a token at all (issue 4.6).
+export const OPENING_FETCH_REASON = {
+  OK: 'ok',
+  NO_TOKEN: 'no-token',
+  HTTP_ERROR: 'http-error',
+  NETWORK_ERROR: 'network-error',
+  MALFORMED: 'malformed',
+};
+
 // Fetch the masters explorer for a position (FEN before the move). Requires a
-// Lichess token (the endpoint is auth-gated). Returns the parsed JSON, or null
-// on any failure / missing token / non-opening position. Never throws.
-export async function fetchOpeningStats(fen, token = getLichessToken()) {
-  if (!token) return null;
+// Lichess token (the endpoint is auth-gated). Never throws. Returns
+// { ok, reason, status, data }:
+//   - ok: true, reason: 'ok', data: the parsed JSON — on success
+//   - ok: false, reason: one of the other OPENING_FETCH_REASON values, data: null
+export async function fetchOpeningStatsDetailed(fen, token = getLichessToken()) {
+  if (!token) return { ok: false, reason: OPENING_FETCH_REASON.NO_TOKEN, status: null, data: null };
   try {
     const url = `${EXPLORER_URL}?fen=${encodeURIComponent(fen)}&moves=12&topGames=0`;
     const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      return { ok: false, reason: OPENING_FETCH_REASON.HTTP_ERROR, status: res.status, data: null };
+    }
     const data = await res.json();
-    if (!data || !Array.isArray(data.moves)) return null;
-    return data;
+    if (!data || !Array.isArray(data.moves)) {
+      return { ok: false, reason: OPENING_FETCH_REASON.MALFORMED, status: res.status, data: null };
+    }
+    return { ok: true, reason: OPENING_FETCH_REASON.OK, status: res.status, data };
   } catch (_) {
-    return null;
+    return { ok: false, reason: OPENING_FETCH_REASON.NETWORK_ERROR, status: null, data: null };
   }
+}
+
+// Fetch the masters explorer for a position, collapsed to the parsed JSON or
+// null. Kept for existing callers (ChessGame.jsx, analysisTools.js) that only
+// need "did this work" — use fetchOpeningStatsDetailed for the discriminated
+// reason (e.g. to tell an expired token apart from no token). Never throws.
+export async function fetchOpeningStats(fen, token = getLichessToken()) {
+  const result = await fetchOpeningStatsDetailed(fen, token);
+  return result.ok ? result.data : null;
 }
 
 function gamesOf(entry) {

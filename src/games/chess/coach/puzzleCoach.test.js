@@ -26,10 +26,12 @@ describe('hintFor', () => {
     expect(h).not.toContain('a8'); // destination stays secret
   });
 
-  test('stage 2 mid-line (fen moved on) degrades to a theme nudge', () => {
+  test('stage 2 mid-line (fen moved on) explains why it degraded, not just a vague nudge', () => {
     const h = hintFor(BACK_RANK, 2, '6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1');
     expect(h).toContain('Back-rank mate');
     expect(h).not.toContain('d1');
+    // Must say WHY the hint got vaguer, not just repeat "keep going".
+    expect(h.toLowerCase()).toMatch(/different|sound|no longer applies/);
   });
 
   test('no stored solution degrades to the theme hint', () => {

@@ -13,7 +13,7 @@ import useStockfish from './hooks/useStockfish.js';
 import useMistakeDrill from './hooks/useMistakeDrill.js';
 import MistakeReviewPanel from './components/MistakeReviewPanel.jsx';
 import { loadMistakes, saveMistakes, captureMistake, dueMistakes, weaknessProfile } from './coach/mistakeStore.js';
-import { DIFFICULTY_TIERS, DEFAULT_TIER_KEY, RATING_LADDER } from './engine/difficulty.js';
+import { DIFFICULTY_TIERS, DEFAULT_TIER_KEY, RATING_LADDER, TIME_CONTROLS, getTimeControl } from './engine/difficulty.js';
 import { DEFAULT_RATING, nearestRung, updateRating, scoreFor, isProvisional, mergeRating } from './engine/rating.js';
 import { profileIdFromKey, fetchRemoteProfile, putRemoteProfile, mergeHistory, mergePuzzles, mergeMistakes } from './engine/profileSync.js';
 import {
@@ -43,15 +43,22 @@ import {
   setLichessToken,
   hasLichessToken,
 } from './coach/openingCoach.js';
-import { withHeaders, downloadPgn, readPgnFile, looksLikePgn } from './coach/pgn.js';
+import { withHeaders, downloadPgn, readPgnFile, looksLikePgn, parsePlayerHeaders } from './coach/pgn.js';
 import { summarizeAccuracy } from './coach/accuracy.js';
 import { PUZZLES, budgetPliesFor, evaluatePuzzleMove, evaluateSolutionMove } from './coach/puzzles.js';
-import { loadProgress, saveProgress, recordPuzzleResult, selectSession } from './coach/puzzleProgress.js';
+import {
+  loadProgress,
+  saveProgress,
+  recordPuzzleResult,
+  selectSession,
+  dueCount as puzzlesDueCount,
+} from './coach/puzzleProgress.js';
 import { fetchDailyPuzzle } from './coach/lichessPuzzle.js';
 import { hintFor, buildHintPayload, buildFailPayload, MAX_HINT_STAGE } from './coach/puzzleCoach.js';
 import { capturedPieces, materialBalance } from './coach/material.js';
 import { playSound, moveSoundKind } from './coach/sound.js';
-import { formatEval } from './coach/classify.js';
+import { formatEval, CLASSIFICATION_LEGEND } from './coach/classify.js';
+import { describeEngineError } from './engine/stockfishLoader.js';
 import { requestCommentary, runThreadTurn, setApiKey, hasApiKey, getApiKey } from './coach/coachClient.js';
 import './chess.css';
 
@@ -59,15 +66,61 @@ const PIECE_GLYPH = { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛', k: '♚'
 
 const TONE_CLASS = { great: 'tone-great', good: 'tone-good', warn: 'tone-warn', bad: 'tone-bad' };
 
+// --- In-progress game persistence -------------------------------------------
+// A refresh used to destroy the game outright. We snapshot the live game (PGN +
+// the UI state needed to resume it) after every move, exactly like Diplomacy's
+// `diplomacyGameState`. Puzzle sessions and mistake drills are transient by
+// design and are never persisted.
+const GAME_STATE_KEY = 'chessGameState';
+const GAME_STATE_VERSION = 1;
+
+function saveGameState(snapshot) {
+  try {
+    localStorage.setItem(GAME_STATE_KEY, JSON.stringify({ v: GAME_STATE_VERSION, ...snapshot }));
+  } catch (_) {
+    /* quota/private-mode — persistence is best-effort, never breaks play */
+  }
+}
+
+function loadGameState() {
+  try {
+    const raw = localStorage.getItem(GAME_STATE_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (!s || s.v !== GAME_STATE_VERSION || !s.pgn) return null;
+    return s;
+  } catch (_) {
+    return null;
+  }
+}
+
+function clearGameState() {
+  try {
+    localStorage.removeItem(GAME_STATE_KEY);
+  } catch (_) {
+    /* best-effort */
+  }
+}
+
+// Rebuild a ChessBoard from a saved PGN, or null if it no longer parses or
+// carries no moves — restoring an empty board while keeping the old dialogue
+// would leave the transcript describing a game that isn't on the board.
+function boardFromSnapshot(snapshot) {
+  if (!snapshot || !snapshot.pgn) return null;
+  const b = new ChessBoard();
+  if (!b.loadPgn(snapshot.pgn)) return null;
+  return b.sanHistory().length > 0 ? b : null;
+}
+
 const Toggle = ({ label, checked, onChange }) => (
-  <div className="flex items-center justify-between gap-4">
+  <div className="flex items-center justify-between gap-4 min-h-[44px]">
     <span style={{ color: 'var(--color-text-primary)' }}>{label}</span>
     <button
       onClick={onChange}
       role="switch"
       aria-checked={checked}
       aria-label={label}
-      className="w-10 h-6 rounded-full transition-colors relative shrink-0"
+      className="w-10 h-6 rounded-full transition-colors relative shrink-0 tap-target"
       style={{ backgroundColor: checked ? 'var(--color-accent)' : 'var(--color-border)' }}
     >
       <span
@@ -79,7 +132,15 @@ const Toggle = ({ label, checked, onChange }) => (
 );
 
 export default function ChessGame() {
-  const [board, setBoard] = useState(() => new ChessBoard());
+  // Read the saved in-progress game once, before any state initializer needs it.
+  const restoredRef = useRef(undefined);
+  if (restoredRef.current === undefined) {
+    const snap = loadGameState();
+    restoredRef.current = snap && boardFromSnapshot(snap) ? snap : null;
+  }
+  const restored = restoredRef.current;
+
+  const [board, setBoard] = useState(() => boardFromSnapshot(restored) || new ChessBoard());
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('chessDarkMode');
     return saved ? JSON.parse(saved) : false;
@@ -117,23 +178,45 @@ export default function ChessGame() {
   const [account, setAccount] = useState(() => loadSession());
   const [accountUsername, setAccountUsername] = useState('');
   const [accountPassword, setAccountPassword] = useState('');
+  const [accountPassword2, setAccountPassword2] = useState('');
+  const [creatingAccount, setCreatingAccount] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountError, setAccountError] = useState('');
   const [history, setHistory] = useState(() => loadOppHistory()); // per-opponent W/L/D record
-  const [humanColor, setHumanColor] = useState('w'); // 'w' | 'b'
-  const [orientation, setOrientation] = useState('white');
+  const [humanColor, setHumanColor] = useState(() => (restored && restored.humanColor) || 'w'); // 'w' | 'b'
+  const [orientation, setOrientation] = useState(() => (restored && restored.orientation) || 'white');
   const [selected, setSelected] = useState(null);
+  // Read-only history browsing: a ply index into board.positions, or null when
+  // showing the live position. Distinct from undo — nothing is discarded.
+  const [reviewPly, setReviewPly] = useState(null);
   const [isThinking, setIsThinking] = useState(false);
-  const [resigned, setResigned] = useState(null); // color that resigned
+  const [resigned, setResigned] = useState(() => (restored && restored.resigned) || null); // color that resigned
+
+  // Optional clocks. Untimed by default; 'off' keeps the original behaviour.
+  const [timeControl, setTimeControl] = useState(() => localStorage.getItem('chessTimeControl') || 'off');
+  const [clock, setClock] = useState(() => {
+    const tc = getTimeControl(localStorage.getItem('chessTimeControl') || 'off');
+    return { w: tc.base * 1000, b: tc.base * 1000 };
+  });
+  const [flagged, setFlagged] = useState(null); // color that ran out of time
 
   // Coaching state.
-  const [dialogue, setDialogue] = useState([]); // [{id, ply, kind, san, tone, label, text, source, pending}]
-  const [moveStats, setMoveStats] = useState([]); // [{ply, moverColor, cpLoss, classification}] for accuracy (#17)
+  const [dialogue, setDialogue] = useState(() => (restored && restored.dialogue) || []); // [{id, ply, kind, san, tone, label, text, source, pending}]
+  const [moveStats, setMoveStats] = useState(() => (restored && restored.moveStats) || []); // [{ply, moverColor, cpLoss, classification}] for accuracy (#17)
   const [coaching, setCoaching] = useState(false);
   const [learningGoal, setLearningGoal] = useState(() => localStorage.getItem('chessLearningGoal') || '');
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [keySet, setKeySet] = useState(() => hasApiKey());
   const [showKeyField, setShowKeyField] = useState(false);
+  const [showLegend, setShowLegend] = useState(false);
+  const [introSeen, setIntroSeen] = useState(() => localStorage.getItem('chessIntroSeen') === 'true');
+  const [keyNudgeDismissed, setKeyNudgeDismissed] = useState(
+    () => localStorage.getItem('chessKeyNudgeDismissed') === 'true'
+  );
+  // True when a key IS set but commentary still came back from the template
+  // path — i.e. the Claude call failed and we degraded silently.
+  const [coachKeyFailing, setCoachKeyFailing] = useState(false);
 
   // BYO Lichess token for master opening stats (the explorer is now auth-gated).
   const [lichessInput, setLichessInput] = useState('');
@@ -152,7 +235,7 @@ export default function ChessGame() {
   const [evalWhite, setEvalWhite] = useState(0); // latest White-POV cp from analysis
   const [evalMate, setEvalMate] = useState(null);
 
-  const { status: engineStatus, getMove, analyze } = useStockfish();
+  const { status: engineStatus, getMove, analyze, errorLine: engineErrorLine, retry: retryEngine } = useStockfish();
   const thinkingRef = useRef(false);
   const soundRef = useRef(soundOn); // latest value usable inside callbacks
   useEffect(() => { soundRef.current = soundOn; }, [soundOn]);
@@ -168,6 +251,8 @@ export default function ChessGame() {
   const transcriptRef = useRef(null);
   const fileInputRef = useRef(null);
   const [pgnError, setPgnError] = useState('');
+  const [moveInput, setMoveInput] = useState('');
+  const [moveInputError, setMoveInputError] = useState('');
 
   // Puzzle mode (#18, overhauled #24). Sessions are adaptive: due reviews
   // first, then fresh puzzles nearest the player's puzzle rating; the Lichess
@@ -185,12 +270,31 @@ export default function ChessGame() {
   const [puzzleHintStage, setPuzzleHintStage] = useState(0);
   const [puzzleCoachMsg, setPuzzleCoachMsg] = useState('');
   const [puzzleProgressState, setPuzzleProgressState] = useState(() => loadProgress());
+  // Naming the mating pattern up front ("King & queen (corner)") is most of the
+  // solve, so it's opt-in. Off by default: the theme is revealed on solve/fail.
+  const [puzzleShowTheme, setPuzzleShowTheme] = useState(() => {
+    const saved = localStorage.getItem('chessPuzzleShowTheme');
+    return saved ? JSON.parse(saved) : false;
+  });
+  const [puzzleDelta, setPuzzleDelta] = useState(null); // rating change from the last graded attempt
+  const [puzzleFlash, setPuzzleFlash] = useState(null); // 'solved' | 'wrong' — board feedback
+  const [puzzleSessionDone, setPuzzleSessionDone] = useState(false);
+  // Playable refutation of a failed attempt: {fen, pv, played} plus the
+  // preview board and how many plies of the line are currently shown.
+  const [refutation, setRefutation] = useState(null);
+  const [refutationBoard, setRefutationBoard] = useState(null);
+  const [refutationStep, setRefutationStep] = useState(0);
+  const [puzzleSolvedCount, setPuzzleSolvedCount] = useState(0);
+  const puzzleStartRatingRef = useRef(null);
   const puzzleRecordedRef = useRef(new Set()); // one rating/schedule write per puzzle per session
+  // The game in progress when a puzzle session or drill started, so leaving one
+  // returns you to your game instead of throwing it away.
+  const stashedGameRef = useRef(null);
 
   // Mistake library (#23): the mistakes captured this game (for the post-game
   // review panel), how many stored entries are due for drilling, and the drill
   // session itself. Capture is gated to normal play (not puzzles/drills/rated).
-  const [gameMistakes, setGameMistakes] = useState([]);
+  const [gameMistakes, setGameMistakes] = useState(() => (restored && restored.gameMistakes) || []);
   const [dueCount, setDueCount] = useState(() => dueMistakes(loadMistakes()).length);
   const puzzleModeRef = useRef(puzzleMode);
   useEffect(() => { puzzleModeRef.current = puzzleMode; }, [puzzleMode]);
@@ -204,6 +308,15 @@ export default function ChessGame() {
   const [gamePanelOpen, setGamePanelOpen] = useState(true);
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(true);
   const autoCollapsedRef = useRef(false);
+
+  // Confirmation prompt for actions that destroy something the user can't get
+  // back: abandoning a game in progress, resigning, deleting a stored secret.
+  // {title, body, confirmLabel, onConfirm}
+  const [confirmPrompt, setConfirmPrompt] = useState(null);
+  const askConfirm = (prompt) => setConfirmPrompt(prompt);
+
+  // After parsing an imported PGN, ask which side to review as.
+  const [importPrompt, setImportPrompt] = useState(null); // {players:{white,black}, apply(color)}
 
   // Move-thread Q&A modal: the entry id whose conversation is open, the draft
   // question, busy state, and a live "analyzing …" status from tool calls.
@@ -230,6 +343,15 @@ export default function ChessGame() {
   useEffect(() => {
     localStorage.setItem('chessSound', JSON.stringify(soundOn));
   }, [soundOn]);
+  useEffect(() => {
+    localStorage.setItem('chessKeyNudgeDismissed', JSON.stringify(keyNudgeDismissed));
+  }, [keyNudgeDismissed]);
+  useEffect(() => {
+    localStorage.setItem('chessPuzzleShowTheme', JSON.stringify(puzzleShowTheme));
+  }, [puzzleShowTheme]);
+  useEffect(() => {
+    localStorage.setItem('chessIntroSeen', JSON.stringify(introSeen));
+  }, [introSeen]);
   useEffect(() => {
     localStorage.setItem('chessRated', JSON.stringify(rated));
   }, [rated]);
@@ -364,9 +486,58 @@ export default function ChessGame() {
     } else if (movesPlayedCount === 0 && autoCollapsedRef.current) {
       autoCollapsedRef.current = false;
       setGamePanelOpen(true);
-      setSettingsPanelOpen(true);
+      // Settings stays where the user left it: auto-hiding it is how the API
+      // key / account / Lichess setup went undiscovered.
     }
   }, [movesPlayedCount]);
+
+  // Any new move (or a new game) snaps the board back to the live position.
+  useEffect(() => {
+    setReviewPly(null);
+  }, [movesPlayedCount]);
+
+  // Arrow keys step through history; Escape returns to the live position.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+      const total = board.positions.length - 1;
+      if (e.key === 'ArrowLeft') {
+        setReviewPly((p) => Math.max(0, (p == null ? total : p) - 1));
+      } else if (e.key === 'ArrowRight') {
+        setReviewPly((p) => (p == null || p >= total ? null : p + 1 === total ? null : p + 1));
+      } else if (e.key === 'Escape') {
+        setReviewPly(null);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [board]);
+
+  // Snapshot the live game so a refresh (or a closed tab) can resume it.
+  // Puzzle sessions and drills are transient and deliberately not persisted.
+  useEffect(() => {
+    if (puzzleMode || drill.active) return;
+    if (movesPlayedCount === 0) {
+      clearGameState();
+      return;
+    }
+    saveGameState({
+      pgn: board.pgn(),
+      humanColor,
+      orientation,
+      resigned,
+      rated,
+      difficulty,
+      // Strip the Anthropic thread history: it can be large and is cheap to
+      // lose, unlike the commentary itself.
+      dialogue: dialogue.map(({ threadApi, ...rest }) => rest),
+      moveStats,
+      gameMistakes,
+    });
+  }, [
+    board, movesPlayedCount, humanColor, orientation, resigned, rated, difficulty,
+    dialogue, moveStats, gameMistakes, puzzleMode, drill.active,
+  ]);
 
   const aiColor = humanColor === 'w' ? 'b' : 'w';
   // Rated matchmaking: face the ladder rung nearest your rating. In casual play
@@ -378,7 +549,9 @@ export default function ChessGame() {
   );
   const gameResult = resigned
     ? { over: true, type: 'resign', winner: resigned === 'w' ? 'black' : 'white' }
-    : board.result();
+    : flagged
+      ? { over: true, type: 'timeout', winner: flagged === 'w' ? 'black' : 'white' }
+      : board.result();
   const gameOver = !!gameResult;
   const lastMove = board.lastMove();
   const checkedSquare = board.checkedKingSquare();
@@ -386,6 +559,47 @@ export default function ChessGame() {
   // The opponent identity used to key per-opponent history: the matched rated
   // rung, or the chosen casual difficulty tier.
   const opponentKey = rated ? String(ratedRung.rating) : difficulty;
+
+  // --- Clocks ---------------------------------------------------------------
+  // Tick the side to move while a timed game is live. Increment is credited on
+  // the move that was just completed, so it lands on the mover's clock.
+  const tcSpec = getTimeControl(timeControl);
+  const clockOn = tcSpec.base > 0 && !puzzleMode && !drill.active;
+  const turnColor = board.turn();
+  useEffect(() => {
+    localStorage.setItem('chessTimeControl', timeControl);
+  }, [timeControl]);
+
+  useEffect(() => {
+    if (!clockOn || gameOver || movesPlayedCount === 0) return undefined;
+    const id = setInterval(() => {
+      setClock((c) => {
+        const left = Math.max(0, c[turnColor] - 200);
+        if (left === 0) setFlagged(turnColor);
+        return { ...c, [turnColor]: left };
+      });
+    }, 200);
+    return () => clearInterval(id);
+  }, [clockOn, gameOver, turnColor, movesPlayedCount]);
+
+  // Credit the increment to whoever just moved.
+  const lastCreditedPlyRef = useRef(0);
+  useEffect(() => {
+    if (!clockOn || movesPlayedCount === 0) return;
+    if (movesPlayedCount === lastCreditedPlyRef.current) return;
+    lastCreditedPlyRef.current = movesPlayedCount;
+    if (!tcSpec.inc) return;
+    const mover = turnColor === 'w' ? 'b' : 'w';
+    setClock((c) => ({ ...c, [mover]: c[mover] + tcSpec.inc * 1000 }));
+  }, [movesPlayedCount, clockOn, tcSpec.inc, turnColor]);
+
+  const formatClock = (ms) => {
+    const total = Math.ceil(ms / 1000);
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  };
+
 
   // Score a finished rated game exactly once: derive win/loss/draw from the
   // human's POV, update the Elo against the matched rung, and record the delta.
@@ -431,16 +645,21 @@ export default function ChessGame() {
   // then asks the coach (Claude or template fallback) to phrase it.
   const coachOnMove = useCallback(
     async (fenBefore, fenAfter, movePlayedSan, moverColor, kind, ply, sanAfter) => {
-      if (ratedRef.current) return; // rated games are uncoached — no hints, no eval leak
+      // Rated games run the same analysis but SILENTLY: no dialogue, no eval
+      // bar, no live hints. We keep the per-move stats so the post-game
+      // accuracy report still exists once the result is locked in.
+      const silent = ratedRef.current;
       const seq = coachSeqRef.current;
       const entryId = `${ply}-${kind}`;
       const opening = detectOpening(sanAfter || []);
-      // Insert a pending entry immediately for responsive UX.
-      setDialogue((d) => [
-        ...d,
-        { id: entryId, ply, kind, san: movePlayedSan, tone: 'good', label: '…', text: '', source: 'pending', pending: true },
-      ]);
-      setCoaching(true);
+      if (!silent) {
+        // Insert a pending entry immediately for responsive UX.
+        setDialogue((d) => [
+          ...d,
+          { id: entryId, ply, kind, san: movePlayedSan, tone: 'good', label: '…', text: '', source: 'pending', pending: true },
+        ]);
+        setCoaching(true);
+      }
       try {
         const [analysisBefore, analysisAfter] = await Promise.all([
           analyze(fenBefore, { multipv: 3 }),
@@ -448,7 +667,7 @@ export default function ChessGame() {
         ]);
         if (seq !== coachSeqRef.current) return; // superseded (new game / undo)
         // Update the eval bar (#21) from the post-move top line (White POV).
-        const afterTop = analysisAfter && analysisAfter.lines && analysisAfter.lines[0];
+        const afterTop = !silent && analysisAfter && analysisAfter.lines && analysisAfter.lines[0];
         if (afterTop) {
           setEvalWhite(typeof afterTop.scoreCp === 'number' ? afterTop.scoreCp : 0);
           setEvalMate(typeof afterTop.mateIn === 'number' ? afterTop.mateIn : null);
@@ -465,7 +684,13 @@ export default function ChessGame() {
         });
         // Attach opening context (#15) so the coach can name it / flag leaving book.
         if (opening.name) payload.opening = opening.name;
-        if (opening.leftBookAtPly === ply) payload.leftBook = true;
+        if (opening.idea) payload.openingIdea = opening.idea;
+        if (opening.leftBookAtPly === ply) {
+          payload.leftBook = true;
+          // Leaving theory yourself is a different lesson from your opponent
+          // doing it, so the prose can frame them differently.
+          payload.leftBookBy = kind === 'player-move' ? 'you' : 'opponent';
+        }
 
         // Attach the player's recurring-weakness profile (#23) so the coach can
         // connect this move to patterns from earlier games.
@@ -495,7 +720,8 @@ export default function ChessGame() {
             payload.classification = 'book';
           }
           // Enhancement: real master practice (degrades to null if unreachable).
-          const stats = await fetchOpeningStats(fenBefore);
+          // Skipped in rated games — nothing renders it, so don't pay the fetch.
+          const stats = silent ? null : await fetchOpeningStats(fenBefore);
           if (seq !== coachSeqRef.current) return;
           const book = summarizeBookMove(stats, movePlayedSan, moverColor);
           if (book) {
@@ -536,8 +762,14 @@ export default function ChessGame() {
           ...s.filter((x) => x.ply !== ply),
           { ply, moverColor, cpLoss: payload.cpLoss || 0, classification: payload.classification },
         ]);
+        // Rated: stats are all we keep. No prose is generated or shown until
+        // the game is over (the post-game summary reads moveStats).
+        if (silent) return;
         const { text, source } = await requestCommentary(payload);
         if (seq !== coachSeqRef.current) return;
+        // A key is set but we still got template prose ⇒ the Claude call
+        // failed. Surface it instead of degrading silently forever.
+        setCoachKeyFailing(hasApiKey() && source === 'template');
         const tone =
           payload.classification === 'blunder' || payload.classification === 'mistake'
             ? 'bad'
@@ -578,7 +810,7 @@ export default function ChessGame() {
           )
         );
       } catch (_) {
-        if (seq !== coachSeqRef.current) return;
+        if (seq !== coachSeqRef.current || silent) return;
         setDialogue((d) =>
           d.map((e) =>
             e.id === entryId
@@ -587,7 +819,7 @@ export default function ChessGame() {
           )
         );
       } finally {
-        if (seq === coachSeqRef.current) setCoaching(false);
+        if (seq === coachSeqRef.current && !silent) setCoaching(false);
       }
     },
     [analyze, learningGoal]
@@ -634,13 +866,24 @@ export default function ChessGame() {
     };
   }, [board, aiColor, engineStatus, moveSpec, gameOver, getMove, coachOnMove, puzzleMode, drill.active]);
 
+  // While reviewing history we show a past position and highlight the move that
+  // produced it, rather than the live game's last move.
+  const reviewing = reviewPly != null;
+  const displayFen = refutationBoard
+    ? refutationBoard.fen()
+    : reviewing
+      ? board.positions[reviewPly]
+      : board.fen();
+  const reviewedMove = reviewing && reviewPly > 0 ? board.moves[reviewPly - 1] : null;
+  const highlightMove = reviewing ? reviewedMove : lastMove;
+
   const squareStyles = useMemo(() => {
     const styles = {};
-    if (lastMove) {
-      styles[lastMove.from] = { backgroundColor: 'var(--sq-highlight)' };
-      styles[lastMove.to] = { backgroundColor: 'var(--sq-highlight)' };
+    if (highlightMove) {
+      styles[highlightMove.from] = { backgroundColor: 'var(--sq-highlight)' };
+      styles[highlightMove.to] = { backgroundColor: 'var(--sq-highlight)' };
     }
-    if (checkedSquare) {
+    if (checkedSquare && !reviewing) {
       styles[checkedSquare] = { backgroundColor: 'var(--sq-check)' };
     }
     if (selected) {
@@ -658,7 +901,7 @@ export default function ChessGame() {
       }
     }
     return styles;
-  }, [board, selected, showMoves, lastMove, checkedSquare]);
+  }, [board, selected, showMoves, highlightMove, checkedSquare, reviewing]);
 
   // Attempt the current puzzle. A move is correct if it keeps a forced mate
   // within the remaining budget; the engine then plays its toughest defense and
@@ -682,6 +925,7 @@ export default function ChessGame() {
         // refutation (#24). Retries stay open as practice.
         recordPuzzleOutcome(puzzle, false);
         setPuzzleState('wrong');
+        setPuzzleFlash('wrong');
         setPuzzleMsg(
           puzzle.kind === 'solution'
             ? `${res.played} isn't it — try again.`
@@ -701,6 +945,7 @@ export default function ChessGame() {
         recordPuzzleOutcome(puzzle, true);
         setBoard(board.clone());
         setPuzzleState('solved');
+        setPuzzleFlash('solved');
         setPuzzleMsg(`Solved — ${res.played}! ${puzzle.theme}.`);
         setPuzzleCoachMsg('');
         coachOnMove(fenBefore, fenAfterPlayer, mv.san, mv.color, 'player-move', ply, board.sanHistory());
@@ -772,11 +1017,14 @@ export default function ChessGame() {
   );
 
   // Whether the user may move a piece right now (normal play, puzzle, or drill).
-  const canInteract = drill.active
-    ? drill.state === 'solving'
-    : puzzleMode
-      ? puzzleState !== 'solved'
-      : humanToMove;
+  // Browsing history is read-only, so pieces are frozen while reviewing.
+  const canInteract = reviewing || refutationBoard
+    ? false
+    : drill.active
+      ? drill.state === 'solving'
+      : puzzleMode
+        ? puzzleState !== 'solved'
+        : humanToMove;
 
   const onPieceDrop = useCallback(
     (from, to, piece) => {
@@ -819,7 +1067,10 @@ export default function ChessGame() {
   );
 
   const startGame = (color) => {
-    const c = color || (Math.random() < 0.5 ? 'w' : 'b');
+    // Rated games randomize color; casual games keep the colour you chose
+    // rather than silently reassigning it (which used to happen on puzzle exit).
+    const c = color || (rated ? (Math.random() < 0.5 ? 'w' : 'b') : humanColor);
+    clearGameState();
     coachSeqRef.current += 1; // invalidate any in-flight coaching
     ratedAppliedRef.current = false;
     historyAppliedRef.current = false;
@@ -838,14 +1089,36 @@ export default function ChessGame() {
     setCoaching(false);
     thinkingRef.current = false;
     setIsThinking(false);
+    setFlagged(null);
+    lastCreditedPlyRef.current = 0;
+    const tc = getTimeControl(timeControl);
+    setClock({ w: tc.base * 1000, b: tc.base * 1000 });
     setBoard(new ChessBoard());
   };
 
   // Switch rated mode on/off. Always starts a fresh game so a half-played
-  // casual position is never scored (and vice-versa).
+  // casual position is never scored (and vice-versa) — which means confirming
+  // first when there's a game worth losing.
+  const applyRatedToggle = () => {
+    const goingRated = !rated;
+    setRated(goingRated);
+    clearGameState();
+    stashedGameRef.current = null;
+    // startGame reads `rated` from the current render, so pick the colour here:
+    // rated games randomize, casual keeps yours.
+    startGame(goingRated ? (Math.random() < 0.5 ? 'w' : 'b') : humanColor);
+  };
   const toggleRated = () => {
-    setRated((v) => !v);
-    startGame();
+    if (movesPlayedCount > 0 && !gameOver) {
+      askConfirm({
+        title: rated ? 'Leave rated mode?' : 'Switch to rated mode?',
+        body: 'Switching modes starts a new game — this one will be discarded.',
+        confirmLabel: 'Switch and start over',
+        onConfirm: applyRatedToggle,
+      });
+      return;
+    }
+    applyRatedToggle();
   };
 
   // Puzzle mode (#18, overhauled #24): sessions come from the adaptive
@@ -853,8 +1126,20 @@ export default function ChessGame() {
   // nearest the player's rating); the difficulty tier no longer gates them.
   const loadPuzzleFrom = (pool, index) => {
     if (!pool.length) return;
-    const i = ((index % pool.length) + pool.length) % pool.length;
+    // Running off the end used to wrap silently back to puzzle 1, which read as
+    // a bug. Finish the session explicitly instead.
+    if (index >= pool.length) {
+      setPuzzleSessionDone(true);
+      return;
+    }
+    const i = Math.max(0, index);
     const puzzle = pool[i];
+    setPuzzleDelta(null);
+    setPuzzleFlash(null);
+    setPuzzleSessionDone(false);
+    setRefutation(null);
+    setRefutationBoard(null);
+    setRefutationStep(0);
     const next = new ChessBoard(puzzle.fen);
     coachSeqRef.current += 1;
     drill.exit();
@@ -880,10 +1165,54 @@ export default function ChessGame() {
     setOrientation(next.turn() === 'w' ? 'white' : 'black');
     setBoard(next);
   };
+  // Stash the live game (if there is one) before leaving it for puzzles/drills.
+  const stashGame = () => {
+    if (puzzleMode || drill.active) return; // already away from the game
+    if (board.sanHistory().length === 0) return; // nothing worth keeping
+    stashedGameRef.current = {
+      pgn: board.pgn(),
+      humanColor,
+      orientation,
+      resigned,
+      dialogue: dialogue.map(({ threadApi, ...rest }) => rest),
+      moveStats,
+      gameMistakes,
+    };
+  };
+
+  // Return to the stashed game, or start a fresh one if there wasn't one.
+  const resumeStashedGame = () => {
+    const snap = stashedGameRef.current;
+    const next = boardFromSnapshot(snap);
+    if (!snap || !next) {
+      startGame(humanColor);
+      return;
+    }
+    stashedGameRef.current = null;
+    coachSeqRef.current += 1;
+    drill.exit();
+    setPuzzleMode(false);
+    setSelected(null);
+    setCoaching(false);
+    thinkingRef.current = false;
+    setIsThinking(false);
+    setHumanColor(snap.humanColor);
+    setOrientation(snap.orientation);
+    setResigned(snap.resigned || null);
+    setDialogue(snap.dialogue || []);
+    setMoveStats(snap.moveStats || []);
+    setGameMistakes(snap.gameMistakes || []);
+    setBoard(next);
+  };
+
   const startPuzzles = () => {
+    stashGame();
     const progress = loadProgress();
     setPuzzleProgressState(progress);
     puzzleRecordedRef.current = new Set();
+    puzzleStartRatingRef.current = progress.rating || 0;
+    setPuzzleSolvedCount(0);
+    setPuzzleSessionDone(false);
     loadPuzzleFrom(selectSession(progress, PUZZLES), 0);
     // The Lichess daily puzzle joins the session when reachable (and not
     // already solved recently); offline it just isn't there.
@@ -904,10 +1233,28 @@ export default function ChessGame() {
   const recordPuzzleOutcome = (puzzle, solved) => {
     if (!puzzle || puzzleRecordedRef.current.has(puzzle.id)) return;
     puzzleRecordedRef.current.add(puzzle.id);
-    const next = recordPuzzleResult(loadProgress(), puzzle, solved);
+    const before = loadProgress();
+    const next = recordPuzzleResult(before, puzzle, solved);
     saveProgress(next);
     setPuzzleProgressState(next);
+    // Rated games show a +12/-8; puzzles used the same Elo math and showed
+    // nothing. Report the delta and when this puzzle comes back.
+    const delta = (next.rating || 0) - (before.rating || 0);
+    const rec = next.puzzles && next.puzzles[puzzle.id];
+    setPuzzleDelta({
+      delta,
+      nextDueAt: rec && rec.nextDueAt ? rec.nextDueAt : null,
+      solved,
+    });
+    if (solved) setPuzzleSolvedCount((n) => n + 1);
     if (syncId) putRemoteProfile(syncId, { puzzles: next });
+  };
+
+  // Human-readable "you'll see this again in …" from a due timestamp.
+  const describeNextDue = (ts) => {
+    if (!ts) return '';
+    const days = Math.max(1, Math.round((ts - Date.now()) / 86400000));
+    return `Back in ${days} day${days === 1 ? '' : 's'}.`;
   };
 
   // Coaching after a failed attempt (#24): analyze the position the wrong
@@ -922,11 +1269,31 @@ export default function ChessGame() {
       .then((analysisAfter) => {
         if (seq !== coachSeqRef.current) return;
         const payload = buildFailPayload({ puzzle, fen: fenBefore, fenAfter, playedSan, analysisAfter });
+        // Tactics are a spatial skill: reading "after Ka7 Qb2 Ka6 the chance is
+        // gone" is far weaker than watching it. Offer to play the refutation
+        // out on the board from the position the wrong move created.
+        if (payload.refutationPv && payload.refutationPv.length) {
+          setRefutation({ fen: fenAfter, pv: payload.refutationPv, played: playedSan });
+        }
         return requestCommentary(payload).then(({ text }) => {
           if (seq === coachSeqRef.current && text) setPuzzleCoachMsg(text);
         });
       })
       .catch(() => {});
+  };
+
+  // Step the refutation preview forward one ply on a throwaway board.
+  const playRefutation = () => {
+    if (!refutation) return;
+    const preview = new ChessBoard(refutation.fen);
+    const shown = refutationStep + 1;
+    for (let i = 0; i < shown && i < refutation.pv.length; i += 1) {
+      const mvs = preview.allLegalMoves().filter((m) => m.san.replace(/[+#]/g, '') === refutation.pv[i].replace(/[+#]/g, ''));
+      if (!mvs.length) break;
+      preview.move(mvs[0].from, mvs[0].to, mvs[0].promotion);
+    }
+    setRefutationBoard(preview);
+    setRefutationStep(shown >= refutation.pv.length ? 0 : shown);
   };
 
   // Staged hints (#24): theme first, then the key piece + square. The piece
@@ -956,6 +1323,7 @@ export default function ChessGame() {
     setBoard(next);
   };
   const startDrills = (entries) => {
+    stashGame();
     const first = drill.start(entries);
     if (!first) return;
     coachSeqRef.current += 1; // invalidate any in-flight coaching
@@ -975,9 +1343,9 @@ export default function ChessGame() {
   const nextDrill = () => {
     const entry = drill.next();
     if (entry) loadDrillBoard(entry);
-    else startGame(humanColor);
+    else resumeStashedGame();
   };
-  const exitDrills = () => startGame(humanColor);
+  const exitDrills = () => resumeStashedGame();
 
   const undo = () => {
     // Undo back to the human's turn: pop AI move + human move when possible.
@@ -995,8 +1363,19 @@ export default function ChessGame() {
     setBoard(board.clone());
   };
 
+  // A mistyped key used to fail silently forever — the coach just quietly
+  // stayed on templates. Catch the obvious shape errors at entry.
+  const keyFormatWarning = (() => {
+    const v = apiKeyInput.trim();
+    if (!v) return '';
+    if (!v.startsWith('sk-ant-')) return 'Anthropic keys start with “sk-ant-”. Double-check what you pasted.';
+    if (v.length < 40) return 'That looks too short to be a complete key.';
+    return '';
+  })();
+
   const saveKey = () => {
     const trimmed = apiKeyInput.trim();
+    setCoachKeyFailing(false);
     setApiKey(trimmed);
     setKeySet(hasApiKey());
     setApiKeyInput('');
@@ -1009,16 +1388,26 @@ export default function ChessGame() {
       );
     }
   };
-  const removeKey = () => {
-    setApiKey('');
-    setKeySet(false);
-    setShowKeyField(false);
-  };
+  const removeKey = () =>
+    askConfirm({
+      title: 'Remove your Anthropic key?',
+      body: "It's deleted from this browser. You'll need to paste it again (or sign in) to get Claude coaching back.",
+      confirmLabel: 'Remove key',
+      onConfirm: () => {
+        setApiKey('');
+        setKeySet(false);
+        setShowKeyField(false);
+      },
+    });
 
   const handleCreateAccount = async () => {
     const username = accountUsername.trim();
     if (!username || accountPassword.length < 6) {
       setAccountError(!username ? 'Enter a username.' : 'Password must be at least 6 characters.');
+      return;
+    }
+    if (accountPassword !== accountPassword2) {
+      setAccountError("Those passwords don't match.");
       return;
     }
     setAccountBusy(true);
@@ -1057,6 +1446,8 @@ export default function ChessGame() {
       setAccount(creds);
       setAccountUsername('');
       setAccountPassword('');
+      setAccountPassword2('');
+      setCreatingAccount(false);
     } finally {
       setAccountBusy(false);
     }
@@ -1128,15 +1519,25 @@ export default function ChessGame() {
       setAccount(creds);
       setAccountUsername('');
       setAccountPassword('');
+      setAccountPassword2('');
+      setCreatingAccount(false);
     } finally {
       setAccountBusy(false);
     }
   };
 
-  const handleSignOut = () => {
-    clearSession();
-    setAccount(null);
-  };
+  const handleSignOut = () =>
+    askConfirm({
+      title: 'Sign out?',
+      body:
+        'Your saved Anthropic key and Lichess token stay on this device — signing out does not remove them. ' +
+        'On a shared computer, remove them separately below.',
+      confirmLabel: 'Sign out',
+      onConfirm: () => {
+        clearSession();
+        setAccount(null);
+      },
+    });
 
   const saveLichess = () => {
     const trimmed = lichessInput.trim();
@@ -1153,11 +1554,17 @@ export default function ChessGame() {
       );
     }
   };
-  const removeLichess = () => {
-    setLichessToken('');
-    setLichessSet(false);
-    setShowLichessField(false);
-  };
+  const removeLichess = () =>
+    askConfirm({
+      title: 'Remove your Lichess token?',
+      body: "It's deleted from this browser. Book moves keep working — you just lose the master-game statistics.",
+      confirmLabel: 'Remove token',
+      onConfirm: () => {
+        setLichessToken('');
+        setLichessSet(false);
+        setShowLichessField(false);
+      },
+    });
 
   // --- Move-thread Q&A (tool-use) ---
   const threadEntry = dialogue.find((e) => e.id === threadEntryId) || null;
@@ -1240,20 +1647,29 @@ export default function ChessGame() {
         setPgnError('Could not parse that PGN.');
         return;
       }
-      coachSeqRef.current += 1; // invalidate in-flight coaching
-      drill.exit();
-      setGameMistakes([]);
-      setDialogue([]);
-      setMoveStats([]);
-      setCoaching(false);
-      setSelected(null);
-      setResigned(null);
-      thinkingRef.current = false;
-      setIsThinking(false);
-      // Imported games are reviewed against Stockfish; default human = White.
-      setHumanColor('w');
-      setOrientation('white');
-      setBoard(next);
+      // Which side is "you" in the review? Guessing White mislabels every
+      // move when the user played Black, so ask — seeded with the PGN's names.
+      const players = parsePlayerHeaders(text);
+      const applyImport = (color) => {
+        coachSeqRef.current += 1; // invalidate in-flight coaching
+        clearGameState();
+        stashedGameRef.current = null;
+        drill.exit();
+        setPuzzleMode(false);
+        setGameMistakes([]);
+        setDialogue([]);
+        setMoveStats([]);
+        setCoaching(false);
+        setSelected(null);
+        setResigned(null);
+        setReviewPly(null);
+        thinkingRef.current = false;
+        setIsThinking(false);
+        setHumanColor(color);
+        setOrientation(color === 'w' ? 'white' : 'black');
+        setBoard(next);
+      };
+      setImportPrompt({ players, apply: applyImport });
     } catch (_) {
       setPgnError('Failed to read that file.');
     } finally {
@@ -1261,9 +1677,42 @@ export default function ChessGame() {
     }
   };
 
+  // Resolve typed SAN ("Nf3", "exd5", "O-O") or UCI ("e2e4", "e7e8q") against
+  // the legal moves in the current position, then play it through the normal
+  // move path so puzzles/drills/coaching all behave identically.
+  const submitTypedMove = () => {
+    const raw = moveInput.trim();
+    if (!raw) return;
+    const candidates = board.allLegalMoves();
+    const norm = (s) => s.replace(/[+#?!]/g, '').replace(/0/g, 'O');
+    const uci = raw.toLowerCase().replace(/[^a-h1-8qrbn]/g, '');
+    let match = candidates.find((m) => norm(m.san) === norm(raw));
+    if (!match && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(uci)) {
+      match = candidates.find(
+        (m) => m.from === uci.slice(0, 2) && m.to === uci.slice(2, 4) &&
+          (uci.length === 4 || (m.promotion || '') === uci[4])
+      );
+    }
+    if (!match) {
+      setMoveInputError(`“${raw}” isn’t a legal move here.`);
+      return;
+    }
+    setMoveInputError('');
+    setMoveInput('');
+    tryHumanMove(match.from, match.to, match.promotion);
+  };
+
   const flip = () => setOrientation((o) => (o === 'white' ? 'black' : 'white'));
   const resign = () => {
-    if (!gameOver) setResigned(humanColor);
+    if (gameOver) return;
+    askConfirm({
+      title: 'Resign this game?',
+      body: rated
+        ? 'This counts as a loss and will lower your rating.'
+        : 'The game ends immediately and is scored as a loss.',
+      confirmLabel: 'Resign',
+      onConfirm: () => setResigned(humanColor),
+    });
   };
 
   const sanHistory = board.sanHistory();
@@ -1278,6 +1727,13 @@ export default function ChessGame() {
     gameOver && moveStats.length > 0 ? summarizeAccuracy(moveStats) : null;
   const humanSide = accuracyReport ? (humanColor === 'w' ? accuracyReport.white : accuracyReport.black) : null;
   const aiSide = accuracyReport ? (humanColor === 'w' ? accuracyReport.black : accuracyReport.white) : null;
+  // The player's own mistakes/blunders, newest last, as jump targets.
+  const badPlies = accuracyReport
+    ? moveStats
+        .filter((m) => m.moverColor === humanColor && ['mistake', 'blunder'].includes(m.classification))
+        .sort((a, b) => a.ply - b.ply)
+        .map((m) => ({ ...m, san: sanHistory[m.ply - 1] }))
+    : [];
 
   let statusText;
   if (drill.active) {
@@ -1289,21 +1745,32 @@ export default function ChessGame() {
     const puzzle = puzzlePool[puzzleIndex];
     const toMove = board.turn() === 'w' ? 'White' : 'Black';
     const movesLeft = Math.max(1, Math.ceil(puzzleBudget / 2));
-    statusText =
-      puzzleState === 'solved'
+    // Naming the pattern up front hands over most of the solve, so the theme
+    // is hidden until the puzzle resolves (or the user opts in).
+    const revealTheme = puzzleShowTheme || puzzleState === 'solved' || puzzleState === 'wrong';
+    const tag = puzzle
+      ? ` (${revealTheme ? `${puzzle.theme} · ` : ''}rated ${puzzle.rating})`
+      : '';
+    statusText = puzzleSessionDone
+      ? 'Session complete.'
+      : puzzleState === 'solved'
         ? `✓ ${puzzleMsg}`
         : puzzleState === 'wrong'
           ? puzzleMsg
           : puzzle && puzzle.kind === 'solution'
-            ? `Puzzle ${puzzleIndex + 1}/${puzzlePool.length}: ${toMove} to play — find the best move. (${puzzle.theme} · rated ${puzzle.rating})`
-            : `Puzzle ${puzzleIndex + 1}/${puzzlePool.length}: ${toMove} to play, mate in ${movesLeft}.${puzzle ? ` (${puzzle.theme} · rated ${puzzle.rating})` : ''}`;
+            ? `Puzzle ${puzzleIndex + 1}/${puzzlePool.length}: ${toMove} to play — find the best move.${tag}`
+            : `Puzzle ${puzzleIndex + 1}/${puzzlePool.length}: ${toMove} to play${
+                puzzleShowTheme ? `, mate in ${movesLeft}` : ' — find the win'
+              }.${tag}`;
   } else if (gameResult) {
     statusText =
       gameResult.type === 'checkmate'
         ? `Checkmate — ${gameResult.winner === 'white' ? 'White' : 'Black'} wins`
         : gameResult.type === 'resign'
           ? `${gameResult.winner === 'white' ? 'White' : 'Black'} wins by resignation`
-          : gameResult.type === 'stalemate'
+          : gameResult.type === 'timeout'
+            ? `${gameResult.winner === 'white' ? 'White' : 'Black'} wins on time`
+            : gameResult.type === 'stalemate'
             ? 'Draw — stalemate'
             : gameResult.type === 'threefold'
               ? 'Draw — threefold repetition'
@@ -1315,12 +1782,26 @@ export default function ChessGame() {
   } else if (engineStatus === 'loading') {
     statusText = 'Loading engine…';
   } else if (engineStatus === 'error') {
-    statusText = 'Engine unavailable — check your connection and start a new game.';
+    statusText = describeEngineError(engineErrorLine);
   } else if (isThinking) {
     statusText = 'Stockfish is thinking…';
   } else {
     statusText = `${board.turn() === 'w' ? 'White' : 'Black'} to move${board.isCheck() ? ' — check' : ''}`;
   }
+
+  // Live opening status — a durable "where am I in theory" readout, rather
+  // than a flag on one transcript entry that scrolls away.
+  const currentOpening = useMemo(
+    () => (puzzleMode || drill.active ? null : detectOpening(sanHistory)),
+    [sanHistory, puzzleMode, drill.active]
+  );
+
+  // Spaced-repetition nudge: how many puzzles are due for review right now.
+  // The mistake library already badges its button; puzzles never did.
+  const puzzlesDue = useMemo(
+    () => puzzlesDueCount(puzzleProgressState, PUZZLES),
+    [puzzleProgressState]
+  );
 
   // Material / captured pieces (#21).
   const boardArray = board.board();
@@ -1361,10 +1842,39 @@ export default function ChessGame() {
             <div className="w-24" />
           </div>
 
+          {/* First run: the app has coaching, puzzles, a rated ladder and a
+              mistake library, and used to explain none of them. */}
+          {!introSeen && (
+            <div
+              className="mb-4 rounded-xl px-4 py-3 flex items-start justify-between gap-3 font-body text-sm"
+              style={{ backgroundColor: 'var(--color-accent-soft)', color: 'var(--color-text-primary)' }}
+            >
+              <span>
+                <strong>New here?</strong> Just start playing — the coach explains every move, yours and the
+                engine’s, for free. <em>Puzzles</em> drills tactics, <em>Rated</em> plays a ladder for a real Elo, and
+                the moves you get wrong are saved so you can retrain them later.
+              </span>
+              <button
+                onClick={() => setIntroSeen(true)}
+                aria-label="Dismiss"
+                className="shrink-0 tap-target"
+                style={{ color: 'var(--color-text-muted)' }}
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
             <div>
-              <div className="mb-3 font-body text-sm" style={{ color: 'var(--color-text-secondary)' }} aria-live="polite">
-                {statusText}
+              <div className="mb-3 flex items-center gap-2 font-body text-sm" style={{ color: 'var(--color-text-secondary)' }} aria-live="polite">
+                {(isThinking || engineStatus === 'loading') && <span className="engine-spinner" aria-hidden="true" />}
+                <span>{statusText}</span>
+                {engineStatus === 'error' && (
+                  <button onClick={retryEngine} className="px-2 py-1 rounded font-body text-xs panel tap-target">
+                    Retry
+                  </button>
+                )}
               </div>
               {gameOver && !puzzleMode && !drill.active && formatRecord(history, rated, opponentKey) && (
                 <div className="mb-3 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
@@ -1376,8 +1886,12 @@ export default function ChessGame() {
                   <span className="px-2 py-0.5 rounded font-semibold" style={{ backgroundColor: 'var(--color-accent-soft)', color: 'var(--color-text-primary)' }}>
                     Rated
                   </span>
-                  <span style={{ color: 'var(--color-text-secondary)' }}>
-                    You {rating}{isProvisional(ratedGames) ? '?' : ''} · Opponent {ratedRung.rating}
+                  <span
+                    style={{ color: 'var(--color-text-secondary)' }}
+                    title={isProvisional(ratedGames) ? 'Provisional — still in your first 20 games, so the rating moves faster' : undefined}
+                  >
+                    You {rating}
+                    {isProvisional(ratedGames) ? ' (provisional)' : ''} · Opponent {ratedRung.rating}
                   </span>
                   {ratedDelta && (
                     <span
@@ -1387,6 +1901,25 @@ export default function ChessGame() {
                       {ratedDelta.delta >= 0 ? `+${ratedDelta.delta}` : ratedDelta.delta}
                     </span>
                   )}
+                </div>
+              )}
+              {clockOn && (
+                <div className="w-full max-w-[680px] mx-auto mb-2 flex items-center justify-between font-body">
+                  {[
+                    { c: orientation === 'white' ? 'b' : 'w', pos: 'top' },
+                    { c: orientation === 'white' ? 'w' : 'b', pos: 'bottom' },
+                  ].map(({ c, pos }) => (
+                    <span
+                      key={pos}
+                      className={`px-3 py-1 rounded-lg text-lg font-semibold tabular-nums${
+                        turnColor === c && !gameOver ? ' clock-active' : ''
+                      }${clock[c] <= 10000 ? ' clock-low' : ''}`}
+                      style={{ backgroundColor: 'var(--color-bg-panel)', color: 'var(--color-text-primary)' }}
+                      aria-label={`${c === 'w' ? 'White' : 'Black'} clock`}
+                    >
+                      {c === 'w' ? '♔' : '♚'} {formatClock(clock[c])}
+                    </span>
+                  ))}
                 </div>
               )}
               <div className="flex gap-3 w-full max-w-[680px] mx-auto">
@@ -1402,18 +1935,30 @@ export default function ChessGame() {
                     <div style={{ height: `${evalFraction * 100}%`, backgroundColor: '#fafafa', transition: 'height 300ms ease' }} />
                   </div>
                 )}
-                <div className="flex-1 min-w-0">
-                  {/* Top tray = pieces captured by the side shown at top */}
+                <div
+                  className={`flex-1 min-w-0${puzzleFlash ? ` puzzle-flash-${puzzleFlash}` : ''}`}
+                  onAnimationEnd={() => setPuzzleFlash(null)}
+                >
+                  {/* Top tray = pieces captured by the side shown at top.
+                      Puzzles/drills start from composed positions, where a tray
+                      of "captured" pieces is noise, not information. */}
                   <div className="flex items-center justify-between mb-1">
-                    <Tray pieces={orientation === 'white' ? capturedByBlack : capturedByWhite} plus={0} />
-                    {showEvalBar && !puzzleMode && !drill.active && !rated && (
+                    {!puzzleMode && !drill.active ? (
+                      <Tray pieces={orientation === 'white' ? capturedByBlack : capturedByWhite} plus={0} />
+                    ) : (
+                      <span />
+                    )}
+                    {/* Material is arithmetic from the position, not an engine
+                        hint, so it stays visible when the eval bar is off. */}
+                    {!puzzleMode && !drill.active && (
                       <span className="font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                        {material > 0 ? `White +${material}` : material < 0 ? `Black +${-material}` : 'Even'}
+                        Material:{' '}
+                        {material > 0 ? `White +${material}` : material < 0 ? `Black +${-material}` : 'even'}
                       </span>
                     )}
                   </div>
                   <Chessboard
-                    position={board.fen()}
+                    position={displayFen}
                     onPieceDrop={onPieceDrop}
                     onSquareClick={onSquareClick}
                     onPromotionPieceSelect={onPromotionPieceSelect}
@@ -1432,11 +1977,42 @@ export default function ChessGame() {
                     animationDuration={200}
                   />
                   {/* Bottom tray = pieces captured by the side shown at bottom */}
-                  <div className="mt-1">
-                    <Tray pieces={orientation === 'white' ? capturedByWhite : capturedByBlack} plus={0} />
-                  </div>
+                  {!puzzleMode && !drill.active && (
+                    <div className="mt-1">
+                      <Tray pieces={orientation === 'white' ? capturedByWhite : capturedByBlack} plus={0} />
+                    </div>
+                  )}
                 </div>
               </div>
+
+              {reviewing && (
+                <div
+                  className="mt-3 w-full max-w-[680px] mx-auto flex items-center justify-between gap-2 rounded-lg px-3 py-2 font-body text-sm"
+                  style={{ backgroundColor: 'var(--color-accent-soft)', color: 'var(--color-text-primary)' }}
+                  aria-live="polite"
+                >
+                  <span>
+                    Reviewing move {Math.ceil(reviewPly / 2)}
+                    {reviewPly % 2 === 0 ? '…' : ''} — the board is read-only.
+                  </span>
+                  <span className="flex gap-2">
+                    <button
+                      onClick={() => setReviewPly((p) => Math.max(0, p - 1))}
+                      disabled={reviewPly === 0}
+                      className="px-2 py-1 rounded font-body text-xs panel disabled:opacity-40 tap-target"
+                      aria-label="Previous move"
+                    >
+                      ←
+                    </button>
+                    <button
+                      onClick={() => setReviewPly(null)}
+                      className="px-3 py-1 rounded font-body text-xs btn-primary tap-target"
+                    >
+                      Back to live
+                    </button>
+                  </span>
+                </div>
+              )}
 
               {drill.active ? (
                 <>
@@ -1444,14 +2020,14 @@ export default function ChessGame() {
                     <button
                       onClick={drill.reveal}
                       disabled={drill.state !== 'solving'}
-                      className="px-4 py-2 rounded-lg font-body text-sm panel disabled:opacity-40"
+                      className="px-4 py-2 rounded-lg font-body text-sm panel disabled:opacity-40 tap-target"
                     >
                       Show solution
                     </button>
-                    <button onClick={nextDrill} className="px-4 py-2 rounded-lg font-body text-sm panel">
+                    <button onClick={nextDrill} className="px-4 py-2 rounded-lg font-body text-sm panel tap-target">
                       {drill.index + 1 < drill.total ? 'Next mistake →' : 'Finish'}
                     </button>
-                    <button onClick={exitDrills} className="px-4 py-2 rounded-lg font-body text-sm panel">
+                    <button onClick={exitDrills} className="px-4 py-2 rounded-lg font-body text-sm panel tap-target">
                       Exit drills
                     </button>
                   </div>
@@ -1465,25 +2041,50 @@ export default function ChessGame() {
                     </p>
                   )}
                 </>
+              ) : puzzleMode && puzzleSessionDone ? (
+                <div className="mt-4 w-full max-w-[680px] mx-auto panel rounded-xl p-4 text-center">
+                  <h2 className="font-heading text-sm font-semibold mb-1" style={{ color: 'var(--color-text-primary)' }}>
+                    Session complete
+                  </h2>
+                  <p className="font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                    Solved {puzzleSolvedCount} of {puzzlePool.length}. Puzzle rating {puzzleProgressState.rating}
+                    {puzzleStartRatingRef.current != null && (
+                      <>
+                        {' '}
+                        ({puzzleProgressState.rating - puzzleStartRatingRef.current >= 0 ? '+' : ''}
+                        {puzzleProgressState.rating - puzzleStartRatingRef.current})
+                      </>
+                    )}
+                    .
+                  </p>
+                  <div className="flex flex-wrap gap-2 justify-center mt-3">
+                    <button onClick={startPuzzles} className="px-4 py-2 rounded-lg font-body text-sm btn-primary tap-target">
+                      New session
+                    </button>
+                    <button onClick={resumeStashedGame} className="px-4 py-2 rounded-lg font-body text-sm panel tap-target">
+                      {stashedGameRef.current ? 'Back to my game' : 'Exit puzzles'}
+                    </button>
+                  </div>
+                </div>
               ) : puzzleMode ? (
                 <>
                   <div className="flex flex-wrap gap-2 justify-center mt-4">
                     <button
                       onClick={requestPuzzleHint}
                       disabled={puzzleState === 'solved' || puzzleHintStage >= MAX_HINT_STAGE}
-                      className="px-4 py-2 rounded-lg font-body text-sm panel disabled:opacity-40"
+                      className="px-4 py-2 rounded-lg font-body text-sm panel disabled:opacity-40 tap-target"
                       title={puzzleHintStage === 0 ? 'Theme hint (free)' : 'Piece hint (counts as a miss)'}
                     >
                       Hint{puzzleHintStage > 0 ? ` (${puzzleHintStage}/${MAX_HINT_STAGE})` : ''}
                     </button>
-                    <button onClick={retryPuzzle} className="px-4 py-2 rounded-lg font-body text-sm panel">
+                    <button onClick={retryPuzzle} className="px-4 py-2 rounded-lg font-body text-sm panel tap-target">
                       Reset puzzle
                     </button>
-                    <button onClick={nextPuzzle} className="px-4 py-2 rounded-lg font-body text-sm panel">
+                    <button onClick={nextPuzzle} className="px-4 py-2 rounded-lg font-body text-sm panel tap-target">
                       Next puzzle &rarr;
                     </button>
-                    <button onClick={() => startGame()} className="px-4 py-2 rounded-lg font-body text-sm panel">
-                      Exit puzzles
+                    <button onClick={resumeStashedGame} className="px-4 py-2 rounded-lg font-body text-sm panel tap-target">
+                      {stashedGameRef.current ? 'Back to my game' : 'Exit puzzles'}
                     </button>
                   </div>
                   {puzzleCoachMsg && (
@@ -1495,46 +2096,107 @@ export default function ChessGame() {
                       {puzzleCoachMsg}
                     </p>
                   )}
+                  {refutation && puzzleState === 'wrong' && (
+                    <div className="mt-2 flex flex-wrap gap-2 justify-center items-center">
+                      <button onClick={playRefutation} className="px-3 py-2 rounded-lg font-body text-sm panel tap-target">
+                        {refutationStep === 0 ? `Show why ${refutation.played} fails` : 'Next move'}
+                      </button>
+                      {refutationBoard && (
+                        <>
+                          <span className="font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                            {refutation.pv.slice(0, refutationStep || refutation.pv.length).join(' ')}
+                          </span>
+                          <button
+                            onClick={() => {
+                              setRefutationBoard(null);
+                              setRefutationStep(0);
+                            }}
+                            className="px-3 py-2 rounded-lg font-body text-sm panel tap-target"
+                          >
+                            Back to the puzzle
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
                   <p className="mt-2 font-body text-xs text-center" style={{ color: 'var(--color-text-muted)' }}>
-                    Your puzzle rating: {puzzleProgressState.rating}
+                    Your puzzle rating: {puzzleProgressState.rating}{puzzleDelta ? ' ' : ''}
+                    {puzzleDelta && (
+                      <span
+                        className="font-semibold"
+                        style={{ color: puzzleDelta.delta >= 0 ? 'var(--color-accent)' : 'var(--tone-bad, #dc2626)' }}
+                      >
+                        {puzzleDelta.delta >= 0 ? `+${puzzleDelta.delta}` : puzzleDelta.delta}
+                      </span>
+                    )}
+                    {puzzleDelta && puzzleDelta.solved && puzzleDelta.nextDueAt
+                      ? ` · ${describeNextDue(puzzleDelta.nextDueAt)}`
+                      : ''}
+                    {' · Tactics only — separate from your game rating.'}
+                  </p>
+                  <p className="mt-1 font-body text-xs text-center" style={{ color: 'var(--color-text-muted)' }}>
+                    {puzzleHintStage === 0
+                      ? 'First hint is free; the second names the piece and counts as a miss.'
+                      : puzzleHintStage < MAX_HINT_STAGE
+                        ? 'The next hint names the piece and counts as a miss.'
+                        : 'Hints used.'}
                   </p>
                 </>
               ) : (
                 <div className="flex flex-wrap gap-2 justify-center mt-4">
-                  <button onClick={() => startGame()} className="px-4 py-2 rounded-lg font-body text-sm panel">
-                    {rated ? 'New Rated Game' : 'New Game'}
-                  </button>
+                  {gameOver ? (
+                    <>
+                      <button
+                        onClick={() => startGame(rated ? undefined : humanColor)}
+                        className="px-4 py-2 rounded-lg font-body text-sm btn-primary tap-target"
+                      >
+                        {rated ? 'New Rated Game' : 'Rematch'}
+                      </button>
+                      {!rated && (
+                        <button
+                          onClick={() => startGame(humanColor === 'w' ? 'b' : 'w')}
+                          className="px-4 py-2 rounded-lg font-body text-sm panel tap-target"
+                        >
+                          Play as {humanColor === 'w' ? 'Black' : 'White'}
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <button onClick={() => startGame()} className="px-4 py-2 rounded-lg font-body text-sm panel tap-target">
+                      {rated ? 'New Rated Game' : 'New Game'}
+                    </button>
+                  )}
                   {!rated && (
                     <button
                       onClick={undo}
                       disabled={!board.canUndo() || isThinking}
-                      className="px-4 py-2 rounded-lg font-body text-sm panel disabled:opacity-40"
+                      className="px-4 py-2 rounded-lg font-body text-sm panel disabled:opacity-40 tap-target"
                     >
                       Undo
                     </button>
                   )}
                   {!rated && (
-                    <button onClick={flip} className="px-4 py-2 rounded-lg font-body text-sm panel">
+                    <button onClick={flip} className="px-4 py-2 rounded-lg font-body text-sm panel tap-target">
                       Flip
                     </button>
                   )}
                   <button
                     onClick={resign}
                     disabled={gameOver}
-                    className="px-4 py-2 rounded-lg font-body text-sm panel disabled:opacity-40"
+                    className="px-4 py-2 rounded-lg font-body text-sm panel disabled:opacity-40 tap-target"
                   >
                     Resign
                   </button>
                   {!rated && (
-                    <button onClick={startPuzzles} className="px-4 py-2 rounded-lg font-body text-sm panel">
-                      Puzzles
+                    <button onClick={startPuzzles} className="px-4 py-2 rounded-lg font-body text-sm panel tap-target">
+                      Puzzles{puzzlesDue > 0 ? ` (${puzzlesDue} due)` : ''}
                     </button>
                   )}
                   {!rated && (
                     <button
                       onClick={trainMistakes}
                       disabled={dueCount === 0}
-                      className="px-4 py-2 rounded-lg font-body text-sm panel disabled:opacity-40"
+                      className="px-4 py-2 rounded-lg font-body text-sm panel disabled:opacity-40 tap-target"
                       title={dueCount === 0 ? 'No mistakes due for review — play some games first' : undefined}
                     >
                       Train my mistakes{dueCount > 0 ? ` (${dueCount})` : ''}
@@ -1543,58 +2205,11 @@ export default function ChessGame() {
                 </div>
               )}
 
-              {/* Moves — below the board */}
-              <div className="panel rounded-xl p-4 mt-4 w-full max-w-[680px] mx-auto">
-                <div className="flex items-center justify-between mb-2">
-                  <h2 className="font-heading text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-                    Moves
-                  </h2>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={exportPgn}
-                      disabled={movePairs.length === 0}
-                      className="px-2 py-1 rounded font-body text-xs panel disabled:opacity-40"
-                    >
-                      Export
-                    </button>
-                    <button onClick={() => fileInputRef.current && fileInputRef.current.click()} className="px-2 py-1 rounded font-body text-xs panel">
-                      Import
-                    </button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".pgn,text/plain"
-                      onChange={importPgn}
-                      className="hidden"
-                    />
-                  </div>
-                </div>
-                {pgnError && (
-                  <p className="mb-2 font-body text-xs tone-bad">{pgnError}</p>
-                )}
-                <div className="max-h-56 overflow-y-auto font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-                  {movePairs.length === 0 ? (
-                    <p style={{ color: 'var(--color-text-muted)' }}>No moves yet.</p>
-                  ) : (
-                    <ol className="space-y-0.5">
-                      {movePairs.map((pair, i) => (
-                        <li key={i} className="flex gap-3">
-                          <span style={{ color: 'var(--color-text-muted)' }} className="w-6 text-right">
-                            {i + 1}.
-                          </span>
-                          <span className="w-16">{pair[0]}</span>
-                          <span className="w-16">{pair[1] || ''}</span>
-                        </li>
-                      ))}
-                    </ol>
-                  )}
-                </div>
-              </div>
             </div>
 
             <div className="flex flex-col gap-4 lg:min-h-[calc(100vh-7rem)]">
               {/* Post-game mistake review (#23) — retry this game's mistakes */}
-              {accuracyReport && !rated && gameMistakes.length > 0 && (
+              {accuracyReport && gameMistakes.length > 0 && (
                 <MistakeReviewPanel mistakes={gameMistakes} onRetry={retryMistake} />
               )}
 
@@ -1621,6 +2236,25 @@ export default function ChessGame() {
                             ? `${side.counts.blunder} blunder${side.counts.blunder === 1 ? '' : 's'}, ${side.counts.mistake} mistake${side.counts.mistake === 1 ? '' : 's'}, ${side.counts.inaccuracy} inaccurac${side.counts.inaccuracy === 1 ? 'y' : 'ies'}`
                             : ''}
                         </div>
+                        {/* Counting them isn't much use if you can't find
+                            them — jump straight to the position. */}
+                        {label === 'You' && badPlies.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {badPlies.map((m) => (
+                              <button
+                                key={m.ply}
+                                onClick={() => setReviewPly(m.ply)}
+                                className={`px-2 py-1 rounded font-body text-xs panel ${
+                                  m.classification === 'blunder' ? 'tone-bad' : 'tone-warn'
+                                }`}
+                                title={`Show move ${Math.ceil(m.ply / 2)}`}
+                              >
+                                {Math.ceil(m.ply / 2)}
+                                {m.moverColor === 'b' ? '…' : '.'} {m.san || ''}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1635,8 +2269,9 @@ export default function ChessGame() {
               {rated ? (
                 <div className="panel rounded-xl p-4 flex-1 min-h-0 flex items-center justify-center text-center">
                   <p className="font-body text-sm" style={{ color: 'var(--color-text-muted)' }}>
-                    Coaching, the evaluation bar, undo and flip are off in rated games.
-                    Toggle Rated off in the Game panel to practice with the coach.
+                    {gameOver
+                      ? 'Game over — your accuracy and mistakes from this game are above, and any blunders were saved to your mistake library for drilling.'
+                      : 'Coaching, the evaluation bar, undo and flip are off during rated games so the result is honest. Your moves are still analysed quietly — you’ll get the full review when the game ends.'}
                   </p>
                 </div>
               ) : (
@@ -1645,10 +2280,98 @@ export default function ChessGame() {
                   <h2 className="font-heading text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                     Coach
                   </h2>
-                  <span className="font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                    {keySet ? (coaching ? 'thinking…' : 'Claude') : 'built-in'}
+                  <span className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowLegend((v) => !v)}
+                      className="font-body text-xs tap-target"
+                      style={{ color: 'var(--color-text-muted)' }}
+                      aria-expanded={showLegend}
+                      title="What do the move labels mean?"
+                    >
+                      ⓘ labels
+                    </button>
+                    <span className="font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                      {keySet ? (coaching ? 'thinking…' : 'Claude (fast)') : 'built-in'}
+                    </span>
                   </span>
                 </div>
+
+                {/* Where you are in theory right now, and what the opening is
+                    actually trying to do — available with or without a key. */}
+                {currentOpening && currentOpening.name && (
+                  <div className="mb-2 font-body text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                    <span style={{ color: 'var(--color-accent)' }}>{currentOpening.name}</span>
+                    {currentOpening.inBook ? (
+                      <span> · in book</span>
+                    ) : (
+                      <span> · out of book since move {Math.ceil(currentOpening.leftBookAtPly / 2)}</span>
+                    )}
+                    {currentOpening.idea && <p className="mt-0.5">{currentOpening.idea}</p>}
+                    {!lichessSet && currentOpening.inBook && (
+                      <button
+                        onClick={() => {
+                          setSettingsPanelOpen(true);
+                          setShowLichessField(true);
+                        }}
+                        className="mt-1 tap-target"
+                        style={{ color: 'var(--color-accent)' }}
+                      >
+                        Add a free Lichess token for real master statistics →
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* What the six move labels actually mean, in centipawns. */}
+                {showLegend && (
+                  <ul className="mb-2 space-y-0.5 font-body text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+                    {CLASSIFICATION_LEGEND.map((c) => (
+                      <li key={c.key}>
+                        <span className="font-semibold">{c.label}</span> — {c.description}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {/* The single biggest drop-off in the coaching funnel was that
+                    nobody knew richer coaching existed. This nudge persists
+                    instead of vanishing after the first move. */}
+                {!keySet && !keyNudgeDismissed && (
+                  <div
+                    className="mb-2 rounded-lg px-3 py-2 font-body text-xs flex items-start justify-between gap-2"
+                    style={{ backgroundColor: 'var(--color-accent-soft)', color: 'var(--color-text-primary)' }}
+                  >
+                    <span>
+                      You’re on built-in coaching. Add an Anthropic API key for explanations written for your
+                      position — roughly a few cents per game.{' '}
+                      <a
+                        href="https://console.anthropic.com/settings/keys"
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: 'var(--color-accent)' }}
+                      >
+                        Get a key
+                      </a>
+                      {', then paste it under Settings below.'}
+                    </span>
+                    <button
+                      onClick={() => setKeyNudgeDismissed(true)}
+                      aria-label="Dismiss"
+                      className="shrink-0 tap-target"
+                      style={{ color: 'var(--color-text-muted)' }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+
+                {/* A key that's present but failing looks exactly like no key
+                    at all — which reads as "Claude coaching is mediocre". */}
+                {keySet && coachKeyFailing && (
+                  <p className="mb-2 font-body text-xs tone-warn">
+                    ⚠ Couldn’t reach Claude — showing built-in analysis. Check that your API key is valid and has credit.
+                  </p>
+                )}
                 <div
                   ref={transcriptRef}
                   className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-2 max-h-[55vh] lg:max-h-none"
@@ -1657,7 +2380,6 @@ export default function ChessGame() {
                   {dialogue.length === 0 ? (
                     <p className="font-body text-sm" style={{ color: 'var(--color-text-muted)' }}>
                       Make a move and I’ll explain what’s happening — your moves and mine.
-                      {!keySet && ' Add your Anthropic API key below for richer coaching.'}
                     </p>
                   ) : (
                     dialogue.slice().reverse().map((e) => (
@@ -1694,12 +2416,15 @@ export default function ChessGame() {
                         {!e.pending && e.analysis && (
                           <button
                             onClick={() => setThreadEntryId(e.id)}
-                            className="mt-1 text-xs font-body"
+                            disabled={!keySet}
+                            title={keySet ? undefined : 'Needs an Anthropic API key — add one in Settings'}
+                            className="mt-1 px-2 py-1 -ml-2 rounded text-xs font-body tap-target disabled:opacity-40"
                             style={{ color: 'var(--color-accent)' }}
                           >
                             {e.thread && e.thread.length
                               ? `Continue (${e.thread.filter((m) => m.role === 'user').length})`
-                              : 'Ask about this move'} →
+                              : 'Ask about this move'}{' '}
+                            →
                           </button>
                         )}
                       </div>
@@ -1719,6 +2444,14 @@ export default function ChessGame() {
                 </summary>
                 <div className="space-y-3 mt-3">
                 <Toggle label="Rated mode" checked={rated} onChange={toggleRated} />
+                {/* The lockouts used to be explained only after you'd already
+                    switched (and lost your game). Say it before the click. */}
+                {!rated && (
+                  <p className="font-body text-xs -mt-2" style={{ color: 'var(--color-text-muted)' }}>
+                    Plays a ladder opponent matched to your Elo. Undo, flip, the eval bar and live coaching switch off
+                    so the result is honest — you still get the full review once the game ends. Starts a new game.
+                  </p>
+                )}
 
                 {rated ? (
                   <div className="rounded-lg p-3" style={{ backgroundColor: 'var(--color-bg-panel)' }}>
@@ -1732,8 +2465,8 @@ export default function ChessGame() {
                     </div>
                     <p className="font-body text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
                       {isProvisional(ratedGames)
-                        ? `Provisional — ${ratedGames}/20 games played. Facing ${ratedRung.rating}.`
-                        : `${ratedGames} games played. Facing ${ratedRung.rating}.`}
+                        ? `Provisional — ${ratedGames} of 20 placement games played, so your rating still moves in big steps. Currently matched against a ${ratedRung.rating}-rated opponent.`
+                        : `${ratedGames} games played. Currently matched against a ${ratedRung.rating}-rated opponent.`}
                     </p>
                     {formatRecord(history, true, String(ratedRung.rating)) && (
                       <p className="font-body text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
@@ -1774,6 +2507,17 @@ export default function ChessGame() {
                           </option>
                         ))}
                       </select>
+                      {/* Raw Elo means nothing to a player who doesn't know
+                          their own rating — say what the tier plays like. */}
+                      {(() => {
+                        const tier = DIFFICULTY_TIERS.find((t) => t.key === difficulty);
+                        return tier && tier.blurb ? (
+                          <p className="font-body text-xs mt-1" style={{ color: 'var(--color-text-secondary)' }}>
+                            {tier.blurb}.
+                            {movesPlayedCount > 0 && !gameOver && ' Changing this takes effect on the opponent’s next move.'}
+                          </p>
+                        ) : null;
+                      })()}
                       {formatRecord(history, false, difficulty) && (
                         <p className="font-body text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
                           Record: {formatRecord(history, false, difficulty)}
@@ -1782,16 +2526,53 @@ export default function ChessGame() {
                     </div>
                     <div>
                       <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+                        Clock
+                      </label>
+                      <select
+                        value={timeControl}
+                        onChange={(e) => {
+                          setTimeControl(e.target.value);
+                          const tc = getTimeControl(e.target.value);
+                          setClock({ w: tc.base * 1000, b: tc.base * 1000 });
+                          setFlagged(null);
+                        }}
+                        className="w-full px-3 py-2 rounded-lg font-body text-sm panel"
+                        style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
+                      >
+                        {TIME_CONTROLS.map((t) => (
+                          <option key={t.key} value={t.key}>
+                            {t.label}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="font-body text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                        Clocks start on the first move. Takes effect on your next new game.
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
                         Play as
                       </label>
                       <div className="flex gap-2">
-                        <button onClick={() => startGame('w')} className="flex-1 px-3 py-2 rounded-lg font-body text-sm panel">
-                          White
-                        </button>
-                        <button onClick={() => startGame('b')} className="flex-1 px-3 py-2 rounded-lg font-body text-sm panel">
-                          Black
-                        </button>
+                        {[
+                          { c: 'w', label: 'White' },
+                          { c: 'b', label: 'Black' },
+                        ].map(({ c, label }) => (
+                          <button
+                            key={c}
+                            onClick={() => startGame(c)}
+                            aria-pressed={humanColor === c}
+                            className={`flex-1 px-3 py-2 rounded-lg font-body text-sm panel tap-target${
+                              humanColor === c ? ' is-selected' : ''
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
                       </div>
+                      <p className="mt-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                        Picking a colour starts a new game.
+                      </p>
                     </div>
                   </>
                 )}
@@ -1807,11 +2588,18 @@ export default function ChessGame() {
                   Settings
                 </summary>
                 <div className="space-y-3 mt-3">
+                <h3 className="settings-section">Display</h3>
                 <Toggle label="Dark mode" checked={darkMode} onChange={() => setDarkMode((v) => !v)} />
                 <Toggle label="Show legal moves" checked={showMoves} onChange={() => setShowMoves((v) => !v)} />
                 <Toggle label="Evaluation bar" checked={showEvalBar} onChange={() => setShowEvalBar((v) => !v)} />
                 <Toggle label="Sound" checked={soundOn} onChange={() => setSoundOn((v) => !v)} />
+                <Toggle
+                  label="Tell me the puzzle theme up front"
+                  checked={puzzleShowTheme}
+                  onChange={() => setPuzzleShowTheme((v) => !v)}
+                />
 
+                <h3 className="settings-section">Coaching &amp; AI</h3>
                 <div>
                   <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
                     What do you want to learn? (optional)
@@ -1824,6 +2612,20 @@ export default function ChessGame() {
                     className="w-full px-3 py-2 rounded-lg font-body text-sm panel"
                     style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
                   />
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {['Tactics', 'Endgames', 'King safety', 'Openings', 'Stop blundering'].map((g) => (
+                      <button
+                        key={g}
+                        onClick={() => setLearningGoal(g)}
+                        className="px-2 py-1 rounded-full font-body text-xs panel tap-target"
+                      >
+                        {g}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                    Steers the coach toward what you’re working on.
+                  </p>
                 </div>
 
                 <div>
@@ -1835,10 +2637,10 @@ export default function ChessGame() {
                       <span className="font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
                         Key saved ✓
                       </span>
-                      <button onClick={() => setShowKeyField(true)} className="px-2 py-1 rounded font-body text-xs panel">
+                      <button onClick={() => setShowKeyField(true)} className="px-2 py-1 rounded font-body text-xs panel tap-target">
                         Change
                       </button>
-                      <button onClick={removeKey} className="px-2 py-1 rounded font-body text-xs panel">
+                      <button onClick={removeKey} className="px-2 py-1 rounded font-body text-xs panel tap-target">
                         Remove
                       </button>
                     </div>
@@ -1852,16 +2654,30 @@ export default function ChessGame() {
                         className="flex-1 min-w-0 px-3 py-2 rounded-lg font-body text-sm panel"
                         style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
                       />
-                      <button onClick={saveKey} disabled={!apiKeyInput.trim()} className="px-3 py-2 rounded-lg font-body text-sm panel disabled:opacity-40">
+                      <button onClick={saveKey} disabled={!apiKeyInput.trim()} className="px-3 py-2 rounded-lg font-body text-sm panel disabled:opacity-40 tap-target">
                         Save
                       </button>
                     </div>
                   )}
+                  {keyFormatWarning && (
+                    <p className="mt-1 font-body text-xs tone-warn">{keyFormatWarning}</p>
+                  )}
                   <p className="mt-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                    Stored only in your browser. Never sent anywhere but Anthropic. Coaching works without it using built-in analysis.
+                    Stored only in your browser. Never sent anywhere but Anthropic. Coaching works without it using
+                    built-in analysis. Costs roughly a few cents per game.{' '}
+                    <a
+                      href="https://console.anthropic.com/settings/keys"
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: 'var(--color-accent)' }}
+                    >
+                      Create a key
+                    </a>{' '}
+                    (needs an Anthropic developer account with credit — separate from a claude.ai subscription).
                   </p>
                 </div>
 
+                <h3 className="settings-section">Account &amp; sync</h3>
                 <div>
                   <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
                     Account
@@ -1872,7 +2688,7 @@ export default function ChessGame() {
                         <span className="font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
                           Signed in as {account.username}
                         </span>
-                        <button onClick={handleSignOut} className="px-2 py-1 rounded font-body text-xs panel">
+                        <button onClick={handleSignOut} className="px-2 py-1 rounded font-body text-xs panel tap-target">
                           Sign out
                         </button>
                       </div>
@@ -1891,26 +2707,57 @@ export default function ChessGame() {
                           className="w-full px-3 py-2 rounded-lg font-body text-sm panel"
                           style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
                         />
-                        <input
-                          type="password"
-                          value={accountPassword}
-                          onChange={(e) => setAccountPassword(e.target.value)}
-                          placeholder="Password"
-                          className="w-full px-3 py-2 rounded-lg font-body text-sm panel"
-                          style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
-                        />
+                        <div className="flex gap-2">
+                          <input
+                            type={showPassword ? 'text' : 'password'}
+                            value={accountPassword}
+                            onChange={(e) => setAccountPassword(e.target.value)}
+                            placeholder="Password"
+                            className="flex-1 min-w-0 px-3 py-2 rounded-lg font-body text-sm panel"
+                            style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
+                          />
+                          <button
+                            onClick={() => setShowPassword((v) => !v)}
+                            aria-label={showPassword ? 'Hide password' : 'Show password'}
+                            className="px-3 py-2 rounded-lg font-body text-xs panel tap-target"
+                          >
+                            {showPassword ? 'Hide' : 'Show'}
+                          </button>
+                        </div>
+                        {/* There is no password reset, so a typo at creation is
+                            an unrecoverable account. Confirm it. */}
+                        {creatingAccount && (
+                          <input
+                            type={showPassword ? 'text' : 'password'}
+                            value={accountPassword2}
+                            onChange={(e) => setAccountPassword2(e.target.value)}
+                            placeholder="Confirm password"
+                            className="w-full px-3 py-2 rounded-lg font-body text-sm panel"
+                            style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
+                          />
+                        )}
                         <div className="flex gap-2">
                           <button
-                            onClick={handleSignIn}
+                            onClick={() => {
+                              setCreatingAccount(false);
+                              handleSignIn();
+                            }}
                             disabled={accountBusy || !accountUsername.trim() || !accountPassword}
-                            className="flex-1 px-3 py-2 rounded-lg font-body text-sm panel disabled:opacity-40"
+                            className="flex-1 px-3 py-2 rounded-lg font-body text-sm panel disabled:opacity-40 tap-target"
                           >
                             {accountBusy ? 'Working…' : 'Sign in'}
                           </button>
                           <button
-                            onClick={handleCreateAccount}
+                            onClick={() => {
+                              if (!creatingAccount) {
+                                setCreatingAccount(true);
+                                setAccountError('');
+                                return;
+                              }
+                              handleCreateAccount();
+                            }}
                             disabled={accountBusy || !accountUsername.trim() || !accountPassword}
-                            className="flex-1 px-3 py-2 rounded-lg font-body text-sm panel disabled:opacity-40"
+                            className="flex-1 px-3 py-2 rounded-lg font-body text-sm panel disabled:opacity-40 tap-target"
                           >
                             {accountBusy ? 'Working…' : 'Create account'}
                           </button>
@@ -1919,8 +2766,17 @@ export default function ChessGame() {
                       {accountError && (
                         <p className="mt-1 font-body text-xs tone-bad">{accountError}</p>
                       )}
+                      {creatingAccount && (
+                        <p className="mt-2 rounded-lg px-3 py-2 font-body text-xs tone-warn" style={{ backgroundColor: 'var(--color-accent-soft)' }}>
+                          There is no password reset and no email on file. If you forget this password, the account —
+                          and the rating, puzzle progress and mistake library in it — is gone for good. Save it somewhere.
+                        </p>
+                      )}
                       <p className="mt-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                        One password unlocks your coach key and game history on any device. No email, no reset — if you forget the password, you'll need a new account.
+                        One password unlocks your coach key, your Lichess token and your progress on any device — and
+                        the same key powers the AI chat in Catan, Splendor and Diplomacy. Your password never leaves
+                        this device: the server only ever stores an unreadable hash, and your keys only as ciphertext
+                        it cannot decrypt. Usernames aren’t case-sensitive.
                       </p>
                     </>
                   )}
@@ -1935,10 +2791,10 @@ export default function ChessGame() {
                       <span className="font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
                         Token saved ✓
                       </span>
-                      <button onClick={() => setShowLichessField(true)} className="px-2 py-1 rounded font-body text-xs panel">
+                      <button onClick={() => setShowLichessField(true)} className="px-2 py-1 rounded font-body text-xs panel tap-target">
                         Change
                       </button>
-                      <button onClick={removeLichess} className="px-2 py-1 rounded font-body text-xs panel">
+                      <button onClick={removeLichess} className="px-2 py-1 rounded font-body text-xs panel tap-target">
                         Remove
                       </button>
                     </div>
@@ -1952,21 +2808,233 @@ export default function ChessGame() {
                         className="flex-1 min-w-0 px-3 py-2 rounded-lg font-body text-sm panel"
                         style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
                       />
-                      <button onClick={saveLichess} disabled={!lichessInput.trim()} className="px-3 py-2 rounded-lg font-body text-sm panel disabled:opacity-40">
+                      <button onClick={saveLichess} disabled={!lichessInput.trim()} className="px-3 py-2 rounded-lg font-body text-sm panel disabled:opacity-40 tap-target">
                         Save
                       </button>
                     </div>
                   )}
                   <p className="mt-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                    Optional. Stored only in your browser, sent only to Lichess. Adds “masters play X% here” to opening moves. Get a free read-only token at lichess.org → Preferences → API access tokens. Without it you still get the “Book” label.
+                    Optional. Stored only in your browser, sent only to Lichess. Adds “masters play X% here” to opening
+                    moves; without it you still get the “Book” label.{' '}
+                    <a
+                      href="https://lichess.org/account/oauth/token"
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: 'var(--color-accent)' }}
+                    >
+                      Create a free token
+                    </a>{' '}
+                    — read-only, it can’t play moves or post on your behalf. (Lichess put the explorer behind auth
+                    after repeated DDoS attacks.)
                   </p>
                 </div>
+
+                {/* Sync applies to rating, opponent history, puzzles and
+                    mistakes — not just rated play, where it used to hide. */}
+                <p
+                  className="font-body text-xs"
+                  style={{ color: syncStatus === 'synced' ? 'var(--color-accent)' : 'var(--color-text-muted)' }}
+                >
+                  {syncStatus === 'synced' &&
+                    (account
+                      ? '☁ Synced — rating, opponent history, puzzles and mistakes follow your account across devices.'
+                      : '☁ Synced to your API key — rating, history, puzzles and mistakes follow you across devices.')}
+                  {syncStatus === 'syncing' && '☁ Syncing…'}
+                  {syncStatus === 'error' && '⚠ Couldn’t reach the sync store — your progress is safe on this device.'}
+                  {syncStatus === 'local' && 'Saved on this device. (Sync isn’t configured on this deployment.)'}
+                  {syncStatus === 'off' && 'Not syncing. Create an account (or add an API key) to carry your progress between devices.'}
+                </p>
                 </div>
               </details>
             </div>
+            {/* Keyboard move entry — the board is pointer-only, which locks out
+                keyboard-only players. SAN or UCI, validated before it's played. */}
+            {canInteract && (
+              <div className="w-full max-w-[680px] mx-auto mt-3 lg:col-start-1">
+                <form
+                  onSubmit={(ev) => {
+                    ev.preventDefault();
+                    submitTypedMove();
+                  }}
+                  className="flex gap-2"
+                >
+                  <label htmlFor="chess-move-input" className="sr-only">
+                    Type a move
+                  </label>
+                  <input
+                    id="chess-move-input"
+                    type="text"
+                    value={moveInput}
+                    onChange={(e) => {
+                      setMoveInput(e.target.value);
+                      setMoveInputError('');
+                    }}
+                    placeholder="Type a move — e.g. e4, Nf3, e2e4"
+                    autoComplete="off"
+                    className="flex-1 min-w-0 px-3 py-2 rounded-lg font-body text-sm panel"
+                    style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
+                  />
+                  <button
+                    type="submit"
+                    disabled={!moveInput.trim()}
+                    className="px-3 py-2 rounded-lg font-body text-sm panel disabled:opacity-40 tap-target"
+                  >
+                    Play
+                  </button>
+                </form>
+                {moveInputError && <p className="mt-1 font-body text-xs tone-bad">{moveInputError}</p>}
+              </div>
+            )}
+
+            {/* Moves — a direct grid child: under the board on desktop,
+                after the coach on phones (source order = mobile order). */}
+            <div className="panel rounded-xl p-4 mt-4 w-full max-w-[680px] mx-auto moves-panel lg:col-start-1">
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="font-heading text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
+                    Moves
+                  </h2>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={exportPgn}
+                      disabled={movePairs.length === 0}
+                      className="px-2 py-1 rounded font-body text-xs panel disabled:opacity-40 tap-target"
+                    >
+                      Export
+                    </button>
+                    <button onClick={() => fileInputRef.current && fileInputRef.current.click()} className="px-2 py-1 rounded font-body text-xs panel tap-target">
+                      Import
+                    </button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept=".pgn,text/plain"
+                      onChange={importPgn}
+                      className="hidden"
+                    />
+                  </div>
+                </div>
+                {pgnError && (
+                  <p className="mb-2 font-body text-xs tone-bad">{pgnError}</p>
+                )}
+                <div className="max-h-56 overflow-y-auto font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                  {movePairs.length === 0 ? (
+                    <p style={{ color: 'var(--color-text-muted)' }}>No moves yet.</p>
+                  ) : (
+                    <ol className="space-y-0.5">
+                      {movePairs.map((pair, i) => (
+                        <li key={i} className="flex gap-3 items-center">
+                          <span style={{ color: 'var(--color-text-muted)' }} className="w-6 text-right">
+                            {i + 1}.
+                          </span>
+                          {[0, 1].map((side) => {
+                            const san = pair[side];
+                            if (!san) return <span key={side} className="min-w-[4rem]" />;
+                            const ply = i * 2 + side + 1;
+                            const isCurrent = reviewing ? reviewPly === ply : ply === sanHistory.length;
+                            return (
+                              <button
+                                key={side}
+                                onClick={() => setReviewPly(ply === sanHistory.length ? null : ply)}
+                                // NB: no .tap-target here — these sit ~20px
+                                // apart, so a 44px overlay would swallow the
+                                // neighbouring move's clicks. Real padding
+                                // gives the row height instead.
+                                className={`min-w-[4rem] text-left break-words rounded px-2 py-2${isCurrent ? ' move-current' : ''}`}
+                                title="Show this position"
+                              >
+                                {san}
+                              </button>
+                            );
+                          })}
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </div>
+              </div>
           </div>
         </div>
       </div>
+
+      {/* Imported PGN: which side is "you"? */}
+      {importPrompt && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Choose which side to review as"
+        >
+          <div className="panel rounded-2xl w-full max-w-sm p-5 modal-safe-bottom">
+            <h3 className="font-heading text-sm font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>
+              Which side did you play?
+            </h3>
+            <p className="font-body text-sm mb-4" style={{ color: 'var(--color-text-secondary)' }}>
+              Coaching labels moves as “you” or “opponent” based on this.
+            </p>
+            <div className="flex gap-2">
+              {[
+                { c: 'w', label: 'White', who: importPrompt.players.white },
+                { c: 'b', label: 'Black', who: importPrompt.players.black },
+              ].map(({ c, label, who }) => (
+                <button
+                  key={c}
+                  onClick={() => {
+                    importPrompt.apply(c);
+                    setImportPrompt(null);
+                  }}
+                  className="flex-1 px-3 py-2 rounded-lg font-body text-sm panel tap-target"
+                >
+                  {label}
+                  {who ? <span className="block text-xs" style={{ color: 'var(--color-text-muted)' }}>{who}</span> : null}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation for anything that destroys state the user can't recover */}
+      {confirmPrompt && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+          onClick={() => setConfirmPrompt(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label={confirmPrompt.title}
+        >
+          <div
+            className="panel rounded-2xl w-full max-w-sm p-5 modal-safe-bottom"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            <h3 className="font-heading text-sm font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>
+              {confirmPrompt.title}
+            </h3>
+            <p className="font-body text-sm mb-4" style={{ color: 'var(--color-text-secondary)' }}>
+              {confirmPrompt.body}
+            </p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setConfirmPrompt(null)}
+                className="px-4 py-2 rounded-lg font-body text-sm panel tap-target"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const { onConfirm } = confirmPrompt;
+                  setConfirmPrompt(null);
+                  onConfirm();
+                }}
+                className="px-4 py-2 rounded-lg font-body text-sm btn-primary tap-target"
+              >
+                {confirmPrompt.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Move-thread Q&A modal (tool-use, Stockfish-grounded) */}
       {threadEntry && (
@@ -2044,7 +3112,7 @@ export default function ChessGame() {
                   <button
                     onClick={sendThreadQuestion}
                     disabled={threadBusy || !threadInput.trim()}
-                    className="px-3 py-2 rounded-lg font-body text-sm panel disabled:opacity-40"
+                    className="px-3 py-2 rounded-lg font-body text-sm panel disabled:opacity-40 tap-target"
                   >
                     Ask
                   </button>

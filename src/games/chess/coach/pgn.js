@@ -56,3 +56,19 @@ export function looksLikePgn(text) {
   // Either has a [Tag "..."] header or a "1." move number.
   return /\[\s*\w+\s+"/.test(text) || /\b1\s*\./.test(text);
 }
+
+// Parse the [White] / [Black] headers out of a PGN string, so the UI can ask
+// which side the human reviewed the game as instead of assuming White
+// (issue 5.11). Returns { white, black } (each a header value or null if the
+// tag is absent/unparseable) — parsing only, no assumption about the human.
+export function parsePlayerHeaders(pgnText) {
+  const white = matchHeader(pgnText, 'White');
+  const black = matchHeader(pgnText, 'Black');
+  return { white, black };
+}
+
+function matchHeader(pgnText, tag) {
+  if (typeof pgnText !== 'string') return null;
+  const m = pgnText.match(new RegExp(`\\[${tag}\\s+"([^"]*)"\\]`));
+  return m ? m[1] : null;
+}

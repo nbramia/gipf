@@ -19,11 +19,24 @@ export default function useStockfish() {
   const pendingRef = useRef(null); // active request handler for streamed lines
   const queueRef = useRef(Promise.resolve()); // serializes engine searches
   const [status, setStatus] = useState('loading'); // loading | ready | error
+  // The raw engine error line, so the UI can explain *why* loading failed
+  // (a blocked CDN reads very differently from a runtime crash).
+  const [errorLine, setErrorLine] = useState('');
+  // Bumped by retry() to re-run the setup effect without a page reload.
+  const [attempt, setAttempt] = useState(0);
   const supported = isEngineSupported();
+
+  const retry = useCallback(() => {
+    readyRef.current = false;
+    setErrorLine('');
+    setStatus('loading');
+    setAttempt((a) => a + 1);
+  }, []);
 
   useEffect(() => {
     if (!supported) {
       setStatus('error');
+      setErrorLine('engine-load-error: this browser cannot run the engine');
       return undefined;
     }
     let engine;
@@ -31,6 +44,7 @@ export default function useStockfish() {
       engine = createEngine();
     } catch (e) {
       setStatus('error');
+      setErrorLine(`engine-load-error: ${(e && e.message) || 'failed to start'}`);
       return undefined;
     }
     engineRef.current = engine;
@@ -38,6 +52,7 @@ export default function useStockfish() {
     const off = engine.onLine((line) => {
       if (typeof line !== 'string') return;
       if (line.startsWith('engine-load-error') || line.startsWith('engine-error')) {
+        setErrorLine(line);
         setStatus('error');
         return;
       }
@@ -62,7 +77,7 @@ export default function useStockfish() {
       engineRef.current = null;
       readyRef.current = false;
     };
-  }, [supported]);
+  }, [supported, attempt]);
 
   // Run one `go` request, collecting info lines until `bestmove`. Calls are
   // serialized through queueRef so the AI-move search and the coaching analysis
@@ -164,5 +179,5 @@ export default function useStockfish() {
     [runSearch]
   );
 
-  return { status, supported, getMove, analyze };
+  return { status, supported, getMove, analyze, errorLine, retry };
 }

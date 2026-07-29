@@ -1,4 +1,4 @@
-import { withHeaders, looksLikePgn } from './pgn';
+import { withHeaders, looksLikePgn, parsePlayerHeaders } from './pgn';
 import ChessBoard from '../ChessBoard';
 
 describe('pgn — withHeaders', () => {
@@ -22,6 +22,23 @@ describe('pgn — looksLikePgn', () => {
     expect(looksLikePgn('not a game')).toBe(false);
     expect(looksLikePgn('')).toBe(false);
     expect(looksLikePgn(null)).toBe(false);
+  });
+});
+
+describe('pgn — parsePlayerHeaders', () => {
+  test('reads White/Black from a full PGN with headers', () => {
+    const pgn = withHeaders('1. e4 e5 *', { white: 'Magnus', black: 'Human' });
+    expect(parsePlayerHeaders(pgn)).toEqual({ white: 'Magnus', black: 'Human' });
+  });
+
+  test('returns nulls for missing headers, no throw on bare movetext', () => {
+    expect(parsePlayerHeaders('1. e4 e5 2. Nf3')).toEqual({ white: null, black: null });
+    expect(parsePlayerHeaders('')).toEqual({ white: null, black: null });
+    expect(parsePlayerHeaders(null)).toEqual({ white: null, black: null });
+  });
+
+  test('tolerates only one of the two headers being present', () => {
+    expect(parsePlayerHeaders('[White "Me"]\n\n1. e4 *')).toEqual({ white: 'Me', black: null });
   });
 });
 

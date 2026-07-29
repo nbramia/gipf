@@ -6,6 +6,8 @@ import {
   setLichessToken,
   hasLichessToken,
   fetchOpeningStats,
+  fetchOpeningStatsDetailed,
+  OPENING_FETCH_REASON,
 } from './openingCoach';
 
 // Sample shaped like the Lichess masters explorer response after 1.e4
@@ -146,6 +148,61 @@ describe('openingCoach — Lichess token (BYO, localStorage)', () => {
     expect(fn).toHaveBeenCalledTimes(1);
     const [, opts] = fn.mock.calls[0];
     expect(opts.headers.Authorization).toBe('Bearer lip_abc');
+  });
+});
+
+describe('openingCoach — fetchOpeningStatsDetailed (discriminated result)', () => {
+  const realFetch = global.fetch;
+  beforeEach(() => setLichessToken(''));
+  afterEach(() => {
+    setLichessToken('');
+    global.fetch = realFetch;
+  });
+
+  test('no token → no-token reason, no request made', async () => {
+    const fn = jest.fn();
+    global.fetch = fn;
+    const r = await fetchOpeningStatsDetailed('somefen');
+    expect(r).toEqual({ ok: false, reason: OPENING_FETCH_REASON.NO_TOKEN, status: null, data: null });
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  test('HTTP error (e.g. expired token) → http-error reason with status, distinct from no-token', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({}) });
+    const r = await fetchOpeningStatsDetailed('somefen', 'lip_expired');
+    expect(r.ok).toBe(false);
+    expect(r.reason).toBe(OPENING_FETCH_REASON.HTTP_ERROR);
+    expect(r.status).toBe(401);
+    expect(r.reason).not.toBe(OPENING_FETCH_REASON.NO_TOKEN);
+  });
+
+  test('network failure → network-error reason', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('offline'));
+    const r = await fetchOpeningStatsDetailed('somefen', 'lip_abc');
+    expect(r).toEqual({ ok: false, reason: OPENING_FETCH_REASON.NETWORK_ERROR, status: null, data: null });
+  });
+
+  test('malformed response (ok but no moves array) → malformed reason', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ oops: true }) });
+    const r = await fetchOpeningStatsDetailed('somefen', 'lip_abc');
+    expect(r).toEqual({ ok: false, reason: OPENING_FETCH_REASON.MALFORMED, status: 200, data: null });
+  });
+
+  test('success → ok reason with the parsed data', async () => {
+    const payload = { white: 1, draws: 0, black: 0, moves: [] };
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, status: 200, json: async () => payload });
+    const r = await fetchOpeningStatsDetailed('somefen', 'lip_abc');
+    expect(r).toEqual({ ok: true, reason: OPENING_FETCH_REASON.OK, status: 200, data: payload });
+  });
+
+  test('fetchOpeningStats stays null-collapsed for existing callers, for every failure kind', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('offline'));
+    expect(await fetchOpeningStats('somefen', 'lip_abc')).toBeNull();
+
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({}) });
+    expect(await fetchOpeningStats('somefen', 'lip_abc')).toBeNull();
+
+    expect(await fetchOpeningStats('somefen')).toBeNull(); // no token
   });
 });
 

@@ -161,8 +161,21 @@ export default class ChessBoard {
     return this.moves.slice(0, this.pointer).map((m) => m.san);
   }
 
+  // PGN for the moves played so far.
+  //
+  // NB: this deliberately does NOT delegate to `this.chess.pgn()`. `clone()`
+  // rebuilds the internal chess.js instance from the *current FEN*, so that
+  // instance has no move list — asking it for a PGN yields a bare
+  // [SetUp]/[FEN] header and zero moves. Since the UI clones on every move,
+  // that made both PGN export and game persistence lose the whole game.
+  // Replay from the recorded history instead.
   pgn() {
-    return this.chess.pgn();
+    const start = this.positions[0];
+    const fresh = start === STARTING_FEN ? new Chess() : new Chess(start);
+    for (const m of this.moves.slice(0, this.pointer)) {
+      fresh.move({ from: m.from, to: m.to, promotion: m.promotion });
+    }
+    return fresh.pgn();
   }
 
   // Loads a PGN, rebuilding the position/move stacks. Returns true on success.

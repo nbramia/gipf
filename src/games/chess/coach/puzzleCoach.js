@@ -28,7 +28,14 @@ export function hintFor(puzzle, stage, fen) {
   if (stage <= 1) return themeHint;
   const uci = puzzle.solution && puzzle.solution[0];
   if (!uci) return themeHint;
-  if (fen !== puzzle.fen) return `Keep going — ${puzzle.theme || 'the idea'} is still on.`;
+  // The player reached a different position than the puzzle's start — that
+  // only happens by playing a different-but-sound move (a wrong move fails
+  // the puzzle immediately, it doesn't advance the board). The stored
+  // solution's first square no longer applies to this position, so say why
+  // the hint had to back off instead of silently going vague.
+  if (fen !== puzzle.fen) {
+    return `You played a different, sound try, so the piece-and-square hint no longer applies here — ${puzzle.theme || 'the idea'} is still on.`;
+  }
   try {
     const piece = new Chess(fen).get(uci.slice(0, 2));
     if (!piece) return themeHint;
