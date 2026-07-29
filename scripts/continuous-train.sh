@@ -220,7 +220,10 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
       git add public/models/yinsh-value-v1.onnx.data
     fi
     git commit -m "feat: deploy v${VERSION} model — continuous training win #${WIN_COUNT}" || true
-    git push origin main || log "WARNING: git push failed (will retry next win)"
+    # HEAD:main, not main — this clone is not always ON main (worktrees hold it),
+    # and `push origin main` pushes the stale local main ref, which is rejected
+    # non-fast-forward. Pushing HEAD sends the commit we just made.
+    git push origin HEAD:main || log "WARNING: git push failed (will retry next win)"
 
     # Advanced model is pinned to v104 — no auto-promotion
     # To update: manually copy the desired ONNX to yinsh-value-advanced.onnx
@@ -232,7 +235,7 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
   if [ $((VERSION % 5)) -eq 0 ] && [ -f "training/v${VERSION}.pt" ]; then
     git add "training/v${VERSION}.pt" 2>/dev/null || true
     git commit -m "chore: backup checkpoint v${VERSION}" 2>/dev/null || true
-    git push origin main 2>/dev/null || true
+    git push origin HEAD:main 2>/dev/null || true
     log "Backed up checkpoint v${VERSION}"
   fi
 

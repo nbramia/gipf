@@ -233,7 +233,10 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
     # Git commit + push
     git add public/models/zertz-value-v1.onnx
     git commit -m "feat: deploy zertz v${VERSION} model — continuous training win #${WIN_COUNT}" || true
-    git push origin main || log "WARNING: git push failed (will retry next win)"
+    # HEAD:main, not main — this clone is not always ON main (worktrees hold it),
+    # and `push origin main` pushes the stale local main ref, which is rejected
+    # non-fast-forward. Pushing HEAD sends the commit we just made.
+    git push origin HEAD:main || log "WARNING: git push failed (will retry next win)"
   else
     log "v${VERSION} did not win (exit code: ${RESULT}). (${ITER_TIME}s)"
   fi
@@ -242,7 +245,7 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
   if [ $((VERSION % 5)) -eq 0 ] && [ -f "${CHECKPOINT_DIR}/v${VERSION}.pt" ]; then
     git add "${CHECKPOINT_DIR}/v${VERSION}.pt" 2>/dev/null || true
     git commit -m "chore: backup zertz checkpoint v${VERSION}" 2>/dev/null || true
-    git push origin main 2>/dev/null || true
+    git push origin HEAD:main 2>/dev/null || true
     log "Backed up checkpoint v${VERSION}"
   fi
 

@@ -170,7 +170,7 @@ if [ $TOURNAMENT_EXIT -eq 0 ]; then
   echo "  Next steps:"
   echo "    git add public/models/yinsh-value-v1.onnx public/models/yinsh-value-v1.onnx.data"
   echo "    git commit -m 'feat: deploy v${NEXT} model'"
-  echo "    git push origin main"
+  echo "    git push origin HEAD:main"
 elif [ $TOURNAMENT_EXIT -eq 2 ]; then
   echo "  Tournament TIED. Keeping deployed model."
   echo "  v${NEXT} saved at training/v${NEXT}.pt but not promoted."

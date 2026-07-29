@@ -152,7 +152,7 @@ if [ $TOURNAMENT_EXIT -eq 0 ]; then
   echo "  Next steps:"
   echo "    git add public/models/zertz-value-v1.onnx"
   echo "    git commit -m 'feat: deploy zertz v${NEXT} model'"
-  echo "    git push origin main"
+  echo "    git push origin HEAD:main"
 else
   echo "  Deployed model wins. v${NEXT} not promoted."
   echo "  v${NEXT} saved at ${CHECKPOINT_DIR}/v${NEXT}.pt"
