@@ -40,17 +40,42 @@ describe('LandingPage', () => {
     expect(screen.getByRole('button', { name: 'Sign in / Create account' })).toBeInTheDocument();
   });
 
-  test('clicking the sign-in button reveals the form and no-recovery copy', () => {
+  test('clicking the sign-in button reveals the form and the privacy copy', () => {
     renderLanding();
 
     fireEvent.click(screen.getByRole('button', { name: 'Sign in / Create account' }));
 
     expect(screen.getByPlaceholderText('Username')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Password')).toBeInTheDocument();
-    expect(screen.getByText(/No email, no reset/)).toBeInTheDocument();
+    expect(screen.getByText(/Your password never leaves this device/)).toBeInTheDocument();
   });
 
-  test('with a valid session, renders signed-in state; sign out returns to signed-out and keeps a seeded API key', () => {
+  test('clicking "Create account" reveals the confirm-password field and the no-recovery warning', () => {
+    renderLanding();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in / Create account' }));
+    expect(screen.queryByPlaceholderText('Confirm password')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText('Username'), { target: { value: 'newplayer' } });
+    fireEvent.change(screen.getByPlaceholderText('Password'), { target: { value: 'hunter22' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
+
+    expect(screen.getByPlaceholderText('Confirm password')).toBeInTheDocument();
+    expect(screen.getByText(/there is no password reset and no email on file/i)).toBeInTheDocument();
+  });
+
+  test('the show/hide toggle reveals the password field text', () => {
+    renderLanding();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in / Create account' }));
+    const passwordInput = screen.getByPlaceholderText('Password');
+    expect(passwordInput).toHaveAttribute('type', 'password');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show password' }));
+    expect(passwordInput).toHaveAttribute('type', 'text');
+  });
+
+  test('with a valid session, renders signed-in state; sign out (after confirming) returns to signed-out and keeps a seeded API key', () => {
     localStorage.setItem(
       ACCOUNT_KEY,
       JSON.stringify({
@@ -65,6 +90,8 @@ describe('LandingPage', () => {
     localStorage.setItem(API_KEY, 'sk-test-key');
     localStorage.setItem(LICHESS_KEY, 'lip-test-token');
 
+    const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(true);
+
     renderLanding();
 
     expect(screen.getByText('Signed in as Nathan')).toBeInTheDocument();
@@ -73,9 +100,36 @@ describe('LandingPage', () => {
 
     fireEvent.click(signOutButton);
 
+    expect(confirmSpy).toHaveBeenCalled();
     expect(screen.getByRole('button', { name: 'Sign in / Create account' })).toBeInTheDocument();
     expect(screen.queryByText('Signed in as Nathan')).not.toBeInTheDocument();
     expect(localStorage.getItem(API_KEY)).toBe('sk-test-key');
     expect(localStorage.getItem(LICHESS_KEY)).toBe('lip-test-token');
+
+    confirmSpy.mockRestore();
+  });
+
+  test('declining the sign-out confirmation keeps the session', () => {
+    localStorage.setItem(
+      ACCOUNT_KEY,
+      JSON.stringify({
+        v: 1,
+        username: 'Nathan',
+        usernameId: 'a'.repeat(64),
+        authToken: 'b'.repeat(64),
+        aesKey: 'x',
+        profileId: 'c'.repeat(64),
+      })
+    );
+
+    const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false);
+
+    renderLanding();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+
+    expect(screen.getByText('Signed in as Nathan')).toBeInTheDocument();
+
+    confirmSpy.mockRestore();
   });
 });

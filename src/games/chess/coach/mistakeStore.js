@@ -22,6 +22,13 @@ export const REVIEW_INTERVALS_MS = [DAY_MS, 3 * DAY_MS, 7 * DAY_MS];
 // as the puzzle checker: alternate good moves are accepted.
 export const DRILL_CP_TOLERANCE = 50;
 
+// Worse errors survive eviction and get drilled first when tied on due time —
+// an inaccuracy is the least costly, a blunder the most. Unknown/missing
+// classifications rank alongside inaccuracies (least severe) rather than
+// risk starving a real blunder of cap space.
+const SEVERITY_RANK = { inaccuracy: 0, mistake: 1, blunder: 2 };
+const severityOf = (e) => SEVERITY_RANK[e.classification] ?? 0;
+
 export function loadMistakes() {
   try {
     const raw = localStorage.getItem(MISTAKE_STORAGE_KEY);
@@ -40,15 +47,20 @@ export function saveMistakes(list) {
   }
 }
 
-// Evict down to the cap: oldest solved entries (streak > 0) go first — they've
-// been learned — then oldest overall. Exported for reuse by profileSync's
+// Evict down to the cap: the least severe classification goes first (an
+// inaccuracy before a mistake before a blunder — a blunder should never be
+// dropped in favour of a lesser error just because it's newer). Within a
+// severity tier, oldest solved entries (streak > 0) go first — they've been
+// learned — then oldest overall. Exported for reuse by profileSync's
 // cross-device mistake merge, which must enforce the same cap.
 export function evictToCap(list) {
   let next = list;
   while (next.length > MISTAKE_CAP) {
+    const minSeverity = Math.min(...next.map(severityOf));
+    const tier = next.filter((e) => severityOf(e) === minSeverity);
     const byAge = (a, b) => a.createdAt - b.createdAt;
-    const solved = next.filter((e) => e.streak > 0).sort(byAge);
-    const victim = solved[0] || next.slice().sort(byAge)[0];
+    const solved = tier.filter((e) => e.streak > 0).sort(byAge);
+    const victim = solved[0] || tier.slice().sort(byAge)[0];
     next = next.filter((e) => e !== victim);
   }
   return next;
@@ -88,11 +100,34 @@ export function recordAttempt(list, id, success, now = Date.now()) {
   });
 }
 
-// Entries due for review, longest-overdue first.
-export function dueMistakes(list, now = Date.now()) {
+// Entries due for review, longest-overdue first; entries tied on due time
+// break toward the worse classification (a blunder drills before an
+// inaccuracy that came due at the same moment).
+//
+// options.opening — optional exact opening name (as returned by
+// listMistakeOpenings) restricting the result to mistakes captured in that
+// opening, so the UI can offer e.g. "drill only my Sicilian mistakes".
+// Omitted leaves behavior unchanged; an opening that matches nothing returns
+// an empty list rather than falling back to all due mistakes.
+export function dueMistakes(list, now = Date.now(), options = {}) {
+  const { opening } = options;
   return (list || [])
     .filter((e) => (e.nextDueAt || 0) <= now)
-    .sort((a, b) => (a.nextDueAt || 0) - (b.nextDueAt || 0));
+    .filter((e) => !opening || e.opening === opening)
+    .sort((a, b) => (a.nextDueAt || 0) - (b.nextDueAt || 0) || severityOf(b) - severityOf(a));
+}
+
+// Distinct openings present among stored mistakes, with counts, most
+// frequent first — populates the "drill this opening" filter UI.
+export function listMistakeOpenings(store) {
+  const counts = {};
+  for (const e of store || []) {
+    if (!e.opening) continue;
+    counts[e.opening] = (counts[e.opening] || 0) + 1;
+  }
+  return Object.keys(counts)
+    .map((opening) => ({ opening, count: counts[opening] }))
+    .sort((a, b) => b.count - a.count || a.opening.localeCompare(b.opening));
 }
 
 // Is a drill attempt correct? The stored best move always counts; any other
@@ -115,7 +150,7 @@ export function weaknessProfile(list) {
   const entries = list || [];
   if (entries.length < 3) return '';
 
-  const counts = { blunder: 0, mistake: 0 };
+  const counts = { blunder: 0, mistake: 0, inaccuracy: 0 };
   const phases = {};
   const openings = {};
   for (const e of entries) {
@@ -131,9 +166,19 @@ export function weaknessProfile(list) {
   const openingPart =
     topOpening && openings[topOpening] >= 2 ? `; often in the ${topOpening}` : '';
 
+  const countParts = [];
+  if (counts.blunder) countParts.push(`${counts.blunder} blunder${counts.blunder === 1 ? '' : 's'}`);
+  if (counts.mistake) countParts.push(`${counts.mistake} mistake${counts.mistake === 1 ? '' : 's'}`);
+  if (counts.inaccuracy) {
+    countParts.push(`${counts.inaccuracy} inaccurac${counts.inaccuracy === 1 ? 'y' : 'ies'}`);
+  }
+  const countsText =
+    countParts.length <= 1
+      ? countParts.join('')
+      : `${countParts.slice(0, -1).join(', ')} and ${countParts[countParts.length - 1]}`;
+
   return (
-    `${counts.blunder} blunder${counts.blunder === 1 ? '' : 's'} and ` +
-    `${counts.mistake} mistake${counts.mistake === 1 ? '' : 's'} captured from recent games, ` +
+    `${countsText} captured from recent games, ` +
     `mostly in the ${topPhase}${openingPart}.`
   );
 }

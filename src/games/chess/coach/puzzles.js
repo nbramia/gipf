@@ -161,6 +161,71 @@ export function getPuzzle(id) {
   return PUZZLES.find((p) => p.id === id) || null;
 }
 
+// Canonical label for a puzzle's theme, for the user-facing theme filter
+// (docs/chess-ux-review.md #5, "no theme filter for puzzles"). Tactical
+// puzzles store a lowercase, single-motif `theme` (see `themes`); mate
+// puzzles use display-ready but ad-hoc strings, and some of those name the
+// same motif the tactical bank calls 'back-rank' ('Back-rank mate', 'Queen
+// back-rank'). This folds those into one bucket per motif instead of
+// exposing the raw inconsistency to the filter UI.
+const THEME_LABEL_OVERRIDES = {
+  'back-rank': 'Back-rank',
+  'Back-rank mate': 'Back-rank',
+  'Queen back-rank': 'Back-rank',
+};
+
+export function themeLabel(theme) {
+  if (THEME_LABEL_OVERRIDES[theme]) return THEME_LABEL_OVERRIDES[theme];
+  return theme.charAt(0).toUpperCase() + theme.slice(1);
+}
+
+// Distinct, display-ready themes present in a puzzle bank, each with how many
+// puzzles carry it. Sorted by count (most common first), ties broken
+// alphabetically. Populates the theme-filter UI.
+export function listThemes(bank) {
+  const counts = new Map();
+  for (const p of bank) {
+    if (!p.theme) continue;
+    const label = themeLabel(p.theme);
+    counts.set(label, (counts.get(label) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([theme, count]) => ({ theme, count }))
+    .sort((a, b) => b.count - a.count || a.theme.localeCompare(b.theme));
+}
+
+// What a learner actually chooses between when deciding what to drill.
+//
+// `listThemes` is faithful to the data, but the data has 28 distinct themes —
+// 20 of them one- or two-puzzle mating patterns ('Arabian mate', 'Epaulette
+// mate', 'Queen box (mate in 3)'). Rendered as filter chips that's a wall of
+// choices nobody wants to read, which is worse than offering no filter at all.
+// A learner thinks in motifs: "drill my forks", "practise mating patterns".
+// So mate puzzles collapse into one bucket and the tactical motifs stay
+// distinct. Returns [{ group, count, themes }] where `themes` are the raw
+// labels to hand to selectSession's `themes` option.
+export const MATE_GROUP = 'Checkmate patterns';
+
+export function listThemeGroups(bank) {
+  const groups = new Map();
+  for (const p of bank) {
+    if (!p.theme) continue;
+    const label = themeLabel(p.theme);
+    const group = p.mateIn ? MATE_GROUP : label;
+    if (!groups.has(group)) groups.set(group, { group, count: 0, themes: new Set() });
+    const g = groups.get(group);
+    g.count += 1;
+    g.themes.add(label);
+  }
+  return [...groups.values()]
+    .map((g) => ({ group: g.group, count: g.count, themes: [...g.themes] }))
+    // Mating patterns first (the biggest, most familiar bucket), then motifs
+    // by how much material there is to drill.
+    .sort((a, b) =>
+      a.group === MATE_GROUP ? -1 : b.group === MATE_GROUP ? 1 : b.count - a.count || a.group.localeCompare(b.group)
+    );
+}
+
 // Tier-based entry: DIFFICULTY_TO_MATE_IN buckets by mate depth as before,
 // but paired tiers (beginner/casual share a mate-in bucket; intermediate/
 // advanced share the next) now split that bucket by rating so they draw

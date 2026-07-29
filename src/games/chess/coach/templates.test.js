@@ -1,5 +1,5 @@
 import { Chess } from 'chess.js';
-import { describePlayerMove } from './templates';
+import { describePlayerMove, describeAiMove } from './templates';
 
 describe('templates — opening "book" handling', () => {
   test('book move WITH master stats describes real practice', () => {
@@ -124,5 +124,32 @@ describe('templates — motif-driven commentary (docs/chess-ux-review.md #3.1)',
     );
     expect(withProfile.every((t) => t.includes('This fits a pattern'))).toBe(true);
     expect(withoutProfile.some((t) => !t.includes('This fits a pattern'))).toBe(true);
+  });
+});
+
+describe('describeAiMove — never asserts something the engine did not find (docs/chess-adversarial-review.md §2)', () => {
+  const candidates = [
+    { san: 'Nf3', eval: '+0.4', pv: ['Nf3', 'd5'] },
+    { san: 'e4', eval: '+0.3', pv: ['e4', 'e5'] },
+    { san: 'd4', eval: '+0.2', pv: ['d4', 'd5'] },
+  ];
+
+  test('played move IS candidates[0]: claims strongest, uses its own eval', () => {
+    const text = describeAiMove({ movePlayed: { san: 'Nf3' }, candidates });
+    expect(text).toContain('I played Nf3.');
+    expect(text).toContain('+0.4');
+    expect(text).toMatch(/strongest/);
+  });
+
+  // Weak-tier difficulty (engine/uci.js chooseWeakenedMove) can deliberately
+  // sample a move outside MultiPV's top 3, so `candidates` has no entry for
+  // the move actually played.
+  test('played move is ABSENT from candidates: no substituted eval, no false "strongest" claim', () => {
+    const text = describeAiMove({ movePlayed: { san: 'a3' }, candidates });
+    expect(text).toContain('I played a3.');
+    expect(text).not.toMatch(/strongest/);
+    // Must not borrow candidates[0]'s (Nf3's) eval or PV for the unrelated move.
+    expect(text).not.toContain('+0.4');
+    expect(text).not.toContain('Nf3');
   });
 });

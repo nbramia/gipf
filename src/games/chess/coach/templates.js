@@ -34,20 +34,32 @@ function pick(list, seed) {
 // analysis: { movePlayed:{san}, candidates:[{san,eval,pv}] }
 export function describeAiMove(analysis) {
   const { movePlayed, candidates = [] } = analysis;
-  const chosen = candidates.find((c) => c.san === (movePlayed && movePlayed.san)) || candidates[0];
+  const playedSan = movePlayed && movePlayed.san;
+  // MultiPV only carries the top few lines. At weak difficulty tiers
+  // `chooseWeakenedMove` (engine/uci.js) can deliberately play a move outside
+  // that window -- when that happens, there is no candidate data for the move
+  // that was actually played, so never borrow another line's eval/PV for it.
+  const chosen = candidates.find((c) => c.san === playedSan);
   const parts = [];
-  parts.push(`I played ${movePlayed ? movePlayed.san : (chosen && chosen.san) || '...'}.`);
+  parts.push(`I played ${playedSan || '...'}.`);
 
-  if (chosen) {
-    parts.push(
-      `It holds the evaluation at ${chosen.eval} (White's view)` +
-        (chosen.pv && chosen.pv.length > 1 ? `, intending ${pvLine(chosen.pv)}.` : '.')
-    );
+  if (!playedSan) {
+    return parts.join(' ');
   }
-  const alts = candidates.filter((c) => !chosen || c.san !== chosen.san).slice(0, 2);
+
+  if (!chosen) {
+    parts.push(`That wasn't the engine's top choice here, but it's the move I went with.`);
+    return parts.join(' ');
+  }
+
+  parts.push(
+    `It holds the evaluation at ${chosen.eval} (White's view)` +
+      (chosen.pv && chosen.pv.length > 1 ? `, intending ${pvLine(chosen.pv)}.` : '.')
+  );
+  const alts = candidates.filter((c) => c.san !== chosen.san).slice(0, 2);
   if (alts.length) {
     parts.push(`I also considered ${alts.map((c) => `${c.san} (${c.eval})`).join(' and ')}.`);
-    if (candidates[0] && chosen && candidates[0].san === chosen.san) {
+    if (candidates[0] && candidates[0].san === chosen.san) {
       parts.push(`This was the strongest, so I chose it.`);
     }
   }

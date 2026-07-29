@@ -224,6 +224,8 @@ Before modifying game logic for either game:
 | `engine/playerHistory.js` | localStorage store: per-opponent W/L/D history (`chessOppHistory`) |
 | `coach/motifs.js` | Pure chess.js position facts (hanging piece, fork, pin, king-shelter, development) feeding the keyless commentary |
 | `coach/tacticSolver.js` | Depth-limited material search verifying non-mate tactical puzzles (mirrors `mateSolver.js`) |
+| `coach/gameHistory.js` | Finished-game log + accuracy trend / opening report card aggregation (`chessGameLog`) |
+| `components/ProgressPanel.jsx` | Cross-game progress: accuracy sparkline, trend, per-opening report card with drill entry |
 | `hooks/useStockfish.js` | Engine lifecycle; `getMove()` (opponent) + `analyze()` (coaching), serialized |
 | `coach/*.js` | classify, analyzeMove, templates, coachClient, openings, pgn, accuracy, puzzles, material, sound |
 | `api/chessCoach.js` | Vercel serverless coach (Claude API, **bring-your-own key**, no server fallback) |
@@ -424,6 +426,7 @@ chessMistakes,                             # Mistake library: captured positions
 chessOppHistory,                           # Per-opponent W/L/D record (casual tiers + rated rungs)
 chessPuzzleProgress,                       # Puzzle trainer: player puzzle Elo + per-puzzle review schedule
 chessGameState,                            # In-progress game snapshot (PGN + colour + dialogue) so a refresh resumes
+chessGameLog,                              # Finished games (capped) feeding the cross-game progress panel
 chessTimeControl,                          # Optional clock: off | 3+2 | 5+0 | 10+0 | 15+10
 chessPuzzleShowTheme,                      # Opt in to seeing the puzzle theme/mate-in-N before solving
 chessIntroSeen, chessKeyNudgeDismissed     # One-time onboarding banner + BYO-key nudge dismissals

@@ -7,6 +7,10 @@ import {
   evaluatePuzzleMove,
   evaluateSolutionMove,
   DIFFICULTY_TO_MATE_IN,
+  listThemes,
+  listThemeGroups,
+  themeLabel,
+  MATE_GROUP,
 } from './puzzles';
 import { searchMate } from './mateSolver';
 import { verifyTactic } from './tacticSolver';
@@ -122,6 +126,45 @@ describe('puzzles — difficulty mapping (widened, #distinct-pools)', () => {
   });
 });
 
+describe('puzzles — listThemes / themeLabel (user-pickable theme filter)', () => {
+  test('reconciles ad-hoc back-rank strings into one bucket', () => {
+    expect(themeLabel('back-rank')).toBe('Back-rank');
+    expect(themeLabel('Back-rank mate')).toBe('Back-rank');
+    expect(themeLabel('Queen back-rank')).toBe('Back-rank');
+  });
+
+  test('capitalizes an unrecognized theme rather than special-casing it', () => {
+    expect(themeLabel('fork')).toBe('Fork');
+    expect(themeLabel('Two-rook ladder')).toBe('Two-rook ladder');
+  });
+
+  test('lists distinct display-ready themes with counts across the whole bank', () => {
+    const themes = listThemes(PUZZLES);
+    const byLabel = Object.fromEntries(themes.map((t) => [t.theme, t.count]));
+    // Every entry has a theme (the bank always sets one) so counts sum to the bank size.
+    expect(themes.reduce((sum, t) => sum + t.count, 0)).toBe(PUZZLES.length);
+    // Back-rank mate, Queen back-rank, and back-rank tactics all fold into one bucket.
+    const backRankRaw = PUZZLES.filter((p) =>
+      ['back-rank', 'Back-rank mate', 'Queen back-rank'].includes(p.theme)
+    ).length;
+    expect(byLabel['Back-rank']).toBe(backRankRaw);
+    expect(byLabel['Fork']).toBe(3);
+    // No duplicate labels, sorted by count desc then alphabetically.
+    const labels = themes.map((t) => t.theme);
+    expect(new Set(labels).size).toBe(labels.length);
+    for (let i = 1; i < themes.length; i += 1) {
+      expect(
+        themes[i - 1].count > themes[i].count ||
+          (themes[i - 1].count === themes[i].count && themes[i - 1].theme <= themes[i].theme)
+      ).toBe(true);
+    }
+  });
+
+  test('a bank with no themes returns an empty list', () => {
+    expect(listThemes([{ id: 'x', fen: 'y' }])).toEqual([]);
+  });
+});
+
 describe('puzzles — evaluateSolutionMove (scripted UCI lines)', () => {
   const line = getPuzzle('m2-queen-b'); // ['c6b6','c8b8','d1d8'] used as a script
 
@@ -204,5 +247,35 @@ describe('puzzles — evaluatePuzzleMove (mate in 2 plays out)', () => {
       const r = evaluatePuzzleMove(p.fen, budgetPliesFor(2), other.from, other.to, other.promotion);
       expect(r.solved).toBe(false);
     }
+  });
+});
+
+describe('listThemeGroups — filter buckets a learner would choose between', () => {
+  test('collapses every mate pattern into one bucket and keeps motifs distinct', () => {
+    const groups = listThemeGroups(PUZZLES);
+    const names = groups.map((g) => g.group);
+    expect(names[0]).toBe(MATE_GROUP); // biggest, most familiar bucket first
+    // The one-off mating patterns must not leak through as their own chips.
+    for (const noisy of ['Arabian mate', 'Epaulette mate', 'Smothered mate', 'Two-rook ladder']) {
+      expect(names).not.toContain(noisy);
+    }
+    // The tactical motifs stay separately choosable.
+    for (const motif of ['Fork', 'Pin', 'Skewer', 'Deflection', 'Trapped piece']) {
+      expect(names).toContain(motif);
+    }
+    // Small enough to render as chips without becoming a wall of choices.
+    expect(names.length).toBeLessThanOrEqual(10);
+  });
+
+  test('every puzzle is accounted for exactly once, and themes expand back to the bank', () => {
+    const groups = listThemeGroups(PUZZLES);
+    const total = groups.reduce((s, g) => s + g.count, 0);
+    expect(total).toBe(PUZZLES.filter((p) => p.theme).length);
+
+    // The labels a group exposes must actually select that group's puzzles.
+    const mate = groups.find((g) => g.group === MATE_GROUP);
+    const matched = PUZZLES.filter((p) => p.theme && mate.themes.includes(themeLabel(p.theme)));
+    expect(matched.length).toBeGreaterThanOrEqual(mate.count);
+    expect(PUZZLES.filter((p) => p.mateIn).every((p) => mate.themes.includes(themeLabel(p.theme)))).toBe(true);
   });
 });

@@ -15,6 +15,7 @@ import {
   drillMoveCorrect,
   phaseOf,
   weaknessProfile,
+  listMistakeOpenings,
 } from './mistakeStore.js';
 
 const NOW = 1_700_000_000_000;
@@ -83,6 +84,30 @@ describe('captureMistake', () => {
     expect(next).toHaveLength(MISTAKE_CAP);
     expect(next.find((e) => e.fenBefore === 'fen-0')).toBeUndefined();
   });
+
+  test('eviction prefers the least severe classification over age, so blunders survive longest', () => {
+    let list = [];
+    for (let i = 0; i < MISTAKE_CAP - 1; i += 1) {
+      list = captureMistake(list, sample({ fenBefore: `fen-${i}`, classification: 'blunder' }), NOW + i).list;
+    }
+    // Newest entry in the library, but the least severe — should be evicted
+    // before any blunder despite being the most recent.
+    list = captureMistake(
+      list,
+      sample({ fenBefore: 'newest-inaccuracy', classification: 'inaccuracy' }),
+      NOW + 10_000
+    ).list;
+    expect(list).toHaveLength(MISTAKE_CAP);
+
+    const { list: next } = captureMistake(
+      list,
+      sample({ fenBefore: 'fen-new', classification: 'blunder' }),
+      NOW + 20_000
+    );
+    expect(next).toHaveLength(MISTAKE_CAP);
+    expect(next.find((e) => e.fenBefore === 'newest-inaccuracy')).toBeUndefined();
+    expect(next.find((e) => e.fenBefore === 'fen-0')).toBeTruthy(); // oldest blunder survives
+  });
 });
 
 describe('recordAttempt scheduling', () => {
@@ -139,6 +164,55 @@ describe('dueMistakes', () => {
     const later = dueMistakes(list, NOW + 20 + DAY);
     expect(later.map((e) => e.fenBefore)).toEqual(['b', 'c', 'a']);
   });
+
+  test('options.opening restricts the result to that opening, ordering unchanged', () => {
+    let list = captureMistake([], sample({ fenBefore: 'a', opening: 'Sicilian Defense' }), NOW).list;
+    list = captureMistake(list, sample({ fenBefore: 'b', opening: 'Italian Game' }), NOW + 5).list;
+    list = captureMistake(list, sample({ fenBefore: 'c', opening: 'Sicilian Defense' }), NOW + 10).list;
+
+    const sicilianOnly = dueMistakes(list, NOW + 100, { opening: 'Sicilian Defense' });
+    expect(sicilianOnly.map((e) => e.fenBefore)).toEqual(['a', 'c']);
+  });
+
+  test('omitting options leaves behavior identical to the positional call', () => {
+    let list = captureMistake([], sample({ fenBefore: 'a' }), NOW).list;
+    list = captureMistake(list, sample({ fenBefore: 'b' }), NOW + 5).list;
+    expect(dueMistakes(list, NOW + 100)).toEqual(dueMistakes(list, NOW + 100, {}));
+  });
+
+  test('an opening filter matching nothing returns empty, not a fallback to all due', () => {
+    let list = captureMistake([], sample({ fenBefore: 'a', opening: 'Italian Game' }), NOW).list;
+    expect(dueMistakes(list, NOW + 100, { opening: 'French Defense' })).toEqual([]);
+  });
+
+  test('ties on due time break toward the worse classification', () => {
+    let list = captureMistake([], sample({ fenBefore: 'a', classification: 'inaccuracy' }), NOW).list;
+    list = captureMistake(list, sample({ fenBefore: 'b', classification: 'blunder' }), NOW).list;
+    list = captureMistake(list, sample({ fenBefore: 'c', classification: 'mistake' }), NOW).list;
+
+    const due = dueMistakes(list, NOW + 100);
+    expect(due.map((e) => e.fenBefore)).toEqual(['b', 'c', 'a']);
+  });
+});
+
+describe('listMistakeOpenings', () => {
+  test('lists distinct openings with counts, most frequent first', () => {
+    let list = captureMistake([], sample({ fenBefore: 'a', opening: 'Sicilian Defense' }), NOW).list;
+    list = captureMistake(list, sample({ fenBefore: 'b', opening: 'Italian Game' }), NOW).list;
+    list = captureMistake(list, sample({ fenBefore: 'c', opening: 'Sicilian Defense' }), NOW).list;
+    list = captureMistake(list, sample({ fenBefore: 'd', opening: null }), NOW).list;
+
+    expect(listMistakeOpenings(list)).toEqual([
+      { opening: 'Sicilian Defense', count: 2 },
+      { opening: 'Italian Game', count: 1 },
+    ]);
+  });
+
+  test('returns an empty list when there are no mistakes or no openings recorded', () => {
+    expect(listMistakeOpenings([])).toEqual([]);
+    const { list } = captureMistake([], sample({ opening: null }), NOW);
+    expect(listMistakeOpenings(list)).toEqual([]);
+  });
 });
 
 describe('drillMoveCorrect', () => {
@@ -170,6 +244,17 @@ describe('weaknessProfile', () => {
     expect(line).toContain('1 mistake');
     expect(line).toContain('middlegame');
     expect(line).toContain('Italian Game');
+  });
+
+  test('includes inaccuracies in the counts and the summary sentence', () => {
+    let list = [];
+    list = captureMistake(list, sample({ fenBefore: 'a', classification: 'blunder', moveNo: 18 }), NOW).list;
+    list = captureMistake(list, sample({ fenBefore: 'b', classification: 'inaccuracy', moveNo: 22 }), NOW).list;
+    list = captureMistake(list, sample({ fenBefore: 'c', classification: 'inaccuracy', moveNo: 25 }), NOW).list;
+
+    const line = weaknessProfile(list);
+    expect(line).toContain('1 blunder');
+    expect(line).toContain('2 inaccuracies');
   });
 
   test('phaseOf buckets by move number', () => {

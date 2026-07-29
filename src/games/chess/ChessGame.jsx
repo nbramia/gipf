@@ -12,7 +12,23 @@ import ChessBoard from './ChessBoard.js';
 import useStockfish from './hooks/useStockfish.js';
 import useMistakeDrill from './hooks/useMistakeDrill.js';
 import MistakeReviewPanel from './components/MistakeReviewPanel.jsx';
-import { loadMistakes, saveMistakes, captureMistake, dueMistakes, weaknessProfile } from './coach/mistakeStore.js';
+import ProgressPanel from './components/ProgressPanel.jsx';
+import {
+  loadGameLog,
+  saveGameLog,
+  recordGame,
+  accuracyTrend,
+  openingReportCard,
+  overallStats,
+} from './coach/gameHistory.js';
+import {
+  loadMistakes,
+  saveMistakes,
+  captureMistake,
+  dueMistakes,
+  weaknessProfile,
+  listMistakeOpenings,
+} from './coach/mistakeStore.js';
 import { DIFFICULTY_TIERS, DEFAULT_TIER_KEY, RATING_LADDER, TIME_CONTROLS, getTimeControl } from './engine/difficulty.js';
 import { DEFAULT_RATING, nearestRung, updateRating, scoreFor, isProvisional, mergeRating } from './engine/rating.js';
 import { profileIdFromKey, fetchRemoteProfile, putRemoteProfile, mergeHistory, mergePuzzles, mergeMistakes } from './engine/profileSync.js';
@@ -45,7 +61,7 @@ import {
 } from './coach/openingCoach.js';
 import { withHeaders, downloadPgn, readPgnFile, looksLikePgn, parsePlayerHeaders } from './coach/pgn.js';
 import { summarizeAccuracy } from './coach/accuracy.js';
-import { PUZZLES, budgetPliesFor, evaluatePuzzleMove, evaluateSolutionMove } from './coach/puzzles.js';
+import { PUZZLES, budgetPliesFor, evaluatePuzzleMove, evaluateSolutionMove, listThemeGroups } from './coach/puzzles.js';
 import {
   loadProgress,
   saveProgress,
@@ -184,6 +200,7 @@ export default function ChessGame() {
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountError, setAccountError] = useState('');
   const [history, setHistory] = useState(() => loadOppHistory()); // per-opponent W/L/D record
+  const [gameLog, setGameLog] = useState(() => loadGameLog()); // finished games, for the progress view
   const [humanColor, setHumanColor] = useState(() => (restored && restored.humanColor) || 'w'); // 'w' | 'b'
   const [orientation, setOrientation] = useState(() => (restored && restored.orientation) || 'white');
   const [selected, setSelected] = useState(null);
@@ -210,6 +227,8 @@ export default function ChessGame() {
   const [keySet, setKeySet] = useState(() => hasApiKey());
   const [showKeyField, setShowKeyField] = useState(false);
   const [showLegend, setShowLegend] = useState(false);
+  const [drillOpeningFilter, setDrillOpeningFilter] = useState(null); // null = all openings
+  const [puzzleThemeFilter, setPuzzleThemeFilter] = useState([]); // [] = adaptive default
   const [introSeen, setIntroSeen] = useState(() => localStorage.getItem('chessIntroSeen') === 'true');
   const [keyNudgeDismissed, setKeyNudgeDismissed] = useState(
     () => localStorage.getItem('chessKeyNudgeDismissed') === 'true'
@@ -640,9 +659,63 @@ export default function ChessGame() {
     if (syncId) putRemoteProfile(syncId, { history: h, mistakes: loadMistakes() });
   }, [puzzleMode, drill.active, gameResult, humanColor, rated, opponentKey, syncId]);
 
+  // Log the finished game for the cross-game progress view. Deliberately waits
+  // for `coaching` to settle: the last move's analysis is still in flight when
+  // the result lands, and recording early would bank an accuracy figure that
+  // misses it. Guarded to fire exactly once per game.
+  const gameLoggedRef = useRef(false);
+  useEffect(() => {
+    if (puzzleMode || drill.active || !gameResult || coaching || gameLoggedRef.current) return;
+    if (moveStats.length === 0) return; // nothing analysed — nothing to say
+    gameLoggedRef.current = true;
+    const humanWord = humanColor === 'w' ? 'white' : 'black';
+    const result = gameResult.winner == null ? 'draw' : gameResult.winner === humanWord ? 'win' : 'loss';
+    const summary = summarizeAccuracy(moveStats);
+    const side = humanColor === 'w' ? summary.white : summary.black;
+    const opening = detectOpening(board.sanHistory());
+    saveGameLog(
+      recordGame(loadGameLog(), {
+        playedAt: Date.now(),
+        result,
+        color: humanColor,
+        rated,
+        opponentKey,
+        accuracy: side ? side.accuracy : null,
+        counts: side ? side.counts : { blunder: 0, mistake: 0, inaccuracy: 0 },
+        opening: opening.name || null,
+        eco: opening.eco || null,
+        leftBookAtPly: opening.leftBookAtPly,
+        moves: board.sanHistory().length,
+      })
+    );
+    setGameLog(loadGameLog());
+  }, [
+    puzzleMode, drill.active, gameResult, coaching, moveStats, humanColor,
+    rated, opponentKey, board,
+  ]);
+
   // Produce coaching for a move that was just played. Runs two full-strength
   // analyses (position before + after the move) so commentary is engine-true,
   // then asks the coach (Claude or template fallback) to phrase it.
+  // Small FEN-keyed cache of coaching analyses (see coachOnMove). Bounded so a
+  // long game can't grow it without limit; cleared whenever the game changes.
+  const analysisCacheRef = useRef(new Map());
+  const cachedAnalyze = useCallback(
+    (fen) => {
+      const cache = analysisCacheRef.current;
+      const hit = cache.get(fen);
+      if (hit) return hit;
+      const p = analyze(fen, { multipv: 3 }).catch((e) => {
+        cache.delete(fen); // don't cache failures — a retry should re-search
+        throw e;
+      });
+      cache.set(fen, p);
+      if (cache.size > 64) cache.delete(cache.keys().next().value);
+      return p;
+    },
+    [analyze]
+  );
+
   const coachOnMove = useCallback(
     async (fenBefore, fenAfter, movePlayedSan, moverColor, kind, ply, sanAfter) => {
       // Rated games run the same analysis but SILENTLY: no dialogue, no eval
@@ -661,9 +734,16 @@ export default function ChessGame() {
         setCoaching(true);
       }
       try {
+        // Every move used to cost two full-strength searches (~1s each), and
+        // the engine is single-flight, so they serialized into ~2s of dead air
+        // before any commentary appeared. But the position *after* move N is
+        // exactly the position *before* move N+1 — so the second search is the
+        // next move's first search. Cache by FEN and each move pays for one
+        // new search instead of two. Both run at MultiPV 3 so a cached entry
+        // is usable as either (analyzeMove only reads lines[0] of the "after").
         const [analysisBefore, analysisAfter] = await Promise.all([
-          analyze(fenBefore, { multipv: 3 }),
-          analyze(fenAfter, { multipv: 1 }),
+          cachedAnalyze(fenBefore),
+          cachedAnalyze(fenAfter),
         ]);
         if (seq !== coachSeqRef.current) return; // superseded (new game / undo)
         // Update the eval bar (#21) from the post-move top line (White POV).
@@ -733,13 +813,17 @@ export default function ChessGame() {
           }
         }
 
-        // Mistake library (#23): capture human mistakes/blunders as replayable
-        // drills. Normal games only — puzzle moves are excluded here, drill
-        // moves never reach coachOnMove, and rated games return early above.
+        // Mistake library (#23): capture the human's errors as replayable
+        // drills. Inaccuracies are included — they're the most common and most
+        // improvable category for an intermediate player, and excluding them
+        // made the library's scope look arbitrary from the outside. They're
+        // stored with their classification so review can prioritise the worst.
+        // Normal games only — puzzle moves are excluded here and drill moves
+        // never reach coachOnMove.
         if (
           kind === 'player-move' &&
           !puzzleModeRef.current &&
-          (payload.classification === 'mistake' || payload.classification === 'blunder') &&
+          ['inaccuracy', 'mistake', 'blunder'].includes(payload.classification) &&
           payload.bestMove
         ) {
           const { list, entry } = captureMistake(loadMistakes(), {
@@ -822,7 +906,7 @@ export default function ChessGame() {
         if (seq === coachSeqRef.current && !silent) setCoaching(false);
       }
     },
-    [analyze, learningGoal]
+    [analyze, cachedAnalyze, learningGoal]
   );
 
   // Drive the AI: whenever it's the engine's turn and the game is live, ask it.
@@ -1072,8 +1156,10 @@ export default function ChessGame() {
     const c = color || (rated ? (Math.random() < 0.5 ? 'w' : 'b') : humanColor);
     clearGameState();
     coachSeqRef.current += 1; // invalidate any in-flight coaching
+    analysisCacheRef.current.clear();
     ratedAppliedRef.current = false;
     historyAppliedRef.current = false;
+    gameLoggedRef.current = false;
     setRatedDelta(null);
     setPuzzleMode(false);
     drill.exit();
@@ -1142,6 +1228,7 @@ export default function ChessGame() {
     setRefutationStep(0);
     const next = new ChessBoard(puzzle.fen);
     coachSeqRef.current += 1;
+    analysisCacheRef.current.clear();
     drill.exit();
     setGameMistakes([]);
     setPuzzlePool(pool);
@@ -1190,6 +1277,7 @@ export default function ChessGame() {
     }
     stashedGameRef.current = null;
     coachSeqRef.current += 1;
+    analysisCacheRef.current.clear();
     drill.exit();
     setPuzzleMode(false);
     setSelected(null);
@@ -1213,7 +1301,18 @@ export default function ChessGame() {
     puzzleStartRatingRef.current = progress.rating || 0;
     setPuzzleSolvedCount(0);
     setPuzzleSessionDone(false);
-    loadPuzzleFrom(selectSession(progress, PUZZLES), 0);
+    const session = selectSession(progress, PUZZLES, Date.now(), undefined, {
+      themes: selectedThemeLabels.length ? selectedThemeLabels : undefined,
+    });
+    if (!session.length) {
+      // A filter that matches nothing returns empty rather than silently
+      // falling back to the whole bank — say so instead of showing a blank.
+      setPuzzlePool([]);
+      setPuzzleMode(true);
+      setPuzzleSessionDone(true);
+      return;
+    }
+    loadPuzzleFrom(session, 0);
     // The Lichess daily puzzle joins the session when reachable (and not
     // already solved recently); offline it just isn't there.
     fetchDailyPuzzle().then((daily) => {
@@ -1327,6 +1426,7 @@ export default function ChessGame() {
     const first = drill.start(entries);
     if (!first) return;
     coachSeqRef.current += 1; // invalidate any in-flight coaching
+    analysisCacheRef.current.clear();
     setPuzzleMode(false);
     setResigned(null);
     setDialogue([]);
@@ -1338,7 +1438,20 @@ export default function ChessGame() {
     setIsThinking(false);
     loadDrillBoard(first);
   };
-  const trainMistakes = () => startDrills(dueMistakes(loadMistakes()));
+  const trainMistakes = () => startDrills(dueMistakes(loadMistakes(), Date.now(), { opening: drillOpeningFilter }));
+  // Drill only the mistakes made in one opening — the report card's "Drill"
+  // button. Deliberate practice on a named weakness, rather than whatever the
+  // spaced-repetition queue happens to surface.
+  const drillOpening = (opening) => {
+    const entries = dueMistakes(loadMistakes(), Date.now(), { opening });
+    // Fall back to every stored mistake in that opening if none are due yet:
+    // the user asked for this opening specifically, so an empty screen would
+    // just look broken.
+    const list = entries.length
+      ? entries
+      : loadMistakes().filter((e) => e.opening === opening);
+    if (list.length) startDrills(list);
+  };
   const retryMistake = (entry) => startDrills([entry]);
   const nextDrill = () => {
     const entry = drill.next();
@@ -1351,6 +1464,7 @@ export default function ChessGame() {
     // Undo back to the human's turn: pop AI move + human move when possible.
     if (!board.canUndo() || isThinking) return;
     coachSeqRef.current += 1; // invalidate any in-flight coaching
+    analysisCacheRef.current.clear();
     board.undo();
     if (board.turn() === aiColor && board.canUndo()) board.undo();
     setSelected(null);
@@ -1652,6 +1766,7 @@ export default function ChessGame() {
       const players = parsePlayerHeaders(text);
       const applyImport = (color) => {
         coachSeqRef.current += 1; // invalidate in-flight coaching
+    analysisCacheRef.current.clear();
         clearGameState();
         stashedGameRef.current = null;
         drill.exit();
@@ -1795,6 +1910,28 @@ export default function ChessGame() {
     () => (puzzleMode || drill.active ? null : detectOpening(sanHistory)),
     [sanHistory, puzzleMode, drill.active]
   );
+
+  // Opening filters for mistake drills: which openings the stored mistakes
+  // actually cover, and the one the user has narrowed to (null = all).
+  const mistakeOpenings = useMemo(() => listMistakeOpenings(loadMistakes()), [dueCount, gameLog]);
+  const drillableOpenings = useMemo(
+    () => new Set(mistakeOpenings.map((o) => o.opening)),
+    [mistakeOpenings]
+  );
+
+  // User-pickable puzzle themes, grouped into buckets a learner would actually
+  // choose between ([] = the adaptive default).
+  const puzzleThemes = useMemo(() => listThemeGroups(PUZZLES), []);
+  // Selected groups expand to the raw theme labels selectSession filters on.
+  const selectedThemeLabels = useMemo(
+    () => puzzleThemes.filter((g) => puzzleThemeFilter.includes(g.group)).flatMap((g) => g.themes),
+    [puzzleThemes, puzzleThemeFilter]
+  );
+
+  // Cross-game progress aggregation (coach/gameHistory.js).
+  const progressTrend = useMemo(() => accuracyTrend(gameLog, { limit: 20 }), [gameLog]);
+  const progressReport = useMemo(() => openingReportCard(gameLog), [gameLog]);
+  const progressStats = useMemo(() => overallStats(gameLog), [gameLog]);
 
   // Spaced-repetition nudge: how many puzzles are due for review right now.
   // The mistake library already badges its button; puzzles never did.
@@ -2054,8 +2191,14 @@ export default function ChessGame() {
               ) : puzzleMode && puzzleSessionDone ? (
                 <div className="mt-4 w-full max-w-[680px] mx-auto panel rounded-xl p-4 text-center">
                   <h2 className="font-heading text-sm font-semibold mb-1" style={{ color: 'var(--color-text-primary)' }}>
-                    Session complete
+                    {puzzlePool.length === 0 ? 'No puzzles match those themes' : 'Session complete'}
                   </h2>
+                  {puzzlePool.length === 0 ? (
+                    <p className="font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                      Nothing in the bank carries every theme you picked. Clear a theme or two in the Game panel and
+                      try again.
+                    </p>
+                  ) : (
                   <p className="font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
                     Solved {puzzleSolvedCount} of {puzzlePool.length}. Puzzle rating {puzzleProgressState.rating}
                     {puzzleStartRatingRef.current != null && (
@@ -2067,6 +2210,7 @@ export default function ChessGame() {
                     )}
                     .
                   </p>
+                  )}
                   <div className="flex flex-wrap gap-2 justify-center mt-3">
                     <button onClick={startPuzzles} className="px-4 py-2 rounded-lg font-body text-sm btn-primary tap-target">
                       New session
@@ -2221,6 +2365,19 @@ export default function ChessGame() {
               {/* Post-game mistake review (#23) — retry this game's mistakes */}
               {accuracyReport && gameMistakes.length > 0 && (
                 <MistakeReviewPanel mistakes={gameMistakes} onRetry={retryMistake} />
+              )}
+
+              {/* Cross-game progress — shown between games, where a learner is
+                  deciding what to work on, rather than competing with the
+                  board mid-game. */}
+              {(gameOver || movesPlayedCount === 0) && !puzzleMode && !drill.active && (
+                <ProgressPanel
+                  trend={progressTrend}
+                  report={progressReport}
+                  stats={progressStats}
+                  drillableOpenings={drillableOpenings}
+                  onDrillOpening={drillOpening}
+                />
               )}
 
               {/* Post-game accuracy summary (#17) */}
@@ -2534,6 +2691,76 @@ export default function ChessGame() {
                         </p>
                       )}
                     </div>
+                    {/* Deliberate practice: pick what to drill instead of only
+                        taking whatever the adaptive queue serves up. */}
+                    <div>
+                      <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+                        Puzzle themes
+                      </label>
+                      <div className="flex flex-wrap gap-1">
+                        <button
+                          onClick={() => setPuzzleThemeFilter([])}
+                          className={`px-2 py-1 rounded-full font-body text-xs panel tap-target${
+                            puzzleThemeFilter.length === 0 ? ' is-selected' : ''
+                          }`}
+                        >
+                          Adaptive
+                        </button>
+                        {puzzleThemes.map(({ group, count }) => {
+                          const on = puzzleThemeFilter.includes(group);
+                          return (
+                            <button
+                              key={group}
+                              onClick={() =>
+                                setPuzzleThemeFilter((cur) =>
+                                  cur.includes(group) ? cur.filter((t) => t !== group) : [...cur, group]
+                                )
+                              }
+                              aria-pressed={on}
+                              className={`px-2 py-1 rounded-full font-body text-xs panel tap-target${on ? ' is-selected' : ''}`}
+                            >
+                              {group} ({count})
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <p className="mt-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                        {puzzleThemeFilter.length === 0
+                          ? 'Puzzles are picked for you: reviews first, then new ones near your rating.'
+                          : 'Only these themes will appear in your next session.'}
+                      </p>
+                    </div>
+
+                    {mistakeOpenings.length > 0 && (
+                      <div>
+                        <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+                          Drill mistakes from
+                        </label>
+                        <div className="flex flex-wrap gap-1">
+                          <button
+                            onClick={() => setDrillOpeningFilter(null)}
+                            className={`px-2 py-1 rounded-full font-body text-xs panel tap-target${
+                              drillOpeningFilter == null ? ' is-selected' : ''
+                            }`}
+                          >
+                            Any opening
+                          </button>
+                          {mistakeOpenings.slice(0, 6).map(({ opening, count }) => (
+                            <button
+                              key={opening}
+                              onClick={() => setDrillOpeningFilter((cur) => (cur === opening ? null : opening))}
+                              aria-pressed={drillOpeningFilter === opening}
+                              className={`px-2 py-1 rounded-full font-body text-xs panel tap-target${
+                                drillOpeningFilter === opening ? ' is-selected' : ''
+                              }`}
+                            >
+                              {opening} ({count})
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <div>
                       <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
                         Clock

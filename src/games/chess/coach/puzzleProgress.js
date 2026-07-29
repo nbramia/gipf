@@ -11,6 +11,7 @@
 
 import { DEFAULT_RATING, updateRating } from '../engine/rating.js';
 import { REVIEW_INTERVALS_MS } from './mistakeStore.js';
+import { themeLabel } from './puzzles.js';
 
 export const PUZZLE_PROGRESS_KEY = 'chessPuzzleProgress';
 export const SESSION_SIZE = 10;
@@ -73,10 +74,21 @@ export function recordPuzzleResult(progress, puzzle, solved, now = Date.now()) {
 // Build a training session from the bank: due reviews first (longest overdue
 // leading — the spaced-repetition promise), then fresh puzzles nearest the
 // player's rating. Puzzles seen but not yet due are skipped.
-export function selectSession(progress, bank, now = Date.now(), limit = SESSION_SIZE) {
+//
+// options.themes — optional array of theme labels (as returned by
+// listThemes) restricting the pool to chosen themes before due/fresh
+// selection runs. Omitted (or empty) leaves behavior unchanged. A filter
+// that matches nothing returns an empty session rather than falling back to
+// the full bank — the UI needs to be able to say "no puzzles match".
+export function selectSession(progress, bank, now = Date.now(), limit = SESSION_SIZE, options = {}) {
+  const { themes } = options;
+  const pool =
+    themes && themes.length
+      ? bank.filter((p) => p.theme && themes.includes(themeLabel(p.theme)))
+      : bank;
   const due = [];
   const fresh = [];
-  for (const p of bank) {
+  for (const p of pool) {
     const rec = progress.puzzles[p.id];
     if (!rec) fresh.push(p);
     else if ((rec.nextDueAt || 0) <= now) due.push(p);

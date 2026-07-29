@@ -22,6 +22,9 @@ export default function LandingPage() {
   const [open, setOpen] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [password2, setPassword2] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [creatingAccount, setCreatingAccount] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -29,10 +32,20 @@ export default function LandingPage() {
     setOpen(false);
     setUsername('');
     setPassword('');
+    setPassword2('');
+    setCreatingAccount(false);
     setError('');
   };
 
   const handleSignOut = () => {
+    // Signing out does not remove the saved API key/Lichess token from this
+    // device — matters on a shared computer. Confirm before dropping the
+    // session (matches chess's confirmation dialog in substance).
+    const ok = window.confirm(
+      'Sign out?\n\nYour saved Anthropic key and Lichess token stay on this device — signing out ' +
+        'does not remove them. On a shared computer, remove them separately in a game\'s settings.'
+    );
+    if (!ok) return;
     clearSession();
     setAccount(null);
     // The local gipfApiKey is deliberately retained — matches chess's sign-out.
@@ -42,6 +55,10 @@ export default function LandingPage() {
     const name = username.trim();
     if (!name || password.length < 6) {
       setError(!name ? 'Enter a username.' : 'Password must be at least 6 characters.');
+      return;
+    }
+    if (password !== password2) {
+      setError("Those passwords don't match.");
       return;
     }
     setBusy(true);
@@ -201,18 +218,42 @@ export default function LandingPage() {
                 placeholder="Username"
                 className="bg-neutral-950 border border-neutral-800 rounded px-3 py-2 text-sm text-neutral-200 font-body"
               />
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Password"
-                className="bg-neutral-950 border border-neutral-800 rounded px-3 py-2 text-sm text-neutral-200 font-body"
-              />
+              <div className="flex gap-2">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Password"
+                  className="flex-1 min-w-0 bg-neutral-950 border border-neutral-800 rounded px-3 py-2 text-sm text-neutral-200 font-body"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  className="text-xs font-body text-neutral-400 border border-neutral-800 rounded px-3 py-2 hover:border-neutral-600 hover:text-neutral-200 transition-colors"
+                >
+                  {showPassword ? 'Hide' : 'Show'}
+                </button>
+              </div>
+              {/* There is no password reset, so a typo at creation is an
+                  unrecoverable account. Confirm it. */}
+              {creatingAccount && (
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password2}
+                  onChange={(e) => setPassword2(e.target.value)}
+                  placeholder="Confirm password"
+                  className="bg-neutral-950 border border-neutral-800 rounded px-3 py-2 text-sm text-neutral-200 font-body"
+                />
+              )}
               {error && <p className="text-sm text-red-400 font-body">{error}</p>}
               <div className="flex gap-3">
                 <button
                   type="button"
-                  onClick={handleSignIn}
+                  onClick={() => {
+                    setCreatingAccount(false);
+                    handleSignIn();
+                  }}
                   disabled={busy || !username.trim() || !password}
                   className="flex-1 text-sm font-body text-neutral-200 border border-neutral-800 rounded px-3 py-2 hover:border-neutral-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
@@ -220,17 +261,32 @@ export default function LandingPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={handleCreateAccount}
+                  onClick={() => {
+                    if (!creatingAccount) {
+                      setCreatingAccount(true);
+                      setError('');
+                      return;
+                    }
+                    handleCreateAccount();
+                  }}
                   disabled={busy || !username.trim() || !password}
                   className="flex-1 text-sm font-body text-neutral-200 border border-neutral-800 rounded px-3 py-2 hover:border-neutral-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                 >
-                  Create account
+                  {busy ? 'Working…' : 'Create account'}
                 </button>
               </div>
+              {creatingAccount && (
+                <p className="text-xs font-body text-amber-400 leading-relaxed bg-amber-950/40 border border-amber-900/60 rounded px-3 py-2">
+                  There is no password reset and no email on file. If you forget this password,
+                  the account — and everything in it — is gone for good. Save it somewhere.
+                </p>
+              )}
               <p className="text-xs font-body text-neutral-500 leading-relaxed">
-                One password unlocks your saved Anthropic API key and your chess history on any
-                device. No email, no reset — if you forget the password, you'll need a new
-                account.
+                One password unlocks your saved Anthropic API key, your Lichess token and your
+                progress on any device — the same key powers the AI chat in Chess, Catan,
+                Splendor and Diplomacy. Your password never leaves this device: the server only
+                ever stores an unreadable hash, and your keys only as ciphertext it cannot
+                decrypt. Usernames aren&rsquo;t case-sensitive.
               </p>
             </div>
           </div>

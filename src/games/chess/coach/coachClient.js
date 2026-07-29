@@ -6,7 +6,7 @@
 // grounded templates so the dialogue never breaks and never fabricates lines.
 
 import { describeAiMove, describePlayerMove } from './templates.js';
-import { describePuzzleFail } from './puzzleCoach.js';
+import { describePuzzleFail, hintLeaksSolution } from './puzzleCoach.js';
 import { runTool } from './analysisTools.js';
 import { getLichessToken } from './openingCoach.js';
 
@@ -60,6 +60,9 @@ export function hasApiKey() {
 //              candidates, classification, bestMove, learningGoal }
 // Returns { text, source: 'claude' | 'template' }.
 export async function requestCommentary(payload) {
+  // `solution` (puzzle-hint only) is a client-only spoiler-guard field -- it
+  // never goes over the wire, so the server-side prompt can't leak it either.
+  const { solution, ...wirePayload } = payload;
   const fallback = () => ({
     text:
       payload.kind === 'player-move'
@@ -79,12 +82,17 @@ export async function requestCommentary(payload) {
     const res = await fetch(`${process.env.PUBLIC_URL || ''}/api/chessCoach`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...payload, apiKey }),
+      body: JSON.stringify({ ...wirePayload, apiKey }),
     });
     if (!res.ok) return fallback();
     const data = await res.json();
-    if (data && data.commentary) return { text: data.commentary, source: 'claude' };
-    return fallback();
+    if (!data || !data.commentary) return fallback();
+    // A single slip here would silently spoil the puzzle with no way for the
+    // student to tell -- verify before trusting the model's rephrasing.
+    if (payload.kind === 'puzzle-hint' && hintLeaksSolution(data.commentary, solution)) {
+      return fallback();
+    }
+    return { text: data.commentary, source: 'claude' };
   } catch (_) {
     return fallback();
   }

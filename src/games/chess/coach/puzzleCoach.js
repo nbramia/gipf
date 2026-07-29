@@ -47,8 +47,13 @@ export function hintFor(puzzle, stage, fen) {
 
 // Build the payload for a Claude-phrased hint. Deliberately sparse: the model
 // receives only what the stage allows it to say.
+//
+// `solution` here is a client-only field for coachClient's spoiler guard
+// (below) -- it is stripped out before the request ever reaches the server,
+// so the real solution still never leaves the browser.
 export function buildHintPayload(puzzle, stage, fen) {
   const sideToMove = fen.split(' ')[1] === 'b' ? 'b' : 'w';
+  const uci = puzzle.solution && puzzle.solution[0];
   return {
     kind: 'puzzle-hint',
     fen,
@@ -56,7 +61,36 @@ export function buildHintPayload(puzzle, stage, fen) {
     stage,
     theme: puzzle.theme || 'tactic',
     hint: hintFor(puzzle, stage, fen),
+    solution: uci ? { uci, fen: puzzle.fen } : null,
   };
+}
+
+// Spoiler guard for a Claude-phrased hint (coachClient calls this before
+// showing a response). `solution` is the { uci, fen } pair from
+// buildHintPayload -- the fen is the puzzle's own start position, since a
+// solution's first move is only meaningful there (see hintFor above).
+//
+// Matches whole tokens only (destination square, full UCI move, or full SAN)
+// so an incidental substring -- e.g. the word "back" merely containing the
+// letters of a square -- is never mistaken for a leak.
+export function hintLeaksSolution(text, solution) {
+  if (!text || !solution || !solution.uci) return false;
+  const { uci, fen } = solution;
+  const from = uci.slice(0, 2);
+  const to = uci.slice(2, 4);
+  const promotion = uci.slice(4) || undefined;
+  let sanBare = null;
+  if (fen) {
+    try {
+      const move = new Chess(fen).move({ from, to, promotion });
+      sanBare = move && move.san.replace(/[+#]/g, '');
+    } catch (_) {
+      sanBare = null;
+    }
+  }
+  const uciBare = `${from}${to}`;
+  const words = (text.match(/[a-zA-Z0-9+#=]+/g) || []).map((w) => w.replace(/[+#!?]+$/g, ''));
+  return words.some((w) => w === to || w === uciBare || (sanBare && w === sanBare));
 }
 
 // Deterministic fail explanation: the engine's refutation of the attempt,
