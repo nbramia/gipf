@@ -199,6 +199,8 @@ export default function ChessGame() {
   const [showPassword, setShowPassword] = useState(false);
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountError, setAccountError] = useState('');
+  // null = not probed yet, false = this deployment has no KV store wired.
+  const [accountsConfigured, setAccountsConfigured] = useState(null);
   const [history, setHistory] = useState(() => loadOppHistory()); // per-opponent W/L/D record
   const [gameLog, setGameLog] = useState(() => loadGameLog()); // finished games, for the progress view
   const [humanColor, setHumanColor] = useState(() => (restored && restored.humanColor) || 'w'); // 'w' | 'b'
@@ -298,6 +300,7 @@ export default function ChessGame() {
   const [puzzleDelta, setPuzzleDelta] = useState(null); // rating change from the last graded attempt
   const [puzzleFlash, setPuzzleFlash] = useState(null); // 'solved' | 'wrong' — board feedback
   const [puzzleSessionDone, setPuzzleSessionDone] = useState(false);
+  const [dailyPuzzleNotice, setDailyPuzzleNotice] = useState(false);
   // Playable refutation of a failed attempt: {fen, pv, played} plus the
   // preview board and how many plies of the line are currently shown.
   const [refutation, setRefutation] = useState(null);
@@ -486,6 +489,18 @@ export default function ChessGame() {
       .catch(() => { if (!cancelled) setSyncStatus('error'); });
     return () => { cancelled = true; };
   }, [syncId, mergeRemoteProfileIntoLocal]);
+
+  // Cheap one-shot probe so the Account block can say "not available on this
+  // deployment" before the user invests a username and password in it.
+  useEffect(() => {
+    let cancelled = false;
+    fetchRemoteProfile('probe')
+      .then((res) => {
+        if (!cancelled) setAccountsConfigured(!(res && res.configured === false));
+      })
+      .catch(() => { if (!cancelled) setAccountsConfigured(null); }); // unknown, stay quiet
+    return () => { cancelled = true; };
+  }, []);
 
   // Auto-scroll the transcript to the newest entry (now rendered at the top).
   useEffect(() => {
@@ -1319,9 +1334,13 @@ export default function ChessGame() {
       if (!daily) return;
       const rec = progress.puzzles[daily.id];
       if (rec && (rec.nextDueAt || 0) > Date.now()) return;
-      setPuzzlePool((cur) =>
-        cur.length && !cur.some((p) => p.id === daily.id) ? [...cur, daily] : cur
-      );
+      setPuzzlePool((cur) => {
+        if (!cur.length || cur.some((p) => p.id === daily.id)) return cur;
+        // Announce it: this silently bumps the "N/M" denominator the user is
+        // tracking, which reads as a glitch rather than a bonus puzzle.
+        setDailyPuzzleNotice(true);
+        return [...cur, daily];
+      });
     });
   };
   const nextPuzzle = () => loadPuzzleFrom(puzzlePool, puzzleIndex + 1);
@@ -1548,7 +1567,9 @@ export default function ChessGame() {
         return;
       }
       if (res.error === 'taken') {
-        setAccountError('That username is taken.');
+        // Keep the password fields — a taken username is a very common first
+        // attempt and retyping a password you can't recover is punishing.
+        setAccountError('That username is taken — try another. Your password is still filled in.');
         return;
       }
       if (res.error) {
@@ -2288,6 +2309,11 @@ export default function ChessGame() {
                       : ''}
                     {' · Tactics only — separate from your game rating.'}
                   </p>
+                  {dailyPuzzleNotice && (
+                    <p className="mt-2 font-body text-xs text-center" style={{ color: 'var(--color-accent)' }} aria-live="polite">
+                      Today’s Lichess puzzle joined this session.
+                    </p>
+                  )}
                   <p className="mt-1 font-body text-xs text-center" style={{ color: 'var(--color-text-muted)' }}>
                     {puzzleHintStage === 0
                       ? 'First hint is free; the second names the piece and counts as a miss.'
@@ -2341,20 +2367,31 @@ export default function ChessGame() {
                   >
                     Resign
                   </button>
+                  {/* Everything above acts on THIS game; everything after the
+                      divider leaves it for a different mode. They used to be
+                      one undifferentiated strip of identical buttons. */}
                   {!rated && (
-                    <button onClick={startPuzzles} className="px-4 py-2 rounded-lg font-body text-sm panel tap-target">
-                      Puzzles{puzzlesDue > 0 ? ` (${puzzlesDue} due)` : ''}
-                    </button>
-                  )}
-                  {!rated && (
-                    <button
-                      onClick={trainMistakes}
-                      disabled={dueCount === 0}
-                      className="px-4 py-2 rounded-lg font-body text-sm panel disabled:opacity-40 tap-target"
-                      title={dueCount === 0 ? 'No mistakes due for review — play some games first' : undefined}
-                    >
-                      Train my mistakes{dueCount > 0 ? ` (${dueCount})` : ''}
-                    </button>
+                    <>
+                      <span className="control-divider" aria-hidden="true" />
+                      <button onClick={startPuzzles} className="px-4 py-2 rounded-lg font-body text-sm panel tap-target">
+                        Puzzles{puzzlesDue > 0 ? ` (${puzzlesDue} due)` : ''}
+                      </button>
+                      <button
+                        onClick={trainMistakes}
+                        disabled={dueCount === 0}
+                        className="px-4 py-2 rounded-lg font-body text-sm panel disabled:opacity-40 tap-target"
+                        title={
+                          dueCount === 0
+                            ? 'No mistakes due for review — play some games first'
+                            : drillOpeningFilter
+                              ? `Drilling your ${drillOpeningFilter} mistakes`
+                              : undefined
+                        }
+                      >
+                        Train my mistakes{dueCount > 0 ? ` (${dueCount})` : ''}
+                        {drillOpeningFilter ? ` · ${drillOpeningFilter}` : ''}
+                      </button>
+                    </>
                   )}
                 </div>
               )}
@@ -2562,9 +2599,18 @@ export default function ChessGame() {
                           >
                             {e.kind === 'ai-move' ? 'Opponent' : 'You'}
                           </span>
-                          <span style={{ color: 'var(--color-text-muted)' }} className="text-xs">
+                          {/* The transcript reads newest-first while the move
+                              list reads oldest-first. Rather than force one
+                              order on both, let a click here drive the board —
+                              which is what correlating them was really for. */}
+                          <button
+                            onClick={() => setReviewPly(e.ply === sanHistory.length ? null : e.ply)}
+                            className="text-xs rounded px-1"
+                            style={{ color: 'var(--color-text-muted)' }}
+                            title="Show this position"
+                          >
                             {Math.ceil(e.ply / 2)}.{e.kind === 'ai-move' ? '..' : ''} {e.san}
-                          </span>
+                          </button>
                           {e.label && e.label !== 'engine' && (
                             <span className={`text-xs font-semibold ${TONE_CLASS[e.tone] || ''}`}>
                               {e.label}
@@ -2919,6 +2965,15 @@ export default function ChessGame() {
                   <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
                     Account
                   </label>
+                  {/* Say up front when this deployment has no store wired,
+                      rather than after the user has typed a whole credential
+                      pair and clicked Create. */}
+                  {accountsConfigured === false && !account && (
+                    <p className="mb-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                      Accounts aren’t available on this deployment — no sync store is configured. Everything still
+                      works and saves on this device.
+                    </p>
+                  )}
                   {account ? (
                     <>
                       <div className="flex items-center gap-2">

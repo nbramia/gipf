@@ -288,3 +288,13 @@
 .game-chess.dark .clock-low {
   color: #f87171 !important;
 }
+
+/* Separates "acts on this game" controls from "leaves for another mode"
+ * controls in the button row, without adding another row of chrome. */
+.game-chess .control-divider {
+  width: 1px;
+  align-self: stretch;
+  min-height: 1.5rem;
+  margin: 0 0.25rem;
+  background-color: var(--color-border);
+}
