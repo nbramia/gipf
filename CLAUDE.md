@@ -43,6 +43,29 @@ GIPF Project is a multi-game React application hosting browser-based implementat
 4. **Manual test**: Play through game in browser (`npm start`)
 5. **Deploy**: `git push origin main` (Vercel auto-deploys)
 
+### Where this deploys
+
+Two places, from the same build. Its own Vercel project at `gipf.vercel.app`, and
+`ramia.us/gipf` — a subpath of a shared domain, reached by a rewrite from the
+[`nbramia/ramia`](https://github.com/nbramia/ramia) shell. The rewrite targets this
+project's production alias, so a push here goes live in both without touching that repo.
+
+**The app therefore does not own the URL root, and code must not assume it does.**
+
+- `homepage` in `package.json` sets the deploy prefix; CRA exposes it as
+  `process.env.PUBLIC_URL` and `<BrowserRouter basename>` reads it. One build works at a
+  subpath and at a bare root, because `PUBLIC_URL` is empty when there is no `homepage`.
+- **Serverless calls must carry the prefix:** `` `${process.env.PUBLIC_URL || ''}/api/x` ``.
+  A root-absolute `/api/x` resolves against the shared host, where these functions do not
+  exist, and fails quietly — the request gets someone else's 404 and the feature simply
+  never responds. Inline the expression per file; do not add a shared helper, per the
+  self-containment rule below.
+- `npm start` sets `PUBLIC_URL` to empty, so **dev cannot distinguish a correct prefix from
+  a missing one.** Verify prefix-sensitive changes against a deployed build.
+- `public/tiles.json` is generated from `src/games-registry.js` by a `prebuild` step and is
+  read by the landing page at `ramia.us` to list the games. Adding a game to that registry
+  is all it takes to appear there.
+
 Use the below guidelines when executing tasks or pursuing goals that have more than basic complexity. These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
 ## 1. Think Before Coding
@@ -151,6 +174,8 @@ Before modifying game logic for either game:
 | `src/account.js` | App-level account module -- identical copy of chess's `engine/account.js` (per-consumer copy convention); landing-page sign-in/out, key decrypt into `gipfApiKey` |
 | `src/index.css` | Tailwind directives + shared keyframes only |
 | `vercel.json` | API rewrites + SPA catch-all for client-side routing |
+| `src/games-registry.js` | The one list of games — read by the landing page and by the tile-manifest build step |
+| `scripts/emit-tiles.mjs` | `prebuild` step writing `public/tiles.json` for the ramia.us landing page |
 | `public/index.html` | HTML shell with Google Fonts (Syne + Outfit) |
 | `tailwind.config.js` | Font families (display, heading, body) |
 | `jest.config.js` | Test config (auto-discovers `*.test.js` in all subdirs) |
