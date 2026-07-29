@@ -6,7 +6,10 @@
 // browser. If the server has no store provisioned it replies { configured:
 // false } and every helper degrades to "local only" without throwing loudly.
 
-const ENDPOINT = '/api/chessRating';
+// The deploy prefix is included because the app is also served from a subdirectory
+// (ramia.us/gipf); a root-absolute path would resolve against that host's root,
+// which is a different deployment. PUBLIC_URL is empty on a bare-root deploy.
+const ENDPOINT = `${process.env.PUBLIC_URL || ''}/api/chessRating`;
 const NAMESPACE = 'gipf-chess-rating:v1:'; // salts the hash so it isn't a bare key fingerprint
 
 // Derive the opaque sync id from the Anthropic key. Returns a 64-char hex

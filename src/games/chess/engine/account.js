@@ -113,7 +113,10 @@ export async function decryptApiKey(aesKeyB64, enc) {
 // Throws only on network/transport failure (fetch rejection propagates),
 // matching fetchRemoteProfile's semantics.
 
-const ENDPOINT = '/api/chessAccount';
+// The deploy prefix is included because the app is also served from a subdirectory
+// (ramia.us/gipf); a root-absolute path would resolve against that host's root,
+// which is a different deployment. PUBLIC_URL is empty on a bare-root deploy.
+const ENDPOINT = `${process.env.PUBLIC_URL || ''}/api/chessAccount`;
 
 async function postAccount(payload) {
   const r = await fetch(ENDPOINT, {

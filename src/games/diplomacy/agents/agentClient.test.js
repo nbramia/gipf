@@ -90,7 +90,9 @@ describe('sendMessage', () => {
 
     expect(global.fetch).toHaveBeenCalledTimes(1);
     const [url, opts] = global.fetch.mock.calls[0];
-    expect(url).toBe('/api/diplomacyAgent');
+    // Asserted with the deploy prefix applied, because the endpoint is built from
+    // PUBLIC_URL — empty here and under `npm start`, `/gipf` in a production build.
+    expect(url).toBe(`${process.env.PUBLIC_URL || ''}/api/diplomacyAgent`);
     expect(opts.method).toBe('POST');
     const body = JSON.parse(opts.body);
     expect(body.apiKey).toBe('sk-live');

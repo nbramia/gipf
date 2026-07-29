@@ -19,7 +19,10 @@ import { evictToCap } from '../coach/mistakeStore.js';
 // resolve to the same id.
 export { ratingIdFromKey as profileIdFromKey };
 
-const ENDPOINT = '/api/chessProfile';
+// The deploy prefix is included because the app is also served from a subdirectory
+// (ramia.us/gipf); a root-absolute path would resolve against that host's root,
+// which is a different deployment. PUBLIC_URL is empty on a bare-root deploy.
+const ENDPOINT = `${process.env.PUBLIC_URL || ''}/api/chessProfile`;
 
 // Fetch the stored profile for an id.
 //   → { rating, history, puzzles, mistakes }  each domain possibly null
