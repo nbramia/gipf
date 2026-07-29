@@ -230,8 +230,20 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
     # Safe point: the iteration is over, nothing is reading the model files.
     git fetch origin --quiet 2>/dev/null || true
     if ! git merge --no-edit origin/main >/dev/null 2>&1; then
-      git merge --abort 2>/dev/null || true
-      log "WARNING: could not merge origin/main (conflict); push will likely fail"
+      # The model pointer conflicts whenever main also advanced a model — and
+      # this loop's copy is by definition the newer one, so take ours. Anything
+      # ELSE conflicting means a human changed source under us: abort untouched
+      # rather than silently discarding their work.
+      CONFLICTS=$(git diff --name-only --diff-filter=U)
+      OTHER=$(echo "$CONFLICTS" | grep -v '^public/models/' || true)
+      if [ -n "$OTHER" ]; then
+        git merge --abort 2>/dev/null || true
+        log "WARNING: unexpected merge conflict outside public/models (${OTHER//$'\n'/ }); aborted, push will fail"
+      else
+        for f in $CONFLICTS; do git checkout --ours -- "$f" 2>/dev/null; git add "$f"; done
+        git commit -q --no-edit 2>/dev/null || true
+        log "Resolved model-pointer conflict in favour of this run's model."
+      fi
     fi
     git push origin HEAD:main || log "WARNING: git push failed (will retry next win)"
 
