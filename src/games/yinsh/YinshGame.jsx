@@ -10,7 +10,10 @@ import testPositions from './engine/testPositions.js';
 
 // Configuration
 const AI_MODE = 'local'; // Local mode now fixed - removed excessive logging
-const API_ENDPOINT = '/api/aiMove'; // Use relative URL to work from any domain
+// The deploy prefix is included because the app is also served from a subdirectory
+// (ramia.us/gipf); a root-absolute path would resolve against that host's root,
+// which is a different deployment. PUBLIC_URL is empty on a bare-root deploy.
+const API_ENDPOINT = `${process.env.PUBLIC_URL || ''}/api/aiMove`;
 
 // Difficulty presets: model path, simulations, evaluation mode
 // easy = v63 (early-lineage, deliberately weak), advanced = v140 (long-standing

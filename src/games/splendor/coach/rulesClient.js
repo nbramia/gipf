@@ -62,7 +62,7 @@ export async function askRules({ context, messages }) {
   }
   let res;
   try {
-    res = await fetch('/api/splendorRules', {
+    res = await fetch(`${process.env.PUBLIC_URL || ''}/api/splendorRules`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ context, messages, apiKey }),

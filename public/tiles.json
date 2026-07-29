@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "project": "gipf",
+  "tiles": [
+    {
+      "name": "YINSH",
+      "href": "/gipf/yinsh",
+      "description": "Place rings, flip markers, score rows. Features AI with neural network evaluation."
+    },
+    {
+      "name": "ZERTZ",
+      "href": "/gipf/zertz",
+      "description": "Capture marbles by jumping. Isolate rings to claim pieces. Pure strategy for two."
+    },
+    {
+      "name": "CHESS",
+      "href": "/gipf/chess",
+      "description": "Play against Stockfish with a built-in coach that explains every move — yours and its."
+    },
+    {
+      "name": "CATAN",
+      "href": "/gipf/catan",
+      "description": "Build settlements, trade ports, and race three strong MCTS opponents to 10 points."
+    },
+    {
+      "name": "SPLENDOR",
+      "href": "/gipf/splendor",
+      "description": "Collect gems, build a card engine, and court nobles. Race deep-search opponents to 15 prestige."
+    },
+    {
+      "name": "DIPLOMACY",
+      "href": "/gipf/diplomacy",
+      "description": "Command armies and fleets across Europe. Enter simultaneous orders, resolve, and race to 18 supply centers."
+    }
+  ]
+}

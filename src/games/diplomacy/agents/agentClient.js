@@ -117,7 +117,7 @@ export async function sendMessage({ power, history, context, addressee, model, s
 
   let res;
   try {
-    res = await fetch('/api/diplomacyAgent', {
+    res = await fetch(`${process.env.PUBLIC_URL || ''}/api/diplomacyAgent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ apiKey, power, persona, context, messages, addressee, model }),
@@ -186,7 +186,7 @@ export async function askAgent({
 
   let res;
   try {
-    res = await fetch('/api/diplomacyAgent', {
+    res = await fetch(`${process.env.PUBLIC_URL || ''}/api/diplomacyAgent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

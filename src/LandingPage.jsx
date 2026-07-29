@@ -15,44 +15,7 @@ import {
   setSharedLichessToken,
 } from './account';
 
-const games = [
-  {
-    name: 'YINSH',
-    path: '/yinsh',
-    description: 'Place rings, flip markers, score rows. Features AI with neural network evaluation.',
-    accent: '#93C5FD',
-  },
-  {
-    name: 'ZERTZ',
-    path: '/zertz',
-    description: 'Capture marbles by jumping. Isolate rings to claim pieces. Pure strategy for two.',
-    accent: '#A8A29E',
-  },
-  {
-    name: 'CHESS',
-    path: '/chess',
-    description: 'Play against Stockfish with a built-in coach that explains every move — yours and its.',
-    accent: '#818CF8',
-  },
-  {
-    name: 'CATAN',
-    path: '/catan',
-    description: 'Build settlements, trade ports, and race three strong MCTS opponents to 10 points.',
-    accent: '#2DD4BF',
-  },
-  {
-    name: 'SPLENDOR',
-    path: '/splendor',
-    description: 'Collect gems, build a card engine, and court nobles. Race deep-search opponents to 15 prestige.',
-    accent: '#D9A441',
-  },
-  {
-    name: 'DIPLOMACY',
-    path: '/diplomacy',
-    description: 'Command armies and fleets across Europe. Enter simultaneous orders, resolve, and race to 18 supply centers.',
-    accent: '#4FB8D4',
-  },
-];
+import { games } from './games-registry.js';
 
 export default function LandingPage() {
   const [account, setAccount] = useState(() => loadSession());
