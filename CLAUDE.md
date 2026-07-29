@@ -225,6 +225,7 @@ Before modifying game logic for either game:
 | `coach/motifs.js` | Pure chess.js position facts (hanging piece, fork, pin, king-shelter, development) feeding the keyless commentary |
 | `coach/tacticSolver.js` | Depth-limited material search verifying non-mate tactical puzzles (mirrors `mateSolver.js`) |
 | `coach/gameHistory.js` | Finished-game log + accuracy trend / opening report card aggregation (`chessGameLog`) |
+| `coach/repertoire.js` | Pinned openings per colour, self-populating suggestions, adherence + live deviation hints |
 | `components/ProgressPanel.jsx` | Cross-game progress: accuracy sparkline, trend, per-opening report card with drill entry |
 | `hooks/useStockfish.js` | Engine lifecycle; `getMove()` (opponent) + `analyze()` (coaching), serialized |
 | `coach/*.js` | classify, analyzeMove, templates, coachClient, openings, pgn, accuracy, puzzles, material, sound |
@@ -427,6 +428,7 @@ chessOppHistory,                           # Per-opponent W/L/D record (casual t
 chessPuzzleProgress,                       # Puzzle trainer: player puzzle Elo + per-puzzle review schedule
 chessGameState,                            # In-progress game snapshot (PGN + colour + dialogue) so a refresh resumes
 chessGameLog,                              # Finished games (capped) feeding the cross-game progress panel
+chessRepertoire,                           # Openings the player intends to play, per colour (adherence + deviation nudges)
 chessTimeControl,                          # Optional clock: off | 3+2 | 5+0 | 10+0 | 15+10
 chessPuzzleShowTheme,                      # Opt in to seeing the puzzle theme/mate-in-N before solving
 chessIntroSeen, chessKeyNudgeDismissed     # One-time onboarding banner + BYO-key nudge dismissals

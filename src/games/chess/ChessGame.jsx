@@ -22,6 +22,16 @@ import {
   overallStats,
 } from './coach/gameHistory.js';
 import {
+  loadRepertoire,
+  saveRepertoire,
+  pinOpening,
+  unpinOpening,
+  isInRepertoire,
+  suggestRepertoire,
+  repertoireAdherence,
+  deviationHint,
+} from './coach/repertoire.js';
+import {
   loadMistakes,
   saveMistakes,
   captureMistake,
@@ -203,6 +213,7 @@ export default function ChessGame() {
   const [accountsConfigured, setAccountsConfigured] = useState(null);
   const [history, setHistory] = useState(() => loadOppHistory()); // per-opponent W/L/D record
   const [gameLog, setGameLog] = useState(() => loadGameLog()); // finished games, for the progress view
+  const [repertoire, setRepertoire] = useState(() => loadRepertoire()); // openings the player intends to play
   const [humanColor, setHumanColor] = useState(() => (restored && restored.humanColor) || 'w'); // 'w' | 'b'
   const [orientation, setOrientation] = useState(() => (restored && restored.orientation) || 'white');
   const [selected, setSelected] = useState(null);
@@ -1949,6 +1960,22 @@ export default function ChessGame() {
     [puzzleThemes, puzzleThemeFilter]
   );
 
+  // Repertoire: what the player intends to play, versus what they actually
+  // reach. Self-populating — suggestions come from their own game log, so a
+  // beginner isn't asked to declare something they haven't formed yet.
+  const repertoireColor = humanColor === 'w' ? 'white' : 'black';
+  const repertoireSuggestions = useMemo(() => suggestRepertoire(gameLog), [gameLog]);
+  const adherence = useMemo(() => repertoireAdherence(gameLog, repertoire), [gameLog, repertoire]);
+  const togglePin = (color, name) => {
+    setRepertoire((rep) => {
+      const next = isInRepertoire(rep, color, name)
+        ? unpinOpening(rep, color, name)
+        : pinOpening(rep, color, name);
+      saveRepertoire(next);
+      return next;
+    });
+  };
+
   // Cross-game progress aggregation (coach/gameHistory.js).
   const progressTrend = useMemo(() => accuracyTrend(gameLog, { limit: 20 }), [gameLog]);
   const progressReport = useMemo(() => openingReportCard(gameLog), [gameLog]);
@@ -2511,6 +2538,14 @@ export default function ChessGame() {
                       <span> · out of book since move {Math.ceil(currentOpening.leftBookAtPly / 2)}</span>
                     )}
                     {currentOpening.idea && <p className="mt-0.5">{currentOpening.idea}</p>}
+                    {/* Only fires when the opening is genuinely known and
+                        genuinely differs from every pinned choice. */}
+                    {(() => {
+                      const hint = deviationHint(repertoire, repertoireColor, currentOpening);
+                      return hint ? (
+                        <p className="mt-0.5 tone-warn">{hint}</p>
+                      ) : null;
+                    })()}
                     {!lichessSet && currentOpening.inBook && (
                       <button
                         onClick={() => {
@@ -2776,6 +2811,54 @@ export default function ChessGame() {
                           : 'Only these themes will appear in your next session.'}
                       </p>
                     </div>
+
+                    {/* Repertoire: declare what you mean to play, then see how
+                        often you actually get it. Suggestions come from the
+                        player's own game log so this isn't a blank form. */}
+                    {(repertoireSuggestions.white.length > 0 ||
+                      repertoireSuggestions.black.length > 0 ||
+                      repertoire.white.length > 0 ||
+                      repertoire.black.length > 0) && (
+                      <div>
+                        <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+                          My repertoire
+                        </label>
+                        {['white', 'black'].map((color) => {
+                          const options = [
+                            ...new Set([...(repertoire[color] || []), ...repertoireSuggestions[color].map((s) => s.name)]),
+                          ];
+                          if (!options.length) return null;
+                          const a = adherence[color];
+                          return (
+                            <div key={color} className="mb-1">
+                              <div className="font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                                As {color}
+                                {a && a.overallAdherencePct != null &&
+                                  ` — you reach it in ${a.overallAdherencePct}% of games`}
+                              </div>
+                              <div className="flex flex-wrap gap-1 mt-0.5">
+                                {options.map((name) => {
+                                  const on = isInRepertoire(repertoire, color, name);
+                                  return (
+                                    <button
+                                      key={name}
+                                      onClick={() => togglePin(color, name)}
+                                      aria-pressed={on}
+                                      className={`px-2 py-1 rounded-full font-body text-xs panel tap-target${on ? ' is-selected' : ''}`}
+                                    >
+                                      {name}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        <p className="mt-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                          Pin what you mean to play and the coach flags when a game leaves it.
+                        </p>
+                      </div>
+                    )}
 
                     {mistakeOpenings.length > 0 && (
                       <div>
