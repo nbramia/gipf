@@ -13,10 +13,11 @@ import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, random_split, ConcatDataset, Subset
+from torch.utils.data import DataLoader
 
 from zertz.model import ZertzValueNet, ZertzPolicyValueNet
-from zertz.dataset import ZertzDataset
+from zertz.dataset import load_split
+from zertz.schema import checkpoint_state
 
 
 def main():
@@ -35,7 +36,13 @@ def main():
                         help="Model type: 'value' (legacy) or 'policy-value' (default)")
     parser.add_argument("--distill-weight", type=float, default=0.5,
                         help="Weight for heuristic distillation loss (0=disabled, 0.5=default)")
+    parser.add_argument("--seed", type=int, default=42, help="Data split and training RNG seed")
+    parser.add_argument("--feature-version", type=int, choices=[1, 2], default=None,
+                        help="Require this dataset schema (otherwise use its validated version)")
     args = parser.parse_args()
+    if args.epochs < 1 or args.batch_size < 1:
+        parser.error("epochs and batch-size must be positive")
+    torch.manual_seed(args.seed)
 
     use_policy = args.model_type == "policy-value"
     output_path = os.path.join(args.output_dir, "best.pt")
@@ -50,36 +57,26 @@ def main():
         device = torch.device("cpu")
     print(f"Device: {device}")
 
-    # Load primary data
-    dataset = ZertzDataset(args.data, augment=args.augment)
-    print(f"Primary data: {len(dataset)} positions" + (" (6x augmented)" if args.augment else ""))
-
-    # Optionally merge additional data
-    if args.data_append:
-        append_dataset = ZertzDataset(args.data_append, augment=args.augment)
-        n_keep = int(len(append_dataset) * args.merge_ratio)
-        if n_keep > 0:
-            indices = torch.randperm(len(append_dataset))[:n_keep].tolist()
-            append_subset = Subset(append_dataset, indices)
-            dataset = ConcatDataset([dataset, append_subset])
-            print(f"Appended data: {len(append_dataset)} positions, kept {n_keep} ({args.merge_ratio*100:.0f}%)")
-        print(f"Total training data: {len(dataset)} positions")
-
-    # Train/val split (90/10)
-    val_size = max(1, int(len(dataset) * 0.1))
-    train_size = len(dataset) - val_size
-    train_set, val_set = random_split(dataset, [train_size, val_size])
-
-    train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, drop_last=True)
+    # Assign source groups before augmenting only the training subset.
+    train_set, val_set = load_split(args.data, args.data_append, args.merge_ratio,
+                                    args.seed, args.augment)
+    feature_version = train_set.feature_version
+    if args.feature_version is not None and feature_version != args.feature_version:
+        parser.error(f"Dataset is feature-v{feature_version}, not requested v{args.feature_version}; "
+                     "regenerate self-play rather than padding legacy examples")
+    print(f"ZERTZ feature schema: v{feature_version}")
+    train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True,
+                              drop_last=False,
+                              generator=torch.Generator().manual_seed(args.seed))
     val_loader = DataLoader(val_set, batch_size=args.batch_size)
-
-    print(f"Train: {train_size}, Val: {val_size}")
+    print(f"Split seed: {args.seed}; Train: {len(train_set)} "
+          f"({len(train_set.records)} source positions), Val: {len(val_set)} (unaugmented)")
 
     # Model
     if use_policy:
-        model = ZertzPolicyValueNet().to(device)
+        model = ZertzPolicyValueNet(feature_version).to(device)
     else:
-        model = ZertzValueNet().to(device)
+        model = ZertzValueNet(feature_version).to(device)
     param_count = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"Model: {args.model_type} | Parameters: {param_count:,}")
 
@@ -92,12 +89,14 @@ def main():
 
     # Optionally load checkpoint (with warm-start support for value → policy-value)
     if args.checkpoint:
-        ckpt = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
+        ckpt = torch.load(args.checkpoint, map_location="cpu", weights_only=True)
+        state_dict, checkpoint_version = checkpoint_state(ckpt)
+        if checkpoint_version != feature_version:
+            parser.error(f"Checkpoint feature-v{checkpoint_version} cannot train on v{feature_version} "
+                         "examples; train a new v2 model on newly generated v2 self-play")
         if isinstance(ckpt, dict) and "model_state_dict" in ckpt:
-            state_dict = ckpt["model_state_dict"]
             ckpt_model_type = ckpt.get("model_type", "value")
         else:
-            state_dict = ckpt
             ckpt_model_type = "value"
 
         # Warm-start: load matching keys, skip missing ones (policy head gets random init)
@@ -239,6 +238,7 @@ def main():
                 "epoch": epoch,
                 "best_val_loss": best_val_loss,
                 "model_type": args.model_type,
+                "feature_version": feature_version,
             }, output_path)
             print(f"  -> Saved best model (val loss: {val_avg:.4f})")
         else:

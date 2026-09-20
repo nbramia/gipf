@@ -51,6 +51,11 @@ function sprtDecision(wins, losses, p0 = 0.5, p1 = 0.55, alpha = 0.05, beta = 0.
 }
 
 async function main() {
+  if (!['nn-vs-nn', 'heuristic-vs-nn'].includes(MODE) ||
+      !Number.isInteger(GAMES_PER_SIDE) || GAMES_PER_SIDE < 1 ||
+      !Number.isInteger(SIMS) || SIMS < 1) {
+    throw new Error('Invalid tournament mode or game count');
+  }
   const { default: YinshBoard } = await import(resolve(srcDir, 'YinshBoard.js'));
   const { default: MCTS } = await import(resolve(srcDir, 'engine', 'mcts.js'));
   const { getAIMove, applyAIMove } = await import(resolve(srcDir, 'engine', 'aiPlayer.js'));
@@ -70,6 +75,12 @@ async function main() {
     const vn2 = new ValueNetwork();
     if (!(await vn1.load(MODEL1_PATH))) { console.error(`Failed to load model1: ${MODEL1_PATH}`); process.exit(1); }
     if (!(await vn2.load(MODEL2_PATH))) { console.error(`Failed to load model2: ${MODEL2_PATH}`); process.exit(1); }
+    for (const network of [vn1, vn2]) {
+      const result = await network.evaluatePositionWithPolicy(new YinshBoard({ skipInitialHistory: true }));
+      if (!Number.isFinite(result.value) || (result.policy && !result.policy.every(Number.isFinite))) {
+        throw new Error('Invalid model inference');
+      }
+    }
     console.log(`Model 1: ${MODEL1_PATH}`);
     console.log(`Model 2: ${MODEL2_PATH}`);
 
