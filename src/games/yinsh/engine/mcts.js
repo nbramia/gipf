@@ -650,25 +650,7 @@ export default class MCTS {
         const testBoard = board.clone();
         this._applyMove(testBoard, move);
 
-        // Evaluate best opponent reply position
-        let worstOppResponse = 0;
-        const oppRings = this._getPlayerRings(testBoard, opponent);
-        for (const [ringQ, ringR] of oppRings) {
-          const oppMoves = this._getRingMovesFrom(testBoard, ringQ, ringR);
-          for (const oppMove of oppMoves) {
-            const oppWinCheck = this._simulateAndCheckWin(oppMove, testBoard, opponent);
-            if (oppWinCheck.wins) {
-              worstOppResponse = Math.max(worstOppResponse, 10000);
-              break;
-            } else if (oppWinCheck.maxRow >= 4) {
-              worstOppResponse = Math.max(worstOppResponse, 3000);
-            } else if (oppWinCheck.maxRow >= 3) {
-              worstOppResponse = Math.max(worstOppResponse, 500);
-            }
-          }
-          if (worstOppResponse >= 10000) break;
-        }
-        score -= worstOppResponse;
+        score -= this._getOpponentResponsePenalty(testBoard, opponent);
       }
 
       // ALSO check if this move creates NEW threats for opponent (not pre-existing)
@@ -750,6 +732,33 @@ export default class MCTS {
     }
 
     return { move: bestMove, score: bestScore, allScores };
+  }
+
+  /** Bounded opponent lookahead from the actual state after a candidate action. */
+  _getOpponentResponsePenalty(board, opponent) {
+    const winner = board.isGameOver();
+    if (winner) return winner === opponent ? 10000 : 0;
+
+    const phase = board.getGamePhase();
+    if (phase === 'remove-row' || phase === 'remove-ring') {
+      // Scoring is mandatory, not an ordinary ring reply. Count an opponent
+      // row even while the mover resolves first; this is a conservative threat
+      // estimate, not a search through every possible resolution sequence.
+      const opponentScoring = phase === 'remove-ring' && board.getCurrentPlayer() === opponent;
+      return opponentScoring || board.checkForRows().some(row => row.player === opponent) ? 10000 : 0;
+    }
+    if (phase !== 'play' || board.getCurrentPlayer() !== opponent) return 0;
+
+    let penalty = 0;
+    for (const [q, r] of this._getPlayerRings(board, opponent)) {
+      for (const move of this._getRingMovesFrom(board, q, r)) {
+        const reply = this._simulateAndCheckWin(move, board, opponent);
+        if (reply.wins) return 10000;
+        if (reply.maxRow >= 4) penalty = Math.max(penalty, 3000);
+        else if (reply.maxRow >= 3) penalty = Math.max(penalty, 500);
+      }
+    }
+    return penalty;
   }
 
   /**
