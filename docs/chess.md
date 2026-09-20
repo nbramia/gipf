@@ -284,48 +284,38 @@ API key too.
 
 Every secret is derived client-side from the password
 (`engine/account.js#deriveCredentials`: PBKDF2-SHA256, 310k iterations, salt
-`'gipf-chess-account:v1:' + lowercase(username)`). The 768 derived bits split
-into an `authToken` (sent to the server for read/write authorization, stored
-there only as its SHA-256 hash), an AES-GCM-256 key that never leaves the
-browser, and a `profileId` that's unguessable without the password. The
-Anthropic API key is encrypted client-side under that AES key before it's
-ever sent, so **the server can never read anyone's API key** --
-`api/chessAccount.js` stores it only as `{iv, ct}` ciphertext. There is no
-email and no password reset: a forgotten password just means a new account.
-Accepted risks, both judged fine for data this low-stakes (game history plus
-an encrypted key blob): no rate limiting (online password guessing against a
-username is possible) and no recovery.
+`'gipf-chess-account:v1:' + lowercase(username)`). The original 768-bit split
+and AES-GCM `{iv, ct}` envelopes are unchanged. The account service stores a
+SHA-256 verifier of the authentication token and separately encrypted Anthropic
+and Lichess envelopes. The encryption key stays in the browser. Model assistance
+still sends the user's plaintext model key transiently through the model proxy
+to Anthropic; there is no maintainer-funded fallback. Forgotten passwords have
+no recovery mechanism.
 
-The BYO Lichess opening-explorer token (`chessLichessToken`,
-`coach/openingCoach.js`) rides along the same account the same way --
-encrypted client-side under the same AES key and stored as an optional
-`encLichess` sibling ciphertext, so accounts created before this addition
-simply have none and behave exactly as before. Both Settings' Account block
-and the landing-page widget decrypt it into `chessLichessToken` on sign-in,
-and saving a new token from Settings while signed in re-encrypts and pushes
-it, exactly like the API key.
+Normal profile reads and writes now require proven account ownership (`u` and
+`auth` in a POST body). A public username hash or legacy profile ID cannot read
+or write progress. Registration uses atomic SET NX. Shared Redis rate counters
+bound registration, login, sync, and model requests across instances. Missing
+storage or limiter configuration returns 503; guest play remains local.
 
-Settings' Account block offers Create Account / Sign In / Sign Out. Signing
-in fetches the stored `enc` record and decrypts it into the shared
-`gipfApiKey` slot, so the coach lights up with nothing else entered; profile
-sync switches from the key-hash id to the account's `profileId`, and any
-existing local profile plus legacy key-hash remote profile are merged into
-the account profile via the same per-domain merge functions `profileSync.js`
-already uses. Changing the API key while signed in re-encrypts it and pushes
-the new ciphertext (`pushEncryptedKey`). Account profiles reuse
-`api/chessProfile.js` unchanged -- the `profileId` doubles as the opaque id
-that endpoint already expects.
+Old profile and API-key-derived IDs are bearer capabilities, accepted only by
+an authenticated, one-owner claim during a configured window of at most 90 days.
+Claims preserve source records and retain overlapping domains as authenticated
+alternatives. The existing monotonic Chess merge rules reconcile those copies
+without adding the same statistics twice. The old rating endpoint returns 410.
+See [public account operations](public-accounts.md) for exact contracts and setup.
 
-Like every other optional sync path in this app, it degrades cleanly: without
-a configured Vercel KV store `api/chessAccount.js` replies
-`{configured: false}`; signed out, everything is exactly the old behavior
-(key-hash sync, or local-only with no key at all).
+Sign-in asks whether to import this device's guest progress. Signing out clears
+local credentials and visible progress, retaining an AES-GCM-encrypted recovery
+copy for the outgoing account. Signing into another account cannot load that
+copy. Switching reloads the app, and other open tabs reload on identity changes;
+pending profile responses also verify the originating account before applying.
+Cloud writes use revisions: conflicts retain local data and show a sync warning.
 
-The same account can also be created or signed into from the landing page
-(`src/account.js`, an identical copy of `engine/account.js` per the
-per-consumer-copy convention) -- the synced key lights up every game's AI
-chat feature (chess coach, Catan/Splendor rules chat, Diplomacy agent chat),
-while profile sync (history/puzzles/mistakes/Elo) stays chess-only.
+The landing-page account copy and Chess account copy remain identical. Shared
+preferences for Chess/Yinsh/Zertz/Catan and existing Yinsh scores use a separate
+revisioned settings scope. Chess rating/history/puzzles/mistakes keep their
+existing domains. New match snapshots are deferred to PR5.
 
 ## localStorage keys
 

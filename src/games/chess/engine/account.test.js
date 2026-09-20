@@ -152,8 +152,8 @@ describe('encryptApiKey / decryptApiKey — two independent secrets under one ac
 });
 
 describe('session persistence', () => {
-  afterEach(() => {
-    clearSession();
+  afterEach(async () => {
+    await clearSession();
   });
 
   const session = {
@@ -164,8 +164,8 @@ describe('session persistence', () => {
     profileId: 'c'.repeat(64),
   };
 
-  test('save/load round-trips via real localStorage', () => {
-    saveSession(session);
+  test('save/load round-trips via real localStorage', async () => {
+    await saveSession(session);
     expect(loadSession()).toEqual({ v: 1, ...session });
   });
 
@@ -189,10 +189,103 @@ describe('session persistence', () => {
     expect(loadSession()).toBeNull();
   });
 
-  test('clearSession removes the stored session', () => {
-    saveSession(session);
+  test('clearSession removes the stored session', async () => {
+    await saveSession(session);
     expect(loadSession()).not.toBeNull();
-    clearSession();
+    await clearSession();
     expect(loadSession()).toBeNull();
   });
+});
+
+test('logout clears both credentials and encrypts outgoing progress for that account', async () => {
+  const a = await deriveCredentials('synthetic-a', 'synthetic-password');
+  await saveSession(a);
+  localStorage.setItem('gipfApiKey', 'synthetic-secret');
+  localStorage.setItem('chessLichessToken', 'synthetic-token');
+  localStorage.setItem('chessRating', '1234');
+  await clearSession();
+  expect(localStorage.getItem('gipfApiKey')).toBeNull();
+  expect(localStorage.getItem('chessLichessToken')).toBeNull();
+  expect(localStorage.getItem('chessRating')).toBeNull();
+  const recovery = localStorage.getItem(`gipf:recovery:${a.usernameId}`);
+  expect(recovery).not.toContain('1234');
+  expect(recovery).not.toContain('synthetic-secret');
+  await saveSession(a);
+  expect(localStorage.getItem('chessRating')).toBe('1234');
+});
+
+test('account B sees neither A progress nor A keys and A can recover unsynced progress', async () => {
+  localStorage.clear();
+  const a = await deriveCredentials('synthetic-account-a', 'synthetic-password');
+  const b = await deriveCredentials('synthetic-account-b', 'synthetic-password');
+  await saveSession(a, { apiKey: 'synthetic-secret-a', lichessToken: 'synthetic-token-a' });
+  localStorage.setItem('chessRating', '1729');
+  await saveSession(b);
+  expect(localStorage.getItem('chessRating')).toBeNull();
+  expect(localStorage.getItem('gipfApiKey')).toBeNull();
+  expect(localStorage.getItem('chessLichessToken')).toBeNull();
+  expect(JSON.stringify(Object.values(localStorage))).not.toContain('1729');
+  await clearSession();
+  await saveSession(a);
+  expect(localStorage.getItem('chessRating')).toBe('1729');
+  await clearSession();
+});
+
+test('guest progress is preserved separately and imported only by explicit choice', async () => {
+  localStorage.clear();
+  const a = await deriveCredentials('synthetic-guest-test', 'synthetic-password');
+  localStorage.setItem('chessRating', '1357');
+  await saveSession(a);
+  expect(localStorage.getItem('chessRating')).toBeNull();
+  expect(JSON.parse(localStorage.getItem('gipf:guest:recovery')).chessRating).toBe('1357');
+  await clearSession();
+  await saveSession(a, { importGuest: true });
+  expect(localStorage.getItem('chessRating')).toBe('1357');
+  await clearSession();
+});
+
+test('matches the original v1 PBKDF2 vector and decrypts an independently sealed legacy token', async () => {
+  const result = await deriveCredentials('Synthetic-v1', 'synthetic-password-v1');
+  expect(result).toMatchObject({
+    usernameId: '88d0ddd6878ace98f6cbaab55173e19850ae2e95286d1ce85cc5901d3bccaf0c',
+    authToken: '7492b02b08fbcb50f33b7f7d730f979c03a6932992126fc3f96667b20a4ccaf8',
+    aesKey: 'usKv3jLD6xLFUK7iujpHx+iY3Yp2U8ln2GLykWHTK2o=',
+    profileId: 'eb64857cf9c62007c36d9855adfd568aa4bfa0f02a48ccd867d428dcc94afb61',
+  });
+  expect(await decryptApiKey(result.aesKey, {
+    iv: 'AAAAAAAAAAAAAAAA', ct: 'YrOdfDi0hIrY9MY91+L4rb6aOsfP5crt65yzo05dnwPvEjonwao=',
+  })).toBe('synthetic-legacy-token');
+});
+
+test('recovery quota failure aborts logout before deleting the only copy', async () => {
+  localStorage.clear();
+  const a = await deriveCredentials('synthetic-quota', 'synthetic-password');
+  await saveSession(a, { apiKey: 'synthetic-key' });
+  localStorage.setItem('chessRating', '1492');
+  const original = Storage.prototype.setItem;
+  const mock = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
+    if (key.startsWith('gipf:recovery:')) throw new Error('synthetic quota');
+    return original.call(this, key, value);
+  });
+  await expect(clearSession()).rejects.toThrow('synthetic quota');
+  expect(loadSession().usernameId).toBe(a.usernameId);
+  expect(localStorage.getItem('chessRating')).toBe('1492');
+  expect(localStorage.getItem('gipfApiKey')).toBe('synthetic-key');
+  mock.mockRestore();
+  await clearSession();
+});
+
+test('existing Chess and Diplomacy local saves stay with the outgoing account', async () => {
+  localStorage.clear();
+  const a = await deriveCredentials('synthetic-local-saves', 'synthetic-password');
+  await saveSession(a);
+  localStorage.setItem('chessGameState', '{"synthetic":"chess-a"}');
+  localStorage.setItem('diplomacyGameState', '{"synthetic":"diplomacy-a"}');
+  await clearSession();
+  expect(localStorage.getItem('chessGameState')).toBeNull();
+  expect(localStorage.getItem('diplomacyGameState')).toBeNull();
+  await saveSession(a);
+  expect(localStorage.getItem('chessGameState')).toBe('{"synthetic":"chess-a"}');
+  expect(localStorage.getItem('diplomacyGameState')).toBe('{"synthetic":"diplomacy-a"}');
+  await clearSession();
 });

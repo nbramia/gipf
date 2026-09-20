@@ -10,9 +10,7 @@ import {
   saveSession,
   clearSession,
   getSharedApiKey,
-  setSharedApiKey,
   getSharedLichessToken,
-  setSharedLichessToken,
 } from './account';
 
 import { games } from './games-registry.js';
@@ -26,6 +24,7 @@ export default function LandingPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [creatingAccount, setCreatingAccount] = useState(false);
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
+  const [importGuest, setImportGuest] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -38,16 +37,13 @@ export default function LandingPage() {
     setError('');
   };
 
-  // Signing out does not remove the saved API key/Lichess token from this
-  // device — which matters on a shared computer, so it's confirmed first.
-  // Inline rather than window.confirm: a native dialog is jarring against the
-  // rest of the page and can't carry the explanation legibly.
+  // Retain encrypted recovery before clearing this device.
   const handleSignOut = () => setConfirmingSignOut(true);
-  const confirmSignOut = () => {
+  const confirmSignOut = async () => {
     setConfirmingSignOut(false);
-    clearSession();
+    await clearSession();
+    window.location.reload();
     setAccount(null);
-    // The local gipfApiKey is deliberately retained — matches chess's sign-out.
   };
 
   const handleCreateAccount = async () => {
@@ -93,9 +89,12 @@ export default function LandingPage() {
       }
       // No profile merge here — chess performs the profile merge itself on
       // its next mount, once it sees this session.
-      saveSession(creds);
+      await saveSession(creds, { importGuest, apiKey: currentKey, lichessToken: currentLichess });
+      window.location.reload();
       setAccount(creds);
       closeForm();
+    } catch (_) {
+      setError('Unable to switch accounts safely. Check browser storage and try again.');
     } finally {
       setBusy(false);
     }
@@ -138,6 +137,8 @@ export default function LandingPage() {
         setError(res.message || 'Something went wrong.');
         return;
       }
+      let restoredKey = '';
+      let restoredLichess = '';
       if (res.enc) {
         let key;
         try {
@@ -146,21 +147,24 @@ export default function LandingPage() {
           setError('Wrong username or password.');
           return;
         }
-        if (key) setSharedApiKey(key);
+        restoredKey = key;
       }
       if (res.encLichess) {
         try {
           const token = await decryptApiKey(creds.aesKey, res.encLichess);
-          if (token) setSharedLichessToken(token);
+          restoredLichess = token;
         } catch (_) {
-          /* best-effort — the key decrypt already validated the password */
+          setError('Could not unlock the saved Lichess token.'); return;
         }
       }
       // No profile merge here — chess performs the profile merge itself on
       // its next mount, once it sees this session.
-      saveSession(creds);
+      await saveSession(creds, { importGuest, apiKey: restoredKey, lichessToken: restoredLichess });
+      window.location.reload();
       setAccount(creds);
       closeForm();
+    } catch (_) {
+      setError('Unable to switch accounts safely. Check browser storage and try again.');
     } finally {
       setBusy(false);
     }
@@ -169,12 +173,13 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center px-6 py-16">
       <h1 className="font-display text-5xl sm:text-6xl font-extrabold tracking-tight text-white mb-3">
-        GIPF Project
+        Games
       </h1>
       <p className="text-neutral-400 font-body text-lg mb-8 text-center max-w-md">
         Abstract strategy board games — playable in the browser.
       </p>
 
+      {!account && <label className="text-neutral-400 text-sm mb-4"><input type="checkbox" checked={importGuest} onChange={e => setImportGuest(e.target.checked)} /> Import this device's guest progress when signing in</label>}
       <div className="mb-16 w-full max-w-sm flex flex-col items-center">
         {account ? (
           confirmingSignOut ? (
@@ -183,8 +188,7 @@ export default function LandingPage() {
                 Sign out of <span className="font-semibold">{account.username}</span>?
               </p>
               <p className="font-body text-sm text-neutral-400 mb-3">
-                Your saved Anthropic key and Lichess token stay on this device — signing out doesn’t remove them. On
-                a shared computer, remove them separately in a game’s settings.
+                Credentials are removed. Unsynced progress stays encrypted for this account; sign in again to recover it.
               </p>
               <div className="flex gap-2 justify-center">
                 <button
@@ -311,9 +315,9 @@ export default function LandingPage() {
               <p className="text-xs font-body text-neutral-500 leading-relaxed">
                 One password unlocks your saved Anthropic API key, your Lichess token and your
                 progress on any device — the same key powers the AI chat in Chess, Catan,
-                Splendor and Diplomacy. Your password never leaves this device: the server only
+                Splendor and Diplomacy. Your password never leaves this device: the account service only
                 ever stores an unreadable hash, and your keys only as ciphertext it cannot
-                decrypt. Usernames aren&rsquo;t case-sensitive.
+                decrypt. Model assistance sends your own API key through our server to the provider. Usernames aren&rsquo;t case-sensitive.
               </p>
             </div>
           </div>

@@ -1,5 +1,6 @@
-import React, { lazy, Suspense } from 'react';
+import React, { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import AccountBoundary from './AccountBoundary.jsx';
 import LandingPage from './LandingPage.jsx';
 
 const YinshGame = lazy(() => import('./games/yinsh/YinshGame.jsx'));
@@ -14,8 +15,15 @@ const DiplomacyGame = lazy(() => import('./games/diplomacy/DiplomacyGame.jsx'));
 // when there is one, an empty string when there is not — so a single build works in both
 // places and neither has the prefix written into it.
 function App() {
+  useEffect(() => {
+    const changed = event => {
+      if (event.key === 'gipfAccount' && event.oldValue !== event.newValue) window.location.reload();
+    };
+    window.addEventListener('storage', changed);
+    return () => window.removeEventListener('storage', changed);
+  }, []);
   return (
-    <BrowserRouter basename={process.env.PUBLIC_URL}>
+    <AccountBoundary><BrowserRouter basename={process.env.PUBLIC_URL}>
       <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-neutral-900 text-neutral-400 font-body">Loading...</div>}>
         <Routes>
           <Route path="/" element={<LandingPage />} />
@@ -27,7 +35,7 @@ function App() {
           <Route path="/diplomacy" element={<DiplomacyGame />} />
         </Routes>
       </Suspense>
-    </BrowserRouter>
+    </BrowserRouter></AccountBoundary>
   );
 }
 
