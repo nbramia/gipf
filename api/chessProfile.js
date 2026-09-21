@@ -1,9 +1,9 @@
-import { migrationActivation } from '../server/migrationActivation.js';
+import { migrationActivation, MIGRATION_LIMITS } from '../server/migrationActivation.js';
 import { validChessLog } from '../server/chessLogValidation.js';
 import { validMatch } from '../server/matchValidation.js';
 // Authenticated profile persistence. Legacy IDs are capabilities only in claim.
 import { guardRequest, authenticate, command, hex64, limit } from '../server/publicSecurity.js';
-export const config = { api: { bodyParser: { sizeLimit: '6mb' } } };
+export const config = { api: { bodyParser: { sizeLimit: '512kb' } } };
 const MIN_RATING = 100;
 const MAX_RATING = 4000;
 const MAX_MISTAKES_BYTES = 262144;
@@ -188,14 +188,14 @@ export default async function handler(req, res) {
   const claimDeadline = Date.now() + 17000; // Leave 3s for response/CPU under maxDuration:20.
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') return res.status(405).json({ error: 'use_authenticated_post' });
-  if (!await guardRequest(req, res, { bucket: 'sync', limit: 120, maxBytes: 5 * 1024 * 1024 + 65536 })) return;
+  if (!await guardRequest(req, res, { bucket: 'sync', limit: 120, maxBytes: MIGRATION_LIMITS.requestBytes })) return;
   const body = req.body;
   const migration = ['migration-preview','migration-activate','migration-recovery'].includes(body.action);
   if (!migration && Buffer.byteLength(JSON.stringify(body)) > 300000) return res.status(413).json({ error: 'too_large' });
   try {
     if (!await authenticate(body, res)) return;
-    if (!await limit('sync-user', body.u, 120)) return res.status(429).json({ error: 'rate_limited' });
-    if (migration) return await migrationActivation(body, res, SETTING_KEYS);
+    if (!await limit(migration ? 'migration-user' : 'sync-user', body.u, migration ? 30 : 120, migration ? 3600 : 60)) return res.status(429).json({ error: 'rate_limited' });
+    if (migration) return await migrationActivation(body, res, SETTING_KEYS, claimDeadline);
     const settings = body.scope === 'settings';
     const match = body.scope === 'match';
     if (match && !['chess','yinsh','zertz','catan'].includes(body.game)) return res.status(400).json({ error: 'bad_request' });

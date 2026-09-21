@@ -51,7 +51,7 @@ function checkRecord(r) {
   if (r.kind.endsWith('-match')) validatePortableMatch(r.data,r.kind.slice(0,-6));
   if (r.kind === 'diplomacy-save') validateDiplomacy(r.data);
 }
-export async function validateFile(raw, guard = captureIdentity()) {
+export async function validateFile(raw, guard = captureIdentity(), { selected } = {}) {
   guard.check();
   if (typeof raw !== 'string' || bytes(raw) > MAX_BYTES) fail();
   const bundle = JSON.parse(raw);
@@ -59,8 +59,10 @@ export async function validateFile(raw, guard = captureIdentity()) {
   const seen = new Set();
   // All structural validation precedes even digest work, and every write.
   for (const r of bundle.records) {
-    checkRecord(r);
     const id = `${r.kind}/${r.id}`;
+    // Server activation binds every record's shape/digest, but only decodes
+    // selected values. Browser export/staging continues validating all records.
+    if (!selected || selected.has(id)) checkRecord(r);
     if (seen.has(id)) fail();
     seen.add(id);
   }

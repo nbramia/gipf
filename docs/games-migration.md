@@ -220,7 +220,7 @@ repair. No other identity's stage or arbitrary localStorage is downloaded.
 
 The server revalidates the complete file, record digests and selected destinations.
 `migration-preview` returns a token over exact Redis snapshots. `migration-activate`
-uses one Lua transaction to compare the receipt, lifetime counter, settings,
+uses one Lua transaction to compare the receipt, lifetime counter, byte budget, settings,
 profile, all four matches and extra-progress record, then commit selected domains,
 revisions and ownership together. Ordinary settings/profile/match writers use those
 same keys and revisions, so a stale writer conflicts. A stale preview returns 409
@@ -236,16 +236,31 @@ account, changed file or changed selection receives 409. One export permits one
 activation selection; choose every desired domain before confirming. This is
 ownership of an import operation, not proof that a portable file belongs to its
 claimant: anyone holding a file can choose to import it into their own account.
-There is a lifetime cap of 50 activated files per account, without receipt expiry.
-Failures and replays consume none. Split export files have independent IDs.
+There is a lifetime cap of 50 activated files and a 4 MiB lifetime migration byte
+budget per account. Each activation charges the exact UTF-8 bytes of its complete
+receipt plus every changed destination record, including replacement writes.
+The byte ledger (`gipf:migration-bytes:v1:<account>`) participates in the same CAS;
+concurrent requests cannot overspend it. Receipts do not expire, so ownership and
+replay protection survive indefinitely; the lifetime byte budget is the durable
+storage bound instead of a TTL. Redis key/ledger metadata adds a bounded overhead
+of at most 50 receipt keys. Failures and replays consume neither count nor bytes.
+Recovery/replay remain available after either budget is exhausted. A preexisting
+nonzero activation count with a missing byte ledger blocks new activations rather
+than treating prior storage as free. Split export files have independent IDs.
 
 Settings/statistics, Chess rating/history/puzzles/mistakes and the four matches
 activate in their existing cloud domains. Other supported preferences, repertoire
 and Diplomacy saves are durably retained in `gipf:migration-extra:v1:<account>` and
 activated in the destination browser; this does not add automatic cross-device
 sync to those games. Sign-out recovery still includes these local progress keys.
-Imported values retain schema bounds; ordinary profile writers retain their
-existing narrower request/domain limits and may reject a subsequent oversized save.
+Server activation has tighter bounds than portable export/staging (see below).
+It rejects oversized values intact; it never truncates progress to fit. Preferences
+are at most 2,048 characters, puzzles at most 500 entries, and the mistakes wrapper
+at most 262,144 UTF-8 bytes. Existing closed schemas and match decoder caps also
+apply. Resulting settings/profile payloads are at most 280,000 bytes each, leaving
+room for ordinary writer request metadata. The resulting extras record is at most
+256 KiB. This prevents importing values that exceed ordinary writer byte/count
+caps; ordinary mistake-field sanitization remains unchanged.
 
 Before any cloud commit, the client retains the source and writes an AES-GCM
 journal at `gamesMigrationActivation:v1:<account>` with exact before/after local
@@ -290,13 +305,39 @@ PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node tests/migration-activation-
 
 Repeat both browser harnesses with `/gipf` and root builds. Live host rewrites,
 provider guards, account authentication against production KV, service workers,
-production durability and request-size/time budgets remain hosted gates. Migration
-requests accept a 5-MiB file plus bounded selection/auth metadata; this raises only
-the migration handler path's application limit (ordinary actions stay at 300,000
-bytes), and the platform/proxy may impose a smaller limit. Large activation payloads
-must be measured on the approved hosted environment before acceptance; they may
-remain staged with a visible error. No hosted checks or deployment are implied by
-local synthetic results.
+production durability and request-size/time budgets remain hosted gates. Portable
+export/staging still accepts 5 MiB per file, but every server migration action
+(preview, activation and recovery) accepts at most **512 KiB for the entire JSON
+request**, 128 bundled records, and 64 selected records with distinct destinations.
+All records retain envelope/shape, depth/secret-key and digest verification; only
+selected records undergo domain validation and game replay. Selection permits at
+most four matches (one per game). Before chess.js runs, selected Chess PGN is
+limited to 8,192 UTF-8 bytes and 1,024 alphanumeric tokens, conservatively counting
+move numbers, comments and headers as well as moves. This bounds replay work even
+for malformed or densely packed PGN; it is not a promise to accept 1,024 plies.
+The shared IP rate limit still applies, and the three migration actions share a
+separate 30-request/hour authenticated-account bucket. Ordinary sync remains at
+120 requests/minute. Migration reserves a full 3-second Redis timeout before each
+snapshot/commit command within a deadline 17 seconds after handler entry, leaving
+response margin under the configured 20-second function duration.
+
+Prior destination snapshots are limited to 2 MiB total before JSON parsing; a
+receipt (selected values plus exact prior cloud bytes) is limited to 1 MiB before
+storage. Preview computes the same storage admission checks as activation. These
+limits also keep migration responses below the provider's roughly 4.5 MB body
+ceiling; that ceiling does not make a 5 MiB portable file activatable. An over-limit
+file/value remains available for staging and manual recovery on the source device,
+with a visible activation error. The exporter does not repack files to these
+tighter server limits. Local browser quota may also be below the journal caps.
+No hosted checks or deployment are implied by local synthetic results.
+
+The Redis/HTTP suite includes the 18-match knight-shuffle amplification request,
+oversized/dense selected PGNs, unselected invalid PGN with valid digests, malformed
+selection and record counts, ordinary writer re-saves, oversized extras/receipts,
+rotating-export-ID storage exhaustion, budget races, account rate limits and
+command deadlines. It retains ownership, byte-exact recovery, stale-writer and
+concurrent-claim checks. Timed local fixtures establish a regression ceiling, not
+hosted performance certification.
 
 PR68 overlap: at inspected head `052b1af4ecf6b24353e1d3ad63ca9a0dfdb6b821`, the
 account copies and AccountBoundary match PR67; the profile-handler delta changes
@@ -304,7 +345,11 @@ legacy-claim retries, empty claims and durable claim limits. This child adds mig
 actions before normal scope dispatch and leaves that legacy claim code unchanged.
 PR68 was open when inspected; its later merge still requires combined verification.
 
-## Writer-bound audit (general review round 1)
+## Portable export/staging writer-bound audit (general review round 1)
+
+This table describes the portable file schema and local writers. Authenticated
+server activation additionally enforces the tighter byte/count limits above;
+exportability or successful staging does not guarantee server activation.
 
 | Writer group | Evidence and migration limit |
 | --- | --- |

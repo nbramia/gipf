@@ -41,6 +41,21 @@ try {
  });
  const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));await page.goto(`${origin}${prefix}/migration`);
  await page.evaluate(s=>{localStorage.setItem('gipfAccount',JSON.stringify(s));localStorage.setItem('chessDarkMode','false');localStorage.setItem('gipfApiKey','SYNTHETIC_EXCLUDED');},session);await page.reload();
+ // Browser fetch -> actual authenticated handler: reject amplification before
+ // creating ownership, a budget ledger, or any destination progress.
+ const oversized={...bundle,records:[record('preference','chessLearningGoal','x'.repeat(600000))]};
+ const longGoal={...bundle,records:[record('preference','chessLearningGoal','x'.repeat(2049))]};
+ const largeExtra={...bundle,records:[record('chess-repertoire','chessRepertoire',{version:1,white:['x'.repeat(256*1024)],black:[]})]};
+ const statuses=await page.evaluate(async({session,prefix,bundles})=>{
+   const result=[];
+   for(const bundle of bundles){const response=await fetch(`${prefix}/api/chessProfile`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({u:session.usernameId,auth:session.authToken,action:'migration-preview',bundle,selected:bundle.records.map(r=>`${r.kind}/${r.id}`)})});result.push(response.status);}
+   return result;
+ },{session,prefix,bundles:[oversized,longGoal,largeExtra]});
+ assert.deepEqual(statuses,[413,400,409]);
+ assert.equal(redis('GET',`gipf:migration-count:v1:${session.usernameId}`),null);
+ assert.equal(redis('GET',`gipf:migration-bytes:v1:${session.usernameId}`),null);
+ assert.equal(await page.evaluate(()=>localStorage.getItem('chessDarkMode')),'false');
+ console.log('PASS browser HTTP input/writer/extras bounds with unchanged local progress and no claim/budget');
  // Hydration reads old cloud and pauses before the browser gets the response.
  redis('SET',`gipf:settings:v2:${session.usernameId}`,JSON.stringify({revision:2,profile:{preferences:{chessDarkMode:'false'}}}));
  const reached=new Promise(resolve=>{readReached=resolve;});pauseRead=true;
