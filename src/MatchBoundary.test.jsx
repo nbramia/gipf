@@ -23,6 +23,55 @@ test('cloud hydration is completed before mounting the game', async () => {
   expect(screen.queryByText('Move')).toBeNull();
   await screen.findByText('Turn 3');
 });
+function MountSavingGame() {
+  const saved = useSavedMatch();
+  React.useEffect(() => {
+    saved.persist(saved.restored?.board || { turn: 0 }, saved.restored?.ui || {});
+  }, [saved]);
+  return <Game />;
+}
+test.each([Game, MountSavingGame])('absent storage hydrates before %p mounts', async Child => {
+  localStorage.setItem('gipfAccount', JSON.stringify(session));
+  global.fetch.mockImplementation(() => ok({ revision: 2, profile: { match: sample(3) } }));
+  render(<MatchBoundary game="yinsh" decode={decode}><Child /></MatchBoundary>);
+  expect(screen.queryByText('Move')).toBeNull();
+  await screen.findByText('Turn 3');
+  expect(localStorage.getItem('yinshMatch:v1')).toBe(JSON.stringify(sample(3)));
+  expect(requests('write')).toHaveLength(0);
+});
+test.each([
+  [Game, 'Keep this match'], [Game, 'Use cloud match'],
+  [MountSavingGame, 'Keep this match'], [MountSavingGame, 'Use cloud match'],
+])('explicit clear waits for %s choice %s before mounting or writing', async (Child, choice) => {
+  jest.useFakeTimers();
+  localStorage.setItem('gipfAccount', JSON.stringify(session));
+  localStorage.setItem('yinshMatch:v1', 'null');
+  let cloud = sample(3);
+  global.fetch.mockImplementation((_url, init) => {
+    const req = JSON.parse(init.body);
+    if (req.action === 'write') {
+      expect(JSON.parse(localStorage.getItem('yinshMatchRecovery:v1')).alternatives).toContainEqual(sample(3));
+      cloud = req.domains.match;
+    }
+    return ok({ revision: 2, profile: { match: cloud } });
+  });
+  render(<MatchBoundary game="yinsh" decode={decode}><Child /></MatchBoundary>);
+  await advance(0);
+  expect(screen.getByText('Keep this match')).toBeTruthy();
+  expect(screen.queryByText('Move')).toBeNull();
+  await advance(60000);
+  expect(requests('write')).toHaveLength(0);
+  expect(localStorage.getItem('yinshMatch:v1')).toBe('null');
+  expect(localStorage.getItem('yinshMatchSync:v1')).toBeNull();
+  fireEvent.click(screen.getByText(choice));
+  await advance(0);
+  const keep = choice === 'Keep this match';
+  expect(screen.getByText(`Turn ${keep ? 0 : 3}`)).toBeTruthy();
+  expect(requests('write')).toHaveLength(keep ? 1 : 0);
+  if (keep) expect(requests('write')[0]).toMatchObject({ revision: 2, domains: { match: null } });
+  expect(cloud).toEqual(keep ? null : sample(3));
+  expect(JSON.parse(localStorage.getItem('yinshMatchRecovery:v1')).alternatives).toContainEqual(sample(3));
+});
 test('different device/cloud matches block play and explicit CAS preserves both alternatives', async () => {
   localStorage.setItem('gipfAccount', JSON.stringify(session));
   localStorage.setItem('yinshMatch:v1', JSON.stringify(sample(1)));

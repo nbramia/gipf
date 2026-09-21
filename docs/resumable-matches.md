@@ -13,7 +13,10 @@ Signing in opts into authenticated cloud saves. New games replace the current
 match and receive a new ID. Chess puzzle/drill exercises remain transient; their
 existing progress stores remain independent. Splendor and Diplomacy are unchanged.
 
-A new signed-in device waits for hydration before mounting its engine. If cloud
+A new signed-in device waits for hydration before mounting its engine. An absent
+local match can hydrate automatically; an explicitly cleared match with no sync
+baseline requires a conflict choice when the cloud holds a match. The engine
+stays unmounted until that choice, so its initial save cannot overwrite the cloud. If cloud
 access fails it can play locally; the current snapshot is the durable pending
 payload. While that game is open, sync polls every 30 seconds when idle. Local
 edits and reconnects can bring the next check forward, with at least 10 seconds

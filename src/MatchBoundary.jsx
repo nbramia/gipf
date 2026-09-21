@@ -119,8 +119,8 @@ export default function MatchBoundary({ game, decode, loadLegacy, children }) {
         if (equal(local, cloud)) {
           store.acknowledge(remote.revision, cloud);
           setStatus('Saved to your account.');
-        } else if (!local && !meta) {
-          // A genuinely empty device can hydrate; an existing match never loses to a timestamp.
+        } else if (!local && !store.hasCurrent() && !meta) {
+          // Only absent storage can hydrate; an explicit clear still requires a conflict choice.
           store.resolve(cloud);
           store.acknowledge(remote.revision, cloud);
           remount(cloud);
