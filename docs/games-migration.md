@@ -104,11 +104,14 @@ Negotiated content follows the writers that store it verbatim:
   per object, 256 dispositions and 4,096-character key names. Replies are capped
   at 700 output tokens, well inside these bounds. The secret-key denylist, the
   nesting-depth limit (24) and the 5 MiB envelope still apply to that content.
-  Secret denial takes precedence over writer fidelity: a writer-valid scratchpad
+  Depth is counted from the export file's root, where a record's data sits three
+  levels down (`records`, the record, `data`), so every record is checked at the
+  depth it will occupy in a file. Secret denial takes precedence over writer fidelity: a writer-valid scratchpad
   with a denylisted key (for example `secret` or `token`) or nesting deeper than
   the limit makes the **whole** Diplomacy save unsupported. It is reported as
   `diplomacyGameState: unsupported or damaged`, excluded from every export file,
-  and left unchanged in its source key; nothing is stripped or exported.
+  and left unchanged in its source key; nothing is stripped or exported. Other
+  progress still exports.
 
 Everything else stays closed: an unknown agreement or promise field, a location
 outside the endpoint pattern, an empty target or an invalid disposition is
@@ -250,7 +253,10 @@ download count, and consent reset after raw download. Round 3 adds the exact
 packing boundary (two records at exactly 5 MiB stay in one file; one byte more,
 through the comma, splits them), secret-key and depth-limit scratchpad controls
 that exclude the whole save, split filenames with a part index, the
-download-started wording, and the stage-full message.
+download-started wording, and the stage-full message. Round 4 adds the same
+boundary with three records, so the running total must count each comma, and
+real-writer scratchpads nested 19–21 deep (excluded alone, other progress
+exported) and 2 and 18 deep (exported).
 `src/migrationParentBoundary.test.jsx` deliberately reproduces the two inherited
 writer defects for #66; its passing assertions describe the defect, not a fixed
 authorization boundary. Flip those assertions when the parent is corrected.

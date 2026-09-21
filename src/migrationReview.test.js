@@ -43,7 +43,7 @@ test('real Diplomacy adjudication survives winters, multi-year history and write
   expect(winters).toBeGreaterThan(0);
   expect(board.year).toBeGreaterThan(1910);
   expect(largest).toBeGreaterThan(400000);
-});
+}, 60000);
 
 test('seeded legal Yinsh play exports remove-row and queued fullLineLength without dropping fields', async () => {
   const board = new YinshBoard();
@@ -236,6 +236,34 @@ test('one byte over MAX_BYTES only through the comma splits into two files, noth
   }
 }, 60000);
 
+// A third record makes the running total, not only the fit check, count a comma.
+const threeGoalFilling = total => utf8Text(total - emptyBundleBytes() - preferenceBytes('chessDarkMode','true') - preferenceBytes('chessShowMoves','true') - 2 - preferenceBytes('chessLearningGoal',''));
+
+test('three records filling exactly MAX_BYTES, both commas included, stay in one file', async () => {
+  localStorage.setItem('chessDarkMode','true');
+  localStorage.setItem('chessShowMoves','true');
+  localStorage.setItem('chessLearningGoal',threeGoalFilling(MAX_BYTES));
+  const {bundles,issues} = await exportProgress(origin);
+  expect(issues).toEqual([]);
+  expect(bundles).toHaveLength(1);
+  expect(utf8Bytes(JSON.stringify(bundles[0]))).toBe(MAX_BYTES);
+}, 60000);
+
+test('three records one byte over MAX_BYTES split into two valid files, nothing omitted', async () => {
+  localStorage.setItem('chessDarkMode','true');
+  localStorage.setItem('chessShowMoves','true');
+  localStorage.setItem('chessLearningGoal',threeGoalFilling(MAX_BYTES + 1));
+  const {bundles,issues,manifest} = await exportProgress(origin);
+  expect(issues).toEqual([]);
+  expect(bundles).toHaveLength(2);
+  expect(manifest).toHaveLength(3);
+  expect(manifest.every(m => m.file === 1 || m.file === 2)).toBe(true);
+  for (const bundle of bundles) {
+    expect(utf8Bytes(JSON.stringify(bundle))).toBeLessThanOrEqual(MAX_BYTES);
+    expect(await validateFile(JSON.stringify(bundle))).toEqual(bundle);
+  }
+}, 60000);
+
 test('staging split files keeps distinct IDs and replays each file idempotently', async () => {
   const goal = '界'.repeat(1000000);
   localStorage.setItem('chessLearningGoal',goal);
@@ -332,6 +360,34 @@ test.each([
   const r = await exportsDiplomacy(mutate(negotiationBase()));
   expect(r.ok).toBe(false);
   expect(r.issues).toEqual(['diplomacyGameState: unsupported or damaged; original retained.']);
+});
+
+// Depth is measured where the save sits in a file (bundle.records[i].data), so
+// a plan nested 19-21 deep passes the save's own check but not the file's.
+const nestedPlanSave = depth => {
+  localStorage.clear();
+  const ds = setScratchpad(negotiationBase(),'france',pad({plan:JSON.parse('['.repeat(depth) + ']'.repeat(depth))}));
+  expect(saveGame({board:new DiplomacyBoard(),uiPhase:'negotiation',diplomaticState:ds})).toBe(true);
+  localStorage.setItem('chessDarkMode','true');
+  return localStorage.getItem('diplomacyGameState');
+};
+test.each([19,20,21])('scratchpad nested %i deep excludes only the Diplomacy save; other progress exports', async depth => {
+  const raw = nestedPlanSave(depth);
+  const {bundles,issues} = await exportProgress(origin);
+  expect(issues).toEqual(['diplomacyGameState: unsupported or damaged; original retained.']);
+  expect(bundles).toHaveLength(1);
+  expect(bundles[0].records.map(r => r.id)).toEqual(['chessDarkMode']);
+  expect(await validateFile(JSON.stringify(bundles[0]))).toEqual(bundles[0]);
+  expect(localStorage.getItem('diplomacyGameState')).toBe(raw);
+});
+test.each([2,18])('scratchpad nested %i deep exports with other progress', async depth => {
+  const raw = nestedPlanSave(depth);
+  const {bundles:[bundle],issues} = await exportProgress(origin);
+  expect(issues).toEqual([]);
+  expect(bundle.records.find(r => r.kind === 'diplomacy-save').data).toEqual(JSON.parse(raw));
+  expect(bundle.records.some(r => r.id === 'chessDarkMode')).toBe(true);
+  expect(await validateFile(JSON.stringify(bundle))).toEqual(bundle);
+  expect(localStorage.getItem('diplomacyGameState')).toBe(raw);
 });
 
 test('real retreat phase from legal opening orders exports with pending retreats and retreat choices', async () => {

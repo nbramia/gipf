@@ -79,6 +79,9 @@ export async function exportProgress(sourceOrigin, guard = captureIdentity()) {
   const add = (kind, id, data, label, alternative = false) => {
     try {
       validateData(kind,id,data);
+      // Check depth where the data will sit in a file (bundle.records[i].data),
+      // so a record that validateFile would reject is excluded here alone.
+      if (!safeTree(data,3)) fail();
       if (kind.endsWith('-match')) validatePortableMatch(data,kind.slice(0,-6));
       if (kind === 'diplomacy-save') validateDiplomacy(data);
       candidates.push({kind,id,data,alternative});
