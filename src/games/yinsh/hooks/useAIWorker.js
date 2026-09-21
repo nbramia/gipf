@@ -1,100 +1,77 @@
-// useAIWorker.js - React hook to manage MCTS Web Worker lifecycle
+import { useEffect, useRef, useCallback, useState } from 'react';
+import { createAIWorker } from './createAIWorker.js';
 
-import { useEffect, useRef, useCallback } from 'react';
-
-/**
- * Custom hook to manage AI computation in a Web Worker
- * Prevents UI blocking during MCTS computation
- *
- * @returns {Object} - { computeMove, isSupported }
- */
 export function useAIWorker() {
   const workerRef = useRef(null);
-  const callbacksRef = useRef({});
+  const pendingRef = useRef(null);
+  const sequenceRef = useRef(0);
+  const mountedRef = useRef(false);
+  const [isSupported, setIsSupported] = useState(false);
 
-  // Check if Web Workers are supported
-  const isSupported = typeof Worker !== 'undefined';
-
-  // Initialize worker on mount
-  useEffect(() => {
-    if (!isSupported) {
-      console.warn('Web Workers not supported in this browser');
-      return;
-    }
-
+  const startWorker = useCallback(() => {
     try {
-      // Create worker with module type for ES6 imports
-      workerRef.current = new Worker(
-        new URL('../engine/mcts.worker.js', import.meta.url),
-        { type: 'module' }
-      );
-
-      // Handle messages from worker
-      workerRef.current.onmessage = (e) => {
-        const { type, data, error, success, stats } = e.data;
-
-        if (type === 'result' && callbacksRef.current.onSuccess) {
-          callbacksRef.current.onSuccess(data, stats);
-        } else if (type === 'error' && callbacksRef.current.onError) {
-          callbacksRef.current.onError(error);
-        }
+      const worker = createAIWorker();
+      workerRef.current = worker;
+      worker.onmessage = ({ data: message }) => {
+        const pending = pendingRef.current;
+        if (workerRef.current !== worker || !pending || message.requestId !== pending.requestId) return;
+        if (message.type !== 'result' && message.type !== 'error') return;
+        pendingRef.current = null;
+        if (message.type === 'result') pending.onSuccess(message.data, message.stats);
+        else pending.onError(message.error);
       };
-
-      // Handle worker errors
-      workerRef.current.onerror = (error) => {
-        console.error('Worker error:', error);
-        if (callbacksRef.current.onError) {
-          callbacksRef.current.onError(error.message || 'Worker error');
-        }
-      };
-    } catch (error) {
-      console.error('Failed to initialize worker:', error);
-    }
-
-    // Cleanup: terminate worker on unmount
-    return () => {
-      if (workerRef.current) {
-        workerRef.current.terminate();
+      worker.onerror = (event) => {
+        if (workerRef.current !== worker) return;
+        const pending = pendingRef.current;
+        pendingRef.current = null;
+        worker.terminate();
         workerRef.current = null;
-      }
-    };
-  }, [isSupported]);
-
-  /**
-   * Request AI move computation from worker
-   *
-   * @param {Object} boardState - Serialized board state
-   * @param {number} simulations - Number of MCTS simulations to run
-   * @param {Function} onSuccess - Callback for successful computation (data, stats)
-   * @param {Function} onError - Callback for errors (errorMessage)
-   */
-  const computeMove = useCallback((boardState, simulations, onSuccess, onError, evaluationMode, modelPath) => {
-    if (!workerRef.current) {
-      const errorMsg = 'Worker not initialized';
-      console.error(errorMsg);
-      onError(errorMsg);
-      return;
-    }
-
-    // Store callbacks for when worker responds
-    callbacksRef.current = { onSuccess, onError };
-
-    // Send computation request to worker
-    try {
-      workerRef.current.postMessage({
-        type: 'compute',
-        data: {
-          boardState,
-          simulations,
-          evaluationMode: evaluationMode || 'heuristic',
-          modelPath: modelPath || '/models/yinsh-value-v1.onnx'
-        }
-      });
-    } catch (error) {
-      console.error('Failed to post message to worker:', error);
-      onError(error.message);
+        if (pending) pending.onError(event.message || 'Worker error');
+      };
+      setIsSupported(true);
+      return worker;
+    } catch {
+      setIsSupported(false);
+      return null;
     }
   }, []);
 
-  return { computeMove, isSupported };
+  const cancelPending = useCallback(() => {
+    if (!pendingRef.current) return;
+    pendingRef.current = null;
+    const worker = workerRef.current;
+    workerRef.current = null;
+    if (worker) worker.terminate();
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    startWorker();
+    return () => {
+      mountedRef.current = false;
+      pendingRef.current = null;
+      const worker = workerRef.current;
+      workerRef.current = null;
+      if (worker) worker.terminate();
+    };
+  }, [startWorker]);
+
+  const computeMove = useCallback((boardState, simulations, onSuccess, onError,
+    evaluationMode = 'heuristic', modelPath = `${process.env.PUBLIC_URL || ''}/models/yinsh-value-v1.onnx`) => {
+    if (!mountedRef.current) return;
+    cancelPending();
+    const worker = workerRef.current || startWorker();
+    if (!worker) { onError('Worker not available'); return; }
+    const requestId = ++sequenceRef.current;
+    pendingRef.current = { requestId, onSuccess, onError };
+    try {
+      worker.postMessage({ type: 'compute', requestId,
+        data: { boardState, simulations, evaluationMode, modelPath } });
+    } catch (error) {
+      pendingRef.current = null;
+      onError(error.message);
+    }
+  }, [cancelPending, startWorker]);
+
+  return { computeMove, cancelPending, isSupported };
 }

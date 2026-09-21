@@ -1,15 +1,5 @@
-// ratingSync.js — browser client for cross-device Rated-mode persistence.
-//
-// The rating is keyed by an OPAQUE id: the SHA-256 of the user's Anthropic key
-// under a fixed app namespace. The raw key is NEVER sent to our server (it only
-// ever goes to Anthropic, per the BYO-key model) — only this hash leaves the
-// browser. If the server has no store provisioned it replies { configured:
-// false } and every helper degrades to "local only" without throwing loudly.
-
-// The deploy prefix is included because the app is also served from a subdirectory
-// (ramia.us/gipf); a root-absolute path would resolve against that host's root,
-// which is a different deployment. PUBLIC_URL is empty on a bare-root deploy.
-const ENDPOINT = `${process.env.PUBLIC_URL || ''}/api/chessRating`;
+// Legacy capability derivation is retained for migration only. Unauthenticated
+// rating sync has been retired; normal persistence uses profileSync credentials.
 const NAMESPACE = 'gipf-chess-rating:v1:'; // salts the hash so it isn't a bare key fingerprint
 
 // Derive the opaque sync id from the Anthropic key. Returns a 64-char hex
@@ -28,29 +18,5 @@ export async function ratingIdFromKey(key) {
 //   → null                    when the store is reachable but has no record
 //   → { configured: false }   when the server has no store provisioned
 // Throws only on network/transport failure (caller treats as a transient error).
-export async function fetchRemoteRating(id) {
-  if (!id) return { configured: false };
-  const r = await fetch(`${ENDPOINT}?id=${encodeURIComponent(id)}`);
-  if (!r.ok) throw new Error(`rating fetch ${r.status}`);
-  const data = await r.json();
-  if (data.configured === false) return { configured: false };
-  return data.record || null;
-}
-
-// Persist a record for an id. Resolves to true on success, false otherwise
-// (never throws — sync failures must not interrupt play).
-export async function putRemoteRating(id, rating, ratedGames) {
-  if (!id) return false;
-  try {
-    const r = await fetch(ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, rating, ratedGames }),
-    });
-    if (!r.ok) return false;
-    const data = await r.json();
-    return data.configured !== false;
-  } catch (_) {
-    return false;
-  }
-}
+export async function fetchRemoteRating() { return { configured: false }; }
+export async function putRemoteRating() { return false; }

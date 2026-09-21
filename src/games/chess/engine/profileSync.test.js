@@ -189,3 +189,56 @@ describe('mergeMistakes', () => {
     expect(merged.find((e) => e.fenBefore === 'fen-new')).toBeTruthy();
   });
 });
+
+describe('authenticated profile requests', () => {
+  const a = { usernameId: 'a'.repeat(64), authToken: 'b'.repeat(64) };
+  const b = { usernameId: 'c'.repeat(64), authToken: 'd'.repeat(64) };
+  afterEach(() => { delete global.fetch; localStorage.clear(); });
+  test('old component cannot assign a queued write to a new account', async () => {
+    const { putRemoteProfile } = await import('./profileSync.js');
+    localStorage.setItem('gipfAccount', JSON.stringify(b));
+    global.fetch = jest.fn();
+    expect(await putRemoteProfile(a, { rating: { rating: 1400, ratedGames: 1 } })).toBe(false);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+  test('public ID alone never causes a network request', async () => {
+    const { fetchRemoteProfile } = await import('./profileSync.js');
+    global.fetch = jest.fn();
+    await expect(fetchRemoteProfile(a.usernameId)).rejects.toThrow('account_required');
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+  test('late read rejects after an account switch', async () => {
+    const { fetchRemoteProfile } = await import('./profileSync.js');
+    localStorage.setItem('gipfAccount', JSON.stringify(a));
+    global.fetch = jest.fn(async () => {
+      localStorage.setItem('gipfAccount', JSON.stringify(b));
+      return { ok: true, json: async () => ({ profile: { rating: { rating: 1400 } }, revision: 1 }) };
+    });
+    await expect(fetchRemoteProfile(a)).rejects.toThrow('account_changed');
+  });
+});
+
+
+describe('legacy mistakes compatibility', () => {
+  afterEach(() => { delete global.fetch; localStorage.clear(); });
+  test.each([{}, { original: 'retained remotely' }])('reconciles non-array entries without mutation: %p', async entries => {
+    const { fetchRemoteProfile, putRemoteProfile } = await import('./profileSync.js');
+    const session = { usernameId: 'e'.repeat(64), authToken: 'f'.repeat(64) };
+    localStorage.setItem('gipfAccount', JSON.stringify(session));
+    const healthy = [{ fenBefore: 'synthetic', attempts: 0, nextDueAt: 0, createdAt: 1 }];
+    const data = { revision: 1, profile: { mistakes: { v: 1, entries } }, legacyProfiles: {
+      damaged: { mistakes: { v: 1, entries: {} } }, healthy: { mistakes: { v: 1, entries: healthy } },
+    } };
+    const original = JSON.stringify(data);
+    global.fetch = jest.fn(async () => ({ ok: true, json: async () => data }));
+    const remote = await fetchRemoteProfile(session);
+    expect(remote.mistakes.entries).toEqual(healthy);
+    expect(JSON.stringify(data)).toBe(original);
+    expect(mergeMistakes(healthy, entries)).toEqual(healthy);
+    expect(mergeMistakes(entries, healthy)).toEqual(healthy);
+    const history = { v: 1, casual: {}, rated: {} };
+    global.fetch = jest.fn(async () => ({ ok: true, json: async () => ({ revision: 2 }) }));
+    expect(await putRemoteProfile(session, { history, mistakes: remote.mistakes.entries })).toBe(true);
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body).domains).toEqual({ history, mistakes: { v: 1, entries: healthy } });
+  });
+});

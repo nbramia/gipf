@@ -5,6 +5,7 @@
 // Usage: node scripts/generate-training-data.mjs --games 50 --sims 200 --output data/train.ndjson
 //        node scripts/generate-training-data.mjs --games 50 --sims 200 --mode nn --model public/models/yinsh-value-v1.onnx
 
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
 import { createWriteStream } from 'fs';
@@ -129,14 +130,9 @@ async function main() {
   };
 
   // Random ring positions for diversity
-  const VALID_POSITIONS = [];
-  for (let q = -5; q <= 5; q++) {
-    for (let r = -5; r <= 5; r++) {
-      if (Math.abs(q + r) <= 5) {
-        VALID_POSITIONS.push([q, r]);
-      }
-    }
-  }
+  const VALID_POSITIONS = YinshBoard.generateGridPoints();
+  const legalPositions = new Set(VALID_POSITIONS.map(([q, r]) => `${q},${r}`));
+  if (legalPositions.size !== 85) throw new Error('Unexpected YINSH board geometry');
 
   function setupBoard(useRandom) {
     const board = new YinshBoard({ skipInitialHistory: true });
@@ -160,6 +156,11 @@ async function main() {
       }
     }
 
+    if (Object.keys(board.boardState).length !== 10 ||
+        Object.keys(board.boardState).some(key => !legalPositions.has(key)) ||
+        [1, 2].some(player => Object.values(board.boardState).filter(piece => piece.player === player).length !== 5)) {
+      throw new Error('Invalid initial ring placement');
+    }
     board.gamePhase = 'play';
     board.currentPlayer = 1;
     board._captureState();
@@ -178,6 +179,7 @@ async function main() {
   const totalStart = performance.now();
 
   for (let g = 0; g < NUM_GAMES; g++) {
+    const gameId = randomUUID();
     const useRandom = g % 2 === 1;
     const board = setupBoard(useRandom);
 
@@ -270,6 +272,7 @@ async function main() {
     for (const pos of positionBuffer) {
       const value = pos.currentPlayer === winner ? 1.0 : -1.0;
       const line = JSON.stringify({
+        gameId,
         board: pos.board,
         meta: pos.meta,
         value,
@@ -285,7 +288,10 @@ async function main() {
     );
   }
 
-  stream.end();
+  await new Promise((resolve, reject) => {
+    stream.on('error', reject);
+    stream.end(resolve);
+  });
   const totalElapsed = ((performance.now() - totalStart) / 1000).toFixed(1);
 
   console.log('─'.repeat(50));

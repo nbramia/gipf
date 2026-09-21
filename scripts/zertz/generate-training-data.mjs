@@ -5,6 +5,7 @@
 // Usage: node scripts/zertz/generate-training-data.mjs --games 50 --sims 200
 //        node scripts/zertz/generate-training-data.mjs --games 50 --sims 200 --mode nn --model public/models/zertz-value-v1.onnx
 
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
 import { createWriteStream } from 'fs';
@@ -149,7 +150,7 @@ function selectWithTemperature(move, moveNumber) {
 async function main() {
   const { default: ZertzBoard } = await import(resolve(srcDir, 'ZertzBoard.js'));
   const { MCTS, applyMove, evaluatePosition } = await import(resolve(srcDir, 'engine', 'mcts.js'));
-  const { extractFeatures } = await import(resolve(srcDir, 'engine', 'features.js'));
+  const { extractFeatures, FEATURE_VERSION } = await import(resolve(srcDir, 'engine', 'features.js'));
 
   // Load NN model if needed
   let valueNetwork = null;
@@ -190,6 +191,7 @@ async function main() {
   const totalStart = performance.now();
 
   for (let g = 0; g < NUM_GAMES; g++) {
+    const gameId = randomUUID();
     const board = new ZertzBoard({ skipInitialHistory: true });
 
     let evalMode = 'heuristic';
@@ -252,6 +254,8 @@ async function main() {
     for (const pos of positionBuffer) {
       const value = pos.player === winner ? 1.0 : -1.0;
       const line = JSON.stringify({
+        gameId,
+        featureVersion: FEATURE_VERSION,
         board: pos.board,
         meta: pos.meta,
         value,
@@ -268,7 +272,14 @@ async function main() {
     );
   }
 
-  stream.end();
+  await new Promise((resolve, reject) => {
+    stream.on('error', reject);
+    stream.end(resolve);
+  });
+  if (process.send) {
+    await new Promise((resolve, reject) => process.send({ type: 'done', games: NUM_GAMES, positions: totalPositions }, err => err ? reject(err) : resolve()));
+    process.disconnect();
+  }
   const totalElapsed = ((performance.now() - totalStart) / 1000).toFixed(1);
 
   console.log('─'.repeat(50));

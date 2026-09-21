@@ -1,5 +1,9 @@
+import { guardRequest } from '../server/publicSecurity.js';
+export const config = { api: { bodyParser: { sizeLimit: '32kb' } } };
 // Simple test endpoint to verify CORS and basic functionality
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
+  if (req.method === 'POST' && !await guardRequest(req, res, { bucket: 'ai', limit: 30 })) return;
   try {
     console.log('Test endpoint called');
     console.log('Method:', req.method);
@@ -55,10 +59,10 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
 
   } catch (error) {
-    console.error('Error in test endpoint:', error);
+
     return res.status(500).json({
       error: 'Test endpoint error',
-      message: error.message
+      message: 'Unable to handle test request'
     });
   }
 }

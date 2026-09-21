@@ -6,13 +6,15 @@ Two architectures:
   ZertzPolicyValueNet — policy + value dual-head (~230K params)
 
 Shared trunk:
-  Input: 5 x 7 x 7 planes + 12 scalars
-  Conv2d(5, 64, 3x3, pad=1) -> BN -> ReLU
+  Input: feature-v2 6 x 7 x 7 planes + 12 scalars (explicit legacy v1: 5 planes)
+  Conv2d(planes, 64, 3x3, pad=1) -> BN -> ReLU
   ResBlock(64) x 4
 """
 
 import torch
 import torch.nn as nn
+from os import PathLike
+from zertz.schema import FEATURE_VERSION, board_planes, checkpoint_state
 
 
 class ResBlock(nn.Module):
@@ -36,14 +38,16 @@ class ResBlock(nn.Module):
 class ZertzValueNet(nn.Module):
     """Value-only network for Zertz position evaluation."""
 
-    BOARD_PLANES = 5
+    BOARD_PLANES = 6
     GRID_SIZE = 7
     META_SIZE = 12
     CHANNELS = 64
     NUM_RES_BLOCKS = 4
 
-    def __init__(self):
+    def __init__(self, feature_version=FEATURE_VERSION):
         super().__init__()
+        self.feature_version = feature_version
+        self.BOARD_PLANES = board_planes(feature_version)
 
         self.input_conv = nn.Conv2d(self.BOARD_PLANES, self.CHANNELS, 3, padding=1, bias=False)
         self.input_bn = nn.BatchNorm2d(self.CHANNELS)
@@ -80,15 +84,17 @@ class ZertzPolicyValueNet(nn.Module):
     Policy head: 49 logits over 7x7 grid (raw, softmax applied at inference)
     """
 
-    BOARD_PLANES = 5
+    BOARD_PLANES = 6
     GRID_SIZE = 7
     POLICY_SIZE = 49  # 7 * 7
     META_SIZE = 12
     CHANNELS = 64
     NUM_RES_BLOCKS = 4
 
-    def __init__(self):
+    def __init__(self, feature_version=FEATURE_VERSION):
         super().__init__()
+        self.feature_version = feature_version
+        self.BOARD_PLANES = board_planes(feature_version)
 
         # Shared trunk
         self.input_conv = nn.Conv2d(self.BOARD_PLANES, self.CHANNELS, 3, padding=1, bias=False)
@@ -111,7 +117,7 @@ class ZertzPolicyValueNet(nn.Module):
     def forward(self, board_input, meta_input):
         """
         Args:
-            board_input: (batch, 5, 7, 7)
+            board_input: (batch, BOARD_PLANES, 7, 7)
             meta_input: (batch, 12)
         Returns:
             value: (batch, 1) in [-1, 1]
@@ -149,16 +155,17 @@ def detect_model_type(state_dict):
 
 def load_model(state_dict_or_path, device='cpu'):
     """Load a model, auto-detecting type."""
-    if isinstance(state_dict_or_path, str):
-        state_dict = torch.load(state_dict_or_path, map_location=device, weights_only=True)
+    if isinstance(state_dict_or_path, (str, PathLike)):
+        checkpoint = torch.load(state_dict_or_path, map_location=device, weights_only=True)
     else:
-        state_dict = state_dict_or_path
+        checkpoint = state_dict_or_path
+    state_dict, feature_version = checkpoint_state(checkpoint)
 
     model_type = detect_model_type(state_dict)
     if model_type == "policy-value":
-        model = ZertzPolicyValueNet()
+        model = ZertzPolicyValueNet(feature_version)
     else:
-        model = ZertzValueNet()
+        model = ZertzValueNet(feature_version)
 
     model.load_state_dict(state_dict)
     model.to(device)
