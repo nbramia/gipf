@@ -190,9 +190,13 @@ schema/game or invalid engine state 400, stale revision 409, oversized request
 
 Redis keys are `gipf:match:v1:<usernameId>:<game>`. Each account/game has its own
 atomic CAS revision. The match Lua operation stores validated JSON opaquely:
-Redis `cjson` otherwise turns empty arrays into objects. Existing profile and
-settings keys, claim behavior and legacy sources remain untouched. Existing
-300,000-byte request and durable account/network rate limits still apply.
+Redis `cjson` otherwise turns empty arrays into objects. Profile and settings
+records likewise store JS-serialized JSON opaquely; their writes and profile
+claims use exact snapshots (see
+[public accounts](public-accounts.md#json-preservation-and-legacy-damage));
+their keys and legacy sources remain unchanged. Match keys and revisions are
+independent of them. Existing 300,000-byte request and durable account/network
+rate limits still apply.
 
 ## Ownership, pending writes, preferences and statistics
 

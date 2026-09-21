@@ -119,7 +119,10 @@ and PR5 match-save work. See [public account operations](public-accounts.md).
 The focused regression `tests/profile-arrays-redis.test.mjs` uses the actual
 handler and actual Redis EVAL in a dedicated `gipf-r22-address-synthetic-redis`
 container. Its REST transport adapter executes Redis commands, not mocked Lua
-results. The fixture flushes only that named disposable container. It covers all
+results. The adapter passes arguments through `redis-cli` text quoting, so byte
+fidelity is established only for the fixture characters used (ASCII, quote,
+backslash, newline); arbitrary control characters or non-UTF-8 values are not
+covered. The fixture flushes only that named disposable container. It covers all
 four profile sanitizers, preferences (including JSON strings and null), nested
 arrays/objects retained from older records, partial writes, stale two-handler writes and injected byte-CAS interleaves,
 claim ownership/collisions/retries, source/destination changes during claims,
@@ -143,6 +146,7 @@ Focused local commands (synthetic data only):
 ```sh
 docker run --rm -d --name gipf-r22-address-synthetic-redis redis:7-alpine
 node --test tests/profile-arrays-redis.test.mjs
+docker stop gipf-r22-address-synthetic-redis
 CI=true npm test -- --watchAll=false --runInBand --runTestsByPath src/games/chess/engine/profileSync.test.js
 npm run build
 ./node_modules/.bin/eslint --no-eslintrc --config tests/security-eslint.cjs --resolve-plugins-relative-to . api/chessProfile.js src/games/chess/engine/profileSync.js
@@ -155,8 +159,9 @@ exit 0 with existing CRA/Browserslist and chess.js source-map warnings.
 
 The Redis regressions exercise the real handler/Lua and loopback HTTP, including
 bundled history+mistakes recovery from the known empty-object case, preservation
-of nonempty malformed originals, healthy claim alternatives, empty stored JSON,
-missing-to-empty races in WRITE and CLAIM, and aggregate claim timing. Client tests
+of nonempty object-valued version-1 `mistakes.entries`, healthy claim alternatives,
+empty stored JSON, missing-to-empty races in WRITE and CLAIM, and aggregate claim
+timing. Client tests
 cover safe reconciliation, preservation of input objects, and the actual bundled
 write request. The synthetic clock tests advance time for preflight and every
 command: one stops before the first EVAL, another stops during a contention retry.
@@ -182,12 +187,18 @@ No provider-plan payload limit or hosted latency was checked. The 17-second
 command admission budget leaves 3 seconds under `maxDuration:20`, but event-loop
 stalls, unusually large historical JSON parsing/serialization, and hosted timeout
 behavior still require coordinator-owned deployment verification. An ambiguous
-EVAL timeout retains existing atomic/idempotent semantics; daily claim attempts
-still consume the existing quota.
+EVAL timeout retains existing atomicity: same-owner claim retries are idempotent,
+while a committed-but-timed-out write returns 503 and leaves the client revision
+stale, causing later writes to conflict until a read or reload refreshes it. Daily
+claim attempts still consume the existing quota.
 
 Client non-array entries are skipped for reconciliation, not recovered. Nonempty
-malformed destination mistakes still reject the entire game-end bundle, including
-history, with the existing generic client sync error; operator recovery remains
-necessary. Empty-object compatibility does not establish that every malformed
+object-valued version-1 `mistakes.entries` still reject the entire game-end bundle,
+including history, with the existing generic client sync error; operator recovery
+remains necessary. When reconciliation includes mistakes, the initial sign-in push
+bundles them with every other changed domain and is rejected the same way; without
+healthy alternatives this recurs on every load. Standalone rating and puzzle saves
+still sync. Other non-array shapes are not protected by this replacement guard.
+Empty-object compatibility does not establish that every malformed
 object came from cjson. No full suite, live provider call, production data access,
 PR61 security certification, or deployment is part of this evidence.

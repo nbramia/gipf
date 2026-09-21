@@ -63,8 +63,10 @@ partial writes preserve arrays, objects, and retained claim alternatives.
 Claims read a snapshot of the destination and all legacy sources, merge only
 missing domains in JavaScript, and atomically compare every input before binding
 ownership and storing the opaque JSON. Up to three snapshot attempts handle races;
-continued contention returns `409 conflict`, and the caller can retry. Each claim
-command must have its full 3-second timeout remaining in a 17-second budget from
+continued contention returns `409 conflict`. The Chess client ignores claim failures
+and re-attempts on its next sync load; each attempt reaching the daily claim quota
+check counts toward that quota. Each claim command must have its full 3-second
+timeout remaining in a 17-second budget from
 handler entry (including authentication and quota checks). Budget exhaustion returns
 `503 store_unavailable`; the remaining 3 seconds of `maxDuration:20` are reserved
 for CPU/response overhead. Retries do not reset this budget. Same-owner
@@ -83,7 +85,10 @@ destination has an empty object. Claim sources and stored alternatives stay inta
 
 Nonempty object-valued version-1 mistake entries still need operator-reviewed
 source/backup recovery: replacement returns `409 legacy_shape_conflict` and leaves
-the entire bundled write (including history) unchanged. The client reports its
+the entire bundled write (including history) unchanged. When reconciliation includes
+mistakes, the initial sign-in push bundles them with every other changed domain
+and is rejected the same way; without healthy alternatives this recurs on every
+load. Standalone rating and puzzle saves still sync. The client reports its
 existing generic sync error; there is no repair UI. Skipping malformed values in
 the client's merge does not make their contents usable or erase the remote original.
 Unrelated domain writes retain them. Normal maps remain objects. Missing keys are
@@ -182,9 +187,9 @@ node --test tests/public-security.test.mjs tests/ai-security.test.mjs
 docker run --rm -d --name gipf-pr4-synthetic-redis -p 127.0.0.1:16389:6379 redis:7-alpine
 node --test tests/account-redis.test.mjs
 # Dedicated issue-62 fixture; never point this test at a shared/production store.
-docker run --rm -d --name gipf-issue62-synthetic-redis redis:7-alpine
+docker run --rm -d --name gipf-r22-address-synthetic-redis redis:7-alpine
 node --test tests/profile-arrays-redis.test.mjs
-docker stop gipf-issue62-synthetic-redis
+docker stop gipf-r22-address-synthetic-redis
 npm run build
 node tests/serve-public-security.mjs
 # Browser fixture is http://127.0.0.1:3187/gipf; stop it before container cleanup.
