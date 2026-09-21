@@ -313,8 +313,9 @@ pending profile responses also verify the originating account before applying.
 Cloud writes use revisions: conflicts retain local data and show a sync warning.
 
 The landing-page account copy and Chess account copy remain identical. Shared
-preferences for Chess/Yinsh/Zertz/Catan and existing Yinsh scores use a separate
-revisioned settings scope. Chess rating/history/puzzles/mistakes keep their
+preferences for Chess/Yinsh/Zertz/Catan, existing Yinsh scores, and Chess
+finished-game statistics (`chessGameLog`) use a separate revisioned settings scope.
+Chess rating/history/puzzles/mistakes keep their
 existing domains. Versioned current-match snapshots now support local resume and
 authenticated cloud sync; see [resumable matches](resumable-matches.md).
 
