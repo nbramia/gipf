@@ -185,3 +185,23 @@ describe('pgn round-trip after clone', () => {
     expect(restored.sanHistory()).toEqual(['e4']);
   });
 });
+
+describe('resumable game history', () => {
+  test('UI clones and undo/redo retain repetition evidence', () => {
+    let b = new ChessBoard();
+    for (let i = 0; i < 2; i++) {
+      for (const [from,to] of [['g1','f3'],['g8','f6'],['f3','g1'],['f6','g8']]) { b.move(from,to); b = b.clone(); }
+    }
+    expect(b.result().type).toBe('threefold');
+    b.undo(); expect(b.result()).toBeNull();
+    b.redo(); expect(b.result().type).toBe('threefold');
+  });
+  test('custom-position PGN restore retains the actual board and promotion', () => {
+    const b = new ChessBoard('4k3/P7/8/8/8/8/8/4K3 w - - 0 1');
+    b.move('a7','a8','n');
+    const restored = new ChessBoard();
+    expect(restored.loadPgn(b.pgn())).toBe(true);
+    expect(restored.fen()).toBe(b.fen());
+    expect(restored.positions).toEqual(b.positions);
+  });
+});

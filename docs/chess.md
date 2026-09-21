@@ -313,16 +313,19 @@ pending profile responses also verify the originating account before applying.
 Cloud writes use revisions: conflicts retain local data and show a sync warning.
 
 The landing-page account copy and Chess account copy remain identical. Shared
-preferences for Chess/Yinsh/Zertz/Catan and existing Yinsh scores use a separate
-revisioned settings scope. Chess rating/history/puzzles/mistakes keep their
-existing domains. New match snapshots are deferred to PR5.
+preferences for Chess/Yinsh/Zertz/Catan, existing Yinsh scores, and Chess
+finished-game statistics (`chessGameLog`) use a separate revisioned settings scope.
+Chess rating/history/puzzles/mistakes keep their
+existing domains. Versioned current-match snapshots now support local resume and
+authenticated cloud sync; see [resumable matches](resumable-matches.md).
 
 ## localStorage keys
 
 ```
 chessDarkMode, chessShowMoves, chessDifficulty, chessLearningGoal,
 chessShowEvalBar, chessSound, chessLichessToken, chessRated, chessRating,
-chessRatedGames, chessMistakes, chessOppHistory, chessPuzzleProgress
+chessRatedGames, chessMistakes, chessOppHistory, chessPuzzleProgress,
+chessMatch:v1, chessMatchSync:v1, chessMatchRecovery:v1, chessStatsRecovery:v1
 
 gipfApiKey  # shared app-wide (all games), not chess-prefixed
 gipfAccount # shared app-wide (landing page + chess settings block); cached account session

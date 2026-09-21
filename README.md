@@ -14,9 +14,9 @@ The opponent is a Monte Carlo tree search that can run on hand-written heuristic
 
 ### Zertz
 
-Capture marbles by jumping over them on a shrinking hex board. After placing a marble and removing an edge ring, check for forced jumps. Win by collecting sets of marbles (4 white, 5 grey, 6 black, or 3 of each).
+Capture marbles by jumping over them on a shrinking hex board. On a turn, capture if a jump is available; otherwise place a marble and remove a free ring. Win by collecting sets of marbles (4 white, 5 grey, 6 black, or 3 of each).
 
-Shares Yinsh's search engine: its harder setting uses a trained neural network, the easier ones use heuristic search. Two-player mode, full undo/redo, and dark mode.
+Uses its own Monte Carlo search engine and neural network: Expert requests the trained model, while Easy and Advanced use heuristic search. Two-player mode, full undo/redo, and dark mode.
 
 ### Chess
 
@@ -44,7 +44,9 @@ Each AI power can hold a real conversation (bring your own Anthropic API key) an
 
 Each game has its own opponent, and they fall into three families.
 
-**Self-play neural networks (Yinsh, Zertz).** These use Monte Carlo tree search in the AlphaZero mold: PUCT selection guided by a small residual network that outputs both a move policy and a position value, with Dirichlet noise at the root for exploration and a transposition table so positions reached by different move orders share statistics. The network (a few hundred thousand parameters) runs entirely in the browser through ONNX Runtime Web (WASM) inside a Web Worker, so the UI never blocks. Training happens offline in PyTorch: the current network plays games against itself, those positions train a candidate, and the candidate replaces the incumbent only if it wins a gated head-to-head match (Yinsh uses a sequential probability ratio test; Zertz a simpler majority gate). Training data is augmented 6-fold using the board's rotational symmetry, and the loop runs unattended, committing each promotion. Yinsh has the longer training lineage; Zertz's is shorter and also distills toward the hand-written heuristic to stay anchored early on.
+**Self-play neural networks (Yinsh, Zertz).** Each game has an independent Monte Carlo search engine and PyTorch training pipeline. Networks provide position values and, when available, destination-policy priors. Browser inference runs through ONNX Runtime Web in a Web Worker; failed model loading produces a visible heuristic-fallback notice. Request IDs and board versions prevent cancelled or stale AI responses from changing a newer position.
+
+Offline training splits positions by source game before applying six rotations to training data; validation stays unaugmented. Historical data without game IDs uses a documented duplicate-position fallback that cannot reconstruct game boundaries. Candidates face an explicit incumbent before promotion: Yinsh's continuous loop uses a sequential probability ratio test, while Zertz requires wins in more than half of a fixed, alternating-side match. These gates are checks, not strength guarantees. See [AI engine documentation](docs/ai-engine.md) for compatibility, bootstrap, and training details.
 
 **Classical search (Catan, Splendor, Chess).** Catan and Splendor use tree search with hand-written position evaluation rather than a trained network, running in Web Workers. Splendor plays a genuine multi-player maxⁿ search and handles hidden information fairly by re-sampling the parts of the state a player could not actually see. (A self-play network was trained for Splendor as an experiment; it did not beat the heuristic, so the heuristic is what ships.) Chess delegates to Stockfish rather than a hand-rolled engine, with one workaround worth noting: Stockfish's built-in strength limiter does not go below 1320 Elo, so beneath that the code searches at full strength and samples a deliberately weaker move from within a bounded evaluation window.
 
@@ -75,8 +77,8 @@ npm run build             # Production build
 **Training the self-play AI** (Yinsh; Zertz mirrors it under `scripts/zertz/`, Catan and Splendor under `scripts/catan/` and `scripts/splendor/`):
 
 ```bash
-npm run self-play                       # Generate self-play games
-npm run train-iteration                 # One self-play -> train -> tournament cycle
+npm run generate-data -- --games 50     # Generate labeled self-play data
+npm run train-iteration -- 14 50 200    # Example: candidate v14, 50 games, 200 sims
 ./scripts/continuous-train.sh           # Autonomous loop with gated auto-promotion
 ```
 
@@ -98,7 +100,7 @@ src/
   index.css                # Shared Tailwind directives
   games/
     yinsh/                 # Game logic, React UI, engine/ (MCTS + NN), CSS, tests
-    zertz/                 # Same shape as yinsh; shares the self-play engine design
+    zertz/                 # Independent board, MCTS + NN, features, hooks, and tests
     chess/                 # chess.js rules, Stockfish loader, coach/ (LLM), engine/, hooks/
     catan/                 # Board + UI + engine/ (MCTS in a Web Worker)
     splendor/              # Board + UI + engine/ (maxⁿ MCTS), coach/ (rules chat)
@@ -117,6 +119,13 @@ React + React Router (code-split), Tailwind CSS, SVG rendering. The AI spans thr
 ## Documentation
 
 Deeper writeups live in [`docs/`](docs/): [architecture](docs/architecture.md), the [AI engine](docs/ai-engine.md), and per-game notes for [chess](docs/chess.md), [Catan](docs/catan.md), [Splendor](docs/splendor.md), and [Diplomacy](docs/diplomacy.md).
+
+The [YINSH/ZÈRTZ audit and repair record](docs/yinsh-zertz-audit-2026-09-20.md) separates baseline training results from engine, browser, and pipeline validation, including feature-v2 migration requirements.
+
+Current matches in Chess, Yinsh, Zertz, and Catan resume locally after refresh.
+Signing in also enables cloud matches, preferences and existing statistics, with
+explicit conflict choices and recoverable alternatives. See
+[resumable matches](docs/resumable-matches.md) for formats, recovery and limits.
 
 ## Credits
 

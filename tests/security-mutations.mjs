@@ -14,7 +14,7 @@ try {
       const line="    if (!await limit('account-user', u, 20)) return res.status(429).json({ error: 'rate_limited' });";
       return s.replace(line,'').replace("    if (action === 'create')",line+"\n    if (action === 'create')");
     },'bad-auth floods','tests/account-redis.test.mjs'],
-    ['M2 no-source lifetime consumption','api/chessProfile.js',s=>s.replace('if next(legacy)==nil then return 2 end;',''),'concurrent empty claims','tests/account-redis.test.mjs'],
+    ['M2 no-source lifetime consumption','api/chessProfile.js',s=>s.replace("if ARGV[11]=='0' then return 2 end;",''),'concurrent empty claims','tests/account-redis.test.mjs'],
     ['M2 repeat daily consumption','api/chessProfile.js',s=>s.replace('      const id = body.legacyId;',"      if (!await limit('claim-user', body.u, 5, 86400)) return res.status(429).json({error:'rate_limited'});\n      const id = body.legacyId;"),'concurrent empty claims','tests/account-redis.test.mjs'],
     ['Yinsh missing durable guard','api/aiMove.js',s=>s.replace("  if (!await guardRequest(req, res, { bucket: 'ai', limit: 30, maxBytes: 32768 })) return;",''),'Yinsh checks shared','tests/ai-security.test.mjs'],
     ['Yinsh weakened hard deadline','server/yinshCalculation.js',s=>s.replace('finish(true), 3000','finish(true), 6000'),'Yinsh hard deadline','tests/ai-security.test.mjs'],

@@ -60,8 +60,8 @@ test('Yinsh checks shared durable AI budget and size before constructing a board
   };
   const denied=res();await yinsh(req({boardState:'synthetic-private-value'}),denied);assert.equal(denied.statusCode,429);
   globalThis.fetch=async()=>({ok:true,json:async()=>({result:1})});
-  const failed=res();await yinsh(req({boardState:'synthetic-private-value'}),failed);assert.equal(failed.statusCode,500);
-  assert.deepEqual(failed.body,{error:'Unable to calculate move'});assert.equal(failed.headers['Cache-Control'],'no-store');
+  const failed=res();await yinsh(req({boardState:'synthetic-private-value'}),failed);assert.equal(failed.statusCode,400);
+  assert.deepEqual(failed.body,{error:'Invalid board snapshot'});assert.equal(failed.headers['Cache-Control'],'no-store');
 });
 test('Yinsh hard deadline terminates stuck CPU work at 3000 ms and redacts worker errors',async(t)=>{
   const {EventEmitter}=await import('node:events');

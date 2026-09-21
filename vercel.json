@@ -31,7 +31,7 @@
     },
     "api/aiMove.js": {
       "maxDuration": 10,
-      "includeFiles": "{server/yinshCalculation.js,server/yinshWorker.js,src/games/yinsh/YinshBoard.js,src/games/yinsh/YinshNotation.js,src/games/yinsh/engine/mcts.js}"
+      "includeFiles": "{server/yinshCalculation.js,server/yinshWorker.js,server/yinshSearch.js,src/games/yinsh/YinshBoard.js,src/games/yinsh/YinshNotation.js,src/games/yinsh/engine/mcts.js}"
     }
   }
 }

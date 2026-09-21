@@ -41,7 +41,7 @@ export async function claimLegacyProfile(session, legacyId) {
 export async function fetchRemoteProfile(session) {
   const data = await requestProfile(session, 'read');
   revisions.set(session.usernameId, data.revision);
-  const profile = data.profile || {};
+  const profile = { ...data.profile };
   // Collision copies stay on the authenticated record. Monotonic merge rules
   // preserve old review/history data without adding counters a second time.
   for (const legacy of Object.values(data.legacyProfiles || {})) {
@@ -166,8 +166,9 @@ function preferMistake(a, b) {
 // conflict, then re-applying mistakeStore's cap so a merge can never grow
 // the library past the limit.
 export function mergeMistakes(localEntries, remoteEntries) {
+  // Non-array originals remain on the server for recovery; never guess their entries.
   const byFen = new Map();
-  for (const e of [...(localEntries || []), ...(remoteEntries || [])]) {
+  for (const e of [...(Array.isArray(localEntries) ? localEntries : []), ...(Array.isArray(remoteEntries) ? remoteEntries : [])]) {
     const existing = byFen.get(e.fenBefore);
     byFen.set(e.fenBefore, existing ? preferMistake(existing, e) : e);
   }

@@ -30,7 +30,7 @@ await call('testAI',{},200);
 await call('zertzAiMove',{boardState:new ZertzBoard().serializeState(),simulations:50},200);
 await call('zertzAiMove',{boardState:{}},500);
 await call('aiMove',new YinshBoard().serializeState(),200);
-await call('aiMove',{boardState:'synthetic-private-value'},500);
+await call('aiMove',{boardState:'synthetic-private-value'},400);
 console.log('PASS: real HTTP handlers, synthetic Redis/provider boundary, valid and error paths');
 
 // Only the fixture network counter is reset to model a fresh network; owner counters stay intact.

@@ -209,3 +209,90 @@ storage/claim dates. Retain the production gate until those operational checks
 pass. Shared-NAT saturation and distributed password guessing are documented
 limitations of the network limiter. Older cached sessions need a sign-out/sign-in
 within the claim window; this change does not rewrite historical migration records.
+## Issue 62: profile JSON type preservation
+
+The focused regression `tests/profile-arrays-redis.test.mjs` uses the actual
+handler and actual Redis EVAL in a dedicated `gipf-r22-address-synthetic-redis`
+container. Its REST transport adapter executes Redis commands, not mocked Lua
+results. The adapter passes arguments through `redis-cli` text quoting, so byte
+fidelity is established only for the fixture characters used (ASCII, quote,
+backslash, newline); arbitrary control characters or non-UTF-8 values are not
+covered. The fixture flushes only that named disposable container. It covers all
+four profile sanitizers, preferences (including JSON strings and null), nested
+arrays/objects retained from older records, partial writes, stale two-handler writes and injected byte-CAS interleaves,
+claim ownership/collisions/retries, source/destination changes during claims,
+retry exhaustion, lifetime limits, authentication and payload rejection, and a
+real loopback HTTP handler smoke test. No browser or external provider is used.
+
+Before the correction, five of the initial seven regressions failed: empty
+mistake arrays became objects on WRITE and CLAIM, and a damaged mistakes domain
+could be silently replaced. The implementation retains the JSON record format,
+compares exact stored snapshots in Lua, and stores JS-serialized JSON opaquely.
+See `public-accounts.md` for the explicit `legacy_shape_conflict` behavior and
+operator recovery limitation. This focused evidence is not the parent PR61
+security review, an authoritative full-suite run, or authorization to deploy or
+remove the public gate.
+
+
+## PR65 review corrections
+
+Focused local commands (synthetic data only):
+
+```sh
+docker run --rm -d --name gipf-r22-address-synthetic-redis redis:7-alpine
+node --test tests/profile-arrays-redis.test.mjs
+docker stop gipf-r22-address-synthetic-redis
+CI=true npm test -- --watchAll=false --runInBand --runTestsByPath src/games/chess/engine/profileSync.test.js
+npm run build
+./node_modules/.bin/eslint --no-eslintrc --config tests/security-eslint.cjs --resolve-plugins-relative-to . api/chessProfile.js src/games/chess/engine/profileSync.js
+git diff --check
+```
+
+Results: 19/19 Redis tests and 24/24 client tests pass; build and focused lint
+exit 0 with existing CRA/Browserslist and chess.js source-map warnings.
+`git diff --check` passes.
+
+The Redis regressions exercise the real handler/Lua and loopback HTTP, including
+bundled history+mistakes recovery from the known empty-object case, preservation
+of nonempty object-valued version-1 `mistakes.entries`, healthy claim alternatives,
+empty stored JSON, missing-to-empty races in WRITE and CLAIM, and aggregate claim
+timing. Client tests
+cover safe reconciliation, preservation of input objects, and the actual bundled
+write request. The synthetic clock tests advance time for preflight and every
+command: one stops before the first EVAL, another stops during a contention retry.
+The original PR65 used three attempts; integration permits six only when time permits. Exact bytes are compared
+with an explicit presence prefix; no digest CAS or authorization/quota policy
+change was made.
+
+Maximum-count payload evidence: 200 mistakes with maximum ASCII string lengths,
+500 puzzle records with 64-character IDs, both history sides with 32 maximum-length
+keys, capped counters, a current profile and five complete retained alternatives.
+The tested mistakes domain is 127,019 bytes; the final record is 1,301,530 bytes;
+the largest JSON REST EVAL bodies are 2,790,578 bytes for CLAIM and 2,789,878 bytes
+for WRITE. The fixture performs all five claims and a subsequent full-domain write,
+then verifies profile and retained alternatives. These are measured UTF-8 wire
+sizes, including JSON escaping, not merely the logical request size.
+
+This is a supported **local test envelope**, not an absolute maximum byte size:
+Unicode/escaping changes byte lengths, mistakes allow up to 262,144 serialized
+bytes, and accumulated domains/alternatives can exceed the 300,000-byte incoming
+request limit. Retained historical JSON has no new aggregate size cap in this
+patch; arbitrary old data therefore has no finite enforced record maximum.
+No provider-plan payload limit or hosted latency was checked. The 17-second
+command admission budget leaves 3 seconds under `maxDuration:20`, but event-loop
+stalls, unusually large historical JSON parsing/serialization, and hosted timeout
+behavior still require coordinator-owned deployment verification. An ambiguous
+EVAL timeout retains existing atomicity: same-owner claim retries are idempotent,
+while a committed-but-timed-out write returns 503 and leaves the client revision
+stale, causing later writes to conflict until a read or reload refreshes it. In the integrated implementation, only successful new data-bearing claims consume quota.
+
+Client non-array entries are skipped for reconciliation, not recovered. Nonempty
+object-valued version-1 `mistakes.entries` still reject the entire game-end bundle,
+including history, with the existing generic client sync error; operator recovery
+remains necessary. When reconciliation includes mistakes, the initial sign-in push
+bundles them with every other changed domain and is rejected the same way; without
+healthy alternatives this recurs on every load. Standalone rating and puzzle saves
+still sync. Other non-array shapes are not protected by this replacement guard.
+Empty-object compatibility does not establish that every malformed
+object came from cjson. No full suite, live provider call, production data access,
+PR61 security certification, or deployment is part of this evidence.

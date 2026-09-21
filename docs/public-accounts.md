@@ -32,15 +32,72 @@ missing accounts and incorrect passwords.
   `history`, `puzzles`, and `mistakes`, with existing validators.
 - `scope:"settings"`: separate revision and record, with `domains.preferences`
   containing allowlisted localStorage string values. Covers the four named games'
-  existing preferences and Yinsh wins, not new match snapshots. Unsupported keys
+  existing preferences, Yinsh wins, and Chess finished-game statistics
+  (`chessGameLog`). Non-null values normally have a 2,048-character limit;
+  `chessGameLog` instead uses `server/chessLogValidation.js` to validate its JSON
+  entry shape, with at most 200 entries and 100,000 UTF-8 bytes. Match snapshots
+  use their own scope below. Unsupported keys
   (including credentials) are rejected. Startup conflicts offer explicit choices;
   changes are checked every five seconds. Network failures leave local play usable.
+- `scope:"match"`: `read`/`write` for `game:"chess"|"yinsh"|"zertz"|"catan"`,
+  stored at `gipf:match:v1:<usernameId>:<game>` with a separate account/game CAS
+  revision. Writes use `domains.match` (a validated snapshot or null to clear);
+  stale revisions return 409. `claim` is rejected for this scope. See
+  [resumable matches](resumable-matches.md) for schema, restore, and recovery details.
 - `claim`: takes `legacyId` only in the body and copies existing cloud data into
   the authenticated owner. There is no unauthenticated legacy read or write.
 
 Legacy `GET /api/chessProfile?id=...` returns 405 and `/api/chessRating` returns
 410. Existing clients must upgrade; old data remains in Redis. API secrets must
 never be placed in URLs, analytics, logs, test traces, or ordinary exports.
+
+## JSON preservation and legacy damage
+
+Profile and settings records keep the existing JSON object format and namespaces.
+The server sanitizes new domain values, parses and merges JSON in JavaScript, and
+passes the complete JSON string to Redis unchanged. Lua compares the exact prior
+record before committing; a race returns 409 without changing any domain. It does
+not decode/re-encode domain data. Existing valid records need no migration, and
+partial writes preserve arrays, objects, and retained claim alternatives.
+
+Claims read a snapshot of the destination and all legacy sources, merge only
+missing domains in JavaScript, and atomically compare every input before binding
+ownership and storing the opaque JSON. Up to six snapshot attempts handle races (five competing successful migrations plus a final read);
+continued contention returns `409 conflict`. Sign-in and explicit guest import perform claims; Chess mounts only sync.
+Only a new data-bearing migration consumes the daily/lifetime quota, atomically
+with ownership and profile storage. Each claim command must have its full 3-second
+timeout remaining in a 17-second budget from
+handler entry (including authentication and quota checks). Budget exhaustion returns
+`503 store_unavailable`; the remaining 3 seconds of `maxDuration:20` are reserved
+for CPU/response overhead. Retries do not reset this budget. Same-owner
+retries remain idempotent; other owners and the five-claim lifetime cap retain
+existing rejection behavior. Source records and overlapping alternatives remain
+intact. Match storage and its independent revisions are unchanged.
+
+The known version-1 `mistakes.entries: {}` case is compatible with historical
+cjson empty-array loss. A normal sanitized mistakes write can replace this empty
+object, including the client's atomic game-end `{history, mistakes}` save. This
+is only compatibility for that field, not evidence that arbitrary objects were
+arrays. Reads and claims keep originals; the client merges only array-valued
+mistake entries, so empty objects and nonempty malformed objects no longer crash
+reconciliation. Healthy claimed alternatives can contribute entries even when the
+destination has an empty object. Claim sources and stored alternatives stay intact.
+
+Nonempty object-valued version-1 mistake entries still need operator-reviewed
+source/backup recovery: replacement returns `409 legacy_shape_conflict` and leaves
+the entire bundled write (including history) unchanged. When reconciliation includes
+mistakes, the initial sign-in push bundles them with every other changed domain
+and is rejected the same way; without healthy alternatives this recurs on every
+load. Standalone rating and puzzle saves still sync. The client reports its
+existing generic sync error; there is no repair UI. Skipping malformed values in
+the client's merge does not make their contents usable or erase the remote original.
+Unrelated domain writes retain them. Normal maps remain objects. Missing keys are
+explicitly distinct from existing empty strings in exact byte CAS; empty stored
+JSON fails closed rather than being treated as a new record. No broad corruption
+migration or recovery of already-lost data is provided.
+
+Payload evidence and limitations are recorded in
+[the focused verification notes](public-accounts-verification.md#pr65-review-corrections).
 
 ## Bounded legacy claims
 
@@ -87,9 +144,10 @@ responses perform the same check. Recovery copies are not ordinary exports.
 
 Existing Splendor/Diplomacy local behavior is retained within the active account;
 their data is protected during switching, without new cloud persistence features.
-PR5 must extend the progress allowlist and authenticated contract for versioned
-match snapshots and engine-safe restoration; it must not reintroduce public-ID
-access or merge a pending save into the next account.
+PR5 extended the progress allowlist and authenticated contract for versioned
+match snapshots and engine-safe restoration; see [resumable matches](resumable-matches.md).
+The requirements against public-ID access and merging a pending save into the next
+account remain unchanged.
 
 ## Durable limits and execution bounds
 
@@ -140,6 +198,10 @@ node --test tests/public-security.test.mjs tests/ai-security.test.mjs
 export GIPF_TEST_REDIS_CONTAINER=gipf-test-public-accounts
 docker run --rm -d --name "$GIPF_TEST_REDIS_CONTAINER" redis:7-alpine
 node --test tests/account-redis.test.mjs
+# Dedicated issue-62 fixture; never point this test at a shared/production store.
+docker run --rm -d --name gipf-r22-address-synthetic-redis redis:7-alpine
+node --test tests/profile-arrays-redis.test.mjs
+docker stop gipf-r22-address-synthetic-redis
 npm run build
 node tests/serve-public-security.mjs
 # Browser fixture is http://127.0.0.1:3187/gipf; stop it before container cleanup.

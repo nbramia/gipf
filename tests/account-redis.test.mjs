@@ -147,7 +147,7 @@ test('Yinsh and model proxies share the real Redis AI limit across imports',asyn
   const coach=(await import('../api/chessCoach.js')).default;
   for(let i=0;i<30;i++) {
     const r=await call(i%2?yinsh:coach,{boardState:'synthetic-private-value'});
-    assert.equal(r.statusCode,i%2?500:401);
+    assert.equal(r.statusCode,i%2?400:401);
   }
   assert.equal((await call(second,{})).statusCode,429);
 });
