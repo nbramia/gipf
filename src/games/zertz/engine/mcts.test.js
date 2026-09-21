@@ -1,5 +1,5 @@
 import ZertzBoard from '../ZertzBoard.js';
-import { MCTS, applyMove, evaluatePosition, moveToKey, bestWinDistance } from './mcts.js';
+import { MCTS, applyMove, evaluatePosition, moveToKey, bestWinDistance, getMoveDestIndex } from './mcts.js';
 
 // Helper to create a board with custom state
 function createBoard(setup = {}) {
@@ -295,5 +295,155 @@ describe('applyMove', () => {
     expect(board.marbles['2,0']).toBe('white');
     expect(board.marbles['1,0']).toBeUndefined();
     expect(board.captures[1].black).toBe(1);
+  });
+});
+
+describe('Limited-budget search and exploration', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  const network = policy => ({
+    isLoaded: () => true,
+    evaluatePositionWithPolicy: jest.fn(async () => ({ value: 0, policy })),
+  });
+
+  test.each(['heuristic', 'nn'])('%s: evaluations determine the choice among 100 of 111 opening actions', async evaluationMode => {
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    const board = createBoard();
+    const legal = board.getLegalMoves();
+    expect(legal).toHaveLength(111);
+    const engine = new MCTS({ evaluationMode, valueNetwork: network(null), maxTableSize: 0 });
+    const evaluate = jest.spyOn(engine, evaluationMode === 'nn' ? '_evaluateLeaf' : '_simulate');
+
+    // Both targets appear late in the same deterministic expansion order.
+    // Changing only their values must change the final recommendation.
+    for (const target of [legal[70], legal[90]]) {
+      evaluate.mockImplementation(position =>
+        position.marbles[`${target.q},${target.r}`] === target.color ? 0.9 : -0.4);
+      const move = await engine.getBestMove(board, 100);
+      expect(moveToKey(move)).toBe(moveToKey(target));
+      expect(Object.keys(move._rootVisits)).toHaveLength(100);
+      expect(Object.values(move._rootVisits).every(visits => visits === 1)).toBe(true);
+      expect(moveToKey(move)).not.toBe(Object.keys(move._rootVisits)[0]);
+    }
+    expect(board.marbles).toEqual({});
+  });
+
+  test('equal visits and values use a stable move key, not first expansion', async () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    const board = createBoard();
+    const legal = board.getLegalMoves();
+    const engine = new MCTS({ maxTableSize: 0 });
+    jest.spyOn(engine, '_simulate').mockReturnValue(0);
+    const getMoves = ZertzBoard.prototype.getLegalMoves;
+    for (const reverse of [false, true]) {
+      jest.spyOn(ZertzBoard.prototype, 'getLegalMoves').mockImplementation(function () {
+        const moves = getMoves.call(this);
+        return reverse ? moves.reverse() : moves;
+      });
+      const move = await engine.getBestMove(board, 111);
+      expect(moveToKey(move)).toBe(legal.map(moveToKey).sort()[0]);
+    }
+  });
+
+  test('root policy orders limited-budget expansion without pruning legal actions', async () => {
+    // Constant 0.5 is also safe for the root Dirichlet sampler and gives equal
+    // noise to every action, so only the controlled logits distinguish priors.
+    jest.spyOn(Math, 'random').mockReturnValue(0.5);
+    const board = createBoard();
+    const legal = board.getLegalMoves();
+    const policy = new Array(49).fill(-20);
+    policy[getMoveDestIndex({ type: 'place-marble', q: 0, r: 0 })] = 20;
+    const engine = new MCTS({ evaluationMode: 'nn', valueNetwork: network(policy), maxTableSize: 0 });
+    jest.spyOn(engine, '_evaluateLeaf').mockResolvedValue(0);
+    const move = await engine.getBestMove(board, 3);
+    expect(Object.keys(move._rootVisits).sort()).toEqual(
+      legal.filter(m => m.q === 0 && m.r === 0).map(moveToKey).sort());
+    expect(legal.map(moveToKey)).toContain(moveToKey(move));
+
+    const expanded = await engine.getBestMove(board, 111);
+    expect(Object.keys(expanded._rootVisits).sort()).toEqual(legal.map(moveToKey).sort());
+    // With equal visits and values, policy is the next final-choice tie break.
+    expect(expanded.q).toBe(0);
+    expect(expanded.r).toBe(0);
+    expect(engine.rootPriors.size).toBe(111);
+    expect([...engine.rootPriors.values()].reduce((sum, prior) => sum + prior, 0)).toBeCloseTo(1);
+  });
+
+  async function searchRoot(engine, board = createBoard()) {
+    let root;
+    const select = engine._select.bind(engine);
+    const spy = jest.spyOn(engine, '_select').mockImplementation(node => {
+      root = node;
+      return select(node);
+    });
+    await engine.getBestMove(board, 1);
+    spy.mockRestore();
+    return root;
+  }
+
+  test('policy-mode descendants use UCB exploration when their priors are unavailable', async () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0.5);
+    const engine = new MCTS({ evaluationMode: 'nn', valueNetwork: network(new Array(49).fill(0)), maxTableSize: 0 });
+    jest.spyOn(engine, '_evaluateLeaf').mockResolvedValue(0);
+    const root = await searchRoot(engine);
+    const parent = [...root.children.values()][0];
+    const frequent = engine._expand(parent);
+    const rare = engine._expand(parent);
+    parent.visits = 20;
+    frequent.visits = 19;
+    frequent.wins = 19 * 0.6;
+    rare.visits = 1;
+    rare.wins = 0.5;
+    engine.qMin = 0;
+    engine.qMax = 1;
+    expect(engine.usePUCT).toBe(true);
+    expect(frequent.prior).toBe(0);
+    expect(rare.prior).toBe(0);
+    // Zero-prior PUCT would greedily prefer 0.6 over 0.5 forever.
+    expect(frequent.puct(parent.visits)).toBeGreaterThan(rare.puct(parent.visits));
+    expect(rare.ucb1(parent.visits)).toBeGreaterThan(rare.wins / rare.visits);
+    expect(parent.selectChild()).toBe(rare);
+    parent.untriedMoves = [];
+    expect(engine._select(parent)).toBe(rare);
+  });
+
+  test.each([1, 2])('placement/removal backup uses the deciding player (root P%i)', async rootPlayer => {
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    const engine = new MCTS({ maxTableSize: 0 });
+    jest.spyOn(engine, '_simulate').mockReturnValue(0);
+    const example = await searchRoot(engine);
+    const root = new example.constructor(createBoard({ currentPlayer: rootPlayer }), null, null, engine);
+    const placed = engine._expand(root);
+    expect(placed.board.gamePhase).toBe('remove-ring');
+    expect(placed.board.currentPlayer).toBe(rootPlayer);
+    const removed = engine._expand(placed);
+    expect(removed.board.currentPlayer).toBe(3 - rootPlayer);
+    const opponentPlaced = engine._expand(removed);
+    engine._backpropagate(opponentPlaced, 0.8, rootPlayer);
+    expect(root.wins).toBeCloseTo(0.9);
+    expect(placed.wins).toBeCloseTo(0.9);
+    expect(removed.wins).toBeCloseTo(0.9);
+    expect(opponentPlaced.wins).toBeCloseTo(0.1);
+  });
+
+  test('capture-chain backup does not flip between mandatory jumps', async () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    const engine = new MCTS({ maxTableSize: 0 });
+    jest.spyOn(engine, '_simulate').mockReturnValue(0);
+    const example = await searchRoot(engine);
+    const board = createBoard({
+      rings: ['-2,0', '-1,0', '0,0', '1,0', '2,0'],
+      marbles: { '-2,0': 'white', '-1,0': 'black', '1,0': 'grey' },
+      gamePhase: 'capture', currentPlayer: 2,
+    });
+    const root = new example.constructor(board, null, null, engine);
+    const firstJump = engine._expand(root);
+    expect(firstJump.board.currentPlayer).toBe(2);
+    expect(firstJump.board.jumpingMarble).toBe('0,0');
+    const secondJump = engine._expand(firstJump);
+    expect(secondJump.board.currentPlayer).toBe(1);
+    engine._backpropagate(secondJump, 0.8, 2);
+    expect(firstJump.wins).toBeCloseTo(0.9);
+    expect(secondJump.wins).toBeCloseTo(0.9);
   });
 });

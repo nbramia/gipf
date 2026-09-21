@@ -1,3 +1,4 @@
+import { captureFence, withAccountTransition } from './accountFence.js';
 // account.js — app-level username+password accounts.
 //
 // This repo's convention is to duplicate shared behavior per consumer rather
@@ -15,10 +16,8 @@
 // an auth token plus AES-GCM ciphertexts of the user's two BYO secrets: the
 // Anthropic API key (`enc`) and the Lichess explorer token (`encLichess`).
 // The AES key that decrypts those ciphertexts never leaves the client. The
-// profileId is one of the password-derived secrets, so it's unguessable
-// without the password — that's what lets account profiles reuse the
-// existing /api/chessProfile endpoint unchanged: the profileId doubles as
-// the "opaque id" that endpoint already expects.
+// profileId remains a legacy bearer capability used only for bounded claims.
+// Normal persistence proves ownership with usernameId and authToken.
 
 const NAMESPACE = 'gipf-chess-account:v1:';
 const PBKDF2_ITERATIONS = 310_000;
@@ -131,6 +130,7 @@ async function postAccount(payload) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(10000),
   });
   const data = await r.json();
   if (data.configured === false) return { configured: false };
@@ -209,20 +209,102 @@ export function loadSession() {
   }
 }
 
-export function saveSession(s) {
+// Allowlist of progress only: raw credentials and unrelated apps never enter recovery.
+export const PROGRESS_KEYS = [
+  'chessStatsRecovery:v1',
+  'chessMatch:v1', 'chessMatchSync:v1', 'chessMatchRecovery:v1', 'yinshMatch:v1', 'yinshMatchSync:v1', 'yinshMatchRecovery:v1', 'zertzMatch:v1', 'zertzMatchSync:v1', 'zertzMatchRecovery:v1', 'catanMatch:v1', 'catanMatchSync:v1', 'catanMatchRecovery:v1',
+  'chessDarkMode', 'chessShowMoves', 'chessDifficulty', 'chessLearningGoal',
+  'chessShowEvalBar', 'chessSound', 'chessRated', 'chessRating', 'chessRatedGames',
+  'chessGameState', 'chessIntroSeen', 'chessKeyNudgeDismissed', 'chessPuzzleShowTheme', 'chessTimeControl',
+  'chessMistakes', 'chessOppHistory', 'chessPuzzleProgress', 'chessGameLog', 'chessRepertoire',
+  'yinshDarkMode', 'yinshShowMoves', 'yinshRandomSetup', 'yinshKeepScore', 'yinshWins',
+  'yinshDifficulty', 'yinshTwoPlayer', 'zertzDifficulty', 'zertzTwoPlayer', 'yinshShowMoveHistory', 'yinshEvaluationMode', 'zertzDarkMode', 'zertzShowMoves',
+  'catanDarkMode', 'catanShowMoves', 'catanDifficulty', 'catanRulesetId', 'catanPlayerCount', 'catanScenarioId',
+  'splendorDarkMode', 'splendorDifficulty', 'splendorPlayerCount',
+  'diplomacyDarkMode', 'diplomacyShowOrders', 'diplomacyShowLastMoves', 'diplomacySettings', 'diplomacyGameState',
+];
+const SECRET_KEYS = ['gipfApiKey', 'chessApiKey', 'catanApiKey', 'chessLichessToken'];
+export function clearDeviceSecrets() {
+  SECRET_KEYS.forEach(k => localStorage.removeItem(k));
+}
+export async function retainProgress(session) {
+  const check = captureFence({ allowTransition: true });
+  const owner = loadSession();
+  if (owner?.usernameId !== session?.usernameId || owner?.authToken !== session?.authToken) throw new Error('account_changed');
+  const snapshot = () => JSON.stringify(Object.fromEntries(PROGRESS_KEYS.map(k => [k, localStorage.getItem(k)]).filter(([, v]) => v !== null)));
+  const progress = snapshot();
+  if (progress === '{}') return;
+  const key = session ? `gipf:recovery:${session.usernameId}` : 'gipf:guest:recovery';
+  const previous = localStorage.getItem(key);
+  const value = session ? JSON.stringify(await encryptApiKey(session.aesKey, progress)) : progress;
+  check();
+  if (snapshot() !== progress || localStorage.getItem(key) !== previous) throw new Error('progress_changed');
+  localStorage.setItem(key, value);
+}
+async function saveSessionProgress(s, { importGuest = false, apiKey = '', lichessToken = '' } = {}) {
+  const previous = loadSession();
+  const guestLegacyKey = !previous && importGuest ? getSharedApiKey() : '';
+  const ids = [s.profileId];
+  if (guestLegacyKey) {
+    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('gipf-chess-rating:v1:' + guestLegacyKey));
+    ids.push(bytesToHex(new Uint8Array(bytes)));
+  }
+  for (const legacyId of ids) {
+    try {
+      await fetch(`${process.env.PUBLIC_URL || ''}/api/chessProfile`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'claim', u: s.usernameId, auth: s.authToken, legacyId }),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch (_) { /* Cloud unavailable: encrypted recovery remains on this device. */ }
+  }
+  if (loadSession()?.authToken !== previous?.authToken) throw new Error('account_changed');
+  assertMatchTransition();
+  let committing = false;
   try {
+    if (previous?.usernameId !== s.usernameId) {
+      // Validate recovery and retain outgoing progress before any destructive step.
+      await retainProgress(previous);
+      const retained = JSON.stringify(PROGRESS_KEYS.map(k => localStorage.getItem(k)));
+      const sealed = localStorage.getItem(`gipf:recovery:${s.usernameId}`);
+      const restored = sealed ? JSON.parse(await decryptApiKey(s.aesKey, JSON.parse(sealed))) : {};
+      const guest = importGuest && !previous ? JSON.parse(localStorage.getItem('gipf:guest:recovery') || '{}') : {};
+      if (loadSession()?.authToken !== previous?.authToken) throw new Error('account_changed');
+      assertMatchTransition();
+      if (JSON.stringify(PROGRESS_KEYS.map(k => localStorage.getItem(k))) !== retained) throw new Error('progress_changed');
+      committing = true;
+      PROGRESS_KEYS.forEach(k => localStorage.removeItem(k));
+      clearDeviceSecrets();
+      for (const k of PROGRESS_KEYS) {
+        const value = restored[k] ?? guest[k];
+        if (typeof value === 'string') localStorage.setItem(k, value);
+      }
+    }
     localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify({ v: 1, ...s }));
-  } catch (_) {
-    /* ignore storage failures */
+    setSharedApiKey(apiKey);
+    setSharedLichessToken(lichessToken);
+  } catch (error) {
+    if (committing) {
+      // A partial localStorage restore must never leave the old identity on
+      // the new account's data. Both recovery copies were staged beforehand.
+      PROGRESS_KEYS.forEach(k => localStorage.removeItem(k));
+      clearDeviceSecrets();
+      localStorage.removeItem(ACCOUNT_STORAGE_KEY);
+      window.location.reload();
+    }
+    throw error;
   }
 }
-
-export function clearSession() {
-  try {
-    localStorage.removeItem(ACCOUNT_STORAGE_KEY);
-  } catch (_) {
-    /* ignore storage failures */
-  }
+async function clearSessionProgress() {
+  const previous = loadSession();
+  const before = JSON.stringify(PROGRESS_KEYS.map(k => localStorage.getItem(k)));
+  await retainProgress(previous);
+  if (loadSession()?.authToken !== previous?.authToken) throw new Error('account_changed');
+  assertMatchTransition();
+  if (JSON.stringify(PROGRESS_KEYS.map(k => localStorage.getItem(k))) !== before) throw new Error('progress_changed');
+  PROGRESS_KEYS.forEach(k => localStorage.removeItem(k));
+  clearDeviceSecrets();
+  localStorage.removeItem(ACCOUNT_STORAGE_KEY);
 }
 
 // ---- shared API key slot ----------------------------------------------------
@@ -246,7 +328,7 @@ export function setSharedApiKey(key) {
     if (key) {
       localStorage.setItem('gipfApiKey', key);
     } else {
-      localStorage.removeItem('gipfApiKey');
+      ['gipfApiKey', 'chessApiKey', 'catanApiKey'].forEach(k => localStorage.removeItem(k));
     }
   } catch (_) {
     /* ignore storage failures */
@@ -280,3 +362,16 @@ export function setSharedLichessToken(token) {
     /* ignore storage failures */
   }
 }
+
+// Freeze mounted match writers before any asynchronous account recovery/claim.
+// Other tabs check the shared marker directly, without waiting for storage events.
+let transitionCheck = null;
+function assertMatchTransition() { if (!transitionCheck) throw new Error('account_changed'); transitionCheck(); }
+async function withMatchTransition(operation) {
+  return withAccountTransition(async check => {
+    transitionCheck = check;
+    try { return await operation(); } finally { transitionCheck = null; }
+  });
+}
+export async function saveSession(session, options) { return withMatchTransition(() => saveSessionProgress(session, options)); }
+export async function clearSession() { return withMatchTransition(clearSessionProgress); }

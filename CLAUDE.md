@@ -171,7 +171,16 @@ Before modifying game logic for either game:
 |------|---------|
 | `src/App.jsx` | React Router with lazy-loaded game routes |
 | `src/LandingPage.jsx` | Landing page linking to each game + the app-wide account widget |
+| `src/landing.css` | Scoped catalogue and optional account presentation styles |
+| `scripts/landing-fixture/` | Synthetic account browser checks and production guest-launch check; prerequisites and limits in `docs/public-games-design.md` |
 | `src/account.js` | App-level account module -- identical copy of chess's `engine/account.js` (per-consumer copy convention); landing-page sign-in/out, key decrypt into `gipfApiKey` |
+| `src/MatchBoundary.jsx` | Match hydration, persistence context, conflict choices, and recovery UI |
+| `src/matchStore.js` | Account-bound local match storage, recovery alternatives, and cloud CAS requests |
+| `src/matchSchema.js` | Shared versioned match envelope and size/field validation |
+| `src/snapshotValidation.js` | Shared snapshot state/UI validation helpers for game adapters |
+| `src/matchBoundary.css` | App-level match chrome with scoped light/dark theme variables |
+| `server/matchValidation.js` | Server match validation using each game's decoder |
+| `server/chessLogValidation.js` | Bounded validation of existing Chess finished-game statistics |
 | `src/index.css` | Tailwind directives + shared keyframes only |
 | `vercel.json` | API rewrites + SPA catch-all for client-side routing |
 | `src/games-registry.js` | The one list of games — read by the landing page and by the tile-manifest build step |
@@ -180,11 +189,16 @@ Before modifying game logic for either game:
 | `tailwind.config.js` | Font families (display, heading, body) |
 | `jest.config.js` | Test config (auto-discovers `*.test.js` in all subdirs) |
 
+App-owned match boundary and snapshot-validation modules are imported directly by
+the game UIs and adapters; game engines remain self-contained with no imports
+between game directories. The account module retains its per-consumer copies.
+
 ### Yinsh (`src/games/yinsh/`)
 
 | File | Purpose |
 |------|---------|
 | `YinshBoard.js` | Pure game logic -- state, rules, phases (no React) |
+| `matchSnapshot.js` | Portable board encoding and validated match restoration |
 | `YinshGame.jsx` | React UI -- SVG board, modals, interaction handlers |
 | `YinshNotation.js` | Chess-style move notation system |
 | `yinsh.css` | Scoped CSS variables (`.game-yinsh`) + animations |
@@ -202,6 +216,7 @@ Before modifying game logic for either game:
 | File | Purpose |
 |------|---------|
 | `ZertzBoard.js` | Pure game logic -- rings, marbles, captures (no React) |
+| `matchSnapshot.js` | Portable board encoding and validated match restoration |
 | `ZertzGame.jsx` | React UI -- SVG hex board, modals, interaction handlers |
 | `zertz.css` | Scoped CSS variables (`.game-zertz`) + animations |
 | `ZertzBoard.test.js` | Jest tests covering all zertz game logic |
@@ -211,6 +226,7 @@ Before modifying game logic for either game:
 | File | Purpose |
 |------|---------|
 | `ChessBoard.js` | Pure game logic over chess.js -- moves, draws, undo/redo, PGN, clone (no React) |
+| `matchSnapshot.js` | Portable board encoding and validated match restoration |
 | `ChessGame.jsx` | React UI (react-chessboard) -- play, coaching panel, puzzles, PGN, accuracy |
 | `chess.css` | Scoped CSS variables (`.game-chess`) + animations |
 | `ChessBoard.test.js` | Jest tests for chess game logic |
@@ -230,8 +246,8 @@ Before modifying game logic for either game:
 | `hooks/useStockfish.js` | Engine lifecycle; `getMove()` (opponent) + `analyze()` (coaching), serialized |
 | `coach/*.js` | classify, analyzeMove, templates, coachClient, openings, pgn, accuracy, puzzles, material, sound |
 | `api/chessCoach.js` | Vercel serverless coach (Claude API, **bring-your-own key**, no server fallback) |
-| `api/chessRating.js` | Vercel serverless Rated-mode store (Vercel KV; keyed by API-key hash, raw key never sent). Returns `{configured:false}` and the client stays local when no KV env is set |
-| `api/chessProfile.js` | Vercel serverless profile sync store -- four domains (rating, history, puzzles, mistakes) keyed by the same API-key hash; mirrors rating writes to the legacy `chessRating` key for old clients |
+| `api/chessRating.js` | Retired legacy endpoint; returns 410. Claim old cloud data through authenticated `chessProfile` |
+| `api/chessProfile.js` | Authenticated, revisioned Chess profile and separate four-game settings scope; bounded one-owner legacy claims. See `docs/public-accounts.md` |
 | `api/chessAccount.js` | Vercel serverless account store (username+password); Vercel KV keyed by a SHA-256 username hash, auth token stored only as its hash, API key and Lichess explorer token stored only as client-encrypted ciphertext |
 
 See [docs/chess.md](docs/chess.md) for the engine + coaching pipeline and the BYO-key security model.
@@ -244,13 +260,15 @@ opponent history and puzzle/mistake progress) is OPTIONAL and requires a Vercel 
 store linked to the project (injects `KV_REST_API_URL` + `KV_REST_API_TOKEN`); without
 it, ratings persist in localStorage only. A username+password account (`api/chessAccount.js`,
 `engine/account.js`) now also carries the API key + Lichess explorer token + profile across
-devices, keyed by a password-derived id instead of the API-key hash.
+devices using usernameId plus a verified password-derived auth token. Public IDs
+never authorize persistence. See [docs/public-accounts.md](docs/public-accounts.md).
 
 ### Catan (`src/games/catan/`)
 
 | File | Purpose |
 |------|---------|
 | `CatanBoard.js` | Pure 3-6 player Catan rules engine -- setup, production, robber, builds, dev cards, P2P trades, discard, awards |
+| `matchSnapshot.js` | Portable board encoding and validated match restoration |
 | `CatanGame.jsx` | React UI -- SVG board, player panels, controls, AI turn loop, rules-help chat |
 | `catan.css` | Scoped CSS variables (`.game-catan`) + animations |
 | `engine/mcts.js` | PUCT game-tree MCTS (maxⁿ value, dice chance nodes, heuristic-rollout/NN evaluator) |
@@ -355,6 +373,9 @@ Each game scopes its CSS variables under a wrapper class:
 
 Animations are also prefixed (`yinsh-piece-fade-in`, `zertz-piece-fade-in`) and scoped (`.game-yinsh .piece-enter`). The shared `slide-in-right` keyframe lives in `index.css`.
 
+App-level match chrome uses `.match-chrome` / `.match-chrome.dark` and `--match-*`
+variables in `src/matchBoundary.css`, separate from the game wrappers.
+
 When adding new CSS for a game, always scope it under the game's wrapper class.
 
 ### Yinsh Coordinate System
@@ -409,12 +430,14 @@ Two evaluation modes (toggled in Settings):
 ```
 yinshDarkMode, yinshShowMoves, yinshRandomSetup,
 yinshKeepScore, yinshWins, yinshShowMoveHistory,
-yinshEvaluationMode
+yinshEvaluationMode,
+yinshMatch:v1, yinshMatchSync:v1, yinshMatchRecovery:v1
 ```
 
 **Zertz:**
 ```
-zertzDarkMode, zertzShowMoves
+zertzDarkMode, zertzShowMoves,
+zertzMatch:v1, zertzMatchSync:v1, zertzMatchRecovery:v1
 ```
 
 **Chess:**
@@ -426,7 +449,9 @@ chessRated, chessRating, chessRatedGames,  # Rated mode: toggle, current Elo, ga
 chessMistakes,                             # Mistake library: captured positions + review schedule
 chessOppHistory,                           # Per-opponent W/L/D record (casual tiers + rated rungs)
 chessPuzzleProgress,                       # Puzzle trainer: player puzzle Elo + per-puzzle review schedule
-chessGameState,                            # In-progress game snapshot (PGN + colour + dialogue) so a refresh resumes
+chessGameState,                            # Legacy source; converted once when chessMatch:v1 is absent
+chessMatch:v1, chessMatchSync:v1, chessMatchRecovery:v1,
+chessStatsRecovery:v1,                     # Retained finished-game log alternatives
 chessGameLog,                              # Finished games (capped) feeding the cross-game progress panel
 chessRepertoire,                           # Openings the player intends to play, per colour (adherence + deviation nudges)
 chessTimeControl,                          # Optional clock: off | 3+2 | 5+0 | 10+0 | 15+10
@@ -438,7 +463,8 @@ chessIntroSeen, chessKeyNudgeDismissed     # One-time onboarding banner + BYO-ke
 
 ```
 catanDarkMode, catanShowMoves, catanDifficulty, catanRulesetId,
-catanPlayerCount, catanScenarioId
+catanPlayerCount, catanScenarioId,
+catanMatch:v1, catanMatchSync:v1, catanMatchRecovery:v1
 ```
 
 **Splendor:**
@@ -462,12 +488,13 @@ gipfApiKey   # one BYO Anthropic key, used by the chess coach, the Catan rules
              # chat, and the Splendor rules chat. Legacy chessApiKey / catanApiKey
              # are migrated into it on first read. Each game keeps an identical
              # copy of the storage helper (no cross-game import).
+gipf:account-transition # Temporary account-switch lease marker {id, until}
 gipfAccount  # username+password account session (derived credentials, cached
              # locally so the client isn't re-running PBKDF2 every load).
              # App-wide: landing-page widget + chess settings block; Catan,
              # Splendor, and Diplomacy show signed-in awareness only. Signing
-             # out drops the session but keeps the local key(s) (API key,
-             # chess's Lichess explorer token).
+             # out clears credentials and visible progress; outgoing progress
+             # is retained encrypted in gipf:recovery:<usernameId>.
 ```
 
 Never rename or restructure these without migration logic.
