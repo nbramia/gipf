@@ -5,6 +5,8 @@ import { CATAN_RULESETS } from './games/catan/catanRulesets.js';
 export const fail = () => { throw new Error('invalid_migration'); };
 export const obj = v => v !== null && typeof v === 'object' && !Array.isArray(v) && Object.getPrototypeOf(v) === Object.prototype;
 export const text = (max = 2000) => v => typeof v === 'string' && v.length <= max;
+// Free-form local writers have no smaller cap; the final UTF-8 envelope does.
+export const progressText = text(5 * 1024 * 1024);
 export const number = (min = 0, max = 4102444800000) => v => Number.isFinite(v) && v >= min && v <= max;
 export const integer = (min = 0, max = 4102444800000) => v => Number.isSafeInteger(v) && v >= min && v <= max;
 export const one = (...values) => v => values.includes(v);
@@ -59,7 +61,7 @@ for (const [game, names] of Object.entries({
 })) for (const name of names) preference[game + name] = one('true','false');
 Object.assign(preference, {
   chessDifficulty: one('beginner','casual','intermediate','advanced','master'),
-  chessTimeControl: one('off','3+2','5+0','10+0','15+10'), chessLearningGoal: text(),
+  chessTimeControl: one('off','3+2','5+0','10+0','15+10'), chessLearningGoal: progressText,
   chessRating: json(integer(100,4000)), chessRatedGames: json(count),
   yinshDifficulty: one('easy','advanced','expert'), zertzDifficulty: one('easy','advanced','expert'),
   catanDifficulty: one('strong','expert','brutal'), splendorDifficulty: one('strong','expert','brutal'),
@@ -76,9 +78,9 @@ export const DATA_KEYS = {
 };
 const schemas = {
   'chess-history': shape({ v: one(1), casual: map(shape({w:count,l:count,d:count}), /^[a-zA-Z0-9_-]{1,32}$/,32), rated: map(shape({w:count,l:count,d:count}), /^[a-zA-Z0-9_-]{1,32}$/,32) }),
-  'chess-puzzles': shape({ rating: integer(100,4000), attempts: count, puzzles: map(shape({ attempts: count, solves: count, streak: count, nextDueAt: timestamp, lastResult: one('solved','failed') })) }),
+  'chess-puzzles': shape({ rating: integer(100,4000), attempts: count, puzzles: map(shape({ attempts: count, solves: count, streak: count, nextDueAt: timestamp, lastResult: one('solved','failed') }), /^[a-zA-Z0-9_-]{1,64}$/, 100000) }),
   'chess-mistakes': array(mistake,200),
-  'chess-repertoire': shape({version:one(1),white:array(text(256),200),black:array(text(256),200)}),
+  'chess-repertoire': shape({version:one(1),white:array(progressText,100000),black:array(progressText,100000)}),
   'chess-log': validLog,
 };
 export function validateData(kind, id, data) {

@@ -40,11 +40,11 @@ staging. Match alternatives use content-derived outer IDs and retain inner IDs.
 | --- | --- | --- |
 | `preference` | Exact allowlisted storage key | Original string, validated by the key-specific schema below |
 | `chess-history` | `chessOppHistory` | `{v:1,casual,rated}`; maps of up to 32 bounded opponent keys to exact `{w,l,d}` integer counts 0–1,000,000 |
-| `chess-puzzles` | `chessPuzzleProgress` | `{rating,attempts,puzzles}`; rating 100–4000, attempts 0–1,000,000; up to 500 puzzle IDs with exact `{attempts,solves,streak,nextDueAt,lastResult}`; result solved/failed; timestamp 0–4102444800000 |
+| `chess-puzzles` | `chessPuzzleProgress` | `{rating,attempts,puzzles}`; rating 100–4000, attempts 0–1,000,000; up to 100,000 puzzle IDs, also limited by the 5 MiB envelope, with exact `{attempts,solves,streak,nextDueAt,lastResult}`; result solved/failed; timestamp 0–4102444800000 |
 | `chess-mistakes` | `chessMistakes` | At most 200 entries: `id,fenBefore,movePlayed,bestSan,bestPv,cpLoss,classification,opening,moveNo,createdAt,attempts,streak,nextDueAt`; valid FEN, bounded strings/numbers, classification inaccuracy/mistake/blunder; nullable opening |
-| `chess-repertoire` | `chessRepertoire` | `{version:1,white,black}`; each at most 200 opening names of at most 256 characters |
+| `chess-repertoire` | `chessRepertoire` | `{version:1,white,black}`; each at most 100,000 names; free text bounded by the 5 MiB envelope |
 | `chess-log` | `chessGameLog` or content-derived alternative | Existing bounded finished-game entry schema from `server/chessLogValidation.js`, at most 200 entries / 100,000 bytes; exact nested counts |
-| `diplomacy-save` | `diplomacyGameState` | Existing version-1 envelope: `version,savedAt,board,uiPhase,controllers,personas,conversations,diplomaticState,uiState`; maximum 400,000 bytes; closed progress-only schemas described below |
+| `diplomacy-save` | `diplomacyGameState` | Existing version-1 envelope: `version,savedAt,board,uiPhase,controllers,personas,conversations,diplomaticState,uiState`; bounded by the enclosing 5 MiB export, including its metadata; closed progress-only schemas described below |
 | `chess-match`, `yinsh-match`, `zertz-match`, `catan-match` | Inner ID or content-derived alternative | Full version-1 snapshot, authoritative game decoder plus migration's closed nested field validation; see `resumable-matches.md` |
 
 Preference allowlist is the actual game-local inventory, excluding secrets:
@@ -56,7 +56,7 @@ Preference allowlist is the actual game-local inventory, excluding secrets:
   ShowOrders, ShowLastMoves. Prefixes are lower-case game names, e.g. `chessDarkMode`.
 - `chessDifficulty`: beginner/casual/intermediate/advanced/master;
   `chessTimeControl`: off/3+2/5+0/10+0/15+10;
-  `chessLearningGoal`: text at most 2000 characters;
+  `chessLearningGoal`: free text bounded by the 5 MiB UTF-8 export;
   `chessRating`: integer 100–4000; `chessRatedGames`: integer 0–1,000,000.
 - `yinshDifficulty`, `zertzDifficulty`: easy/advanced/expert;
   `catanDifficulty`, `splendorDifficulty`: strong/expert/brutal;
@@ -71,6 +71,9 @@ Preference allowlist is the actual game-local inventory, excluding secrets:
 Splendor has no persistent match in this parent. Diplomacy's permissive loader
 is supplemented by a migration-only closed validator; no game behavior changes.
 Its board fields are exactly those from `DiplomacyBoard.serializeState()`.
+Winter uses the engine's `winter-build` phase, including inside undo history.
+The writer's 400,000-byte soft cap only trims conversation turns; legitimate
+board histories exceed it. Migration does not treat that soft cap as a hard limit.
 Units are `{power,type}`, powers are the seven country IDs above, and unit
 types are army/fleet. Province map keys are actual province/coast IDs. History
 is bounded to 80 JSON snapshots whose own histories must be empty. Orders admit
@@ -105,6 +108,19 @@ device is reported as excluded from this recovery interface. Unknown/damaged
 alternatives are surfaced. Neither raw
 containers nor their metadata enter export. Guest retained recovery is kept
 separate and never attributed to a signed-in account.
+When another account recovery key exists, a generic warning exposes no account
+identifier, count or contents. A guest recovery warning also appears when signed
+in. Only storage key names are inspected to detect other account recovery;
+their values are never read or included in ordinary exports.
+
+If the complete export would exceed 5 MiB UTF-8 or 10,000 records, complete
+records that fit are exported and each omitted record is named in the visible
+incomplete-export warning. Current values take priority over recovery alternatives.
+No record is clipped and later smaller records can still fit. The resulting file
+passes the same complete validation as any ordinary export. An individually
+unsupported or oversized record stays in its original storage key and is reported;
+keep that source browser for future/manual recovery. This is a partial recovery
+path, not complete migration, and there is no automatic split or selection UI.
 
 Identity and the exact account-transition marker are captured and checked before
 reads and after every asynchronous step. Any active, changed, malformed or
@@ -120,10 +136,53 @@ and is idempotent; reusing an export ID with different content is rejected.
 Staging uses one bounded atomic localStorage value per captured identity and
 Web Locks to serialize migration writers. Signed-in stages use existing AES-GCM
 encryption; guest stages have a separate key. At most 50 files and 5 MiB of
-decrypted staged JSON are retained per identity. Quota failure leaves the old stage
+decrypted staged JSON are structural limits per identity, not promised capacity.
+AES-GCM ciphertext is base64 (about 4/3 overhead, plus IV/JSON), and shares the
+browser's origin quota with active saves and other recovery. Browser quota/accounting
+varies; a stage can fail well below the structural limit. Keep downloaded files.
+Quota failure leaves the old stage
 and all active keys untouched. No multi-key transaction or rollback is claimed.
 Retained files can be downloaded again from the migration page under the same
 identity; they do not automatically activate or cross account boundaries.
+Guest staging is unencrypted and accessible to anyone using that browser as a
+guest, including private progress in files exported while signed in. The page
+always warns before guest staging and requires explicit consent; no identifying
+metadata is added to portable files to guess their origin account.
+
+The `gamesMigration:v1:<identity>` store remains a version-1 JSON array (AES-GCM
+encrypted for accounts). Entries are validated independently: invalid entries
+do not block downloading valid ones or appending a new valid file. Appends retain
+the exact existing JSON text, including unreadable entries; all entries still
+count toward capacity. ID collisions still reject. A damaged array or failed
+decryption cannot be appended to and is never overwritten.
+
+An explicitly consented **raw stage recovery** download preserves only the current
+identity's original stage container (maximum 10 MiB stored text), even if the
+container cannot be parsed. Account raw recovery stays encrypted, requires the
+original encryption key, and is not an ordinary portable export. Guest raw
+recovery can contain private/unvalidated data. Neither format is accepted as a
+validated migration file or promoted to active keys; keep it private for manual
+repair. No other identity's stage or arbitrary localStorage is downloaded.
+
+## Writer-bound audit (general review round 1)
+
+| Writer group | Evidence and migration limit |
+| --- | --- |
+| Six-game preferences | Boolean/enumeration writers match the allowlist. Chess learning goal has no writer cap and now uses the envelope budget. Numeric counters still have the documented 1,000,000 safety limit, and timestamps stop at 2100; these are migration bounds, not writer guarantees. |
+| Chess puzzles | `recordPuzzleResult` adds an entry per ID without a cap. Removed the 500-entry restriction; 100,000-entry safety ceiling plus 5 MiB budget. Regression writes 501 real results. |
+| Chess repertoire | `pinOpening` has no list/name cap. Removed 200-entry/256-character restrictions; 100,000 names per color plus envelope budget. Regression uses 201 writer-generated names. |
+| Chess history, mistakes and log | UI opponent keys come from five tiers/rating ladder (within 32 per bucket). `captureMistake` and `recordGame` cap at 200. Log's 100,000-byte limit follows the existing server boundary. Counts, FEN and string restrictions remain explicit migration validation; permissive historical loaders are not compatibility guarantees. |
+| Four match writers | Existing authoritative decoders enforce 240,000-byte snapshots and UI arrays up to 2,000. Their restrictions stay in force. Yinsh rows now require engine `fullLineLength` (5–11); seeded legal play covers row removal and recovery alternatives through game end. Chess free coaching text now allows the snapshot byte budget; threads allow 10,000 entries, still bounded by snapshot bytes. Other closed typed game geometry, resources and fields remain unchanged. |
+| Diplomacy board | 80 undo snapshots, 12 order-history entries per board; 400 KB is only a writer soft cap. Regression adjudicates 45 phases including a real winter build and saves beyond 1910 and 400 KB. No engine or persistence writer changed. |
+| Diplomacy negotiation | `appendMessage`/scratchpad storage have no text cap; text now uses the envelope budget. Messages, agreements and promises have a 100,000-entry safety ceiling; summaries retain the writer's 200-character cap. Local long-conversation regression added; no live LLM/provider verification. Closed fields, country/province sets, ID/turn/persona bounds still apply. |
+| Recovery stores | Existing match alternatives and log recovery accept at most eight entries, using their existing decoders/bounds. Only the captured account's documented match/log encrypted recovery interface is consumed; other known content is visibly excluded. |
+
+Unsupported historical extensions, over-limit counters/strings/arrays, and data
+outside these supported interfaces are **not** silently repaired or removed.
+They produce incomplete-export warnings and remain in source storage; retain the
+source device. This audit and its deterministic fixtures do not prove every
+historical or provider-generated shape can migrate. Active migration acceptance
+and broader recovery completion remain held on #66 and subsequent review.
 
 No originals are cleaned up, no origin/cache is cleared, no credentials are
 transferred and no redirect occurs. Re-enter original account/encryption secrets
@@ -137,6 +196,10 @@ bounds, populated Chess statistics/trainer formats, alternatives, encrypted
 recovery, account/transition changes during cryptography, replay, conflicts and
 storage/encryption failure preservation. `src/GamesMigration.test.jsx` covers
 explicit staging opt-in and invalidation of prepared data on identity events.
+`src/migrationReview.test.js` adds deterministic multi-year/late-game Diplomacy,
+seeded Yinsh through row removal, actual uncapped writers, per-entry stage
+isolation and byte preservation, scoped raw recovery, generic excluded-recovery
+warnings, and explicit UTF-8 overflow with source preservation.
 `src/migrationParentBoundary.test.jsx` deliberately reproduces the two inherited
 writer defects for #66; its passing assertions describe the defect, not a fixed
 authorization boundary. Flip those assertions when the parent is corrected.

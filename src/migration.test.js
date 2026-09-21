@@ -171,7 +171,7 @@ test('active and encrypted alternatives are progress-only, deduplicated, recover
   localStorage.setItem(`gipf:recovery:${account(5).usernameId}`,'not this account');
   const {bundle,issues} = await exportProgress(origin);
   expect(bundle.records).toHaveLength(3);
-  expect(issues).toHaveLength(1);
+  expect(issues).toHaveLength(2);
   expect(JSON.stringify(bundle)).not.toMatch(/secret-never-copy|synthetic-never-export|authToken|aesKey|usernameId|"ct"|"iv"/);
   expect(bundle.records.find(r => r.data.updatedAt === 9).id).toMatch(/^chess-synthetic:[a-f0-9]{64}$/);
   await stageImport(bundle,'retain');

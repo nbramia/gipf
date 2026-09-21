@@ -137,8 +137,18 @@ export async function exportProgress(sourceOrigin, guard = captureIdentity()) {
         issues.push('Encrypted recovery: unreadable or unsupported; original retained.');
       }
     }
-  } else if (localStorage.getItem('gipf:guest:recovery')) {
+  }
+  if (localStorage.getItem('gipf:guest:recovery')) {
     issues.push('Retained guest recovery is separate from current guest progress and is not exported; original retained.');
+  }
+  // Inspect only names, never values, for other account recovery. Do not reveal
+  // account identifiers or counts in either the warning or portable bundle.
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key?.startsWith('gipf:recovery:') && key !== `gipf:recovery:${guard.session?.usernameId}`) {
+      issues.push('Other account recovery exists on this device and is not exported. Sign in to the intended account to include its supported recovery; originals retained.');
+      break;
+    }
   }
   // Read live values after decryption so pending local edits are not replaced
   // with an earlier snapshot taken before an await.
@@ -157,6 +167,8 @@ export async function exportProgress(sourceOrigin, guard = captureIdentity()) {
     else issues.push('chessGameState: shadowed legacy save is not exported; original retained.');
   }
   const records = [];
+  const bundle = {format:'ramia-migration',version:1,app:'games',exportId:crypto.randomUUID(),exportedAt:new Date().toISOString(),sourceOrigin,records};
+  let usedBytes = bytes(JSON.stringify(bundle));
   const seen = new Set();
   // Prefer the current match's ordinary ID when identical to a backup.
   candidates.sort((a,b) => Number(a.alternative) - Number(b.alternative));
@@ -167,9 +179,15 @@ export async function exportProgress(sourceOrigin, guard = captureIdentity()) {
     const fingerprint = `${kind}/${id}/${revision}`;
     if (seen.has(fingerprint)) continue;
     seen.add(fingerprint);
-    records.push({kind,id:alternative ? `${id}:${revision}` : id,schemaVersion:1,revision,data});
+    const record = {kind,id:alternative ? `${id}:${revision}` : id,schemaVersion:1,revision,data};
+    const size = bytes(JSON.stringify(record)) + (records.length ? 1 : 0);
+    if (records.length >= 10000 || usedBytes + size > MAX_BYTES) {
+      issues.push(`${kind} ${record.id}: omitted because the export reaches its 5 MiB / 10,000 record limit; original retained. Keep the source browser for recovery; this partial file is not a complete migration.`);
+      continue;
+    }
+    records.push(record);
+    usedBytes += size;
   }
-  const bundle = {format:'ramia-migration',version:1,app:'games',exportId:crypto.randomUUID(),exportedAt:new Date().toISOString(),sourceOrigin,records};
   await validateFile(JSON.stringify(bundle),guard);
   guard.check();
   return {bundle,issues};
@@ -189,23 +207,40 @@ const stageKey = guard => `gamesMigration:v1:${guard.session ? guard.session.use
 async function loadStages(guard) {
   guard.check();
   const raw = localStorage.getItem(stageKey(guard));
-  if (raw === null) return {raw,stages:[]};
+  if (raw === null) return {raw,decoded:'[]',stages:[],valid:[],unreadable:0};
   if (bytes(raw) > MAX_BYTES * 2) fail();
   const decoded = guard.session ? await decryptApiKey(guard.session.aesKey,JSON.parse(raw)) : raw;
   guard.check();
   if (bytes(decoded) > MAX_BYTES) fail();
   const stages = JSON.parse(decoded);
   if (!array(() => true,50)(stages)) fail();
+  const valid = [];
+  let unreadable = 0;
   for (const value of stages) {
-    await validateFile(JSON.stringify(value),guard);
+    try { valid.push(await validateFile(JSON.stringify(value),guard)); }
+    catch (_) { guard.check(); unreadable++; }
     guard.check();
   }
-  return {raw,stages};
+  return {raw,decoded,stages,valid,unreadable};
 }
 export async function readStages(guard = captureIdentity()) {
   const result = await loadStages(guard);
   guard.check();
-  return result.stages;
+  return result.valid;
+}
+export async function inspectStages(guard = captureIdentity()) {
+  const result = await loadStages(guard);
+  guard.check();
+  return {stages:result.valid,unreadable:result.unreadable};
+}
+// Explicit disaster-recovery download, NOT a migration file. Never decrypt
+// unvalidated account content for export; preserve its original ciphertext.
+export function rawStageRecovery(guard = captureIdentity()) {
+  guard.check();
+  const raw = localStorage.getItem(stageKey(guard));
+  if (raw === null || bytes(raw) > MAX_BYTES * 2) fail();
+  guard.check();
+  return raw;
 }
 export async function stageImport(input, choice, guard = captureIdentity()) {
   guard.check();
@@ -216,14 +251,17 @@ export async function stageImport(input, choice, guard = captureIdentity()) {
   if (!navigator.locks?.request) throw new Error('web_locks_required');
   return navigator.locks.request('games-migration-stage-v1',async () => {
     guard.check();
-    const {raw,stages} = await loadStages(guard);
+    const {raw,decoded,stages} = await loadStages(guard);
     guard.check();
-    const existing = stages.find(v => v.exportId === bundle.exportId);
+    const existing = stages.find(v => v?.exportId === bundle.exportId);
     if (existing) {
       if (canonical(existing) !== canonical(bundle)) throw new Error('export_id_collision');
       return {status:'replay'};
     }
-    const next = JSON.stringify([...stages,bundle]);
+    // Append to the version-1 array without reserializing any old entry. Even
+    // unreadable entries retain their exact original JSON text for recovery.
+    const end = decoded.lastIndexOf(']');
+    const next = decoded.slice(0,end) + (stages.length ? ',' : '') + JSON.stringify(bundle) + decoded.slice(end);
     if (stages.length >= 50 || bytes(next) > MAX_BYTES) throw new Error('stage_full');
     const value = guard.session ? JSON.stringify(await encryptApiKey(guard.session.aesKey,next)) : next;
     guard.check();

@@ -6,7 +6,7 @@ import { shape, array, map, text, number, integer, one, nullable, bool, count, m
 
 const p2 = one(1,2), p6 = integer(1,6), coord = v => array(integer(-5,5),2)(v) && v.length === 2;
 const setupRing = nullable(shape({player:p2,index:integer(0,4)}));
-const row = shape({player:p2,markers:array(coord,5)}, {direction:coord});
+const row = shape({player:p2,markers:array(coord,5),fullLineLength:integer(5,11)});
 const yinshState = shape({
   boardState: map(nullable(shape({type:one('ring','marker'),player:p2})), /^-?\d+,-?\d+$/, 100),
   gamePhase: one('setup','play','remove-row','remove-ring','game-over'), currentPlayer:p2,
@@ -47,9 +47,9 @@ const catanState = shape({
   tradeProposalsThisTurn:count,maxTradeProposalsPerTurn:count,longestRoadHolder:nullable(p6),largestArmyHolder:nullable(p6),winner:nullable(p6),winningPoints:count,
   stateHistory:array(() => false,0),historyIndex:one(-1),maxHistoryLength:count,
 });
-const analysis = shape({}, {fenBefore:text(120),fenAfter:text(120),movePlayed:short,classification:short,evalBefore:short,evalAfter:short,bestMove:text(),opening:text(256),commentary:text(10000)});
-const dialogue = shape({id:v => text(80)(v) || count(v),ply:count,kind:short,san:text(32),tone:short,label:short,text:text(10000),source:short,pending:bool},
-  {opening:nullable(text(256)),leftBook:bool,analysis,thread:array(shape({role:one('user','assistant'),content:text(10000)}),200)});
+const analysis = shape({}, {fenBefore:text(120),fenAfter:text(120),movePlayed:short,classification:short,evalBefore:short,evalAfter:short,bestMove:text(),opening:text(256),commentary:text(240000)});
+const dialogue = shape({id:v => text(80)(v) || count(v),ply:count,kind:short,san:text(32),tone:short,label:short,text:text(240000),source:short,pending:bool},
+  {opening:nullable(text(256)),leftBook:bool,analysis,thread:array(shape({role:one('user','assistant'),content:text(240000)}),10000)});
 const uiSchemas = {
   chess:shape({}, {humanColor:one('w','b'),orientation:one('white','black'),resigned:nullable(one('w','b')),rated:bool,difficulty:short,clock:nullable(shape({w:number(),b:number()})),timeControl:short,flagged:nullable(one('w','b')),ratedApplied:bool,historyApplied:bool,gameLogged:bool,dialogue:array(dialogue),moveStats:array(shape({ply:count,moverColor:one('w','b'),cpLoss:number(0,1000000),classification:short})),gameMistakes:array(mistake,200)}),
   yinsh:shape({}, {humanPlayer:p2,twoPlayerMode:bool,showModal:bool,difficulty:short,selectedSetupRing:setupRing,scoreApplied:bool}),

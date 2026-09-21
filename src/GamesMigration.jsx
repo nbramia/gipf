@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { captureIdentity, exportProgress, validateFile, previewImport, stageImport, readStages, MAX_BYTES } from './migration.js';
+import { captureIdentity, exportProgress, validateFile, previewImport, stageImport, inspectStages, rawStageRecovery, MAX_BYTES } from './migration.js';
 import './gamesMigration.css';
 
-function download(bundle) {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(bundle)],{type:'application/json'}));
+function download(bundle, raw = false) {
+  const url = URL.createObjectURL(new Blob([raw ? bundle : JSON.stringify(bundle)],{type:'application/json'}));
   const a = document.createElement('a');
-  a.href = url; a.download = `games-migration-${bundle.exportId}.json`; a.click();
+  a.href = url; a.download = raw ? 'games-stage-raw-recovery.json' : `games-migration-${bundle.exportId}.json`; a.click();
   setTimeout(() => URL.revokeObjectURL(url),1000);
 }
 export default function GamesMigration() {
@@ -13,6 +13,7 @@ export default function GamesMigration() {
   const [preview,setPreview] = useState([]), [stages,setStages] = useState([]);
   const [busy,setBusy] = useState(false), [error,setError] = useState(''), [status,setStatus] = useState('');
   const [confirmed,setConfirmed] = useState(false), [invalid,setInvalid] = useState(false);
+  const [unreadable,setUnreadable] = useState(0), [rawConsent,setRawConsent] = useState(false);
   const guard = useRef(null);
   const mounted = useRef(true);
   useEffect(() => {
@@ -20,7 +21,7 @@ export default function GamesMigration() {
     try { guard.current = captureIdentity(); } catch (_) { setInvalid(true); setError('Account transition in progress. Reload after it finishes.'); }
     const changed = e => {
       if (e.type === 'gipf-account-transition' || ['gipfAccount','gipf:account-transition'].includes(e.key) || e.key === null) {
-        guard.current?.invalidate(); setInvalid(true); setPrepared(null); setIncoming(null); setStages([]); setPreview([]);
+        guard.current?.invalidate(); setInvalid(true); setPrepared(null); setIncoming(null); setStages([]); setPreview([]); setUnreadable(0); setRawConsent(false);
         setError('Account changed. Reload this page before continuing.');
       }
     };
@@ -33,8 +34,13 @@ export default function GamesMigration() {
     setBusy(true); setError(''); setStatus('');
     try {
       guard.current.check(); await fn(guard.current); guard.current.check();
-    } catch (_) {
-      if (mounted.current) setError('Unable to complete this operation. Check the file, available storage and account. Originals and active saves remain unchanged.');
+    } catch (e) {
+      let changed = e.message === 'account_changed';
+      try { guard.current.check(); } catch (_) { changed = true; }
+      if (mounted.current) {
+        if (changed) { setInvalid(true); setPrepared(null); setIncoming(null); setStages([]); setPreview([]); }
+        setError(changed ? 'Account changed. Reload this page before continuing.' : 'Unable to complete this operation. Check the file, available storage and account. Originals and active saves remain unchanged.');
+      }
     } finally { if (mounted.current) setBusy(false); }
   };
   const safeDownload = bundle => run(async g => { g.check(); download(bundle); });
@@ -72,7 +78,8 @@ export default function GamesMigration() {
       {incoming && <>
         <p>{preview.length} records checked against current destination progress. Neither choice below changes active saves.</p>
         <ul>{preview.map(r => <li key={`${r.kind}/${r.id}`}>{r.kind} · {r.id}: <strong>{r.status}</strong></li>)}</ul>
-        <label><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} /> I understand this only stages a recovery file, and I have selected the intended account or guest destination.</label>
+        {!guard.current?.session && <p><strong>Guest privacy warning:</strong> Guest staging stores the entire imported file unencrypted on this browser. Anyone using this browser as a guest can recover it, including any private progress from a signed-in export.</p>}
+        <label><input type="checkbox" checked={confirmed} onChange={e => setConfirmed(e.target.checked)} /> I understand this only stages a recovery file, and I have selected the intended account or guest destination.{!guard.current?.session && ' I consent to storing this file unencrypted and accessible to other guests.'}</label>
         <div className="migration-actions">
           <button onClick={() => run(async g => { await stageImport(incoming,'keep',g); g.check(); setIncoming(null); setStatus('Destination kept. No imported data was stored.'); })}>Keep destination</button>
           <button disabled={!confirmed} onClick={() => run(async g => {
@@ -85,8 +92,12 @@ export default function GamesMigration() {
     </fieldset>
     <fieldset disabled={busy || invalid}>
       <legend>3. Recover retained files</legend>
-      <button onClick={() => run(async g => { const files = await readStages(g); g.check(); setStages(files); setStatus(files.length ? 'Retained files loaded for this identity.' : 'No retained files for this identity.'); })}>Show retained files</button>
+      <button onClick={() => run(async g => { const result = await inspectStages(g); g.check(); setStages(result.stages); setUnreadable(result.unreadable); setStatus(result.stages.length || result.unreadable ? 'Retained files loaded for this identity.' : 'No retained files for this identity.'); })}>Show retained files</button>
+      {!!unreadable && <p role="alert">{unreadable} retained entries cannot be validated by this build. Their originals are preserved; other valid files remain available below.</p>}
       <ul>{stages.map((bundle,i) => <li key={bundle.exportId}>{bundle.exportedAt} · {bundle.records.length} records <button onClick={() => safeDownload(bundle)}>Download retained file {i + 1}</button></li>)}</ul>
+      <p>Raw recovery is for manual repair of unreadable stages, including a damaged container. It is not a validated migration file and cannot be imported here. Account stages remain encrypted and require the original encryption key; guest stages may contain private, unvalidated data. Keep this backup private.</p>
+      <label><input type="checkbox" checked={rawConsent} onChange={e => setRawConsent(e.target.checked)} /> I understand raw recovery is unvalidated and may contain private data.</label>
+      <button disabled={!rawConsent} onClick={() => run(async g => { const raw = rawStageRecovery(g); g.check(); download(raw,true); })}>Download raw stage recovery</button>
     </fieldset>
     {busy && <p role="status">Checking local progress…</p>}
     {status && <p role="status">{status}</p>}

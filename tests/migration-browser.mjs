@@ -78,7 +78,8 @@ try {
   await destination.getByText('different',{exact:true}).waitFor();
   const retain = destination.getByRole('button',{name:'Retain imported file separately'});
   assert.equal(await retain.isDisabled(),true);
-  const checkbox = destination.getByRole('checkbox');
+  await destination.getByText('Guest privacy warning:',{exact:true}).waitFor();
+  const checkbox = destination.getByLabel(/I understand this only stages/);
   await checkbox.focus(); await destination.keyboard.press('Space');
   await retain.focus(); await destination.keyboard.press('Enter');
   await destination.getByText(/File retained separately/).waitFor();
@@ -88,11 +89,30 @@ try {
   const download = destination.waitForEvent('download');
   await destination.getByRole('button',{name:'Download retained file 1'}).click();
   assert.deepEqual(JSON.parse(await readFile(await (await download).path(),'utf8')),JSON.parse(exported));
-  await upload(exported); await destination.getByRole('checkbox').check(); await retain.click();
+  await upload(exported); await checkbox.check(); await retain.click();
   await destination.getByText(/identical file is already retained/).waitFor();
   const bad = JSON.parse(exported); bad.records[0].password = 'synthetic';
   await upload(JSON.stringify(bad)); await destination.getByRole('alert').waitFor();
   assert.equal(await destination.evaluate(() => JSON.parse(localStorage.getItem('gamesMigration:v1:guest')).length),1);
+  const brokenStage = await destination.evaluate(() => {
+    const key = 'gamesMigration:v1:guest';
+    const raw = localStorage.getItem(key).slice(0,-1) + ', {"future":9}]';
+    localStorage.setItem(key,raw);
+    localStorage.setItem('gipf:recovery:hidden-other-identity','synthetic-sealed');
+    return raw;
+  });
+  await destination.getByRole('button',{name:'Show retained files'}).click();
+  await destination.getByText(/1 retained entries cannot be validated/).waitFor();
+  await destination.getByRole('button',{name:'Download retained file 1'}).waitFor();
+  const rawButton = destination.getByRole('button',{name:'Download raw stage recovery'});
+  assert.equal(await rawButton.isDisabled(),true);
+  await destination.getByLabel(/I understand raw recovery/).check();
+  const rawDownload = destination.waitForEvent('download'); await rawButton.click();
+  assert.equal(await readFile(await (await rawDownload).path(),'utf8'),brokenStage);
+  await destination.getByRole('button',{name:'Prepare export'}).click();
+  await destination.getByText(/Other account recovery exists/).waitFor();
+  assert.equal(await destination.getByText(/hidden-other-identity/).count(),0);
+  console.log('PASS guest privacy consent, per-entry recovery isolation, explicit raw backup and generic excluded-recovery warning');
   for (const width of [1280,480,320]) {
     await destination.setViewportSize({width,height:900});
     if (await destination.evaluate(() => document.documentElement.scrollWidth > innerWidth)) {
@@ -104,7 +124,7 @@ try {
   const syntheticSession = n => ({v:1,username:`Synthetic ${n}`,usernameId:String(n).repeat(64),authToken:String(n+1).repeat(64),aesKey:'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',profileId:String(n+2).repeat(64)});
   await destination.evaluate(s => localStorage.setItem('gipfAccount',JSON.stringify(s)),syntheticSession(1));
   await destination.reload();
-  await upload(exported); await destination.getByRole('checkbox').check(); await retain.click();
+  await upload(exported); await checkbox.check(); await retain.click();
   await destination.getByText(/File retained separately/).waitFor();
   const ciphertext = await destination.evaluate(id => localStorage.getItem(`gamesMigration:v1:${id}`),syntheticSession(1).usernameId);
   assert.ok(ciphertext && !ciphertext.includes('ramia-migration') && !ciphertext.includes('chessDarkMode'));
