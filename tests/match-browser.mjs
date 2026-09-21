@@ -35,24 +35,45 @@ try {
       { showModal:false,twoPlayerMode:true,humanPlayer:1,difficulty:'advanced' };
     const snapshot = { v:1,game,id:`synthetic-${game}`,updatedAt:1,state:encodeBoard(board),ui };
     const a = await device();
-    await a.evaluate(({game,snapshot}) => { localStorage.setItem(`${game}Match:v1`,JSON.stringify(snapshot)); }, {game,snapshot});
+    await a.evaluate(({game,snapshot}) => {
+      localStorage.setItem(`${game}Match:v1`,JSON.stringify(snapshot));
+      if(game==='chess') localStorage.setItem('chessGameLog',JSON.stringify([{playedAt:1,result:'win',color:'w',rated:false,opponentKey:'synthetic',accuracy:90,counts:{blunder:0,mistake:1,inaccuracy:2},opening:null,eco:null,leftBookAtPly:null,moves:20}]));
+    }, {game,snapshot});
     await a.goto(`${origin}/gipf/${game}`);
     await a.locator(`.game-${game}`).waitFor();
     await a.reload(); await a.locator(`.game-${game}`).waitFor();
     assert.deepEqual((await getSnapshot(a,game)).state,JSON.parse(JSON.stringify(snapshot.state)));
     console.log(`PASS ${game}: guest reload retains canonical mid-turn state`);
-    const u = (game.charCodeAt(0).toString(16)).repeat(32), auth = '9'.repeat(64);
+    const u = String(Object.keys(boards).indexOf(game)+1).repeat(64), auth = '9'.repeat(64);
     const created = await a.request.post(`${origin}/gipf/api/chessAccount`,{data:{action:'create',u,auth,enc:null}});
     assert.ok([200,409].includes(created.status()));
     const session = {v:1,username:`Synthetic ${game}`,usernameId:u,authToken:auth,aesKey:'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',profileId:'8'.repeat(64)};
     await a.evaluate(s => localStorage.setItem('gipfAccount',JSON.stringify(s)),session);
     await a.reload(); await a.locator(`.game-${game}`).waitFor();
     await a.getByText('Saved to your account.',{exact:true}).waitFor({timeout:20000});
+    if(game==='chess') {
+      const expectedLog=await a.evaluate(()=>localStorage.getItem('chessGameLog'));
+      assert.ok(expectedLog);
+      let synced=false;
+      for(let attempt=0;attempt<20;attempt++) {
+        const response=await a.request.post(`${origin}/gipf/api/chessProfile`,{data:{u,auth,scope:'settings',action:'read'}});
+        const data=await response.json();
+        if(data.profile?.preferences?.chessGameLog===expectedLog) { synced=true; break; }
+        await new Promise(resolve=>setTimeout(resolve,1000));
+      }
+      assert.ok(synced,'Chess statistics must be acknowledged before opening another device');
+    }
     const b = await device();
     await b.evaluate(s => localStorage.setItem('gipfAccount',JSON.stringify(s)),session);
     await b.goto(`${origin}/gipf/${game}`); await b.locator(`.game-${game}`).waitFor();
     assert.deepEqual((await getSnapshot(b,game)).state,(await getSnapshot(a,game)).state);
     console.log(`PASS ${game}: second authenticated browser resumes same match`);
+    if(game==='chess') {
+      assert.equal(await b.evaluate(()=>JSON.parse(localStorage.getItem('chessGameLog')).length),1);
+      await b.reload(); await b.locator('.game-chess').waitFor();
+      assert.equal(await b.evaluate(()=>JSON.parse(localStorage.getItem('chessGameLog')).length),1);
+      console.log('PASS chess: second-device statistics retain one log entry across repeated reloads');
+    }
     await a.context().setOffline(true);
     const pending = await getSnapshot(a,game); pending.id=`offline-${game}`;
     await a.evaluate(({game,pending})=> { localStorage.setItem(`${game}Match:v1`,JSON.stringify(pending)); window.dispatchEvent(new StorageEvent('storage',{key:`${game}Match:v1`})); },{game,pending});

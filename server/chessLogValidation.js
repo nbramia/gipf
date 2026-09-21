@@ -12,7 +12,8 @@ export function validChessLog(raw) {
       Number.isSafeInteger(e.playedAt) && e.playedAt >= 0 && e.playedAt <= 4102444800000 &&
       ['win','loss','draw'].includes(e.result) && ['w','b'].includes(e.color) && typeof e.rated === 'boolean' &&
       text(e.opponentKey,80) && (e.accuracy === null || (Number.isFinite(e.accuracy) && e.accuracy >= 0 && e.accuracy <= 100)) &&
-      e.counts && Object.keys(e.counts).length === 3 && ['blunder','mistake','inaccuracy'].every(k => count(e.counts[k])) &&
+      e.counts && Object.keys(e.counts).every(k => ['best','excellent','good','blunder','mistake','inaccuracy'].includes(k) && count(e.counts[k])) &&
+      ['blunder','mistake','inaccuracy'].every(k => count(e.counts[k])) &&
       (e.opening === null || text(e.opening,256)) && (e.eco === null || text(e.eco,16)) &&
       (e.leftBookAtPly === null || count(e.leftBookAtPly)) && count(e.moves));
   } catch (_) { return false; }

@@ -111,6 +111,28 @@ validate the complete outer bundle and each game's decoder before writes,
 preserve destination edits, and make repeat imports idempotent. This PR defines
 the interface; cross-origin export/import tooling belongs to the migration PR.
 
+For active-account local-only **alternatives**, the migration UI may capture the
+current authenticated session identity, read each `*MatchRecovery:v1` array and
+`chessStatsRecovery:v1`, and extract progress values only. Run each match through
+its game's `decodeMatch` and each statistics log through the existing bounded
+entry schema before including it as a separate outer migration record. Assign
+distinct outer record IDs to different contents of the same match; preserve the
+inner match ID, deduplicate identical contents, and retain explicit destination
+conflict choices. Recheck the captured identity and transition lease before
+reading and after any await. Never export the raw containers or their metadata.
+
+If the active account has an encrypted device recovery copy, the migration UI
+can use the existing local `decryptApiKey(session.aesKey, sealed)` function on
+`gipf:recovery:<that same usernameId>` after the user has authenticated that
+account. From the decoded progress object, allowlist only the four portable
+match values, `chessGameLog`, and validated progress extracted from the recovery
+arrays above. Credentials, AES keys, ciphertext wrappers, queue baselines,
+account IDs, and other accounts' containers never become export records. This
+is a documented consumer interface, not migration tooling implemented here.
+Malformed or future-version alternatives cannot pass the current decoders;
+leave their source copies intact and report that limitation to the user rather
+than silently omitting the only copy while clearing the old origin.
+
 Legacy `chessGameState` v1 is converted non-destructively by `fromLegacy` only
 when `chessMatch:v1` is absent; the source key remains available. Valid empty PGN
 is supported. Historical terminal games lacked result flags, so conversion
@@ -198,6 +220,7 @@ npm run build
 GIPF_SYNTHETIC_REDIS=gipf-pr5-synthetic-redis GIPF_TEST_PORT=3189 node tests/serve-public-security.mjs
 # With Playwright available, or PLAYWRIGHT_MODULE pointing to its installed index.mjs:
 node tests/match-browser.mjs
+node tests/match-import-browser.mjs
 ```
 
 The coordinator owns full-suite verification, independent review, PR publication,

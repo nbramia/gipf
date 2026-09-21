@@ -55,7 +55,7 @@ test('bounded Chess statistics strings survive Redis arrays and stale device wri
   const empty = await call(profile,{...request,domains:{preferences:{chessGameLog:'[]'}}});
   assert.equal(empty.statusCode,200);
   assert.equal((await call(profile,{u,auth,scope:'settings',action:'read'})).body.profile.preferences.chessGameLog,'[]');
-  const log=JSON.stringify([{playedAt:1,result:'win',color:'w',rated:false,opponentKey:'synthetic',accuracy:90,counts:{blunder:0,mistake:1,inaccuracy:2},opening:null,eco:null,leftBookAtPly:null,moves:20}]);
+  const log=JSON.stringify([{playedAt:1,result:'win',color:'w',rated:false,opponentKey:'synthetic',accuracy:90,counts:{best:5,excellent:3,good:2,blunder:0,mistake:1,inaccuracy:2},opening:null,eco:null,leftBookAtPly:null,moves:20}]);
   assert.equal((await call(profile,{...request,revision:1,domains:{preferences:{chessGameLog:log}}})).statusCode,200);
   assert.equal((await call(profile,{...request,revision:1,domains:{preferences:{chessGameLog:'[]'}}})).statusCode,409);
   assert.equal((await call(profile,{u,auth,scope:'settings',action:'read'})).body.profile.preferences.chessGameLog,log);
