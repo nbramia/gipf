@@ -95,10 +95,9 @@ const PIECE_GLYPH = { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛', k: '♚'
 const TONE_CLASS = { great: 'tone-great', good: 'tone-good', warn: 'tone-warn', bad: 'tone-bad' };
 
 // --- In-progress game persistence -------------------------------------------
-// A refresh used to destroy the game outright. We snapshot the live game (PGN +
-// the UI state needed to resume it) after every move, exactly like Diplomacy's
-// `diplomacyGameState`. Puzzle sessions and mistake drills are transient by
-// design and are never persisted.
+// MatchBoundary owns current-match persistence. This loader converts the legacy
+// chessGameState once, only when chessMatch:v1 is absent; it retains the old key.
+// Puzzle sessions and mistake drills are transient and are never persisted.
 function loadLegacyMatch() {
   const raw = localStorage.getItem('chessGameState');
   return raw ? fromLegacy(JSON.parse(raw)) : null;

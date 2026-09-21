@@ -122,6 +122,11 @@ Deeper writeups live in [`docs/`](docs/): [architecture](docs/architecture.md), 
 
 The [YINSH/ZÈRTZ audit and repair record](docs/yinsh-zertz-audit-2026-09-20.md) separates baseline training results from engine, browser, and pipeline validation, including feature-v2 migration requirements.
 
+Current matches in Chess, Yinsh, Zertz, and Catan resume locally after refresh.
+Signing in also enables cloud matches, preferences and existing statistics, with
+explicit conflict choices and recoverable alternatives. See
+[resumable matches](docs/resumable-matches.md) for formats, recovery and limits.
+
 ## Credits
 
 Game designs by Kris Burm (GIPF Project: Yinsh, Zertz), Klaus Teuber (Catan), Marc André (Splendor), and Allan B. Calhamer (Diplomacy). Chess play via [Stockfish](https://stockfishchess.org/). Built by Nathan Ramia.
@@ -129,8 +134,3 @@ Game designs by Kris Burm (GIPF Project: Yinsh, Zertz), Klaus Teuber (Catan), Ma
 ## License
 
 MIT (see [LICENSE](LICENSE)).
-
-Current matches in Chess, Yinsh, Zertz, and Catan resume locally after refresh.
-Signing in also enables cloud matches, preferences and existing statistics, with
-explicit conflict choices and recoverable alternatives. See
-[resumable matches](docs/resumable-matches.md) for formats, recovery and limits.

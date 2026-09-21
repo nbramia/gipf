@@ -32,9 +32,18 @@ missing accounts and incorrect passwords.
   `history`, `puzzles`, and `mistakes`, with existing validators.
 - `scope:"settings"`: separate revision and record, with `domains.preferences`
   containing allowlisted localStorage string values. Covers the four named games'
-  existing preferences and Yinsh wins, not new match snapshots. Unsupported keys
+  existing preferences, Yinsh wins, and Chess finished-game statistics
+  (`chessGameLog`). Non-null values normally have a 2,048-character limit;
+  `chessGameLog` instead uses `server/chessLogValidation.js` to validate its JSON
+  entry shape, with at most 200 entries and 100,000 UTF-8 bytes. Match snapshots
+  use their own scope below. Unsupported keys
   (including credentials) are rejected. Startup conflicts offer explicit choices;
   changes are checked every five seconds. Network failures leave local play usable.
+- `scope:"match"`: `read`/`write` for `game:"chess"|"yinsh"|"zertz"|"catan"`,
+  stored at `gipf:match:v1:<usernameId>:<game>` with a separate account/game CAS
+  revision. Writes use `domains.match` (a validated snapshot or null to clear);
+  stale revisions return 409. `claim` is rejected for this scope. See
+  [resumable matches](resumable-matches.md) for schema, restore, and recovery details.
 - `claim`: takes `legacyId` only in the body and copies existing cloud data into
   the authenticated owner. There is no unauthenticated legacy read or write.
 
@@ -83,9 +92,10 @@ responses perform the same check. Recovery copies are not ordinary exports.
 
 Existing Splendor/Diplomacy local behavior is retained within the active account;
 their data is protected during switching, without new cloud persistence features.
-PR5 must extend the progress allowlist and authenticated contract for versioned
-match snapshots and engine-safe restoration; it must not reintroduce public-ID
-access or merge a pending save into the next account.
+PR5 extended the progress allowlist and authenticated contract for versioned
+match snapshots and engine-safe restoration; see [resumable matches](resumable-matches.md).
+The requirements against public-ID access and merging a pending save into the next
+account remain unchanged.
 
 ## Durable limits and execution bounds
 
