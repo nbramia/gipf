@@ -7,7 +7,7 @@ import { encodeBoard, decodeMatch, fromLegacy } from './matchSnapshot.js';
 // (CDN Web Worker) and adjustable difficulty tiers. The coaching dialogue
 // (issues #6–#10) layers on in later increments.
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Chessboard } from 'react-chessboard';
 import ChessBoard from './ChessBoard.js';
@@ -326,7 +326,8 @@ function ChessGame() {
 
   useEffect(() => {
     localStorage.setItem('chessDarkMode', JSON.stringify(darkMode));
-  }, [darkMode]);
+    savedMatch?.setTheme(darkMode);
+  }, [darkMode, savedMatch]);
   useEffect(() => {
     localStorage.setItem('chessShowMoves', JSON.stringify(showMoves));
   }, [showMoves]);
@@ -632,7 +633,10 @@ function ChessGame() {
   ]);
 
   // Save after result bookkeeping, so a refreshed terminal match cannot count twice.
-  useEffect(() => {
+  // The latest clock is read only on meaningful changes or lifecycle flushes.
+  // A tick must neither serialize the board nor trigger a cloud write.
+  const flushMatch = useRef(null);
+  flushMatch.current = () => {
     if (puzzleMode || drill.active) return;
     savedMatch?.persist(encodeBoard(board), {
       humanColor, orientation, resigned, rated, difficulty, timeControl, clock, flagged,
@@ -640,8 +644,25 @@ function ChessGame() {
       gameLogged: gameLoggedRef.current,
       dialogue: dialogue.map(({ threadApi, ...rest }) => rest), moveStats, gameMistakes,
     });
-  }, [board, humanColor, orientation, resigned, rated, difficulty, timeControl, clock, flagged,
+  };
+  useEffect(() => {
+    // Allow the move's increment and result bookkeeping to finish first.
+    let cancelled = false;
+    Promise.resolve().then(() => { if (!cancelled) flushMatch.current(); });
+    return () => { cancelled = true; };
+  }, [board, humanColor, orientation, resigned, rated, difficulty, timeControl, flagged,
       dialogue, moveStats, gameMistakes, puzzleMode, drill.active, rating, ratedGames, history, gameLog, savedMatch]);
+  useLayoutEffect(() => {
+    const flush = () => flushMatch.current();
+    const hide = () => { if (document.visibilityState === 'hidden') flush(); };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', hide);
+    return () => {
+      flush();
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', hide);
+    };
+  }, []);
 
   // Produce coaching for a move that was just played. Runs two full-strength
   // analyses (position before + after the move) so commentary is engine-true,

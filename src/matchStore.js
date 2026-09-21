@@ -19,12 +19,14 @@ export function createMatchStore(game) {
   const parse = raw => {
     if (!raw) return null;
     const value = JSON.parse(raw);
+    if (value === null) return null; // Explicit clear; never re-adopt a legacy save.
     if (!validateMatch(value, game)) throw new Error('invalid_snapshot');
     return value;
   };
   const store = {
     owner,
     assertOwner,
+    hasCurrent() { assertOwner(); return known !== null; },
     load() { assertOwner(); return parse(known); },
     current() { assertOwner(); return parse(localStorage.getItem(matchKey(game))); },
     save(value) {
@@ -36,14 +38,31 @@ export function createMatchStore(game) {
       known = raw;
       window.dispatchEvent(new CustomEvent('gipf-match-saved', { detail: game }));
     },
+    recovery() {
+      assertOwner();
+      const raw = localStorage.getItem(`${game}MatchRecovery:v1`);
+      if (!raw) return [];
+      try {
+        const value = JSON.parse(raw);
+        if (value?.v === 1 && Array.isArray(value.alternatives)) return value.alternatives;
+      } catch (_) { /* Keep the complete malformed container, including non-JSON bytes. */ }
+      return [{ unreadable: raw }];
+    },
     backup(extra = []) {
       assertOwner();
       const raw = localStorage.getItem(matchKey(game));
       const key = `${game}MatchRecovery:v1`;
-      const old = JSON.parse(localStorage.getItem(key) || '{"alternatives":[]}');
+      const old = store.recovery();
       let previous;
       try { previous = raw ? JSON.parse(raw) : null; } catch (_) { previous = { unreadable: raw }; }
-      const alternatives = [...old.alternatives, previous, ...extra].filter(Boolean);
+      const distinct = new Map();
+      for (const value of [...old, previous, ...extra].filter(Boolean)) {
+        const key = JSON.stringify(value);
+        distinct.delete(key); // Restaged choices are newest, even when the ring is full.
+        distinct.set(key, value);
+      }
+      const alternatives = [...distinct.values()];
+      assertOwner();
       localStorage.setItem(key, JSON.stringify({ v: 1, alternatives: alternatives.slice(-8) }));
     },
     resolve(value, extra = []) {
@@ -52,8 +71,8 @@ export function createMatchStore(game) {
       store.backup([...extra, value]);
       assertOwner();
       if (value) localStorage.setItem(matchKey(game), JSON.stringify(value));
-      else localStorage.removeItem(matchKey(game));
-      known = value ? JSON.stringify(value) : null;
+      else localStorage.setItem(matchKey(game), 'null');
+      known = JSON.stringify(value);
     },
     metadata() {
       assertOwner();
@@ -76,9 +95,11 @@ export function createMatchStore(game) {
           body: JSON.stringify({ u: session.usernameId, auth: session.authToken, scope: 'match', game, action, ...extra }),
           signal: controller.signal,
         });
+        assertOwner();
+        if (!response.ok) throw new Error(response.status === 409 ? 'cloud_conflict'
+          : response.status === 400 || response.status === 413 ? 'sync_rejected' : 'sync_unavailable');
         const data = await response.json();
         assertOwner();
-        if (!response.ok) throw new Error(response.status === 409 ? 'cloud_conflict' : 'sync_unavailable');
         return data;
       } finally { clearTimeout(timer); }
     },

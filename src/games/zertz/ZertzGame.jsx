@@ -107,7 +107,8 @@ const ZertzGame = () => {
 
   useEffect(() => {
     localStorage.setItem('zertzDarkMode', JSON.stringify(darkMode));
-  }, [darkMode]);
+    savedMatch?.setTheme(darkMode);
+  }, [darkMode, savedMatch]);
   useEffect(() => {
     localStorage.setItem('zertzShowMoves', JSON.stringify(showPossibleMoves));
   }, [showPossibleMoves]);

@@ -180,7 +180,8 @@ const YinshGame = () => {
   // Save darkMode/showMoves prefs
   useEffect(() => {
     localStorage.setItem('yinshDarkMode', JSON.stringify(darkMode));
-  }, [darkMode]);
+    savedMatch?.setTheme(darkMode);
+  }, [darkMode, savedMatch]);
   useEffect(() => {
     localStorage.setItem('yinshShowMoves', JSON.stringify(showPossibleMoves));
   }, [showPossibleMoves]);

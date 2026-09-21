@@ -15,14 +15,26 @@ existing progress stores remain independent. Splendor and Diplomacy are unchange
 
 A new signed-in device waits for hydration before mounting its engine. If cloud
 access fails it can play locally; the current snapshot is the durable pending
-payload. Every three seconds while that game is open (and on reconnect), sync
-compares it with the last acknowledged account/game baseline. Timestamps never
+payload. While that game is open, sync polls every 30 seconds when idle. Local
+edits and reconnects can bring the next check forward, with at least 10 seconds
+between automatic attempts; transient failures back off from 10 to 120 seconds.
+Each check compares the snapshot with the last acknowledged account/game baseline. Timestamps never
 select a winner. A changed cloud match or another tab's match pauses play and
 presents **Keep this match** / **Use cloud match** (or **Use other tab match**).
 A cloud keep-local choice makes an explicit CAS write; a second conflict requires
 another decision. Both alternatives are staged in local recovery before either
-is replaced. **Match recovery** exposes the last eight retained alternatives.
+is replaced. **Match recovery** exposes the last eight distinct retained alternatives.
 Storage failure cancels destructive replacement and displays an error.
+Malformed recovery containers are preserved byte-for-byte as an unreadable
+alternative in the same account-owned recovery key before that container is
+replaced. These raw alternatives cannot be restored by the current decoder.
+
+HTTP 400/413 rejects pause automatic retries of the unchanged local match;
+changing or restoring the match allows another attempt. Unsupported cloud
+snapshots pause sync and require an explicit choice; the cloud version is kept
+in recovery before a replacement can be sent. Non-JSON 502/proxy failures remain
+transient. Recovery and status controls use scoped light/dark styling and follow
+the game's theme preference, including while hydration or a conflict hides play.
 
 Unsupported/malformed local snapshots are not silently reset. The player can
 retain their raw contents in recovery before starting over. A failed save warns
@@ -74,7 +86,11 @@ returns the canonical portable engine state.
   `humanColor`, `orientation`, `resigned`, `rated`, `difficulty`, `clock`,
   `timeControl`, `flagged`, `ratedApplied`, `historyApplied`, `gameLogged`,
   `dialogue`, `moveStats`, `gameMistakes`. Dialogue strips provider thread history.
-  Clocks pause while the page is closed. Completed-game flags prevent reloads
+  Clock ticks update the display without serializing a snapshot. Remaining time
+  is saved with meaningful match/UI changes (including moves, increments and
+  timeout), and on pagehide, visibility loss and route unmount. Abrupt process
+  termination without a lifecycle event can resume the last such checkpoint;
+  clocks pause while the page is closed. Completed-game flags prevent reloads
   from applying ratings, history, or the finished-game log twice.
 - **Yinsh state:** all `YinshBoard.serializeState()` fields, plus
   `notation:{moveHistory,currentMoveNumber}`. This includes selected ring,
@@ -134,7 +150,12 @@ leave their source copies intact and report that limitation to the user rather
 than silently omitting the only copy while clearing the old origin.
 
 Legacy `chessGameState` v1 is converted non-destructively by `fromLegacy` only
-when `chessMatch:v1` is absent; the source key remains available. Valid empty PGN
+when `chessMatch:v1` is absent; the source key remains available. An explicit
+clear writes JSON `null` to the existing match key, so clear/remount cannot
+re-import the old legacy game. This local empty sentinel is not a portable
+snapshot; exporters must skip it, while cloud sync sends the existing null-clear
+payload. It follows the existing account cleanup/recovery of that same key,
+without a device-wide import marker. Valid empty PGN
 is supported. Historical terminal games lacked result flags, so conversion
 marks those results already applied to protect existing statistics. Damaged
 legacy data is retained rather than replaced with a new empty game silently.

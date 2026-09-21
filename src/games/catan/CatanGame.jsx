@@ -321,7 +321,10 @@ function CatanGame() {
   const rulesEndRef = useRef(null);
 
 
-  useEffect(() => localStorage.setItem('catanDarkMode', JSON.stringify(darkMode)), [darkMode]);
+  useEffect(() => {
+    localStorage.setItem('catanDarkMode', JSON.stringify(darkMode));
+    savedMatch?.setTheme(darkMode);
+  }, [darkMode, savedMatch]);
   useEffect(() => localStorage.setItem('catanShowMoves', JSON.stringify(showPossibleMoves)), [showPossibleMoves]);
   useEffect(() => localStorage.setItem('catanDifficulty', difficulty), [difficulty]);
   useEffect(() => localStorage.setItem('catanRulesetId', gameConfig.rulesetId), [gameConfig.rulesetId]);
