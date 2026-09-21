@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useEffect } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Outlet } from 'react-router-dom';
 import AccountBoundary from './AccountBoundary.jsx';
 import LandingPage from './LandingPage.jsx';
 
@@ -9,6 +9,7 @@ const ChessGame = lazy(() => import('./games/chess/ChessGame.jsx'));
 const CatanGame = lazy(() => import('./games/catan/CatanGame.jsx'));
 const SplendorGame = lazy(() => import('./games/splendor/SplendorGame.jsx'));
 const DiplomacyGame = lazy(() => import('./games/diplomacy/DiplomacyGame.jsx'));
+const GamesMigration = lazy(() => import('./GamesMigration.jsx'));
 
 // The app is served from a subdirectory (`ramia.us/gipf`) as well as from its own domain
 // root. `PUBLIC_URL` carries whichever prefix the build was made for — the `homepage` field
@@ -23,19 +24,22 @@ function App() {
     return () => window.removeEventListener('storage', changed);
   }, []);
   return (
-    <AccountBoundary><BrowserRouter basename={process.env.PUBLIC_URL}>
+    <BrowserRouter basename={process.env.PUBLIC_URL}>
       <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-neutral-900 text-neutral-400 font-body">Loading...</div>}>
         <Routes>
-          <Route path="/" element={<LandingPage />} />
-          <Route path="/yinsh" element={<YinshGame />} />
-          <Route path="/zertz" element={<ZertzGame />} />
-          <Route path="/chess" element={<ChessGame />} />
-          <Route path="/catan" element={<CatanGame />} />
-          <Route path="/splendor" element={<SplendorGame />} />
-          <Route path="/diplomacy" element={<DiplomacyGame />} />
+          <Route path="/migration" element={<GamesMigration />} />
+          <Route element={<AccountBoundary><Outlet /></AccountBoundary>}>
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/yinsh" element={<YinshGame />} />
+            <Route path="/zertz" element={<ZertzGame />} />
+            <Route path="/chess" element={<ChessGame />} />
+            <Route path="/catan" element={<CatanGame />} />
+            <Route path="/splendor" element={<SplendorGame />} />
+            <Route path="/diplomacy" element={<DiplomacyGame />} />
+          </Route>
         </Routes>
       </Suspense>
-    </BrowserRouter></AccountBoundary>
+    </BrowserRouter>
   );
 }
 
