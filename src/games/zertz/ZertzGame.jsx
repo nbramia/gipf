@@ -1,3 +1,5 @@
+import MatchBoundary, { useSavedMatch } from '../../MatchBoundary.jsx';
+import { encodeBoard, decodeMatch } from './matchSnapshot.js';
 // ZertzGame.jsx - React UI + SVG rendering for Zertz
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
@@ -54,7 +56,10 @@ const hexPoints = (cx, cy, size) => {
 const MARBLE_LABEL = { white: 'White', grey: 'Grey', black: 'Black' };
 
 const ZertzGame = () => {
-  const [board, commitBoard] = useState(() => new ZertzBoard());
+  const savedMatch = useSavedMatch();
+  const resumed = savedMatch?.restored;
+  const savedUI = resumed?.ui || {};
+  const [board, commitBoard] = useState(() => resumed?.board || new ZertzBoard());
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('zertzDarkMode');
     return saved ? JSON.parse(saved) : false;
@@ -64,20 +69,24 @@ const ZertzGame = () => {
     return saved ? JSON.parse(saved) : true;
   });
   const [twoPlayerMode, setTwoPlayerMode] = useState(() => {
+    if (savedUI.twoPlayerMode !== undefined) return savedUI.twoPlayerMode;
     const saved = localStorage.getItem('zertzTwoPlayer');
     return saved ? JSON.parse(saved) : false;
   });
-  const [humanPlayer, setHumanPlayer] = useState(() => Math.random() < 0.5 ? 1 : 2);
+  const [humanPlayer, setHumanPlayer] = useState(() => savedUI.humanPlayer || (Math.random() < 0.5 ? 1 : 2));
   const [difficulty, setDifficulty] = useState(() => {
+    if (savedUI.difficulty) return savedUI.difficulty;
     const saved = localStorage.getItem('zertzDifficulty');
     return saved || 'advanced';
   });
   const [isAiThinking, setIsAiThinking] = useState(false);
   const [aiSuggestion, setAiSuggestion] = useState(null);
-  const [showModal, setShowModal] = useState(true);
+  const [showModal, setShowModal] = useState(() => savedUI.showModal ?? true);
   const [showSettings, setShowSettings] = useState(false);
   const [showRules, setShowRules] = useState(false);
-  const [lastMoveKeys, setLastMoveKeys] = useState([]);
+  const [lastMoveKeys, setLastMoveKeys] = useState(() => savedUI.lastMoveKeys || []);
+
+  useEffect(() => { savedMatch?.persist(encodeBoard(board), { humanPlayer, twoPlayerMode, showModal, difficulty, lastMoveKeys }); }, [board, humanPlayer, twoPlayerMode, showModal, difficulty, lastMoveKeys, savedMatch]);
 
   const { computeMove, cancelPending, isSupported: workerSupported } = useAIWorker();
   const stateVersion = useRef(0);
@@ -138,7 +147,7 @@ const ZertzGame = () => {
     setAiSuggestion(null);
 
     const onSuccess = (move, stats) => {
-      if (version !== stateVersion.current) return;
+      if (!savedMatch?.isCurrent() || version !== stateVersion.current) return;
       setAiFallback(config.evaluationMode === 'nn' && stats?.evaluationMode !== 'nn');
       setIsAiThinking(false);
       if (!move) return;
@@ -160,7 +169,7 @@ const ZertzGame = () => {
     };
 
     const onError = (err) => {
-      if (version !== stateVersion.current) return;
+      if (!savedMatch?.isCurrent() || version !== stateVersion.current) return;
       console.warn('AI error:', err);
       setIsAiThinking(false);
     };
@@ -247,6 +256,7 @@ const ZertzGame = () => {
   const handleRedo = () => { if (board.canRedo()) { board.redo(); setBoard(board.clone()); setLastMoveKeys([]); } };
 
   const startNewGame = () => {
+    savedMatch?.startNew();
     board.startNewGame();
     setBoard(board.clone());
     setShowModal(false);
@@ -1201,4 +1211,4 @@ const ZertzGame = () => {
   );
 };
 
-export default ZertzGame;
+export default function ResumableZertzGame() { return <MatchBoundary game="zertz" decode={decodeMatch}><ZertzGame /></MatchBoundary>; }

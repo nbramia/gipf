@@ -1,3 +1,5 @@
+import MatchBoundary, { useSavedMatch } from '../../MatchBoundary.jsx';
+import { encodeBoard, decodeMatch, fromLegacy } from './matchSnapshot.js';
 // ChessGame.jsx — React UI for the Chess game.
 //
 // Interactive react-chessboard wired to ChessBoard.js via the suite's
@@ -97,45 +99,9 @@ const TONE_CLASS = { great: 'tone-great', good: 'tone-good', warn: 'tone-warn', 
 // the UI state needed to resume it) after every move, exactly like Diplomacy's
 // `diplomacyGameState`. Puzzle sessions and mistake drills are transient by
 // design and are never persisted.
-const GAME_STATE_KEY = 'chessGameState';
-const GAME_STATE_VERSION = 1;
-
-function saveGameState(snapshot) {
-  try {
-    localStorage.setItem(GAME_STATE_KEY, JSON.stringify({ v: GAME_STATE_VERSION, ...snapshot }));
-  } catch (_) {
-    /* quota/private-mode — persistence is best-effort, never breaks play */
-  }
-}
-
-function loadGameState() {
-  try {
-    const raw = localStorage.getItem(GAME_STATE_KEY);
-    if (!raw) return null;
-    const s = JSON.parse(raw);
-    if (!s || s.v !== GAME_STATE_VERSION || !s.pgn) return null;
-    return s;
-  } catch (_) {
-    return null;
-  }
-}
-
-function clearGameState() {
-  try {
-    localStorage.removeItem(GAME_STATE_KEY);
-  } catch (_) {
-    /* best-effort */
-  }
-}
-
-// Rebuild a ChessBoard from a saved PGN, or null if it no longer parses or
-// carries no moves — restoring an empty board while keeping the old dialogue
-// would leave the transcript describing a game that isn't on the board.
-function boardFromSnapshot(snapshot) {
-  if (!snapshot || !snapshot.pgn) return null;
-  const b = new ChessBoard();
-  if (!b.loadPgn(snapshot.pgn)) return null;
-  return b.sanHistory().length > 0 ? b : null;
+function loadLegacyMatch() {
+  const raw = localStorage.getItem('chessGameState');
+  return raw ? fromLegacy(JSON.parse(raw)) : null;
 }
 
 const Toggle = ({ label, checked, onChange }) => (
@@ -157,16 +123,12 @@ const Toggle = ({ label, checked, onChange }) => (
   </div>
 );
 
-export default function ChessGame() {
-  // Read the saved in-progress game once, before any state initializer needs it.
-  const restoredRef = useRef(undefined);
-  if (restoredRef.current === undefined) {
-    const snap = loadGameState();
-    restoredRef.current = snap && boardFromSnapshot(snap) ? snap : null;
-  }
-  const restored = restoredRef.current;
+function ChessGame() {
+  const savedMatch = useSavedMatch();
+  const resumed = savedMatch?.restored;
+  const restored = resumed?.ui || null;
+  const [board, setBoard] = useState(() => resumed?.board || new ChessBoard());
 
-  const [board, setBoard] = useState(() => boardFromSnapshot(restored) || new ChessBoard());
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('chessDarkMode');
     return saved ? JSON.parse(saved) : false;
@@ -176,12 +138,13 @@ export default function ChessGame() {
     return saved ? JSON.parse(saved) : true;
   });
   const [difficulty, setDifficulty] = useState(() => {
-    return localStorage.getItem('chessDifficulty') || DEFAULT_TIER_KEY;
+    return restored?.difficulty || localStorage.getItem('chessDifficulty') || DEFAULT_TIER_KEY;
   });
   // Rated mode: a single Elo that updates from wins/losses/draws vs ladder
   // opponents. While rated, undo/flip/coach/eval are disabled (see below) so the
   // result is honest. Color is randomized each rated game.
   const [rated, setRated] = useState(() => {
+    if (restored?.rated !== undefined) return restored.rated;
     const saved = localStorage.getItem('chessRated');
     return saved ? JSON.parse(saved) : false;
   });
@@ -225,12 +188,13 @@ export default function ChessGame() {
   const [resigned, setResigned] = useState(() => (restored && restored.resigned) || null); // color that resigned
 
   // Optional clocks. Untimed by default; 'off' keeps the original behaviour.
-  const [timeControl, setTimeControl] = useState(() => localStorage.getItem('chessTimeControl') || 'off');
+  const [timeControl, setTimeControl] = useState(() => restored?.timeControl || localStorage.getItem('chessTimeControl') || 'off');
   const [clock, setClock] = useState(() => {
+    if (restored?.clock) return restored.clock;
     const tc = getTimeControl(localStorage.getItem('chessTimeControl') || 'off');
     return { w: tc.base * 1000, b: tc.base * 1000 };
   });
-  const [flagged, setFlagged] = useState(null); // color that ran out of time
+  const [flagged, setFlagged] = useState(() => restored?.flagged || null); // color that ran out of time
 
   // Coaching state.
   const [dialogue, setDialogue] = useState(() => (restored && restored.dialogue) || []); // [{id, ply, kind, san, tone, label, text, source, pending}]
@@ -274,13 +238,14 @@ export default function ChessGame() {
   useEffect(() => { soundRef.current = soundOn; }, [soundOn]);
   const ratedRef = useRef(rated); // latest value usable inside coachOnMove
   useEffect(() => { ratedRef.current = rated; }, [rated]);
-  const ratedAppliedRef = useRef(false); // guard: score each rated game exactly once
-  const historyAppliedRef = useRef(false); // guard: record opponent history once per game (casual + rated)
+  const ratedAppliedRef = useRef(restored?.ratedApplied || false); // guard: score each rated game exactly once
+  const historyAppliedRef = useRef(restored?.historyApplied || false); // guard: record opponent history once per game (casual + rated)
   const ratingRef = useRef(rating); // latest rating/games for the sync-pull closure
   const ratedGamesRef = useRef(ratedGames);
   useEffect(() => { ratingRef.current = rating; }, [rating]);
   useEffect(() => { ratedGamesRef.current = ratedGames; }, [ratedGames]);
   const coachSeqRef = useRef(0); // ignores stale coaching results after new game/undo
+  useEffect(() => () => { coachSeqRef.current += 1; }, []);
   const transcriptRef = useRef(null);
   const fileInputRef = useRef(null);
   const [pgnError, setPgnError] = useState('');
@@ -529,31 +494,6 @@ export default function ChessGame() {
     return () => window.removeEventListener('keydown', onKey);
   }, [board]);
 
-  // Snapshot the live game so a refresh (or a closed tab) can resume it.
-  // Puzzle sessions and drills are transient and deliberately not persisted.
-  useEffect(() => {
-    if (puzzleMode || drill.active) return;
-    if (movesPlayedCount === 0) {
-      clearGameState();
-      return;
-    }
-    saveGameState({
-      pgn: board.pgn(),
-      humanColor,
-      orientation,
-      resigned,
-      rated,
-      difficulty,
-      // Strip the Anthropic thread history: it can be large and is cheap to
-      // lose, unlike the commentary itself.
-      dialogue: dialogue.map(({ threadApi, ...rest }) => rest),
-      moveStats,
-      gameMistakes,
-    });
-  }, [
-    board, movesPlayedCount, humanColor, orientation, resigned, rated, difficulty,
-    dialogue, moveStats, gameMistakes, puzzleMode, drill.active,
-  ]);
 
   const aiColor = humanColor === 'w' ? 'b' : 'w';
   // Rated matchmaking: face the ladder rung nearest your rating. In casual play
@@ -599,7 +539,7 @@ export default function ChessGame() {
   }, [clockOn, gameOver, turnColor, movesPlayedCount]);
 
   // Credit the increment to whoever just moved.
-  const lastCreditedPlyRef = useRef(0);
+  const lastCreditedPlyRef = useRef(resumed?.board.pointer || 0);
   useEffect(() => {
     if (!clockOn || movesPlayedCount === 0) return;
     if (movesPlayedCount === lastCreditedPlyRef.current) return;
@@ -660,7 +600,7 @@ export default function ChessGame() {
   // for `coaching` to settle: the last move's analysis is still in flight when
   // the result lands, and recording early would bank an accuracy figure that
   // misses it. Guarded to fire exactly once per game.
-  const gameLoggedRef = useRef(false);
+  const gameLoggedRef = useRef(restored?.gameLogged || false);
   useEffect(() => {
     if (puzzleMode || drill.active || !gameResult || coaching || gameLoggedRef.current) return;
     if (moveStats.length === 0) return; // nothing analysed — nothing to say
@@ -690,6 +630,18 @@ export default function ChessGame() {
     puzzleMode, drill.active, gameResult, coaching, moveStats, humanColor,
     rated, opponentKey, board,
   ]);
+
+  // Save after result bookkeeping, so a refreshed terminal match cannot count twice.
+  useEffect(() => {
+    if (puzzleMode || drill.active) return;
+    savedMatch?.persist(encodeBoard(board), {
+      humanColor, orientation, resigned, rated, difficulty, timeControl, clock, flagged,
+      ratedApplied: ratedAppliedRef.current, historyApplied: historyAppliedRef.current,
+      gameLogged: gameLoggedRef.current,
+      dialogue: dialogue.map(({ threadApi, ...rest }) => rest), moveStats, gameMistakes,
+    });
+  }, [board, humanColor, orientation, resigned, rated, difficulty, timeControl, clock, flagged,
+      dialogue, moveStats, gameMistakes, puzzleMode, drill.active, rating, ratedGames, history, gameLog, savedMatch]);
 
   // Produce coaching for a move that was just played. Runs two full-strength
   // analyses (position before + after the move) so commentary is engine-true,
@@ -742,7 +694,7 @@ export default function ChessGame() {
           cachedAnalyze(fenBefore),
           cachedAnalyze(fenAfter),
         ]);
-        if (seq !== coachSeqRef.current) return; // superseded (new game / undo)
+        if (!savedMatch?.isCurrent() || seq !== coachSeqRef.current) return; // superseded (new game / undo)
         // Update the eval bar (#21) from the post-move top line (White POV).
         const afterTop = !silent && analysisAfter && analysisAfter.lines && analysisAfter.lines[0];
         if (afterTop) {
@@ -799,7 +751,7 @@ export default function ChessGame() {
           // Enhancement: real master practice (degrades to null if unreachable).
           // Skipped in rated games — nothing renders it, so don't pay the fetch.
           const stats = silent ? null : await fetchOpeningStats(fenBefore);
-          if (seq !== coachSeqRef.current) return;
+          if (!savedMatch?.isCurrent() || seq !== coachSeqRef.current) return;
           const book = summarizeBookMove(stats, movePlayedSan, moverColor);
           if (book) {
             payload.openingStats = book;
@@ -847,7 +799,7 @@ export default function ChessGame() {
         // the game is over (the post-game summary reads moveStats).
         if (silent) return;
         const { text, source } = await requestCommentary(payload);
-        if (seq !== coachSeqRef.current) return;
+        if (!savedMatch?.isCurrent() || seq !== coachSeqRef.current) return;
         // A key is set but we still got template prose ⇒ the Claude call
         // failed. Surface it instead of degrading silently forever.
         setCoachKeyFailing(hasApiKey() && source === 'template');
@@ -891,7 +843,7 @@ export default function ChessGame() {
           )
         );
       } catch (_) {
-        if (seq !== coachSeqRef.current || silent) return;
+        if (!savedMatch?.isCurrent() || seq !== coachSeqRef.current || silent) return;
         setDialogue((d) =>
           d.map((e) =>
             e.id === entryId
@@ -923,7 +875,7 @@ export default function ChessGame() {
     const fenBefore = board.fen();
     getMove(board.fen(), moveSpec)
       .then((mv) => {
-        if (cancelled || !mv) return;
+        if (cancelled || !mv || !savedMatch?.isCurrent()) return;
         const applied = board.move(mv.from, mv.to, mv.promotion || 'q');
         if (applied) {
           const fenAfter = board.fen();
@@ -1148,10 +1100,11 @@ export default function ChessGame() {
   );
 
   const startGame = (color) => {
+    savedMatch?.startNew();
     // Rated games randomize color; casual games keep the colour you chose
     // rather than silently reassigning it (which used to happen on puzzle exit).
     const c = color || (rated ? (Math.random() < 0.5 ? 'w' : 'b') : humanColor);
-    clearGameState();
+    // The next render replaces the current match; legacy recovery stays intact.
     coachSeqRef.current += 1; // invalidate any in-flight coaching
     analysisCacheRef.current.clear();
     ratedAppliedRef.current = false;
@@ -1185,7 +1138,7 @@ export default function ChessGame() {
   const applyRatedToggle = () => {
     const goingRated = !rated;
     setRated(goingRated);
-    clearGameState();
+    // The next render replaces the current match; legacy recovery stays intact.
     stashedGameRef.current = null;
     // startGame reads `rated` from the current render, so pick the colour here:
     // rated games randomize, casual keeps yours.
@@ -1267,7 +1220,7 @@ export default function ChessGame() {
   // Return to the stashed game, or start a fresh one if there wasn't one.
   const resumeStashedGame = () => {
     const snap = stashedGameRef.current;
-    const next = boardFromSnapshot(snap);
+    const next = snap ? decodeMatch(fromLegacy({ v: 1, ...snap })).board : null;
     if (!snap || !next) {
       startGame(humanColor);
       return;
@@ -1367,7 +1320,7 @@ export default function ChessGame() {
     const seq = coachSeqRef.current;
     analyze(fenAfter, { multipv: 1 })
       .then((analysisAfter) => {
-        if (seq !== coachSeqRef.current) return;
+        if (!savedMatch?.isCurrent() || seq !== coachSeqRef.current) return;
         const payload = buildFailPayload({ puzzle, fen: fenBefore, fenAfter, playedSan, analysisAfter });
         // Tactics are a spatial skill: reading "after Ka7 Qb2 Ka6 the chance is
         // gone" is far weaker than watching it. Offer to play the refutation
@@ -1778,7 +1731,7 @@ export default function ChessGame() {
       const applyImport = (color) => {
         coachSeqRef.current += 1; // invalidate in-flight coaching
     analysisCacheRef.current.clear();
-        clearGameState();
+        // The next render replaces the current match; legacy recovery stays intact.
         stashedGameRef.current = null;
         drill.exit();
         setPuzzleMode(false);
@@ -3484,3 +3437,5 @@ export default function ChessGame() {
     </div>
   );
 }
+
+export default function ResumableChessGame() { return <MatchBoundary game="chess" decode={decodeMatch} loadLegacy={loadLegacyMatch}><ChessGame /></MatchBoundary>; }

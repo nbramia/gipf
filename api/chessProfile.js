@@ -1,3 +1,5 @@
+import { validChessLog } from '../server/chessLogValidation.js';
+import { validMatch } from '../server/matchValidation.js';
 // Authenticated profile persistence. Legacy IDs are capabilities only in claim.
 import { guardRequest, authenticate, command, hex64, limit } from '../server/publicSecurity.js';
 export const config = { api: { bodyParser: { sizeLimit: '300kb' } } };
@@ -5,7 +7,7 @@ const MIN_RATING = 100;
 const MAX_RATING = 4000;
 const MAX_MISTAKES_BYTES = 262144;
 const MAX_EPOCH_MS = 4102444800000;
-const SETTING_KEYS = ['chessTimeControl','chessPuzzleShowTheme','yinshDifficulty','yinshTwoPlayer','zertzDifficulty','zertzTwoPlayer','chessDarkMode','chessShowMoves','chessDifficulty','chessLearningGoal','chessShowEvalBar','chessSound','chessRated','yinshDarkMode','yinshShowMoves','yinshRandomSetup','yinshKeepScore','yinshWins','yinshShowMoveHistory','yinshEvaluationMode','zertzDarkMode','zertzShowMoves','catanDarkMode','catanShowMoves','catanDifficulty','catanRulesetId','catanPlayerCount','catanScenarioId'];
+const SETTING_KEYS = ['chessGameLog','chessTimeControl','chessPuzzleShowTheme','yinshDifficulty','yinshTwoPlayer','zertzDifficulty','zertzTwoPlayer','chessDarkMode','chessShowMoves','chessDifficulty','chessLearningGoal','chessShowEvalBar','chessSound','chessRated','yinshDarkMode','yinshShowMoves','yinshRandomSetup','yinshKeepScore','yinshWins','yinshShowMoveHistory','yinshEvaluationMode','zertzDarkMode','zertzShowMoves','catanDarkMode','catanShowMoves','catanDifficulty','catanRulesetId','catanPlayerCount','catanScenarioId'];
 const DOMAINS = ['rating', 'history', 'puzzles', 'mistakes'];
 // --- Per-domain sanitizers. Each returns a clean, storage-ready value or null
 // if the supplied payload doesn't match the expected shape. -----------------
@@ -134,6 +136,12 @@ const WRITE = `local r=redis.call('GET',KEYS[1]); local p=r and cjson.decode(r) 
 if p.revision~=tonumber(ARGV[1]) then return 0 end;
 local d=cjson.decode(ARGV[2]); for k,v in pairs(d) do p.profile[k]=v end;
 p.revision=p.revision+1; redis.call('SET',KEYS[1],cjson.encode(p)); return p.revision`;
+// Redis Lua cjson loses empty-array identity on decode/re-encode. Match JSON
+// must remain opaque so empty queues/decks/maps survive byte-for-byte.
+const WRITE_MATCH = `local r=redis.call('GET',KEYS[1]); local p=r and cjson.decode(r) or {revision=0};
+if p.revision~=tonumber(ARGV[1]) then return 0 end;
+local revision=p.revision+1;
+redis.call('SET',KEYS[1],'{"revision":'..revision..',"profile":{"match":'..ARGV[2]..'}}'); return revision`;
 // A claim is single-owner and one-time, copying only missing domains. Source stays intact for recovery.
 const CLAIM = `local owner=redis.call('GET',KEYS[2]); if owner and owner~=ARGV[1] then return -1 end;
 if owner then return 0 end;
@@ -153,10 +161,12 @@ export default async function handler(req, res) {
     if (!await authenticate(body, res)) return;
     if (!await limit('sync-user', body.u, 120)) return res.status(429).json({ error: 'rate_limited' });
     const settings = body.scope === 'settings';
-    if (body.scope && !settings) return res.status(400).json({ error: 'bad_request' });
-    const key = `gipf:${settings ? 'settings' : 'profile'}:v2:${body.u}`;
+    const match = body.scope === 'match';
+    if (match && !['chess','yinsh','zertz','catan'].includes(body.game)) return res.status(400).json({ error: 'bad_request' });
+    if (body.scope && !settings && !match) return res.status(400).json({ error: 'bad_request' });
+    const key = match ? `gipf:match:v1:${body.u}:${body.game}` : `gipf:${settings ? 'settings' : 'profile'}:v2:${body.u}`;
     if (body.action === 'claim') {
-      if (settings) return res.status(400).json({ error: 'bad_request' });
+      if (settings || match) return res.status(400).json({ error: 'bad_request' });
       const start = Date.parse(process.env.GIPF_LEGACY_CLAIM_FROM || '');
       const deadline = Date.parse(process.env.GIPF_LEGACY_CLAIM_UNTIL || '');
       // Explicit operator window, never a permanent alternate authorization path.
@@ -176,23 +186,27 @@ export default async function handler(req, res) {
     }
     if (body.action !== 'write' || !Number.isSafeInteger(body.revision) || body.revision < 0 || !body.domains || typeof body.domains !== 'object' || Array.isArray(body.domains)) return res.status(400).json({ error: 'bad_request' });
     const clean = {};
+    if (match) {
+      if (Object.keys(body.domains).length !== 1 || !validMatch(body.game, body.domains.match)) return res.status(400).json({ error: 'bad_request' });
+      clean.match = body.domains.match;
+    }
     if (settings) {
       const value = body.domains.preferences;
       if (!value || typeof value !== 'object' || Array.isArray(value)) return res.status(400).json({ error: 'bad_request' });
       clean.preferences = {};
       for (const [k, v] of Object.entries(value)) {
-        if (!SETTING_KEYS.includes(k) || (v !== null && (typeof v !== 'string' || v.length > 2048))) return res.status(400).json({ error: 'bad_request' });
+        if (!SETTING_KEYS.includes(k) || (v !== null && (k === 'chessGameLog' ? !validChessLog(v) : (typeof v !== 'string' || v.length > 2048)))) return res.status(400).json({ error: 'bad_request' });
         clean.preferences[k] = v;
       }
     }
-    for (const domain of settings ? [] : DOMAINS) {
+    for (const domain of settings || match ? [] : DOMAINS) {
       if (!(domain in body.domains)) continue;
       const value = SANITIZERS[domain](body.domains[domain]);
       if (!value) return res.status(400).json({ error: 'bad_request' });
       clean[domain] = value;
     }
     if (!Object.keys(clean).length) return res.status(400).json({ error: 'bad_request' });
-    const revision = await command('EVAL', WRITE, 1, key, body.revision, JSON.stringify(clean));
+    const revision = await command('EVAL', match ? WRITE_MATCH : WRITE, 1, key, body.revision, JSON.stringify(match ? clean.match : clean));
     if (!revision) return res.status(409).json({ error: 'conflict' });
     return res.status(200).json({ configured: true, revision, saved: Object.keys(clean) });
   } catch (_) { return res.status(503).json({ error: 'store_unavailable' }); }

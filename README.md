@@ -129,3 +129,8 @@ Game designs by Kris Burm (GIPF Project: Yinsh, Zertz), Klaus Teuber (Catan), Ma
 ## License
 
 MIT (see [LICENSE](LICENSE)).
+
+Current matches in Chess, Yinsh, Zertz, and Catan resume locally after refresh.
+Signing in also enables cloud matches, preferences and existing statistics, with
+explicit conflict choices and recoverable alternatives. See
+[resumable matches](docs/resumable-matches.md) for formats, recovery and limits.

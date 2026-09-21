@@ -289,3 +289,39 @@ test('existing Chess and Diplomacy local saves stay with the outgoing account', 
   expect(localStorage.getItem('diplomacyGameState')).toBe('{"synthetic":"diplomacy-a"}');
   await clearSession();
 });
+
+test('four-game pending saves and alternatives stay encrypted with their original account', async () => {
+  localStorage.clear();
+  const a = await deriveCredentials('synthetic-four-saves-a','synthetic-password');
+  const b = await deriveCredentials('synthetic-four-saves-b','synthetic-password');
+  await saveSession(a);
+  for (const game of ['chess','yinsh','zertz','catan']) {
+    localStorage.setItem(`${game}Match:v1`, JSON.stringify({ synthetic: 'unsynced-A' }));
+    localStorage.setItem(`${game}MatchSync:v1`, JSON.stringify({ owner: a.usernameId, revision: 4 }));
+    localStorage.setItem(`${game}MatchRecovery:v1`, JSON.stringify({ alternatives: ['A-only'] }));
+  }
+  await saveSession(b);
+  for (const game of ['chess','yinsh','zertz','catan']) {
+    expect(localStorage.getItem(`${game}Match:v1`)).toBeNull();
+    expect(localStorage.getItem(`${game}MatchSync:v1`)).toBeNull();
+    expect(localStorage.getItem(`${game}MatchRecovery:v1`)).toBeNull();
+  }
+  expect(localStorage.getItem(`gipf:recovery:${a.usernameId}`)).not.toContain('unsynced-A');
+  await saveSession(a);
+  expect(localStorage.getItem('catanMatch:v1')).toContain('unsynced-A');
+  expect(JSON.parse(localStorage.getItem('catanMatchSync:v1')).owner).toBe(a.usernameId);
+  await clearSession();
+});
+test('four-game guest import remains explicit and repeat import does not replace account edits', async () => {
+  localStorage.clear();
+  const a = await deriveCredentials('synthetic-four-guest','synthetic-password');
+  localStorage.setItem('yinshMatch:v1','{"id":"guest-only"}');
+  await saveSession(a);
+  expect(localStorage.getItem('yinshMatch:v1')).toBeNull();
+  await clearSession(); await saveSession(a,{importGuest:true});
+  expect(localStorage.getItem('yinshMatch:v1')).toBe('{"id":"guest-only"}');
+  localStorage.setItem('yinshMatch:v1','{"id":"account-edit"}');
+  await clearSession(); await saveSession(a,{importGuest:true});
+  expect(localStorage.getItem('yinshMatch:v1')).toBe('{"id":"account-edit"}');
+  await clearSession();
+});
