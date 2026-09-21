@@ -131,27 +131,50 @@ const SANITIZERS = {
 };
 
 
-// CAS returns a conflict without changing any domain. A profile revision covers all domains.
-const WRITE = `local r=redis.call('GET',KEYS[1]); local p=r and cjson.decode(r) or {revision=0,profile={}};
-if p.revision~=tonumber(ARGV[1]) then return 0 end;
-local d=cjson.decode(ARGV[2]); for k,v in pairs(d) do p.profile[k]=v end;
-p.revision=p.revision+1; redis.call('SET',KEYS[1],cjson.encode(p)); return p.revision`;
+// Merge with JSON.parse/stringify in JS, then atomically compare the exact input.
+// Lua must never re-encode domain values: cjson erases empty-array identity.
+const WRITE = `if (redis.call('GET',KEYS[1]) or '')~=ARGV[1] then return 0 end;
+redis.call('SET',KEYS[1],ARGV[2]); return 1`;
 // Redis Lua cjson loses empty-array identity on decode/re-encode. Match JSON
 // must remain opaque so empty queues/decks/maps survive byte-for-byte.
 const WRITE_MATCH = `local r=redis.call('GET',KEYS[1]); local p=r and cjson.decode(r) or {revision=0};
 if p.revision~=tonumber(ARGV[1]) then return 0 end;
 local revision=p.revision+1;
 redis.call('SET',KEYS[1],'{"revision":'..revision..',"profile":{"match":'..ARGV[2]..'}}'); return revision`;
-// A claim is single-owner and one-time, copying only missing domains. Source stays intact for recovery.
+// Owner check precedes snapshot comparison so same-owner retries stay idempotent.
+// Compare destination and every source before either write; source keys stay intact.
 const CLAIM = `local owner=redis.call('GET',KEYS[2]); if owner and owner~=ARGV[1] then return -1 end;
 if owner then return 0 end;
-local r=redis.call('GET',KEYS[1]); local p=r and cjson.decode(r) or {revision=0,profile={}};
-if (p.claimCount or 0)>=5 then return -2 end;
-local legacy={};
-for i=3,6 do local d=ARGV[i-1]; local v=redis.call('GET',KEYS[i]); if not v and i==3 then v=redis.call('GET',KEYS[7]) end;
-if v then legacy[d]=cjson.decode(v); if not p.profile[d] then p.profile[d]=legacy[d] end end end;
-p.legacyProfiles=p.legacyProfiles or {}; p.legacyProfiles[KEYS[2]]=legacy; p.claimCount=(p.claimCount or 0)+1;
-p.revision=p.revision+1; redis.call('SET',KEYS[1],cjson.encode(p)); redis.call('SET',KEYS[2],ARGV[1]); return 1`;
+for i=1,7 do if i~=2 and (redis.call('GET',KEYS[i]) or '')~=ARGV[i+2] then return -3 end end;
+if tonumber(ARGV[10])>=5 then return -2 end;
+redis.call('SET',KEYS[1],ARGV[2]); redis.call('SET',KEYS[2],ARGV[1]); return 1`;
+const emptyRecord = () => ({ revision: 0, profile: {} });
+
+async function claimLegacy(key, id, user) {
+  const keys = [key, `gipf:claim:${id}`, ...DOMAINS.map(d => `chess:profile:${id}:${d}`), `chess:rating:${id}`];
+  // Bounded optimistic retries handle a concurrent profile write or another claim.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const raw = await command('MGET', ...keys);
+    if (raw[1]) return raw[1] === user ? 0 : -1;
+    const record = raw[0] ? JSON.parse(raw[0]) : emptyRecord();
+    const count = record.claimCount || 0;
+    const legacy = {};
+    for (let i = 0; i < DOMAINS.length; i++) {
+      const value = raw[i + 2] || (i === 0 ? raw[6] : null);
+      if (value) {
+        legacy[DOMAINS[i]] = JSON.parse(value);
+        if (!Object.hasOwn(record.profile, DOMAINS[i])) record.profile[DOMAINS[i]] = legacy[DOMAINS[i]];
+      }
+    }
+    record.legacyProfiles = { ...record.legacyProfiles, [keys[1]]: legacy };
+    record.claimCount = count + 1;
+    record.revision++;
+    const result = await command('EVAL', CLAIM, keys.length, ...keys, user, JSON.stringify(record), ...raw.map(v => v ?? ''), count);
+    if (result !== -3) return result;
+  }
+  return -3;
+}
+
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') return res.status(405).json({ error: 'use_authenticated_post' });
@@ -174,7 +197,8 @@ export default async function handler(req, res) {
       if (!hex64(body.legacyId)) return res.status(400).json({ error: 'bad_request' });
       if (!await limit('claim-user', body.u, 5, 86400)) return res.status(429).json({ error: 'rate_limited' });
       const id = body.legacyId;
-      const result = await command('EVAL', CLAIM, 7, key, `gipf:claim:${id}`, ...DOMAINS.map(d => `chess:profile:${id}:${d}`), `chess:rating:${id}`, body.u, ...DOMAINS);
+      const result = await claimLegacy(key, id, body.u);
+      if (result === -3) return res.status(409).json({ error: 'conflict' });
       if (result === -2) return res.status(409).json({ error: 'claim_limit' });
       if (result === -1) return res.status(409).json({ error: 'already_claimed' });
       return res.status(200).json({ configured: true, claimed: true });
@@ -206,7 +230,25 @@ export default async function handler(req, res) {
       clean[domain] = value;
     }
     if (!Object.keys(clean).length) return res.status(400).json({ error: 'bad_request' });
-    const revision = await command('EVAL', match ? WRITE_MATCH : WRITE, 1, key, body.revision, JSON.stringify(match ? clean.match : clean));
+    let revision;
+    if (match) {
+      revision = await command('EVAL', WRITE_MATCH, 1, key, body.revision, JSON.stringify(clean.match));
+    } else {
+      const raw = await command('GET', key);
+      const record = raw ? JSON.parse(raw) : emptyRecord();
+      if (record.revision !== body.revision) return res.status(409).json({ error: 'conflict' });
+      // A known array field stored as an object is damaged, not evidence that
+      // arbitrary empty objects mean arrays. Preserve it for explicit recovery.
+      const mistakes = record.profile.mistakes;
+      if (!settings && clean.mistakes && mistakes?.v === 1 && mistakes.entries &&
+          typeof mistakes.entries === 'object' && !Array.isArray(mistakes.entries)) {
+        return res.status(409).json({ error: 'legacy_shape_conflict' });
+      }
+      record.profile = { ...record.profile, ...clean };
+      record.revision++;
+      const saved = await command('EVAL', WRITE, 1, key, raw ?? '', JSON.stringify(record));
+      revision = saved ? record.revision : 0;
+    }
     if (!revision) return res.status(409).json({ error: 'conflict' });
     return res.status(200).json({ configured: true, revision, saved: Object.keys(clean) });
   } catch (_) { return res.status(503).json({ error: 'store_unavailable' }); }

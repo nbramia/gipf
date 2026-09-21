@@ -51,6 +51,33 @@ Legacy `GET /api/chessProfile?id=...` returns 405 and `/api/chessRating` returns
 410. Existing clients must upgrade; old data remains in Redis. API secrets must
 never be placed in URLs, analytics, logs, test traces, or ordinary exports.
 
+## JSON preservation and legacy damage
+
+Profile and settings records keep the existing JSON object format and namespaces.
+The server sanitizes new domain values, parses and merges JSON in JavaScript, and
+passes the complete JSON string to Redis unchanged. Lua compares the exact prior
+record before committing; a race returns 409 without changing any domain. It does
+not decode/re-encode domain data. Existing valid records need no migration, and
+partial writes preserve arrays, objects, and retained claim alternatives.
+
+Claims read a snapshot of the destination and all legacy sources, merge only
+missing domains in JavaScript, and atomically compare every input before binding
+ownership and storing the opaque JSON. Up to three snapshot attempts handle races;
+continued contention returns `409 conflict`, and the caller can retry. Same-owner
+retries remain idempotent; other owners and the five-claim lifetime cap retain
+existing rejection behavior. Source records and overlapping alternatives remain
+intact. Match storage and its independent revisions are unchanged.
+
+Previously damaged data cannot be reconstructed from JSON type loss. Reads and
+claims retain such values exactly as parsed, including `mistakes.entries: {}`;
+they do not guess that empty objects are arrays. Unrelated domain writes retain
+that data. A write replacing an existing version-1 mistakes domain whose `entries`
+is an object instead of an array returns `409 legacy_shape_conflict` without
+mutating the record. Recovery needs an operator-reviewed source/backup; this
+change supplies no automated repair or client recovery UI. It does not identify
+all possible historical corruption or restore data already lost. Normal map
+fields (history sides and puzzle maps), including empty maps, remain objects.
+
 ## Bounded legacy claims
 
 Set both `GIPF_LEGACY_CLAIM_FROM` and `GIPF_LEGACY_CLAIM_UNTIL` to fixed ISO UTC
@@ -138,6 +165,10 @@ node --test tests/public-security.test.mjs tests/ai-security.test.mjs
 # Disposable Redis only. The contract test FLUSHDBs this named container.
 docker run --rm -d --name gipf-pr4-synthetic-redis -p 127.0.0.1:16389:6379 redis:7-alpine
 node --test tests/account-redis.test.mjs
+# Dedicated issue-62 fixture; never point this test at a shared/production store.
+docker run --rm -d --name gipf-issue62-synthetic-redis redis:7-alpine
+node --test tests/profile-arrays-redis.test.mjs
+docker stop gipf-issue62-synthetic-redis
 npm run build
 node tests/serve-public-security.mjs
 # Browser fixture is http://127.0.0.1:3187/gipf; stop it before container cleanup.

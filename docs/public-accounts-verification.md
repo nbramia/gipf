@@ -113,3 +113,24 @@ Yinsh `api/aiMove.js` repair; run independent adversarial review and the authori
 full regression suite; verify HTTPS/platform behavior and worker bundling; configure
 durable Redis and fixed legacy-claim dates; execute later origin migration/cutover
 and PR5 match-save work. See [public account operations](public-accounts.md).
+
+## Issue 62: profile JSON type preservation
+
+The focused regression `tests/profile-arrays-redis.test.mjs` uses the actual
+handler and actual Redis EVAL in a dedicated `gipf-issue62-synthetic-redis`
+container. Its REST transport adapter executes Redis commands, not mocked Lua
+results. The fixture flushes only that named disposable container. It covers all
+four profile sanitizers, preferences (including JSON strings and null), nested
+arrays/objects retained from older records, partial writes, two-handler races,
+claim ownership/collisions/retries, source/destination changes during claims,
+retry exhaustion, lifetime limits, authentication and payload rejection, and a
+real loopback HTTP handler smoke test. No browser or external provider is used.
+
+Before the correction, five of the initial seven regressions failed: empty
+mistake arrays became objects on WRITE and CLAIM, and a damaged mistakes domain
+could be silently replaced. The implementation retains the JSON record format,
+compares exact stored snapshots in Lua, and stores JS-serialized JSON opaquely.
+See `public-accounts.md` for the explicit `legacy_shape_conflict` behavior and
+operator recovery limitation. This focused evidence is not the parent PR61
+security review, an authoritative full-suite run, or authorization to deploy or
+remove the public gate.
