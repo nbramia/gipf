@@ -117,11 +117,11 @@ and PR5 match-save work. See [public account operations](public-accounts.md).
 ## Issue 62: profile JSON type preservation
 
 The focused regression `tests/profile-arrays-redis.test.mjs` uses the actual
-handler and actual Redis EVAL in a dedicated `gipf-issue62-synthetic-redis`
+handler and actual Redis EVAL in a dedicated `gipf-r22-address-synthetic-redis`
 container. Its REST transport adapter executes Redis commands, not mocked Lua
 results. The fixture flushes only that named disposable container. It covers all
 four profile sanitizers, preferences (including JSON strings and null), nested
-arrays/objects retained from older records, partial writes, two-handler races,
+arrays/objects retained from older records, partial writes, stale two-handler writes and injected byte-CAS interleaves,
 claim ownership/collisions/retries, source/destination changes during claims,
 retry exhaustion, lifetime limits, authentication and payload rejection, and a
 real loopback HTTP handler smoke test. No browser or external provider is used.
@@ -134,3 +134,60 @@ See `public-accounts.md` for the explicit `legacy_shape_conflict` behavior and
 operator recovery limitation. This focused evidence is not the parent PR61
 security review, an authoritative full-suite run, or authorization to deploy or
 remove the public gate.
+
+
+## PR65 review corrections
+
+Focused local commands (synthetic data only):
+
+```sh
+docker run --rm -d --name gipf-r22-address-synthetic-redis redis:7-alpine
+node --test tests/profile-arrays-redis.test.mjs
+CI=true npm test -- --watchAll=false --runInBand --runTestsByPath src/games/chess/engine/profileSync.test.js
+npm run build
+./node_modules/.bin/eslint --no-eslintrc --config tests/security-eslint.cjs --resolve-plugins-relative-to . api/chessProfile.js src/games/chess/engine/profileSync.js
+git diff --check
+```
+
+Results: 19/19 Redis tests and 24/24 client tests pass; build and focused lint
+exit 0 with existing CRA/Browserslist and chess.js source-map warnings.
+`git diff --check` passes.
+
+The Redis regressions exercise the real handler/Lua and loopback HTTP, including
+bundled history+mistakes recovery from the known empty-object case, preservation
+of nonempty malformed originals, healthy claim alternatives, empty stored JSON,
+missing-to-empty races in WRITE and CLAIM, and aggregate claim timing. Client tests
+cover safe reconciliation, preservation of input objects, and the actual bundled
+write request. The synthetic clock tests advance time for preflight and every
+command: one stops before the first EVAL, another stops during a contention retry.
+Three attempts remain possible only when time permits. Exact bytes are compared
+with an explicit presence prefix; no digest CAS or authorization/quota policy
+change was made.
+
+Maximum-count payload evidence: 200 mistakes with maximum ASCII string lengths,
+500 puzzle records with 64-character IDs, both history sides with 32 maximum-length
+keys, capped counters, a current profile and five complete retained alternatives.
+The tested mistakes domain is 127,019 bytes; the final record is 1,301,530 bytes;
+the largest JSON REST EVAL bodies are 2,790,578 bytes for CLAIM and 2,789,878 bytes
+for WRITE. The fixture performs all five claims and a subsequent full-domain write,
+then verifies profile and retained alternatives. These are measured UTF-8 wire
+sizes, including JSON escaping, not merely the logical request size.
+
+This is a supported **local test envelope**, not an absolute maximum byte size:
+Unicode/escaping changes byte lengths, mistakes allow up to 262,144 serialized
+bytes, and accumulated domains/alternatives can exceed the 300,000-byte incoming
+request limit. Retained historical JSON has no new aggregate size cap in this
+patch; arbitrary old data therefore has no finite enforced record maximum.
+No provider-plan payload limit or hosted latency was checked. The 17-second
+command admission budget leaves 3 seconds under `maxDuration:20`, but event-loop
+stalls, unusually large historical JSON parsing/serialization, and hosted timeout
+behavior still require coordinator-owned deployment verification. An ambiguous
+EVAL timeout retains existing atomic/idempotent semantics; daily claim attempts
+still consume the existing quota.
+
+Client non-array entries are skipped for reconciliation, not recovered. Nonempty
+malformed destination mistakes still reject the entire game-end bundle, including
+history, with the existing generic client sync error; operator recovery remains
+necessary. Empty-object compatibility does not establish that every malformed
+object came from cjson. No full suite, live provider call, production data access,
+PR61 security certification, or deployment is part of this evidence.

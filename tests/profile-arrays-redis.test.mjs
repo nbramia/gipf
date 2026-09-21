@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import profile from '../api/chessProfile.js';
 import { hash } from '../server/publicSecurity.js';
-const redis = (...args) => JSON.parse(execFileSync('docker', ['exec', 'gipf-issue62-synthetic-redis', 'redis-cli', '--json', ...args.map(String)], {encoding:'utf8'}));
+const redis = (...args) => JSON.parse(execFileSync('docker', ['exec', '-i', 'gipf-r22-address-synthetic-redis', 'redis-cli', '--json'], {
+  encoding:'utf8', input:args.map(arg=>JSON.stringify(String(arg))).join(' ')+'\n', maxBuffer:16*1024*1024,
+}));
 const u='a'.repeat(64), auth='b'.repeat(64), other='c'.repeat(64), legacy='d'.repeat(64);
 const key=`gipf:profile:v2:${u}`, claimKey=`gipf:claim:${legacy}`;
 async function call(body, handler=profile) {
@@ -47,7 +49,7 @@ test('settings preserve string JSON, null and objects with an independent revisi
   assert.deepEqual((await read('settings')).profile,{preferences:{}});
   assert.deepEqual((await read()).profile,domains);
 });
-test('two handler instances race; stale multi-domain write cannot mutate any bytes',async()=>{
+test('two handler instances reject a stale multi-domain write without changing bytes',async()=>{
   const second=(await import('../api/chessProfile.js?arrays-second')).default;
   const request={action:'write',revision:0,domains};
   const outcomes=await Promise.all([call(request),call({...request,domains:{rating:{rating:1800,ratedGames:1}}},second)]);
@@ -83,19 +85,67 @@ test('competing claims have one owner and copy arrays into missing domains',asyn
   const owner=redis('GET',claimKey);
   assert.deepEqual((await call({action:'read',u:owner})).body.profile,{mistakes:domains.mistakes,rating:domains.rating});
 });
-test('damaged legacy mistakes remain readable and retained, never guessed or overwritten',async()=>{
-  const damaged={v:1,entries:{}};
+test('known empty-object mistakes allow the bundled game-end history and mistakes save',async()=>{
+  redis('SET',key,JSON.stringify({revision:1,profile:{mistakes:{v:1,entries:{}},history:domains.history}}));
+  const history={v:1,casual:{easy:{w:2,l:2,d:3}},rated:{}};
+  const result=await write({history,mistakes:{v:1,entries:[{fenBefore:'new'}]}},1);
+  assert.equal(result.statusCode,200);assert.deepEqual(result.body.saved,['history','mistakes']);
+  assert.deepEqual((await read()).profile.history,history);
+  assert.equal((await read()).profile.mistakes.entries[0].fenBefore,'new');
+});
+test('nonempty malformed originals survive rejected bundled saves and healthy claims',async()=>{
+  const damaged={v:1,entries:{original:'recover me'}};
   redis('SET',key,JSON.stringify({revision:1,profile:{mistakes:damaged,history:domains.history}}));
-  assert.deepEqual((await read()).profile.mistakes,damaged);
-  assert.equal((await write({rating:domains.rating},1)).statusCode,200);
-  assert.deepEqual((await read()).profile.mistakes,damaged);
   const raw=redis('GET',key);
-  const response=await write({mistakes:domains.mistakes},2);
+  const response=await write({history:domains.history,mistakes:domains.mistakes},1);
   assert.equal(response.statusCode,409);assert.equal(response.body.error,'legacy_shape_conflict');
   assert.equal(redis('GET',key),raw);
-  redis('SET',`chess:profile:${legacy}:mistakes`,JSON.stringify(damaged));
+  redis('SET',`chess:profile:${legacy}:mistakes`,JSON.stringify({v:1,entries:[{fenBefore:'healthy'}]}));
   assert.equal((await call({action:'claim',legacyId:legacy})).statusCode,200);
-  assert.deepEqual((await read()).legacyProfiles[claimKey].mistakes,damaged);
+  assert.deepEqual((await read()).profile.mistakes,damaged);
+  assert.equal((await read()).legacyProfiles[claimKey].mistakes.entries[0].fenBefore,'healthy');
+});
+test('claims retain empty-object alternatives and healthy sources without guessing conversions',async()=>{
+  const damaged={v:1,entries:{}};
+  redis('SET',key,JSON.stringify({revision:1,profile:{mistakes:damaged}}));
+  const source={v:1,entries:[{fenBefore:'healthy'}]};
+  redis('SET',`chess:profile:${legacy}:mistakes`,JSON.stringify(source));
+  assert.equal((await call({action:'claim',legacyId:legacy})).statusCode,200);
+  assert.deepEqual((await read()).profile.mistakes,damaged);
+  assert.deepEqual((await read()).legacyProfiles[claimKey].mistakes,source);
+  assert.equal((await write({history:domains.history,mistakes:source},2)).statusCode,200);
+  assert.deepEqual(JSON.parse(redis('GET',`chess:profile:${legacy}:mistakes`)),source);
+});
+test('empty stored JSON fails closed in reads, writes and claim sources or destination',async()=>{
+  redis('SET',key,'');
+  assert.equal((await call({action:'read'})).statusCode,503);
+  assert.equal((await write(domains)).statusCode,503);
+  assert.equal((await call({action:'claim',legacyId:legacy})).statusCode,503);
+  assert.equal(redis('GET',key),'');assert.equal(redis('GET',claimKey),null);
+  redis('DEL',key);redis('SET',`chess:profile:${legacy}:rating`,'');
+  redis('SET',`chess:rating:${legacy}`,JSON.stringify(domains.rating));
+  assert.equal((await call({action:'claim',legacyId:legacy})).statusCode,503);
+  assert.equal(redis('GET',key),null);assert.equal(redis('GET',claimKey),null);
+});
+test('CAS distinguishes a missing snapshot from concurrent empty-string corruption',async()=>{
+  const original=globalThis.fetch;
+  globalThis.fetch=async(url,options)=>{
+    const args=JSON.parse(options.body);
+    if(args[0]==='EVAL' && args[2]===1 && args[3]===key) redis('SET',key,'');
+    return original(url,options);
+  };
+  assert.equal((await write(domains)).statusCode,409);assert.equal(redis('GET',key),'');
+});
+test('claim aggregate budget stops before another command can exceed the handler deadline',async()=>{
+  const original=globalThis.fetch,now=Date.now;let elapsed=0,commands=0;
+  Date.now=()=>now()+elapsed;
+  globalThis.fetch=async(url,options)=>{
+    commands++;const result=await original(url,options);elapsed+=2900;return result;
+  };
+  try {
+    assert.equal((await call({action:'claim',legacyId:legacy})).statusCode,503);
+    assert.equal(commands,5);assert.equal(redis('GET',key),null);assert.equal(redis('GET',claimKey),null);
+  } finally {Date.now=now;}
 });
 test('auth, request bounds and sanitizer rejection leave profiles untouched',async()=>{
   assert.equal((await call({action:'write',revision:0,domains,auth:'f'.repeat(64)})).statusCode,401);
@@ -175,4 +225,63 @@ test('real localhost HTTP endpoint writes, reads, rejects stale writes and claim
     assert.equal((await send({action:'claim',legacyId:legacy})).status,200);
     assert.deepEqual((await send({action:'read'})).body.legacyProfiles[claimKey].mistakes,domains.mistakes);
   } finally {await new Promise(resolve=>server.close(resolve));}
+});
+
+test('maximum-count synthetic domains and five alternatives preserve exact CAS at measured payload sizes',async()=>{
+  const entry={fenBefore:'f'.repeat(120),id:'i'.repeat(32),movePlayed:'m'.repeat(16),bestSan:'s'.repeat(16),bestPv:'p'.repeat(120),classification:'c'.repeat(64),opening:'o'.repeat(64),cpLoss:1e100,moveNo:1e100,createdAt:1e100,attempts:1e100,streak:1e100,nextDueAt:1e100};
+  const historySide=Object.fromEntries(Array.from({length:32},(_,i)=>[String(i).padStart(32,'h'),{w:1000000,l:1000000,d:1000000}]));
+  const large={rating:{rating:4000,ratedGames:1000000},history:{v:1,casual:historySide,rated:historySide},
+    puzzles:{rating:4000,attempts:1000000,puzzles:Object.fromEntries(Array.from({length:500},(_,i)=>[String(i).padStart(64,'p'),{attempts:1000000,solves:1000000,streak:1000000,nextDueAt:4102444800000,lastResult:'solved'}]))},
+    mistakes:{v:1,entries:Array.from({length:200},(_,i)=>({...entry,id:String(i).padStart(32,'i')}))}};
+  assert.equal((await write(large)).statusCode,200);
+  let claimBytes=0,writeBytes=0;
+  const original=globalThis.fetch;
+  globalThis.fetch=async(url,options)=>{
+    const args=JSON.parse(options.body);
+    if(args[0]==='EVAL' && args[2]===7) claimBytes=Math.max(claimBytes,Buffer.byteLength(options.body));
+    if(args[0]==='EVAL' && args[2]===1 && args[3]===key) writeBytes=Math.max(writeBytes,Buffer.byteLength(options.body));
+    return original(url,options);
+  };
+  for(let i=0;i<5;i++) {
+    const id=String(i).repeat(64);
+    for(const [domain,value] of Object.entries(large)) redis('SET',`chess:profile:${id}:${domain}`,JSON.stringify(value));
+    assert.equal((await call({action:'claim',legacyId:id})).statusCode,200);
+  }
+  const before=await read();assert.equal(before.claimCount,5);
+  assert.equal((await write(large,before.revision)).statusCode,200);
+  const after=await read();assert.deepEqual(after.profile,large);assert.deepEqual(after.legacyProfiles,before.legacyProfiles);
+  console.log(JSON.stringify({fixture:'maximum-count ASCII',mistakesBytes:Buffer.byteLength(JSON.stringify(large.mistakes)),recordBytes:Buffer.byteLength(redis('GET',key)),claimEvalBytes:claimBytes,writeEvalBytes:writeBytes}));
+});
+
+test('claim retry budget includes preflight and previous attempts',async()=>{
+  const original=globalThis.fetch,now=Date.now;let elapsed=0,attempts=0,reads=0;
+  Date.now=()=>now()+elapsed;
+  globalThis.fetch=async(url,options)=>{
+    const args=JSON.parse(options.body);
+    if(args[0]==='MGET') reads++;
+    if(args[0]==='EVAL' && args[2]===7) {
+      attempts++;redis('SET',key,JSON.stringify({revision:attempts,profile:{}}));
+    }
+    const result=await original(url,options);elapsed+=2050;return result;
+  };
+  try {
+    assert.equal((await call({action:'claim',legacyId:legacy})).statusCode,503);
+    assert.equal(attempts,1);assert.equal(reads,2);
+    assert.equal(redis('GET',claimKey),null);assert.equal(JSON.parse(redis('GET',key)).revision,1);
+  } finally {Date.now=now;}
+});
+test('claim detects missing-to-empty source race and preserves empty owners',async()=>{
+  const original=globalThis.fetch;let raced=false;
+  globalThis.fetch=async(url,options)=>{
+    const args=JSON.parse(options.body);
+    if(args[0]==='EVAL' && args[2]===7 && !raced) {
+      raced=true;redis('SET',`chess:profile:${legacy}:mistakes`,'');
+    }
+    return original(url,options);
+  };
+  assert.equal((await call({action:'claim',legacyId:legacy})).statusCode,503);
+  assert.ok(raced);assert.equal(redis('GET',key),null);assert.equal(redis('GET',claimKey),null);
+  redis('SET',claimKey,'');
+  assert.equal((await call({action:'claim',legacyId:legacy})).body.error,'already_claimed');
+  assert.equal(redis('GET',claimKey),'');
 });

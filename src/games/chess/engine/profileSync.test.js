@@ -217,3 +217,28 @@ describe('authenticated profile requests', () => {
     await expect(fetchRemoteProfile(a)).rejects.toThrow('account_changed');
   });
 });
+
+
+describe('legacy mistakes compatibility', () => {
+  afterEach(() => { delete global.fetch; localStorage.clear(); });
+  test.each([{}, { original: 'retained remotely' }])('reconciles non-array entries without mutation: %p', async entries => {
+    const { fetchRemoteProfile, putRemoteProfile } = await import('./profileSync.js');
+    const session = { usernameId: 'e'.repeat(64), authToken: 'f'.repeat(64) };
+    localStorage.setItem('gipfAccount', JSON.stringify(session));
+    const healthy = [{ fenBefore: 'synthetic', attempts: 0, nextDueAt: 0, createdAt: 1 }];
+    const data = { revision: 1, profile: { mistakes: { v: 1, entries } }, legacyProfiles: {
+      damaged: { mistakes: { v: 1, entries: {} } }, healthy: { mistakes: { v: 1, entries: healthy } },
+    } };
+    const original = JSON.stringify(data);
+    global.fetch = jest.fn(async () => ({ ok: true, json: async () => data }));
+    const remote = await fetchRemoteProfile(session);
+    expect(remote.mistakes.entries).toEqual(healthy);
+    expect(JSON.stringify(data)).toBe(original);
+    expect(mergeMistakes(healthy, entries)).toEqual(healthy);
+    expect(mergeMistakes(entries, healthy)).toEqual(healthy);
+    const history = { v: 1, casual: {}, rated: {} };
+    global.fetch = jest.fn(async () => ({ ok: true, json: async () => ({ revision: 2 }) }));
+    expect(await putRemoteProfile(session, { history, mistakes: remote.mistakes.entries })).toBe(true);
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body).domains).toEqual({ history, mistakes: { v: 1, entries: healthy } });
+  });
+});

@@ -63,20 +63,36 @@ partial writes preserve arrays, objects, and retained claim alternatives.
 Claims read a snapshot of the destination and all legacy sources, merge only
 missing domains in JavaScript, and atomically compare every input before binding
 ownership and storing the opaque JSON. Up to three snapshot attempts handle races;
-continued contention returns `409 conflict`, and the caller can retry. Same-owner
+continued contention returns `409 conflict`, and the caller can retry. Each claim
+command must have its full 3-second timeout remaining in a 17-second budget from
+handler entry (including authentication and quota checks). Budget exhaustion returns
+`503 store_unavailable`; the remaining 3 seconds of `maxDuration:20` are reserved
+for CPU/response overhead. Retries do not reset this budget. Same-owner
 retries remain idempotent; other owners and the five-claim lifetime cap retain
 existing rejection behavior. Source records and overlapping alternatives remain
 intact. Match storage and its independent revisions are unchanged.
 
-Previously damaged data cannot be reconstructed from JSON type loss. Reads and
-claims retain such values exactly as parsed, including `mistakes.entries: {}`;
-they do not guess that empty objects are arrays. Unrelated domain writes retain
-that data. A write replacing an existing version-1 mistakes domain whose `entries`
-is an object instead of an array returns `409 legacy_shape_conflict` without
-mutating the record. Recovery needs an operator-reviewed source/backup; this
-change supplies no automated repair or client recovery UI. It does not identify
-all possible historical corruption or restore data already lost. Normal map
-fields (history sides and puzzle maps), including empty maps, remain objects.
+The known version-1 `mistakes.entries: {}` case is compatible with historical
+cjson empty-array loss. A normal sanitized mistakes write can replace this empty
+object, including the client's atomic game-end `{history, mistakes}` save. This
+is only compatibility for that field, not evidence that arbitrary objects were
+arrays. Reads and claims keep originals; the client merges only array-valued
+mistake entries, so empty objects and nonempty malformed objects no longer crash
+reconciliation. Healthy claimed alternatives can contribute entries even when the
+destination has an empty object. Claim sources and stored alternatives stay intact.
+
+Nonempty object-valued version-1 mistake entries still need operator-reviewed
+source/backup recovery: replacement returns `409 legacy_shape_conflict` and leaves
+the entire bundled write (including history) unchanged. The client reports its
+existing generic sync error; there is no repair UI. Skipping malformed values in
+the client's merge does not make their contents usable or erase the remote original.
+Unrelated domain writes retain them. Normal maps remain objects. Missing keys are
+explicitly distinct from existing empty strings in exact byte CAS; empty stored
+JSON fails closed rather than being treated as a new record. No broad corruption
+migration or recovery of already-lost data is provided.
+
+Payload evidence and limitations are recorded in
+[the focused verification notes](public-accounts-verification.md#pr65-review-corrections).
 
 ## Bounded legacy claims
 

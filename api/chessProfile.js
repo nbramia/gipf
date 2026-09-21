@@ -133,7 +133,9 @@ const SANITIZERS = {
 
 // Merge with JSON.parse/stringify in JS, then atomically compare the exact input.
 // Lua must never re-encode domain values: cjson erases empty-array identity.
-const WRITE = `if (redis.call('GET',KEYS[1]) or '')~=ARGV[1] then return 0 end;
+const SNAPSHOT = `local function snapshot(k) local r=redis.call('GET',k); if r then return '1'..r else return '0' end end;\n`;
+const snapshot = raw => raw == null ? '0' : `1${raw}`;
+const WRITE = `${SNAPSHOT}if snapshot(KEYS[1])~=ARGV[1] then return 0 end;
 redis.call('SET',KEYS[1],ARGV[2]); return 1`;
 // Redis Lua cjson loses empty-array identity on decode/re-encode. Match JSON
 // must remain opaque so empty queues/decks/maps survive byte-for-byte.
@@ -143,25 +145,31 @@ local revision=p.revision+1;
 redis.call('SET',KEYS[1],'{"revision":'..revision..',"profile":{"match":'..ARGV[2]..'}}'); return revision`;
 // Owner check precedes snapshot comparison so same-owner retries stay idempotent.
 // Compare destination and every source before either write; source keys stay intact.
-const CLAIM = `local owner=redis.call('GET',KEYS[2]); if owner and owner~=ARGV[1] then return -1 end;
+const CLAIM = `${SNAPSHOT}local owner=redis.call('GET',KEYS[2]); if owner and owner~=ARGV[1] then return -1 end;
 if owner then return 0 end;
-for i=1,7 do if i~=2 and (redis.call('GET',KEYS[i]) or '')~=ARGV[i+2] then return -3 end end;
+for i=1,7 do if i~=2 and snapshot(KEYS[i])~=ARGV[i+2] then return -3 end end;
 if tonumber(ARGV[10])>=5 then return -2 end;
 redis.call('SET',KEYS[1],ARGV[2]); redis.call('SET',KEYS[2],ARGV[1]); return 1`;
 const emptyRecord = () => ({ revision: 0, profile: {} });
 
-async function claimLegacy(key, id, user) {
+async function claimLegacy(key, id, user, deadline) {
+  // The four preflight commands already consume up to 12s. Reserve the full
+  // shared command timeout before each remaining request, including retries.
+  const claimCommand = (...args) => {
+    if (Date.now() + 3000 > deadline) throw new Error('store_unavailable');
+    return command(...args);
+  };
   const keys = [key, `gipf:claim:${id}`, ...DOMAINS.map(d => `chess:profile:${id}:${d}`), `chess:rating:${id}`];
   // Bounded optimistic retries handle a concurrent profile write or another claim.
   for (let attempt = 0; attempt < 3; attempt++) {
-    const raw = await command('MGET', ...keys);
-    if (raw[1]) return raw[1] === user ? 0 : -1;
-    const record = raw[0] ? JSON.parse(raw[0]) : emptyRecord();
+    const raw = await claimCommand('MGET', ...keys);
+    if (raw[1] != null) return raw[1] === user ? 0 : -1;
+    const record = raw[0] != null ? JSON.parse(raw[0]) : emptyRecord();
     const count = record.claimCount || 0;
     const legacy = {};
     for (let i = 0; i < DOMAINS.length; i++) {
-      const value = raw[i + 2] || (i === 0 ? raw[6] : null);
-      if (value) {
+      const value = raw[i + 2] ?? (i === 0 ? raw[6] : null);
+      if (value != null) {
         legacy[DOMAINS[i]] = JSON.parse(value);
         if (!Object.hasOwn(record.profile, DOMAINS[i])) record.profile[DOMAINS[i]] = legacy[DOMAINS[i]];
       }
@@ -169,13 +177,14 @@ async function claimLegacy(key, id, user) {
     record.legacyProfiles = { ...record.legacyProfiles, [keys[1]]: legacy };
     record.claimCount = count + 1;
     record.revision++;
-    const result = await command('EVAL', CLAIM, keys.length, ...keys, user, JSON.stringify(record), ...raw.map(v => v ?? ''), count);
+    const result = await claimCommand('EVAL', CLAIM, keys.length, ...keys, user, JSON.stringify(record), ...raw.map(snapshot), count);
     if (result !== -3) return result;
   }
   return -3;
 }
 
 export default async function handler(req, res) {
+  const claimDeadline = Date.now() + 17000; // Leave 3s for response/CPU under maxDuration:20.
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') return res.status(405).json({ error: 'use_authenticated_post' });
   if (!await guardRequest(req, res, { bucket: 'sync', limit: 120, maxBytes: 300000 })) return;
@@ -197,7 +206,7 @@ export default async function handler(req, res) {
       if (!hex64(body.legacyId)) return res.status(400).json({ error: 'bad_request' });
       if (!await limit('claim-user', body.u, 5, 86400)) return res.status(429).json({ error: 'rate_limited' });
       const id = body.legacyId;
-      const result = await claimLegacy(key, id, body.u);
+      const result = await claimLegacy(key, id, body.u, claimDeadline);
       if (result === -3) return res.status(409).json({ error: 'conflict' });
       if (result === -2) return res.status(409).json({ error: 'claim_limit' });
       if (result === -1) return res.status(409).json({ error: 'already_claimed' });
@@ -205,7 +214,7 @@ export default async function handler(req, res) {
     }
     if (body.action === 'read') {
       const raw = await command('GET', key);
-      const record = raw ? JSON.parse(raw) : { revision: 0, profile: {} };
+      const record = raw != null ? JSON.parse(raw) : { revision: 0, profile: {} };
       return res.status(200).json({ configured: true, ...record });
     }
     if (body.action !== 'write' || !Number.isSafeInteger(body.revision) || body.revision < 0 || !body.domains || typeof body.domains !== 'object' || Array.isArray(body.domains)) return res.status(400).json({ error: 'bad_request' });
@@ -235,18 +244,19 @@ export default async function handler(req, res) {
       revision = await command('EVAL', WRITE_MATCH, 1, key, body.revision, JSON.stringify(clean.match));
     } else {
       const raw = await command('GET', key);
-      const record = raw ? JSON.parse(raw) : emptyRecord();
+      const record = raw != null ? JSON.parse(raw) : emptyRecord();
       if (record.revision !== body.revision) return res.status(409).json({ error: 'conflict' });
-      // A known array field stored as an object is damaged, not evidence that
-      // arbitrary empty objects mean arrays. Preserve it for explicit recovery.
+      // Only the known v1 empty entries object is compatible with historical
+      // cjson empty-array loss. Preserve nonempty malformed originals for recovery.
       const mistakes = record.profile.mistakes;
       if (!settings && clean.mistakes && mistakes?.v === 1 && mistakes.entries &&
-          typeof mistakes.entries === 'object' && !Array.isArray(mistakes.entries)) {
+          typeof mistakes.entries === 'object' && !Array.isArray(mistakes.entries) &&
+          Object.keys(mistakes.entries).length > 0) {
         return res.status(409).json({ error: 'legacy_shape_conflict' });
       }
       record.profile = { ...record.profile, ...clean };
       record.revision++;
-      const saved = await command('EVAL', WRITE, 1, key, raw ?? '', JSON.stringify(record));
+      const saved = await command('EVAL', WRITE, 1, key, snapshot(raw), JSON.stringify(record));
       revision = saved ? record.revision : 0;
     }
     if (!revision) return res.status(409).json({ error: 'conflict' });
