@@ -17,10 +17,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_DIR"
 
-VENV=training/.venv/bin/python3
+VENV=${VENV:-training/.venv/bin/python3}
 LOG_FILE=training/zertz/continuous.log
 CHECKPOINT_DIR=training/zertz/checkpoints
-DATA_DIR=data/zertz
+DATA_DIR=${DATA_DIR:-data/zertz/feature-v2}
 # Zertz keeps its own state files; the root .current-version/.deployed-checkpoint
 # belong to the yinsh loop and sharing them cross-corrupts both resumes.
 STATE_VERSION=training/zertz/.current-version
@@ -84,23 +84,36 @@ verify_file() {
 if [ -f "$STATE_VERSION" ]; then
   VERSION=$(cat "$STATE_VERSION")
 else
-  LATEST=$(ls -1 "$CHECKPOINT_DIR"/v*.pt 2>/dev/null | sort -V | tail -1 | sed 's/.*v\([0-9]*\)\.pt/\1/')
+  LATEST=$(ls -1 "$CHECKPOINT_DIR"/v*.pt 2>/dev/null | sort -V | tail -1 | sed 's/.*v\([0-9]*\)\.pt/\1/' || true)
   if [ -z "$LATEST" ]; then
-    VERSION=1
+    VERSION=2
   else
     VERSION=$((LATEST + 1))
   fi
-  echo "$VERSION" > "$STATE_VERSION"
 fi
 
 if [ -f "$STATE_CHECKPOINT" ]; then
   DEPLOYED_PT=$(cat "$STATE_CHECKPOINT")
 else
-  DEPLOYED_PT=$(ls -1 "$CHECKPOINT_DIR"/v*.pt 2>/dev/null | sort -V | tail -1)
-  if [ -n "$DEPLOYED_PT" ]; then
-    echo "$DEPLOYED_PT" > "$STATE_CHECKPOINT"
-  fi
+  DEPLOYED_PT=${CHECKPOINT:-}
 fi
+if ! [[ "$VERSION" =~ ^[0-9]+$ ]] || [ "$VERSION" -le 1 ]; then
+  log "ERROR: candidate version must be greater than 1"
+  exit 1
+fi
+if [ -n "$DEPLOYED_PT" ] && [ ! -s "$DEPLOYED_PT" ]; then
+  log "ERROR: incumbent checkpoint missing: $DEPLOYED_PT"
+  exit 1
+fi
+if [ -f public/models/zertz-value-v1.onnx ] && [ -z "$DEPLOYED_PT" ]; then
+  log "ERROR: set CHECKPOINT or $STATE_CHECKPOINT for the incumbent"
+  exit 1
+fi
+CHECKPOINT_ARGS=()
+if [ -n "$DEPLOYED_PT" ]; then CHECKPOINT_ARGS=(--checkpoint "$DEPLOYED_PT"); fi
+PYTHONPATH=training "$VENV" scripts/zertz/preflight-training.py \
+  "${CHECKPOINT_ARGS[@]}" --data-dir "$DATA_DIR" --deployed-model public/models/zertz-value-v1.onnx
+echo "$VERSION" > "$STATE_VERSION"
 
 DEPLOYED_VERSION="none"
 if [ -n "${DEPLOYED_PT:-}" ] && [ -f "${DEPLOYED_PT:-}" ]; then
@@ -122,18 +135,19 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
   ITER_START=$(date +%s)
 
   # Step 1: Parallel self-play
-  # Use the LATEST trained model for self-play (AlphaZero style), not just the deployed one.
-  # This creates a virtuous cycle: better model -> better data -> better model.
-  SELFPLAY_ARGS="--games $GAMES --sims $SIMS --output ${DATA_DIR}/v${VERSION}_selfplay.ndjson --workers $WORKERS"
-  LATEST_ONNX=$(ls -1 public/models/zertz-value-v[0-9]*.onnx 2>/dev/null | sort -V | tail -1)
-  if [ -n "$LATEST_ONNX" ]; then
-    SELFPLAY_ARGS="$SELFPLAY_ARGS --mode nn --model $LATEST_ONNX"
+  # Generate from the incumbent whose checkpoint will be continued below.
+  SELFPLAY_ARGS=(--games "$GAMES" --sims "$SIMS" --output "${DATA_DIR}/v${VERSION}_selfplay.ndjson" --workers "$WORKERS")
+  LATEST_ONNX=public/models/zertz-value-v1.onnx
+  if [ -f "$LATEST_ONNX" ]; then
+    "$VENV" scripts/verify-model.py "$LATEST_ONNX"
+    SELFPLAY_ARGS+=(--mode nn --model "$LATEST_ONNX")
     log "Step 1/6: NN self-play with $(basename $LATEST_ONNX) (${GAMES} games, ${SIMS} sims, ${WORKERS} workers)..."
   else
+    SELFPLAY_ARGS+=(--mode heuristic)
     log "Step 1/6: Heuristic self-play (${GAMES} games, ${SIMS} sims, ${WORKERS} workers)..."
   fi
   check_paused
-  node scripts/zertz/parallel-selfplay.mjs $SELFPLAY_ARGS 2>&1
+  node scripts/zertz/parallel-selfplay.mjs "${SELFPLAY_ARGS[@]}" 2>&1
 
   if ! verify_file "${DATA_DIR}/v${VERSION}_selfplay.ndjson" "Self-play data"; then
     log "Skipping v${VERSION} due to data generation failure"
@@ -148,7 +162,7 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
   check_paused
   log "Step 2/6: Combining training data..."
   RECENT_DATA=("${DATA_DIR}/v${VERSION}_selfplay.ndjson")
-  for f in $(ls -1t "${DATA_DIR}"/v*_selfplay.ndjson 2>/dev/null | grep -v "v${VERSION}_selfplay" | head -14); do
+  while IFS= read -r f; do
     SIZE=$(wc -c < "$f" | tr -d ' ')
     if [ "$SIZE" -gt 100 ]; then
       RECENT_DATA+=("$f")
@@ -156,7 +170,7 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
     if [ ${#RECENT_DATA[@]} -ge 15 ]; then
       break
     fi
-  done
+  done < <(ls -1t "${DATA_DIR}"/v*_selfplay.ndjson 2>/dev/null | grep -v "v${VERSION}_selfplay" | head -14)
 
   cat "${RECENT_DATA[@]}" > "${DATA_DIR}/combined_v${VERSION}.ndjson"
   COMBINED_LINES=$(wc -l < "${DATA_DIR}/combined_v${VERSION}.ndjson" | tr -d ' ')
@@ -166,13 +180,13 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
   check_paused
   log "Step 3/6: Training v${VERSION}..."
 
-  TRAIN_ARGS="--data ${DATA_DIR}/combined_v${VERSION}.ndjson --lr 1e-4 --epochs 40 --patience 12 --model-type policy-value --augment --distill-weight 0.5 --output-dir ${CHECKPOINT_DIR}"
+  TRAIN_ARGS=(--data "${DATA_DIR}/combined_v${VERSION}.ndjson" --feature-version 2 --lr 1e-4 --epochs 40 --patience 12 --model-type policy-value --augment --distill-weight 0.5 --output-dir "$CHECKPOINT_DIR")
   if [ -n "${DEPLOYED_PT:-}" ] && [ -f "${DEPLOYED_PT:-}" ]; then
     # Fine-tune from best checkpoint, rename output
-    PYTHONPATH=training $VENV training/zertz/train.py $TRAIN_ARGS 2>&1
+    PYTHONPATH=training "$VENV" training/zertz/train.py "${TRAIN_ARGS[@]}" --checkpoint "$DEPLOYED_PT" 2>&1
   else
     # First training: from scratch
-    PYTHONPATH=training $VENV training/zertz/train.py $TRAIN_ARGS 2>&1
+    PYTHONPATH=training "$VENV" training/zertz/train.py "${TRAIN_ARGS[@]}" 2>&1
   fi
 
   # Rename best.pt to versioned checkpoint
@@ -190,7 +204,7 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
   # Step 4: Export ONNX
   check_paused
   log "Step 4/6: Exporting ONNX..."
-  PYTHONPATH=training $VENV training/zertz/export_onnx.py \
+  PYTHONPATH=training "$VENV" training/zertz/export_onnx.py \
     --checkpoint "${CHECKPOINT_DIR}/v${VERSION}.pt" \
     --output "public/models/zertz-value-v${VERSION}.onnx" 2>&1
 
@@ -200,6 +214,7 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
     echo "$VERSION" > "$STATE_VERSION"
     continue
   fi
+  "$VENV" scripts/verify-model.py "public/models/zertz-value-v${VERSION}.onnx"
 
   # Step 5: Tournament
   check_paused
@@ -208,12 +223,13 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
     set +e
     node scripts/zertz/tournament.mjs \
       --games 20 --sims 100 \
-      --model "public/models/zertz-value-v${VERSION}.onnx" 2>&1
+      --mode nn-vs-nn --model1 "public/models/zertz-value-v${VERSION}.onnx" \
+      --model2 public/models/zertz-value-v1.onnx 2>&1
     RESULT=$?
     set -e
   else
-    log "Step 5/6: No deployed model yet — auto-promoting v${VERSION}"
-    RESULT=0
+    log "Step 5/6: No incumbent; candidate saved for explicit bootstrap, not promoted"
+    RESULT=1
   fi
 
   ITER_END=$(date +%s)
@@ -224,7 +240,8 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
     WIN_COUNT=$((WIN_COUNT + 1))
     log "v${VERSION} WINS! Promoting as deployed model. (${ITER_TIME}s)"
 
-    cp "public/models/zertz-value-v${VERSION}.onnx" public/models/zertz-value-v1.onnx
+    "$VENV" scripts/verify-model.py "public/models/zertz-value-v${VERSION}.onnx" \
+      --destination public/models/zertz-value-v1.onnx
 
     DEPLOYED_PT="${CHECKPOINT_DIR}/v${VERSION}.pt"
     echo "$DEPLOYED_PT" > "$STATE_CHECKPOINT"

@@ -1,3 +1,5 @@
+import { guardRequest } from '../server/publicSecurity.js';
+export const config = { api: { bodyParser: { sizeLimit: '32kb' } } };
 // Serverless Diplomacy agent — gives one AI power a conversational voice so the
 // human can negotiate with (threaten, lie to, ally with) it. The endpoint builds
 // a per-power system prompt grounded in the live board state and returns a
@@ -262,6 +264,8 @@ function validateScratchpad(obj) {
 }
 
 export default async function handler(req, res) {
+  if (req.method === 'POST' && !await guardRequest(req, res, { bucket: 'ai', limit: 30 })) return;
+  res.setHeader('Cache-Control', 'no-store');
   applyCors(req, res);
 
   if (req.method === 'OPTIONS') {
@@ -297,6 +301,7 @@ export default async function handler(req, res) {
     }
 
     const upstream = await fetch(ANTHROPIC_URL, {
+    signal: AbortSignal.timeout(12000),
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -324,8 +329,8 @@ export default async function handler(req, res) {
       const status = upstream.status === 401 ? 401 : 502;
       let detail = 'Upstream error.';
       try {
-        const j = await upstream.json();
-        detail = (j && j.error && j.error.message) || detail;
+        await upstream.json();
+        detail = 'Model provider rejected the request.';
       } catch (_) {
         /* ignore */
       }

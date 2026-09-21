@@ -7,7 +7,8 @@ GIPF Project is a multi-game React application. Each game is self-contained in `
 ```
 src/
   App.jsx              # BrowserRouter + React.lazy routes
-  LandingPage.jsx      # Landing page with game cards
+  LandingPage.jsx      # Game catalogue + optional account widget
+  landing.css          # Scoped catalogue and optional account styles
   index.css            # Tailwind directives + shared keyframes
   index.js             # React DOM entry point
   games/
@@ -36,7 +37,7 @@ const SplendorGame = lazy(() => import('./games/splendor/SplendorGame.jsx'));
 const DiplomacyGame = lazy(() => import('./games/diplomacy/DiplomacyGame.jsx'));
 ```
 
-This means visiting `/zertz` never loads the Yinsh MCTS engine or ONNX runtime. `LandingPage` is eagerly loaded since it's the entry point.
+Visiting `/zertz` does not load the Yinsh MCTS engine. Zertz loads its own inference code and ONNX runtime when NN evaluation is requested. `LandingPage` is eagerly loaded since it's the entry point.
 
 `vercel.json` routes API calls to serverless functions and everything else to `index.html` for client-side routing:
 ```json
@@ -105,7 +106,7 @@ Supporting files:
 
 ### Coordinate System
 
-Axial hexagonal coordinates `(q, r)` where both range from -5 to 5, with 8 corner positions excluded, giving 85 grid points (51 playable intersections).
+Axial hexagonal coordinates `(q, r)` satisfy `max(|q|, |r|, |q+r|) <= 5`, excluding the six outer tips. `YinshBoard.generateGridPoints()` returns all **85 legal intersections**.
 
 **Storage:** `boardState["q,r"]` -> `{type: 'ring'|'marker', player: 1|2}`
 
@@ -120,20 +121,22 @@ y = r * 43.3 + 300
 ### Game Phase State Machine
 
 ```
-setup --> play --> remove-row --> remove-ring --> play (loop)
+setup --> play --> remove-row --> remove-ring
+             ^                       |
+             |         score 3 ------+--> game-over
+             |                       |
+             +-- no rows -- recompute live rows
                                       |
-                                (if score == 3)
-                                      |
-                                 game-over
+                             rows remain: remove-row
 ```
 
 **Setup:** 10 rings placed alternately (5 per player). After the 10th, phase transitions to `play`.
 
 **Play:** Select a ring, move it along a straight line. A marker is placed at the origin. Jumped markers flip. If rows of 5 form, phase transitions to `remove-row`.
 
-**Remove-row:** Queue-based iterative resolution. Active player's rows first, then opponent's. Each removal triggers a re-check for new rows. Most complex logic in the codebase.
+**Remove-row:** Remove exactly one currently legal five-marker row, then immediately enter `remove-ring` for that row's owner. AI actions pass the full row to `removeRow(markers)`, so overlapping five-marker windows are unambiguous; UI clicks still select a currently available row.
 
-**Remove-ring:** Sacrifice one ring to score. If score reaches 3, game over.
+**Remove-ring:** Sacrifice one ring to score that row. Three points ends the game immediately; otherwise recompute remaining rows from the live board before selecting another row.
 
 ### Row Resolution Queue
 
@@ -144,13 +147,13 @@ rowResolutionQueue = [
 ]
 ```
 
-Active player resolves ONE row at a time. After each removal, re-check for new rows (added to FRONT of queue). After active player finishes, opponent resolves theirs. Only when the queue is empty does the game proceed.
+The queue is rebuilt after each complete row/ring pair, with the player who made the original move first, then the opponent. It contains current choices rather than deferred removals. Once no rows remain, play resumes with the saved `nextTurnPlayer`. Removed or stale rows cannot score again; clone, serialization, and undo/redo preserve resolution state.
 
 ### AI Architecture
 
-Two execution modes:
-- **Local**: Web Worker (`mcts.worker.js`), 200 simulations per move
-- **API**: Vercel serverless at `/api/aiMove`, 30-500 sims with 2.5s time budget
+Execution paths (the browser defaults to local workers):
+- **Local**: Web Worker (`mcts.worker.js`); difficulty presets request 100/150/200 simulations
+- **Optional API**: Vercel serverless at `${PUBLIC_URL}/api/aiMove`, 30-500 sims with 2.5s time budget; accepts [canonical snapshots and returns awaited moves](yinsh-api.md)
 
 Two evaluation modes:
 - **Heuristic**: 12-move rollouts + hand-crafted scoring (`_evaluatePlayoutResult()`)
@@ -160,10 +163,11 @@ Two evaluation modes:
 
 ```
 Self-play data generation (scripts/generate-training-data.mjs)
-  -> NDJSON: {board: [484], meta: [5], value: +/-1.0}
-  -> PyTorch training (training/train.py)
+  -> NDJSON: {gameId, board: [484], meta: [5], value: +/-1.0, policy: [121]}
+  -> Source-game split, training-only rotation augmentation (training/train.py)
   -> ONNX export (training/export_onnx.py)
-  -> public/models/yinsh-value-v1.onnx
+  -> Candidate tournament against incumbent, then verified model promotion
+  -> public/models/yinsh-value-v1.onnx (deployed pointer)
   -> Browser: onnxruntime-web loads model in Web Worker
   -> MCTS uses NN output instead of rollouts
 ```
@@ -171,6 +175,10 @@ Self-play data generation (scripts/generate-training-data.mjs)
 Feature extraction (`engine/features.js`):
 - 4 planes of 11x11 (current player rings, markers; opponent rings, markers)
 - 5 scalar metadata (scores, ring counts, phase encoding)
+
+Search statistics are stored from each state's current-player perspective and translated to the acting parent's perspective during selection. Backup flips sign only when player identity differs, not at every action. Transpositions share statistics, while children and parent pointers remain local to each tree path.
+
+Both games tag worker requests and invalidate pending work on board changes, undo/redo, reset, or settings changes. Cancellation terminates the affected worker; main-thread fallback also checks the board version. Browser model URLs include `PUBLIC_URL`, successful loads require an inference probe, and unavailable models produce a visible heuristic-fallback notice. See [AI engine](ai-engine.md) for loading and training contracts.
 
 ### localStorage Keys
 
@@ -226,6 +234,8 @@ place-marble --> remove-ring --> (check forced captures)
 **Remove-ring:** Remove one ring from the board edge (must have no marble, must be on the perimeter). After removal, check for isolated groups -- rings disconnected from the main board are removed along with their marbles (captured by the player who caused the isolation).
 
 **Capture (forced):** If the current player has any marble that can jump over an adjacent marble into an empty ring, they MUST execute the jump. Jumped marbles are captured. Multi-jump sequences are supported.
+
+Placement and ring removal belong to the same player. A mandatory capture chain also retains its player until the chain finishes; then the next player's available captures determine the next phase. Search values follow these actual player transitions rather than action depth. Zertz has its own MCTS, features, model loaders, and Python pipeline; it imports none of Yinsh's engine code. See [Zertz AI](ai-engine.md#zertz) for low-budget selection and the versioned forced-jump feature contract.
 
 **Win conditions:** First player to capture 4 white, 5 grey, 6 black, or 3 of each color wins.
 
@@ -316,4 +326,4 @@ CI=true npm test          # Full suite must pass before deployment
 
 ### Accounts (Optional, App-Wide)
 
-A username+password account is optional and never gates play -- anonymous use is unchanged. It can be created or signed into from a widget on `LandingPage.jsx` (`src/account.js`) or from Chess's settings block (`engine/account.js`); the two are intentionally identical copies, following the per-consumer-copy convention used elsewhere in the codebase rather than a shared import. Signing in decrypts the account's Anthropic API key into the shared `gipfApiKey` slot, which lights up the AI chat features in every game -- chess coach, Catan and Splendor rules chat, Diplomacy agent chat. Signing out clears the session but leaves the key in place locally; only Chess's profile sync (history, puzzles, mistakes, rating) is tied to the account beyond the key itself.
+A username+password account is optional and never gates play -- anonymous use is unchanged. It can be created or signed into from a widget on `LandingPage.jsx` (`src/account.js`) or from Chess's settings block (`engine/account.js`); the two are intentionally identical copies, following the per-consumer-copy convention used elsewhere in the codebase rather than a shared import. App-owned match boundary and snapshot-validation modules are imported directly by game UIs and adapters, while game engines remain self-contained. Signing in decrypts the account's Anthropic API key into the shared `gipfApiKey` slot, which lights up the AI chat features in every game -- chess coach, Catan and Splendor rules chat, Diplomacy agent chat. Signing out clears the session but leaves the key in place locally; only Chess's profile sync (history, puzzles, mistakes, rating) is tied to the account beyond the key itself.

@@ -1,3 +1,5 @@
+import MatchBoundary, { useSavedMatch } from '../../MatchBoundary.jsx';
+import { encodeBoard, decodeMatch } from './matchSnapshot.js';
 // YinshGame.jsx - Build: 2025-01-23 v3 (UI Overhaul)
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
@@ -20,9 +22,9 @@ const API_ENDPOINT = `${process.env.PUBLIC_URL || ''}/api/aiMove`;
 // former champion, SPRT-beaten starting at v142 — a real, evidence-based
 // mid tier), expert = v1.onnx (always the current deployed best, currently v158).
 const DIFFICULTY_CONFIG = {
-  easy:     { modelPath: '/models/yinsh-value-easy.onnx',     simulations: 100, evaluationMode: 'nn' },
-  advanced: { modelPath: '/models/yinsh-value-advanced.onnx', simulations: 150, evaluationMode: 'nn' },
-  expert:   { modelPath: '/models/yinsh-value-v1.onnx',       simulations: 200, evaluationMode: 'nn' },
+  easy:     { modelPath: `${process.env.PUBLIC_URL || ''}/models/yinsh-value-easy.onnx`,     simulations: 100, evaluationMode: 'nn' },
+  advanced: { modelPath: `${process.env.PUBLIC_URL || ''}/models/yinsh-value-advanced.onnx`, simulations: 150, evaluationMode: 'nn' },
+  expert:   { modelPath: `${process.env.PUBLIC_URL || ''}/models/yinsh-value-v1.onnx`,       simulations: 200, evaluationMode: 'nn' },
 };
 
 // Toggle component — extracted from repeated settings markup
@@ -57,6 +59,9 @@ const PieceIcon = ({ player }) => (
 );
 
 const YinshGame = () => {
+  const savedMatch = useSavedMatch();
+  const resumed = savedMatch?.restored;
+  const savedUI = resumed?.ui || {};
   // We'll keep darkMode, showModal, etc. in React as UI states
   const getLocalStorageValue = (key, defaultValue) => {
     try {
@@ -68,12 +73,26 @@ const YinshGame = () => {
   };
 
   // Add new state for modal - must be before other state that might use it
-  const [showModal, setShowModal] = useState(true);  // Initialize to true like in OldYinshGame
+  const [showModal, setShowModal] = useState(() => savedUI.showModal ?? true);
 
-  const [yinshBoard, setYinshBoard] = useState(() => new YinshBoard());
+  const [yinshBoard, commitBoard] = useState(() => resumed?.board || new YinshBoard());
 
   // Initialize AI Web Worker
-  const { computeMove, isSupported: isWorkerSupported } = useAIWorker();
+  const { computeMove, cancelPending, isSupported: isWorkerSupported } = useAIWorker();
+
+  const stateVersion = useRef(0);
+  const [aiFallback, setAiFallback] = useState(false);
+  const invalidateAI = useCallback(() => {
+    stateVersion.current += 1;
+    cancelPending();
+    setIsAiThinking(false);
+    setAiSuggestion(null);
+  }, [cancelPending]);
+  const setYinshBoard = useCallback((nextBoard) => {
+    invalidateAI();
+    commitBoard(nextBoard);
+  }, [invalidateAI]);
+  useEffect(() => () => { stateVersion.current += 1; }, []);
 
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('yinshDarkMode');
@@ -87,7 +106,7 @@ const YinshGame = () => {
     const saved = localStorage.getItem('yinshRandomSetup');
     return saved ? JSON.parse(saved) : false;
   });
-  const [selectedSetupRing, setSelectedSetupRing] = useState(null);
+  const [selectedSetupRing, setSelectedSetupRing] = useState(() => savedUI.selectedSetupRing ?? null);
   const [showInvalidFlash, setShowInvalidFlash] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showRules, setShowRules] = useState(false);
@@ -97,6 +116,7 @@ const YinshGame = () => {
   });
   const [difficulty, setDifficulty] = useState(() => {
     // Check new key first
+    if (savedUI.difficulty) return savedUI.difficulty;
     const saved = localStorage.getItem('yinshDifficulty');
     if (saved) return saved;
     // Migrate from old key
@@ -107,10 +127,11 @@ const YinshGame = () => {
   });
 
   const [twoPlayerMode, setTwoPlayerMode] = useState(() => {
+    if (savedUI.twoPlayerMode !== undefined) return savedUI.twoPlayerMode;
     const saved = localStorage.getItem('yinshTwoPlayer');
     return saved ? JSON.parse(saved) : false;
   });
-  const [humanPlayer, setHumanPlayer] = useState(() => Math.random() < 0.5 ? 1 : 2);
+  const [humanPlayer, setHumanPlayer] = useState(() => savedUI.humanPlayer || (Math.random() < 0.5 ? 1 : 2));
 
   // Add new state for keeping score
   const [keepScore, setKeepScore] = useState(() => {
@@ -124,6 +145,12 @@ const YinshGame = () => {
     const saved = localStorage.getItem('yinshWins');
     return saved ? JSON.parse(saved) : { 1: 0, 2: 0 };
   });
+
+  const scoreApplied = useRef(savedUI.scoreApplied || false);
+  useEffect(() => {
+    if (yinshBoard.gamePhase !== 'game-over') scoreApplied.current = false;
+    savedMatch?.persist(encodeBoard(yinshBoard), { humanPlayer, twoPlayerMode, showModal, difficulty, selectedSetupRing, scoreApplied: scoreApplied.current });
+  }, [yinshBoard, humanPlayer, twoPlayerMode, showModal, difficulty, selectedSetupRing, savedMatch]);
 
   // Add effect to save wins when they change
   useEffect(() => {
@@ -153,7 +180,8 @@ const YinshGame = () => {
   // Save darkMode/showMoves prefs
   useEffect(() => {
     localStorage.setItem('yinshDarkMode', JSON.stringify(darkMode));
-  }, [darkMode]);
+    savedMatch?.setTheme(darkMode);
+  }, [darkMode, savedMatch]);
   useEffect(() => {
     localStorage.setItem('yinshShowMoves', JSON.stringify(showPossibleMoves));
   }, [showPossibleMoves]);
@@ -236,7 +264,8 @@ const YinshGame = () => {
 
   // Add this function to handle game over
   const handleGameOver = () => {
-    if (keepScore && yinshBoard.getGamePhase() === 'game-over') {
+    if (keepScore && yinshBoard.getGamePhase() === 'game-over' && !scoreApplied.current) {
+      scoreApplied.current = true;
       const winner = yinshBoard.getScores()[1] === 3 ? 1 : 2;
       setWins(prev => ({
         ...prev,
@@ -331,6 +360,7 @@ const YinshGame = () => {
 
   // Update startNewGame to remove the win counting (since it's now handled in handleGameOver)
   const startNewGame = () => {
+    savedMatch?.startNew();
     if (!twoPlayerMode) {
       setHumanPlayer(Math.random() < 0.5 ? 1 : 2);
     }
@@ -547,6 +577,7 @@ const YinshGame = () => {
   const getAISuggestion = async (autoExecute = false) => {
     if (isAiThinking) return;
 
+    const version = ++stateVersion.current;
     setIsAiThinking(true);
     setAiSuggestion(null);
     setLastMove(null);
@@ -558,9 +589,13 @@ const YinshGame = () => {
 
         // Fallback: Run MCTS on main thread with setTimeout to yield
         const config = DIFFICULTY_CONFIG[difficulty] || DIFFICULTY_CONFIG.expert;
-        const mcts = new MCTS(100000, { evaluationMode: config.evaluationMode });
+        const mcts = new MCTS(100000, { evaluationMode: 'heuristic' });
+        const snapshot = yinshBoard.clone();
         await new Promise(resolve => setTimeout(resolve, 0));
-        const result = await mcts.getBestMove(yinshBoard, config.simulations);
+        if (!savedMatch?.isCurrent() || version !== stateVersion.current) return;
+        const result = await mcts.getBestMove(snapshot, config.simulations);
+        if (!savedMatch?.isCurrent() || version !== stateVersion.current) return;
+        setAiFallback(config.evaluationMode === 'nn');
 
         if (result) {
           const suggestion = {
@@ -587,6 +622,8 @@ const YinshGame = () => {
         config.simulations,
         // onSuccess callback
         (result, stats) => {
+          if (!savedMatch?.isCurrent() || version !== stateVersion.current) return;
+          setAiFallback(config.evaluationMode === 'nn' && stats?.evaluationMode !== 'nn');
           console.log(`AI computed move: ${stats.simulations} simulations in ${stats.phase} phase (${stats.evaluationMode || 'heuristic'})`);
 
           if (result) {
@@ -605,6 +642,7 @@ const YinshGame = () => {
         },
         // onError callback
         (error) => {
+          if (!savedMatch?.isCurrent() || version !== stateVersion.current) return;
           console.error('AI Worker Error:', error);
           setIsAiThinking(false);
         },
@@ -612,6 +650,7 @@ const YinshGame = () => {
         config.modelPath
       );
     } catch (error) {
+      if (!savedMatch?.isCurrent() || version !== stateVersion.current) return;
       console.error('AI Error:', error.message);
       setIsAiThinking(false);
     }
@@ -650,7 +689,7 @@ const YinshGame = () => {
   // Settings toggles (shared between welcome modal and settings panel)
   const renderSettingsToggles = () => (
     <div className="space-y-4">
-      <Toggle label="Two Players" checked={twoPlayerMode} onChange={() => setTwoPlayerMode(!twoPlayerMode)} />
+      <Toggle label="Two Players" checked={twoPlayerMode} onChange={() => { invalidateAI(); setTwoPlayerMode(!twoPlayerMode); }} />
       <Toggle label="Dark Mode" checked={darkMode} onChange={() => setDarkMode(!darkMode)} />
       <Toggle label="Show Valid Moves" checked={showPossibleMoves} onChange={() => setShowPossibleMoves(!showPossibleMoves)} />
       <Toggle label="Random Setup" checked={useRandomSetup} onChange={() => setUseRandomSetup(!useRandomSetup)} />
@@ -662,7 +701,7 @@ const YinshGame = () => {
           {['easy', 'advanced', 'expert'].map(level => (
             <button
               key={level}
-              onClick={() => setDifficulty(level)}
+              onClick={() => { invalidateAI(); setAiFallback(false); setDifficulty(level); }}
               className="px-2 py-1 rounded text-xs font-medium transition-colors"
               style={{
                 backgroundColor: difficulty === level ? 'var(--color-toggle-active)' : 'var(--color-toggle-inactive)',
@@ -1050,6 +1089,10 @@ const YinshGame = () => {
           </div>
         </div>
       )}
+
+      {aiFallback && <p role="status" className="text-sm px-4 py-2">
+        Neural model unavailable — using heuristic AI.
+      </p>}
 
       {/* AI Thinking Overlay */}
       {isAiThinking && (
@@ -1657,4 +1700,4 @@ const YinshGame = () => {
   );
 };
 
-export default YinshGame;
+export default function ResumableYinshGame() { return <MatchBoundary game="yinsh" decode={decodeMatch}><YinshGame /></MatchBoundary>; }
