@@ -1,100 +1,14 @@
-// /api/chessProfile.js — cross-device persistence for the Chess profile: rating,
-// per-opponent history, puzzle progress, and the mistake-drill library.
-//
-// SECURITY MODEL: same as api/chessRating.js. Records are keyed by an OPAQUE id
-// that the browser derives client-side by hashing the user's Anthropic key
-// (SHA-256 with a fixed app namespace). The raw key NEVER reaches this endpoint
-// — only the 64-hex-char hash — so this store can never leak or spend anyone's
-// Anthropic credits. We store nothing but game-progress data against that hash:
-// {rating, ratedGames}, W/L/D tallies per opponent, puzzle attempt/solve counts,
-// and a bounded library of missed-move drill entries (FEN + engine line, no
-// account info, no PII).
-//
-// Backed by Vercel KV / Upstash Redis over its REST API (plain fetch, no deps).
-// If the store isn't provisioned (no env vars), every call returns
-// { configured: false } so the client silently falls back to localStorage.
-//
-// This endpoint supersedes api/chessRating.js's single-domain store with four
-// domains ('rating', 'history', 'puzzles', 'mistakes'), but keeps writing the
-// legacy `chess:rating:${id}` key whenever the rating domain is saved, so older
-// deployed clients that still call chessRating.js directly stay coherent.
-//
-// CORS mirrors api/chessCoach.js: an allowlist applied on every path.
-
-const ALLOWED_ORIGINS = ['https://gipf.vercel.app', 'http://localhost:3000'];
-
-const KV_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-const KV_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
-
-const ID_RE = /^[a-f0-9]{64}$/; // SHA-256 hex
+import { validChessLog } from '../server/chessLogValidation.js';
+import { validMatch } from '../server/matchValidation.js';
+// Authenticated profile persistence. Legacy IDs are capabilities only in claim.
+import { guardRequest, authenticate, command, hex64, limit } from '../server/publicSecurity.js';
+export const config = { api: { bodyParser: { sizeLimit: '300kb' } } };
 const MIN_RATING = 100;
 const MAX_RATING = 4000;
-const MAX_BODY_CHARS = 300_000;
-const MAX_MISTAKES_BYTES = 262_144; // 256KB
-const MAX_EPOCH_MS = 4_102_444_800_000; // year 2100, generous upper bound for timestamps
-
+const MAX_MISTAKES_BYTES = 262144;
+const MAX_EPOCH_MS = 4102444800000;
+const SETTING_KEYS = ['chessGameLog','chessTimeControl','chessPuzzleShowTheme','yinshDifficulty','yinshTwoPlayer','zertzDifficulty','zertzTwoPlayer','chessDarkMode','chessShowMoves','chessDifficulty','chessLearningGoal','chessShowEvalBar','chessSound','chessRated','yinshDarkMode','yinshShowMoves','yinshRandomSetup','yinshKeepScore','yinshWins','yinshShowMoveHistory','yinshEvaluationMode','zertzDarkMode','zertzShowMoves','catanDarkMode','catanShowMoves','catanDifficulty','catanRulesetId','catanPlayerCount','catanScenarioId'];
 const DOMAINS = ['rating', 'history', 'puzzles', 'mistakes'];
-
-function applyCors(req, res) {
-  const origin = req.headers.origin;
-  if (ALLOWED_ORIGINS.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-}
-
-const profileKey = (id, domain) => `chess:profile:${id}:${domain}`;
-const legacyRatingKey = (id) => `chess:rating:${id}`;
-
-// Upstash REST: GET {url}/get/{key} → { result: "<string>" | null }.
-async function kvGet(key) {
-  const r = await fetch(`${KV_URL}/get/${key}`, {
-    headers: { Authorization: `Bearer ${KV_TOKEN}` },
-  });
-  if (!r.ok) throw new Error(`kv get ${r.status}`);
-  const data = await r.json();
-  if (data.result == null) return null;
-  try {
-    return JSON.parse(data.result);
-  } catch (_) {
-    return null;
-  }
-}
-
-// Upstash REST: GET {url}/mget/{k1}/{k2}/... → { result: [v1, v2, ...] }, each a
-// JSON string or null. One round trip for all four domains.
-async function kvMget(keys) {
-  const r = await fetch(`${KV_URL}/mget/${keys.join('/')}`, {
-    headers: { Authorization: `Bearer ${KV_TOKEN}` },
-  });
-  if (!r.ok) throw new Error(`kv mget ${r.status}`);
-  const data = await r.json();
-  return (data.result || []).map((v) => {
-    if (v == null) return null;
-    try {
-      return JSON.parse(v);
-    } catch (_) {
-      return null;
-    }
-  });
-}
-
-// Upstash REST: POST {url}/set/{key} with the value string in the body.
-async function kvSet(key, value) {
-  const r = await fetch(`${KV_URL}/set/${key}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${KV_TOKEN}` },
-    body: JSON.stringify(value),
-  });
-  if (!r.ok) throw new Error(`kv set ${r.status}`);
-}
-
-function validId(id) {
-  return typeof id === 'string' && ID_RE.test(id);
-}
-
 // --- Per-domain sanitizers. Each returns a clean, storage-ready value or null
 // if the supplied payload doesn't match the expected shape. -----------------
 
@@ -216,91 +130,136 @@ const SANITIZERS = {
   mistakes: sanitizeMistakes,
 };
 
+
+// Merge with JSON.parse/stringify in JS, then atomically compare the exact input.
+// Lua must never re-encode domain values: cjson erases empty-array identity.
+const SNAPSHOT = `local function snapshot(k) local r=redis.call('GET',k); if r then return '1'..r else return '0' end end;\n`;
+const snapshot = raw => raw == null ? '0' : `1${raw}`;
+const WRITE = `${SNAPSHOT}if snapshot(KEYS[1])~=ARGV[1] then return 0 end;
+redis.call('SET',KEYS[1],ARGV[2]); return 1`;
+// Redis Lua cjson loses empty-array identity on decode/re-encode. Match JSON
+// must remain opaque so empty queues/decks/maps survive byte-for-byte.
+const WRITE_MATCH = `local r=redis.call('GET',KEYS[1]); local p=r and cjson.decode(r) or {revision=0};
+if p.revision~=tonumber(ARGV[1]) then return 0 end;
+local revision=p.revision+1;
+redis.call('SET',KEYS[1],'{"revision":'..revision..',"profile":{"match":'..ARGV[2]..'}}'); return revision`;
+// Owner check precedes snapshot comparison so same-owner retries stay idempotent.
+// Compare destination and every source before either write; source keys stay intact.
+const CLAIM = `${SNAPSHOT}local owner=redis.call('GET',KEYS[2]); if owner and owner~=ARGV[1] then return -1 end;
+if owner then return 0 end;
+for i=1,7 do if i~=2 and snapshot(KEYS[i])~=ARGV[i+2] then return -3 end end;
+if tonumber(ARGV[10])>=5 then return -2 end;
+redis.call('SET',KEYS[1],ARGV[2]); redis.call('SET',KEYS[2],ARGV[1]); return 1`;
+const emptyRecord = () => ({ revision: 0, profile: {} });
+
+async function claimLegacy(key, id, user, deadline) {
+  // The four preflight commands already consume up to 12s. Reserve the full
+  // shared command timeout before each remaining request, including retries.
+  const claimCommand = (...args) => {
+    if (Date.now() + 3000 > deadline) throw new Error('store_unavailable');
+    return command(...args);
+  };
+  const keys = [key, `gipf:claim:${id}`, ...DOMAINS.map(d => `chess:profile:${id}:${d}`), `chess:rating:${id}`];
+  // Bounded optimistic retries handle a concurrent profile write or another claim.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const raw = await claimCommand('MGET', ...keys);
+    if (raw[1] != null) return raw[1] === user ? 0 : -1;
+    const record = raw[0] != null ? JSON.parse(raw[0]) : emptyRecord();
+    const count = record.claimCount || 0;
+    const legacy = {};
+    for (let i = 0; i < DOMAINS.length; i++) {
+      const value = raw[i + 2] ?? (i === 0 ? raw[6] : null);
+      if (value != null) {
+        legacy[DOMAINS[i]] = JSON.parse(value);
+        if (!Object.hasOwn(record.profile, DOMAINS[i])) record.profile[DOMAINS[i]] = legacy[DOMAINS[i]];
+      }
+    }
+    record.legacyProfiles = { ...record.legacyProfiles, [keys[1]]: legacy };
+    record.claimCount = count + 1;
+    record.revision++;
+    const result = await claimCommand('EVAL', CLAIM, keys.length, ...keys, user, JSON.stringify(record), ...raw.map(snapshot), count);
+    if (result !== -3) return result;
+  }
+  return -3;
+}
+
 export default async function handler(req, res) {
-  applyCors(req, res);
-
-  if (req.method === 'OPTIONS') {
-    res.status(204).end();
-    return;
-  }
-
-  // No store provisioned → tell the client to stay local (not an error).
-  if (!KV_URL || !KV_TOKEN) {
-    res.status(200).json({ configured: false });
-    return;
-  }
-
+  const claimDeadline = Date.now() + 17000; // Leave 3s for response/CPU under maxDuration:20.
+  res.setHeader('Cache-Control', 'no-store');
+  if (req.method !== 'POST') return res.status(405).json({ error: 'use_authenticated_post' });
+  if (!await guardRequest(req, res, { bucket: 'sync', limit: 120, maxBytes: 300000 })) return;
+  const body = req.body;
   try {
-    if (req.method === 'GET') {
-      const { id } = req.query || {};
-      if (!validId(id)) {
-        res.status(400).json({ error: 'bad_request', message: 'Invalid id.' });
-        return;
-      }
-      const keys = DOMAINS.map((d) => profileKey(id, d));
-      const values = await kvMget(keys);
-      const profile = {};
-      DOMAINS.forEach((d, i) => {
-        profile[d] = values[i];
-      });
-      // The rating domain didn't exist under the new key scheme before this
-      // endpoint shipped — fall back to the record api/chessRating.js wrote.
-      if (profile.rating == null) {
-        profile.rating = await kvGet(legacyRatingKey(id));
-      }
-      res.status(200).json({ configured: true, profile });
-      return;
+    if (!await authenticate(body, res)) return;
+    if (!await limit('sync-user', body.u, 120)) return res.status(429).json({ error: 'rate_limited' });
+    const settings = body.scope === 'settings';
+    const match = body.scope === 'match';
+    if (match && !['chess','yinsh','zertz','catan'].includes(body.game)) return res.status(400).json({ error: 'bad_request' });
+    if (body.scope && !settings && !match) return res.status(400).json({ error: 'bad_request' });
+    const key = match ? `gipf:match:v1:${body.u}:${body.game}` : `gipf:${settings ? 'settings' : 'profile'}:v2:${body.u}`;
+    if (body.action === 'claim') {
+      if (settings || match) return res.status(400).json({ error: 'bad_request' });
+      const start = Date.parse(process.env.GIPF_LEGACY_CLAIM_FROM || '');
+      const deadline = Date.parse(process.env.GIPF_LEGACY_CLAIM_UNTIL || '');
+      // Explicit operator window, never a permanent alternate authorization path.
+      if (!Number.isFinite(start) || !Number.isFinite(deadline) || deadline - start > 90 * 86400000 || start > Date.now() || Date.now() >= deadline) return res.status(410).json({ error: 'claim_closed' });
+      if (!hex64(body.legacyId)) return res.status(400).json({ error: 'bad_request' });
+      if (!await limit('claim-user', body.u, 5, 86400)) return res.status(429).json({ error: 'rate_limited' });
+      const id = body.legacyId;
+      const result = await claimLegacy(key, id, body.u, claimDeadline);
+      if (result === -3) return res.status(409).json({ error: 'conflict' });
+      if (result === -2) return res.status(409).json({ error: 'claim_limit' });
+      if (result === -1) return res.status(409).json({ error: 'already_claimed' });
+      return res.status(200).json({ configured: true, claimed: true });
     }
-
-    if (req.method === 'POST') {
-      // Approximate the raw body length from either the string CRA/Vercel gives
-      // us when bodyParser is bypassed, or a re-stringify of the parsed object.
-      const raw = typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {});
-      if (raw.length > MAX_BODY_CHARS) {
-        res.status(413).json({ error: 'too_large' });
-        return;
-      }
-      const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
-      const { id, domains } = body;
-      if (!validId(id)) {
-        res.status(400).json({ error: 'bad_request', message: 'Invalid id.' });
-        return;
-      }
-      if (!domains || typeof domains !== 'object' || Array.isArray(domains)) {
-        res.status(400).json({ error: 'bad_request', message: 'Invalid domains.' });
-        return;
-      }
-
-      const clean = {};
-      for (const domain of DOMAINS) {
-        if (!(domain in domains)) continue;
-        const sanitized = SANITIZERS[domain](domains[domain]);
-        if (!sanitized) {
-          res.status(400).json({ error: 'bad_request', message: `Invalid ${domain} payload.` });
-          return;
-        }
-        clean[domain] = sanitized;
-      }
-
-      const saved = Object.keys(clean);
-      if (saved.length === 0) {
-        res.status(400).json({ error: 'bad_request', message: 'No recognized domain supplied.' });
-        return;
-      }
-
-      await Promise.all(saved.map((domain) => kvSet(profileKey(id, domain), clean[domain])));
-      if (clean.rating) {
-        // Mirror the rating write to the legacy key so clients still on the
-        // older api/chessRating.js endpoint see a consistent value.
-        await kvSet(legacyRatingKey(id), clean.rating);
-      }
-
-      res.status(200).json({ configured: true, saved });
-      return;
+    if (body.action === 'read') {
+      const raw = await command('GET', key);
+      const record = raw != null ? JSON.parse(raw) : { revision: 0, profile: {} };
+      return res.status(200).json({ configured: true, ...record });
     }
-
-    res.status(405).json({ error: 'Method not allowed' });
-  } catch (e) {
-    res.status(502).json({ error: 'store_error', message: 'Profile store unavailable.' });
-  }
+    if (body.action !== 'write' || !Number.isSafeInteger(body.revision) || body.revision < 0 || !body.domains || typeof body.domains !== 'object' || Array.isArray(body.domains)) return res.status(400).json({ error: 'bad_request' });
+    const clean = {};
+    if (match) {
+      if (Object.keys(body.domains).length !== 1 || !validMatch(body.game, body.domains.match)) return res.status(400).json({ error: 'bad_request' });
+      clean.match = body.domains.match;
+    }
+    if (settings) {
+      const value = body.domains.preferences;
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return res.status(400).json({ error: 'bad_request' });
+      clean.preferences = {};
+      for (const [k, v] of Object.entries(value)) {
+        if (!SETTING_KEYS.includes(k) || (v !== null && (k === 'chessGameLog' ? !validChessLog(v) : (typeof v !== 'string' || v.length > 2048)))) return res.status(400).json({ error: 'bad_request' });
+        clean.preferences[k] = v;
+      }
+    }
+    for (const domain of settings || match ? [] : DOMAINS) {
+      if (!(domain in body.domains)) continue;
+      const value = SANITIZERS[domain](body.domains[domain]);
+      if (!value) return res.status(400).json({ error: 'bad_request' });
+      clean[domain] = value;
+    }
+    if (!Object.keys(clean).length) return res.status(400).json({ error: 'bad_request' });
+    let revision;
+    if (match) {
+      revision = await command('EVAL', WRITE_MATCH, 1, key, body.revision, JSON.stringify(clean.match));
+    } else {
+      const raw = await command('GET', key);
+      const record = raw != null ? JSON.parse(raw) : emptyRecord();
+      if (record.revision !== body.revision) return res.status(409).json({ error: 'conflict' });
+      // Only the known v1 empty entries object is compatible with historical
+      // cjson empty-array loss. Preserve nonempty malformed originals for recovery.
+      const mistakes = record.profile.mistakes;
+      if (!settings && clean.mistakes && mistakes?.v === 1 && mistakes.entries &&
+          typeof mistakes.entries === 'object' && !Array.isArray(mistakes.entries) &&
+          Object.keys(mistakes.entries).length > 0) {
+        return res.status(409).json({ error: 'legacy_shape_conflict' });
+      }
+      record.profile = { ...record.profile, ...clean };
+      record.revision++;
+      const saved = await command('EVAL', WRITE, 1, key, snapshot(raw), JSON.stringify(record));
+      revision = saved ? record.revision : 0;
+    }
+    if (!revision) return res.status(409).json({ error: 'conflict' });
+    return res.status(200).json({ configured: true, revision, saved: Object.keys(clean) });
+  } catch (_) { return res.status(503).json({ error: 'store_unavailable' }); }
 }

@@ -82,7 +82,10 @@ class MCTSNode {
   selectChild() {
     let bestChild = null;
     let bestScore = -Infinity;
-    const usePUCT = this.mcts && this.mcts.usePUCT;
+    // Only the root has NN priors. Deeper nodes use UCB1, rather than
+    // zero-prior PUCT (which is pure exploitation and never explores).
+    const usePUCT = this.mcts && this.mcts.usePUCT &&
+      this.parent === null && this.mcts.rootPriors !== null;
     for (const child of this.children.values()) {
       const score = usePUCT ? child.puct(this.visits) : child.ucb1(this.visits);
       if (score > bestScore) {
@@ -439,7 +442,18 @@ export class MCTS {
     const untriedMoves = node.getUntriedMoves();
     if (untriedMoves.length === 0) return node;
 
-    const moveIndex = Math.floor(Math.random() * untriedMoves.length);
+    let moveIndex = Math.floor(Math.random() * untriedMoves.length);
+    // Spend a limited root budget on the highest-prior remaining legal moves.
+    // This changes expansion order only: no action is pruned, including moves
+    // sharing a destination (different marble colours have separate priors).
+    if (this.rootPriors && node.parent === null) {
+      for (let i = 0; i < untriedMoves.length; i++) {
+        if (this.rootPriors.get(moveToKey(untriedMoves[i])) >
+            this.rootPriors.get(moveToKey(untriedMoves[moveIndex]))) {
+          moveIndex = i;
+        }
+      }
+    }
     const move = untriedMoves[moveIndex];
 
     const childBoard = node.board.clone();
@@ -473,6 +487,9 @@ export class MCTS {
     while (current !== null) {
       current.visits++;
       if (current.parent) {
+        // Edge values belong to the player choosing that edge, not the player
+        // in the resulting state. Placement/removal and chained jumps can
+        // retain the same player across multiple actions; do not flip by depth.
         const parentPlayer = current.parent.board.currentPlayer;
         if (parentPlayer === rootPlayer) {
           current.wins += (value + 1) / 2;
@@ -561,10 +578,23 @@ export class MCTS {
     const rootVisits = {};
     let bestMove = null;
     let bestVisits = -1;
+    let bestQ = -Infinity;
+    let bestPrior = -Infinity;
+    let bestKey = null;
     for (const [key, child] of root.children) {
       rootVisits[key] = child.visits;
-      if (child.visits > bestVisits) {
+      // With fewer simulations than legal actions, visits are often all one.
+      // Prefer the strongest evaluated child, then prior, then a stable key;
+      // never let random expansion/insertion order decide an otherwise tied Q.
+      const q = child.visits ? child.wins / child.visits : -Infinity;
+      if (child.visits > bestVisits ||
+          (child.visits === bestVisits && (q > bestQ ||
+            (q === bestQ && (child.prior > bestPrior ||
+              (child.prior === bestPrior && (bestKey === null || key < bestKey))))))) {
         bestVisits = child.visits;
+        bestQ = q;
+        bestPrior = child.prior;
+        bestKey = key;
         bestMove = child.parentMove;
       }
     }

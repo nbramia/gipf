@@ -10,8 +10,9 @@
  *   node scripts/zertz/parallel-selfplay.mjs --games 50 --sims 200 --mode nn --model public/models/zertz-value-v1.onnx
  */
 
+import { randomUUID } from 'node:crypto';
 import { fork } from 'child_process';
-import { writeFileSync, appendFileSync, readFileSync, unlinkSync, existsSync, mkdirSync } from 'fs';
+import { writeFileSync, renameSync, readFileSync, unlinkSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -33,9 +34,11 @@ const MODEL = getArg('model', null);
 const RAMP_MOVES = getArg('ramp', null);
 const TEMP_MOVES = getArg('temperature-moves', null);
 
+if (![TOTAL_GAMES, SIMS, NUM_WORKERS].every(n => Number.isInteger(n) && n > 0)) throw new Error('games, sims and workers must be positive integers');
+
 mkdirSync(OUTPUT_DIR, { recursive: true });
 
-const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+const timestamp = randomUUID();
 const outputPath = OUTPUT || join(OUTPUT_DIR, `selfplay-${timestamp}.ndjson`);
 
 console.log(`Zertz parallel self-play`);
@@ -77,38 +80,37 @@ for (let w = 0; w < NUM_WORKERS; w++) {
       stdio: 'inherit',
     });
 
+    let done = null;
+    let failure = null;
+    child.on('message', msg => { if (msg.type === 'done') done = msg; });
     child.on('close', (code) => {
-      if (code === 0) resolve();
+      if (code === 0 && !failure && done?.games === workerGames) resolve(done);
       else reject(new Error(`Worker ${w} exited with code ${code}`));
     });
-    child.on('error', reject);
+    child.on('error', error => { failure = error; });
   });
 
   workerPromises.push(promise);
 }
 
-// Wait for all workers
-try {
-  await Promise.all(workerPromises);
-} catch (e) {
-  console.error(`Worker error: ${e.message}`);
+// Settle every child before deciding whether the dataset is complete.
+const results = await Promise.allSettled(workerPromises);
+const failures = results.filter(result => result.status === 'rejected');
+if (failures.length) {
+  for (const failure of failures) console.error(failure.reason);
+  throw new Error('Generation failed; worker files preserved, output not published');
 }
-
-// Merge outputs
-console.log('\nMerging worker outputs...');
-writeFileSync(outputPath, '');
-
-for (const wf of workerFiles) {
-  if (existsSync(wf)) {
-    const content = readFileSync(wf, 'utf-8');
-    if (content.trim()) {
-      appendFileSync(outputPath, content.endsWith('\n') ? content : content + '\n');
-    }
-    unlinkSync(wf);
-  }
+const chunks = workerFiles.map(wf => readFileSync(wf, 'utf8').trimEnd());
+const lines = chunks.flatMap(chunk => chunk ? chunk.split('\n') : []);
+for (const line of lines) JSON.parse(line);
+if (!lines.length || lines.length !== results.reduce((n, result) => n + result.value.positions, 0)) {
+  throw new Error('Incomplete worker output; worker files preserved');
 }
-
-const totalLines = readFileSync(outputPath, 'utf-8').split('\n').filter(l => l.trim()).length;
+mkdirSync(dirname(outputPath), { recursive: true });
+const staging = `${outputPath}.${timestamp}.tmp`;
+writeFileSync(staging, lines.join('\n') + '\n');
+renameSync(staging, outputPath);
+for (const wf of workerFiles) unlinkSync(wf);
 const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-console.log(`Done! ${totalLines} positions from ${TOTAL_GAMES} games in ${elapsed}s`);
+console.log(`Done! ${lines.length} positions from ${TOTAL_GAMES} games in ${elapsed}s`);
 console.log(`Output: ${outputPath}`);

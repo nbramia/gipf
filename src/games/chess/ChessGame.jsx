@@ -1,3 +1,5 @@
+import MatchBoundary, { useSavedMatch } from '../../MatchBoundary.jsx';
+import { encodeBoard, decodeMatch, fromLegacy } from './matchSnapshot.js';
 // ChessGame.jsx — React UI for the Chess game.
 //
 // Interactive react-chessboard wired to ChessBoard.js via the suite's
@@ -5,7 +7,7 @@
 // (CDN Web Worker) and adjustable difficulty tiers. The coaching dialogue
 // (issues #6–#10) layers on in later increments.
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Chessboard } from 'react-chessboard';
 import ChessBoard from './ChessBoard.js';
@@ -41,7 +43,7 @@ import {
 } from './coach/mistakeStore.js';
 import { DIFFICULTY_TIERS, DEFAULT_TIER_KEY, RATING_LADDER, TIME_CONTROLS, getTimeControl } from './engine/difficulty.js';
 import { DEFAULT_RATING, nearestRung, updateRating, scoreFor, isProvisional, mergeRating } from './engine/rating.js';
-import { profileIdFromKey, fetchRemoteProfile, putRemoteProfile, mergeHistory, mergePuzzles, mergeMistakes } from './engine/profileSync.js';
+import { claimLegacyProfile, fetchRemoteProfile, putRemoteProfile, mergeHistory, mergePuzzles, mergeMistakes } from './engine/profileSync.js';
 import {
   deriveCredentials,
   encryptApiKey,
@@ -93,49 +95,12 @@ const PIECE_GLYPH = { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛', k: '♚'
 const TONE_CLASS = { great: 'tone-great', good: 'tone-good', warn: 'tone-warn', bad: 'tone-bad' };
 
 // --- In-progress game persistence -------------------------------------------
-// A refresh used to destroy the game outright. We snapshot the live game (PGN +
-// the UI state needed to resume it) after every move, exactly like Diplomacy's
-// `diplomacyGameState`. Puzzle sessions and mistake drills are transient by
-// design and are never persisted.
-const GAME_STATE_KEY = 'chessGameState';
-const GAME_STATE_VERSION = 1;
-
-function saveGameState(snapshot) {
-  try {
-    localStorage.setItem(GAME_STATE_KEY, JSON.stringify({ v: GAME_STATE_VERSION, ...snapshot }));
-  } catch (_) {
-    /* quota/private-mode — persistence is best-effort, never breaks play */
-  }
-}
-
-function loadGameState() {
-  try {
-    const raw = localStorage.getItem(GAME_STATE_KEY);
-    if (!raw) return null;
-    const s = JSON.parse(raw);
-    if (!s || s.v !== GAME_STATE_VERSION || !s.pgn) return null;
-    return s;
-  } catch (_) {
-    return null;
-  }
-}
-
-function clearGameState() {
-  try {
-    localStorage.removeItem(GAME_STATE_KEY);
-  } catch (_) {
-    /* best-effort */
-  }
-}
-
-// Rebuild a ChessBoard from a saved PGN, or null if it no longer parses or
-// carries no moves — restoring an empty board while keeping the old dialogue
-// would leave the transcript describing a game that isn't on the board.
-function boardFromSnapshot(snapshot) {
-  if (!snapshot || !snapshot.pgn) return null;
-  const b = new ChessBoard();
-  if (!b.loadPgn(snapshot.pgn)) return null;
-  return b.sanHistory().length > 0 ? b : null;
+// MatchBoundary owns current-match persistence. This loader converts the legacy
+// chessGameState once, only when chessMatch:v1 is absent; it retains the old key.
+// Puzzle sessions and mistake drills are transient and are never persisted.
+function loadLegacyMatch() {
+  const raw = localStorage.getItem('chessGameState');
+  return raw ? fromLegacy(JSON.parse(raw)) : null;
 }
 
 const Toggle = ({ label, checked, onChange }) => (
@@ -157,16 +122,12 @@ const Toggle = ({ label, checked, onChange }) => (
   </div>
 );
 
-export default function ChessGame() {
-  // Read the saved in-progress game once, before any state initializer needs it.
-  const restoredRef = useRef(undefined);
-  if (restoredRef.current === undefined) {
-    const snap = loadGameState();
-    restoredRef.current = snap && boardFromSnapshot(snap) ? snap : null;
-  }
-  const restored = restoredRef.current;
+function ChessGame() {
+  const savedMatch = useSavedMatch();
+  const resumed = savedMatch?.restored;
+  const restored = resumed?.ui || null;
+  const [board, setBoard] = useState(() => resumed?.board || new ChessBoard());
 
-  const [board, setBoard] = useState(() => boardFromSnapshot(restored) || new ChessBoard());
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('chessDarkMode');
     return saved ? JSON.parse(saved) : false;
@@ -176,12 +137,13 @@ export default function ChessGame() {
     return saved ? JSON.parse(saved) : true;
   });
   const [difficulty, setDifficulty] = useState(() => {
-    return localStorage.getItem('chessDifficulty') || DEFAULT_TIER_KEY;
+    return restored?.difficulty || localStorage.getItem('chessDifficulty') || DEFAULT_TIER_KEY;
   });
   // Rated mode: a single Elo that updates from wins/losses/draws vs ladder
   // opponents. While rated, undo/flip/coach/eval are disabled (see below) so the
   // result is honest. Color is randomized each rated game.
   const [rated, setRated] = useState(() => {
+    if (restored?.rated !== undefined) return restored.rated;
     const saved = localStorage.getItem('chessRated');
     return saved ? JSON.parse(saved) : false;
   });
@@ -201,6 +163,7 @@ export default function ChessGame() {
 
   // Username+password account (engine/account.js): unlocks the API key +
   // profile on any device via a password-derived id, no email/recovery.
+  const [importGuest, setImportGuest] = useState(false);
   const [account, setAccount] = useState(() => loadSession());
   const [accountUsername, setAccountUsername] = useState('');
   const [accountPassword, setAccountPassword] = useState('');
@@ -224,12 +187,13 @@ export default function ChessGame() {
   const [resigned, setResigned] = useState(() => (restored && restored.resigned) || null); // color that resigned
 
   // Optional clocks. Untimed by default; 'off' keeps the original behaviour.
-  const [timeControl, setTimeControl] = useState(() => localStorage.getItem('chessTimeControl') || 'off');
+  const [timeControl, setTimeControl] = useState(() => restored?.timeControl || localStorage.getItem('chessTimeControl') || 'off');
   const [clock, setClock] = useState(() => {
+    if (restored?.clock) return restored.clock;
     const tc = getTimeControl(localStorage.getItem('chessTimeControl') || 'off');
     return { w: tc.base * 1000, b: tc.base * 1000 };
   });
-  const [flagged, setFlagged] = useState(null); // color that ran out of time
+  const [flagged, setFlagged] = useState(() => restored?.flagged || null); // color that ran out of time
 
   // Coaching state.
   const [dialogue, setDialogue] = useState(() => (restored && restored.dialogue) || []); // [{id, ply, kind, san, tone, label, text, source, pending}]
@@ -273,13 +237,14 @@ export default function ChessGame() {
   useEffect(() => { soundRef.current = soundOn; }, [soundOn]);
   const ratedRef = useRef(rated); // latest value usable inside coachOnMove
   useEffect(() => { ratedRef.current = rated; }, [rated]);
-  const ratedAppliedRef = useRef(false); // guard: score each rated game exactly once
-  const historyAppliedRef = useRef(false); // guard: record opponent history once per game (casual + rated)
+  const ratedAppliedRef = useRef(restored?.ratedApplied || false); // guard: score each rated game exactly once
+  const historyAppliedRef = useRef(restored?.historyApplied || false); // guard: record opponent history once per game (casual + rated)
   const ratingRef = useRef(rating); // latest rating/games for the sync-pull closure
   const ratedGamesRef = useRef(ratedGames);
   useEffect(() => { ratingRef.current = rating; }, [rating]);
   useEffect(() => { ratedGamesRef.current = ratedGames; }, [ratedGames]);
   const coachSeqRef = useRef(0); // ignores stale coaching results after new game/undo
+  useEffect(() => () => { coachSeqRef.current += 1; }, []);
   const transcriptRef = useRef(null);
   const fileInputRef = useRef(null);
   const [pgnError, setPgnError] = useState('');
@@ -360,7 +325,8 @@ export default function ChessGame() {
 
   useEffect(() => {
     localStorage.setItem('chessDarkMode', JSON.stringify(darkMode));
-  }, [darkMode]);
+    savedMatch?.setTheme(darkMode);
+  }, [darkMode, savedMatch]);
   useEffect(() => {
     localStorage.setItem('chessShowMoves', JSON.stringify(showMoves));
   }, [showMoves]);
@@ -438,45 +404,15 @@ export default function ChessGame() {
     return push;
   }, []);
 
-  // Best-effort, one-time merge of a legacy key-hash profile into local
-  // storage when an account is created/signed into while an Anthropic key is
-  // already present under a *different* id. Never throws — called before the
-  // account takes over syncId, so its [syncId] pull-effect below folds the
-  // now-enriched local state into the account profile and pushes it up.
-  const mergeLegacyProfile = useCallback(async (creds) => {
-    const key = getApiKey();
-    if (!key) return;
-    try {
-      const legacyId = await profileIdFromKey(key);
-      if (!legacyId || legacyId === creds.profileId) return;
-      const remote = await fetchRemoteProfile(legacyId);
-      if (remote && remote.configured === false) return;
-      mergeRemoteProfileIntoLocal(remote);
-    } catch (_) {
-      /* best-effort */
-    }
-  }, [mergeRemoteProfileIntoLocal]);
-
-  // Derive the opaque sync id: an account's password-derived profileId takes
-  // priority when signed in; otherwise fall back to a hash of the Anthropic
-  // key (or clear it when neither is present).
   useEffect(() => {
-    let cancelled = false;
-    if (account) {
-      setSyncId(account.profileId);
-      return undefined;
-    }
-    const key = getApiKey();
-    if (!key) {
-      setSyncId(null);
-      setSyncStatus('off');
-      return undefined;
-    }
-    profileIdFromKey(key).then((id) => {
-      if (!cancelled) setSyncId(id || null);
-    });
-    return () => { cancelled = true; };
-  }, [keySet, account]);
+    setSyncId(account || null);
+    if (!account) setSyncStatus('off');
+  }, [account]);
+  useEffect(() => {
+    const failed = () => setSyncStatus('error');
+    window.addEventListener('gipf-sync-conflict', failed);
+    return () => window.removeEventListener('gipf-sync-conflict', failed);
+  }, []);
 
   // On a fresh sync id, pull the remote profile and reconcile every domain with
   // local (rating, opponent history, puzzle progress, mistake library), then
@@ -486,7 +422,7 @@ export default function ChessGame() {
     if (!syncId) return undefined;
     let cancelled = false;
     setSyncStatus('syncing');
-    fetchRemoteProfile(syncId)
+    claimLegacyProfile(syncId, syncId.profileId).catch(() => {}).then(() => fetchRemoteProfile(syncId))
       .then((remote) => {
         if (cancelled) return;
         if (remote && remote.configured === false) {
@@ -558,31 +494,6 @@ export default function ChessGame() {
     return () => window.removeEventListener('keydown', onKey);
   }, [board]);
 
-  // Snapshot the live game so a refresh (or a closed tab) can resume it.
-  // Puzzle sessions and drills are transient and deliberately not persisted.
-  useEffect(() => {
-    if (puzzleMode || drill.active) return;
-    if (movesPlayedCount === 0) {
-      clearGameState();
-      return;
-    }
-    saveGameState({
-      pgn: board.pgn(),
-      humanColor,
-      orientation,
-      resigned,
-      rated,
-      difficulty,
-      // Strip the Anthropic thread history: it can be large and is cheap to
-      // lose, unlike the commentary itself.
-      dialogue: dialogue.map(({ threadApi, ...rest }) => rest),
-      moveStats,
-      gameMistakes,
-    });
-  }, [
-    board, movesPlayedCount, humanColor, orientation, resigned, rated, difficulty,
-    dialogue, moveStats, gameMistakes, puzzleMode, drill.active,
-  ]);
 
   const aiColor = humanColor === 'w' ? 'b' : 'w';
   // Rated matchmaking: face the ladder rung nearest your rating. In casual play
@@ -628,7 +539,7 @@ export default function ChessGame() {
   }, [clockOn, gameOver, turnColor, movesPlayedCount]);
 
   // Credit the increment to whoever just moved.
-  const lastCreditedPlyRef = useRef(0);
+  const lastCreditedPlyRef = useRef(resumed?.board.pointer || 0);
   useEffect(() => {
     if (!clockOn || movesPlayedCount === 0) return;
     if (movesPlayedCount === lastCreditedPlyRef.current) return;
@@ -689,7 +600,7 @@ export default function ChessGame() {
   // for `coaching` to settle: the last move's analysis is still in flight when
   // the result lands, and recording early would bank an accuracy figure that
   // misses it. Guarded to fire exactly once per game.
-  const gameLoggedRef = useRef(false);
+  const gameLoggedRef = useRef(restored?.gameLogged || false);
   useEffect(() => {
     if (puzzleMode || drill.active || !gameResult || coaching || gameLoggedRef.current) return;
     if (moveStats.length === 0) return; // nothing analysed — nothing to say
@@ -719,6 +630,38 @@ export default function ChessGame() {
     puzzleMode, drill.active, gameResult, coaching, moveStats, humanColor,
     rated, opponentKey, board,
   ]);
+
+  // Save after result bookkeeping, so a refreshed terminal match cannot count twice.
+  // The latest clock is read only on meaningful changes or lifecycle flushes.
+  // A tick must neither serialize the board nor trigger a cloud write.
+  const flushMatch = useRef(null);
+  flushMatch.current = () => {
+    if (puzzleMode || drill.active) return;
+    savedMatch?.persist(encodeBoard(board), {
+      humanColor, orientation, resigned, rated, difficulty, timeControl, clock, flagged,
+      ratedApplied: ratedAppliedRef.current, historyApplied: historyAppliedRef.current,
+      gameLogged: gameLoggedRef.current,
+      dialogue: dialogue.map(({ threadApi, ...rest }) => rest), moveStats, gameMistakes,
+    });
+  };
+  useEffect(() => {
+    // Allow the move's increment and result bookkeeping to finish first.
+    let cancelled = false;
+    Promise.resolve().then(() => { if (!cancelled) flushMatch.current(); });
+    return () => { cancelled = true; };
+  }, [board, humanColor, orientation, resigned, rated, difficulty, timeControl, flagged,
+      dialogue, moveStats, gameMistakes, puzzleMode, drill.active, rating, ratedGames, history, gameLog, savedMatch]);
+  useLayoutEffect(() => {
+    const flush = () => flushMatch.current();
+    const hide = () => { if (document.visibilityState === 'hidden') flush(); };
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', hide);
+    return () => {
+      flush();
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', hide);
+    };
+  }, []);
 
   // Produce coaching for a move that was just played. Runs two full-strength
   // analyses (position before + after the move) so commentary is engine-true,
@@ -771,7 +714,7 @@ export default function ChessGame() {
           cachedAnalyze(fenBefore),
           cachedAnalyze(fenAfter),
         ]);
-        if (seq !== coachSeqRef.current) return; // superseded (new game / undo)
+        if (!savedMatch?.isCurrent() || seq !== coachSeqRef.current) return; // superseded (new game / undo)
         // Update the eval bar (#21) from the post-move top line (White POV).
         const afterTop = !silent && analysisAfter && analysisAfter.lines && analysisAfter.lines[0];
         if (afterTop) {
@@ -828,7 +771,7 @@ export default function ChessGame() {
           // Enhancement: real master practice (degrades to null if unreachable).
           // Skipped in rated games — nothing renders it, so don't pay the fetch.
           const stats = silent ? null : await fetchOpeningStats(fenBefore);
-          if (seq !== coachSeqRef.current) return;
+          if (!savedMatch?.isCurrent() || seq !== coachSeqRef.current) return;
           const book = summarizeBookMove(stats, movePlayedSan, moverColor);
           if (book) {
             payload.openingStats = book;
@@ -876,7 +819,7 @@ export default function ChessGame() {
         // the game is over (the post-game summary reads moveStats).
         if (silent) return;
         const { text, source } = await requestCommentary(payload);
-        if (seq !== coachSeqRef.current) return;
+        if (!savedMatch?.isCurrent() || seq !== coachSeqRef.current) return;
         // A key is set but we still got template prose ⇒ the Claude call
         // failed. Surface it instead of degrading silently forever.
         setCoachKeyFailing(hasApiKey() && source === 'template');
@@ -920,7 +863,7 @@ export default function ChessGame() {
           )
         );
       } catch (_) {
-        if (seq !== coachSeqRef.current || silent) return;
+        if (!savedMatch?.isCurrent() || seq !== coachSeqRef.current || silent) return;
         setDialogue((d) =>
           d.map((e) =>
             e.id === entryId
@@ -952,7 +895,7 @@ export default function ChessGame() {
     const fenBefore = board.fen();
     getMove(board.fen(), moveSpec)
       .then((mv) => {
-        if (cancelled || !mv) return;
+        if (cancelled || !mv || !savedMatch?.isCurrent()) return;
         const applied = board.move(mv.from, mv.to, mv.promotion || 'q');
         if (applied) {
           const fenAfter = board.fen();
@@ -1177,10 +1120,11 @@ export default function ChessGame() {
   );
 
   const startGame = (color) => {
+    savedMatch?.startNew();
     // Rated games randomize color; casual games keep the colour you chose
     // rather than silently reassigning it (which used to happen on puzzle exit).
     const c = color || (rated ? (Math.random() < 0.5 ? 'w' : 'b') : humanColor);
-    clearGameState();
+    // The next render replaces the current match; legacy recovery stays intact.
     coachSeqRef.current += 1; // invalidate any in-flight coaching
     analysisCacheRef.current.clear();
     ratedAppliedRef.current = false;
@@ -1214,7 +1158,7 @@ export default function ChessGame() {
   const applyRatedToggle = () => {
     const goingRated = !rated;
     setRated(goingRated);
-    clearGameState();
+    // The next render replaces the current match; legacy recovery stays intact.
     stashedGameRef.current = null;
     // startGame reads `rated` from the current render, so pick the colour here:
     // rated games randomize, casual keeps yours.
@@ -1296,7 +1240,7 @@ export default function ChessGame() {
   // Return to the stashed game, or start a fresh one if there wasn't one.
   const resumeStashedGame = () => {
     const snap = stashedGameRef.current;
-    const next = boardFromSnapshot(snap);
+    const next = snap ? decodeMatch(fromLegacy({ v: 1, ...snap })).board : null;
     if (!snap || !next) {
       startGame(humanColor);
       return;
@@ -1396,7 +1340,7 @@ export default function ChessGame() {
     const seq = coachSeqRef.current;
     analyze(fenAfter, { multipv: 1 })
       .then((analysisAfter) => {
-        if (seq !== coachSeqRef.current) return;
+        if (!savedMatch?.isCurrent() || seq !== coachSeqRef.current) return;
         const payload = buildFailPayload({ puzzle, fen: fenBefore, fenAfter, playedSan, analysisAfter });
         // Tactics are a spatial skill: reading "after Ka7 Qb2 Ka6 the chance is
         // gone" is far weaker than watching it. Offer to play the refutation
@@ -1539,6 +1483,7 @@ export default function ChessGame() {
       confirmLabel: 'Remove key',
       onConfirm: () => {
         setApiKey('');
+        if (account) pushEncryptedKey({ ...account, enc: null });
         setKeySet(false);
         setShowKeyField(false);
       },
@@ -1587,13 +1532,15 @@ export default function ChessGame() {
         setAccountError(res.message || 'Something went wrong.');
         return;
       }
-      await mergeLegacyProfile(creds);
-      saveSession(creds);
+      await saveSession(creds, { importGuest, apiKey: currentKey, lichessToken: token });
+      window.location.reload();
       setAccount(creds);
       setAccountUsername('');
       setAccountPassword('');
       setAccountPassword2('');
       setCreatingAccount(false);
+    } catch (_) {
+      setAccountError('Unable to switch accounts safely. Check browser storage and try again.');
     } finally {
       setAccountBusy(false);
     }
@@ -1636,6 +1583,8 @@ export default function ChessGame() {
         setAccountError(res.message || 'Something went wrong.');
         return;
       }
+      let restoredKey = '';
+      let restoredLichess = '';
       if (res.enc) {
         let key;
         try {
@@ -1645,7 +1594,7 @@ export default function ChessGame() {
           return;
         }
         if (key) {
-          setApiKey(key);
+          restoredKey = key;
           setKeySet(hasApiKey());
         }
       }
@@ -1653,20 +1602,22 @@ export default function ChessGame() {
         try {
           const token = await decryptApiKey(creds.aesKey, res.encLichess);
           if (token) {
-            setLichessToken(token);
+            restoredLichess = token;
             setLichessSet(hasLichessToken());
           }
         } catch (_) {
-          /* best-effort — the key decrypt already validated the password */
+          setAccountError('Could not unlock the saved Lichess token.'); return;
         }
       }
-      await mergeLegacyProfile(creds);
-      saveSession(creds);
+      await saveSession(creds, { importGuest, apiKey: restoredKey, lichessToken: restoredLichess });
+      window.location.reload();
       setAccount(creds);
       setAccountUsername('');
       setAccountPassword('');
       setAccountPassword2('');
       setCreatingAccount(false);
+    } catch (_) {
+      setAccountError('Unable to switch accounts safely. Check browser storage and try again.');
     } finally {
       setAccountBusy(false);
     }
@@ -1676,11 +1627,11 @@ export default function ChessGame() {
     askConfirm({
       title: 'Sign out?',
       body:
-        'Your saved Anthropic key and Lichess token stay on this device — signing out does not remove them. ' +
-        'On a shared computer, remove them separately below.',
+        'Signing out clears credentials and visible progress. Unsynced progress is kept encrypted for this account; sign in again to recover it.',
       confirmLabel: 'Sign out',
-      onConfirm: () => {
-        clearSession();
+      onConfirm: async () => {
+        await clearSession();
+        window.location.reload();
         setAccount(null);
       },
     });
@@ -1707,6 +1658,7 @@ export default function ChessGame() {
       confirmLabel: 'Remove token',
       onConfirm: () => {
         setLichessToken('');
+        if (account) pushEncryptedKey({ ...account, encLichess: null });
         setLichessSet(false);
         setShowLichessField(false);
       },
@@ -1799,7 +1751,7 @@ export default function ChessGame() {
       const applyImport = (color) => {
         coachSeqRef.current += 1; // invalidate in-flight coaching
     analysisCacheRef.current.clear();
-        clearGameState();
+        // The next render replaces the current match; legacy recovery stays intact.
         stashedGameRef.current = null;
         drill.exit();
         setPuzzleMode(false);
@@ -2732,7 +2684,7 @@ export default function ChessGame() {
                         ? '☁ Synced to your account — your progress follows you across devices.'
                         : '☁ Synced to your API key — your rating follows you across devices.')}
                       {syncStatus === 'syncing' && '☁ Syncing…'}
-                      {syncStatus === 'error' && '⚠ Couldn’t reach the rating store — using your rating on this device.'}
+                      {syncStatus === 'error' && '⚠ Sync conflict or unavailable store. Local progress is retained; sign out and back in to reconcile.'}
                       {syncStatus === 'local' && 'Saved on this device. (Rating sync isn’t configured on the server.)'}
                       {syncStatus === 'off' && 'Create an account or add an Anthropic API key in Settings to sync your rating across devices.'}
                     </p>
@@ -3074,6 +3026,7 @@ export default function ChessGame() {
                   ) : (
                     <>
                       <div className="flex flex-col gap-2">
+                        <label><input type="checkbox" checked={importGuest} onChange={e => setImportGuest(e.target.checked)} /> Import this device's guest progress</label>
                         <input
                           type="text"
                           value={accountUsername}
@@ -3150,8 +3103,8 @@ export default function ChessGame() {
                       <p className="mt-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
                         One password unlocks your coach key, your Lichess token and your progress on any device — and
                         the same key powers the AI chat in Catan, Splendor and Diplomacy. Your password never leaves
-                        this device: the server only ever stores an unreadable hash, and your keys only as ciphertext
-                        it cannot decrypt. Usernames aren’t case-sensitive.
+                        this device: the account service only ever stores an unreadable hash, and your keys only as ciphertext
+                        it cannot decrypt. Model assistance sends your own API key through our server to the provider. Usernames aren’t case-sensitive.
                       </p>
                     </>
                   )}
@@ -3215,7 +3168,7 @@ export default function ChessGame() {
                       ? '☁ Synced — rating, opponent history, puzzles and mistakes follow your account across devices.'
                       : '☁ Synced to your API key — rating, history, puzzles and mistakes follow you across devices.')}
                   {syncStatus === 'syncing' && '☁ Syncing…'}
-                  {syncStatus === 'error' && '⚠ Couldn’t reach the sync store — your progress is safe on this device.'}
+                  {syncStatus === 'error' && '⚠ Sync conflict or unavailable store. Local progress is retained; sign out and back in to reconcile.'}
                   {syncStatus === 'local' && 'Saved on this device. (Sync isn’t configured on this deployment.)'}
                   {syncStatus === 'off' && 'Not syncing. Create an account (or add an API key) to carry your progress between devices.'}
                 </p>
@@ -3504,3 +3457,5 @@ export default function ChessGame() {
     </div>
   );
 }
+
+export default function ResumableChessGame() { return <MatchBoundary game="chess" decode={decodeMatch} loadLegacy={loadLegacyMatch}><ChessGame /></MatchBoundary>; }
