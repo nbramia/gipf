@@ -1,3 +1,4 @@
+import { captureFence } from './accountFence.js';
 import { loadSession, decryptApiKey, encryptApiKey } from './account.js';
 import { fromLegacy } from './games/chess/matchSnapshot.js';
 import { validatePortableMatch } from './migrationMatchSchema.js';
@@ -25,6 +26,7 @@ const hash = async value => [...new Uint8Array(await crypto.subtle.digest('SHA-2
 // leave this closure. A marker that changes and disappears still invalidates via
 // storage events in the UI, in addition to these synchronous storage checks.
 export function captureIdentity() {
+  const checkFence = captureFence();
   const owner = localStorage.getItem('gipfAccount');
   const marker = localStorage.getItem('gipf:account-transition');
   if (marker) {
@@ -38,6 +40,7 @@ export function captureIdentity() {
     session,
     invalidate() { invalid = true; },
     check() {
+      checkFence();
       if (invalid || localStorage.getItem('gipfAccount') !== owner || localStorage.getItem('gipf:account-transition') !== marker) throw new Error('account_changed');
     },
   };

@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import { captureFence } from './accountFence.js';
+import React, { useEffect, useState, useCallback } from 'react';
 import { loadSession, retainProgress } from './account.js';
 
 // Preferences plus existing Yinsh scores and Chess finished-game statistics.
@@ -10,16 +11,25 @@ const apply = value => SETTING_KEYS.forEach(k => {
   else localStorage.removeItem(k);
 });
 export default function AccountBoundary({ children }) {
+  const [blocked, setBlocked] = useState(false);
   const [ready, setReady] = useState(() => !loadSession());
   const [conflict, setConflict] = useState(null);
   const [error, setError] = useState('');
   const [generation, setGeneration] = useState(0);
   const [statBackups, setStatBackups] = useState(null);
+  const [checkFence] = useState(() => { try { return captureFence(); } catch (_) { return () => { throw new Error('account_changed'); }; } });
   const [accountOwner] = useState(() => localStorage.getItem('gipfAccount'));
-  const assertStatsOwner = () => {
+  const assertStatsOwner = useCallback(() => {
+    checkFence();
     const marker = localStorage.getItem('gipf:account-transition');
     if (localStorage.getItem('gipfAccount') !== accountOwner || (marker && JSON.parse(marker).until > Date.now())) throw new Error('account_changed');
-  };
+  }, [checkFence,accountOwner]);
+  useEffect(() => {
+    const changed = () => { try { checkFence(); } catch (_) { setBlocked(true); setConflict(null); } };
+    window.addEventListener('storage',changed);
+    window.addEventListener('gipf-account-transition',changed);
+    return () => { window.removeEventListener('storage',changed); window.removeEventListener('gipf-account-transition',changed); };
+  }, [checkFence]);
   useEffect(() => {
     const session = loadSession();
     if (!session) return undefined;
@@ -29,6 +39,7 @@ export default function AccountBoundary({ children }) {
     let baseline;
     let pendingConflict = false;
     const request = async (action, extra = {}) => {
+      assertStatsOwner();
       if (loadSession()?.authToken !== session.authToken) throw new Error('account_changed');
       const response = await fetch(`${process.env.PUBLIC_URL || ''}/api/chessProfile`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -37,12 +48,13 @@ export default function AccountBoundary({ children }) {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(response.status === 409 ? 'conflict' : 'unavailable');
+      assertStatsOwner();
       if (stopped || loadSession()?.authToken !== session.authToken) throw new Error('account_changed');
       return data;
     };
     const preserveStats = remote => {
-      if (stopped || loadSession()?.authToken !== session.authToken) throw new Error('account_changed');
       assertStatsOwner();
+      if (stopped || loadSession()?.authToken !== session.authToken) throw new Error('account_changed');
       const key = 'chessStatsRecovery:v1';
       const previous = JSON.parse(localStorage.getItem(key) || '[]');
       const alternatives = [...previous, localStorage.getItem('chessGameLog'), remote.profile.preferences?.chessGameLog].filter(v => typeof v === 'string');
@@ -56,14 +68,18 @@ export default function AccountBoundary({ children }) {
           revision = remote.revision; baseline = remote.profile.preferences || {}; pendingConflict = false; setConflict(null); setReady(true); },
         cloud: async () => {
           if (stopped || loadSession()?.authToken !== session.authToken) return;
-          try { preserveStats(remote); await retainProgress(session); } catch (_) { setError('Cannot preserve recovery on this device; cloud replacement cancelled.'); return; }
+          const before = JSON.stringify(snapshot());
+          try { preserveStats(remote); await retainProgress(session); assertStatsOwner(); if (JSON.stringify(snapshot()) !== before) throw new Error('progress_changed'); } catch (_) { setError('Cannot preserve recovery on this device; cloud replacement cancelled.'); return; }
           if (stopped || loadSession()?.authToken !== session.authToken) return;
           apply(remote.profile.preferences || {}); revision = remote.revision; baseline = snapshot();
           pendingConflict = false; setConflict(null); setReady(true); setGeneration(n => n + 1);
         },
       });
     };
+    const initial = JSON.stringify(snapshot());
     request('read').then(remote => {
+      assertStatsOwner();
+      if (JSON.stringify(snapshot()) !== initial) throw new Error('progress_changed');
       const local = snapshot();
       const cloud = remote.profile.preferences || {};
       revision = remote.revision;
@@ -73,9 +89,14 @@ export default function AccountBoundary({ children }) {
         if (!Object.keys(local).length) apply(cloud);
         baseline = cloud; setReady(true);
       }
-    }).catch(() => { if (!stopped) { setError('Cloud preferences unavailable. Play continues locally.'); setReady(true); } });
+    }).catch(() => {
+      if (stopped) return;
+      try { assertStatsOwner(); } catch (_) { setBlocked(true); return; }
+      setError('Cloud preferences unavailable. Play continues locally.'); setReady(true);
+    });
     const interval = setInterval(async () => {
       if (stopped || busy || pendingConflict || revision === undefined) return;
+      try { assertStatsOwner(); } catch (_) { setBlocked(true); return; }
       const local = snapshot();
       if (same(local, baseline)) return;
       busy = true;
@@ -89,7 +110,8 @@ export default function AccountBoundary({ children }) {
       } finally { busy = false; }
     }, 5000);
     return () => { stopped = true; clearInterval(interval); };
-  }, []);
+  }, [assertStatsOwner]);
+  if (blocked) return <p role="alert">Account progress changed in another operation. Reload before playing.</p>;
   return <>
     {conflict && <div role="alert" className="bg-amber-100 text-black p-3">
       This device and cloud have different preferences or scores. Choose which to keep.

@@ -79,7 +79,7 @@ try {
   const retain = destination.getByRole('button',{name:'Retain imported file separately'});
   assert.equal(await retain.isDisabled(),true);
   await destination.getByText('Guest privacy warning:',{exact:true}).waitFor();
-  const checkbox = destination.getByLabel(/I understand this only stages/);
+  const checkbox = destination.getByLabel(/I have selected the intended/);
   await checkbox.focus(); await destination.keyboard.press('Space');
   await retain.focus(); await destination.keyboard.press('Enter');
   await destination.getByText(/File retained separately/).waitFor();

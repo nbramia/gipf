@@ -1,3 +1,4 @@
+import { captureFence } from '../../../accountFence.js';
 // profileSync.js — browser client for cross-device Chess "profile" sync.
 //
 // Reads and writes require the account's password-derived auth token. Legacy
@@ -23,6 +24,7 @@ const ENDPOINT = `${process.env.PUBLIC_URL || ''}/api/chessProfile`;
 const revisions = new Map();
 async function requestProfile(session, action, fields = {}) {
   if (!session?.usernameId || !session?.authToken) throw new Error('account_required');
+  const check = captureFence();
   const active = JSON.parse(localStorage.getItem('gipfAccount') || 'null');
   if (active?.usernameId !== session.usernameId || active?.authToken !== session.authToken) throw new Error('account_changed');
   const r = await fetch(ENDPOINT, {
@@ -30,6 +32,7 @@ async function requestProfile(session, action, fields = {}) {
     body: JSON.stringify({ action, u: session.usernameId, auth: session.authToken, ...fields }),
   });
   const data = await r.json();
+  check();
   if (!r.ok) throw new Error(data.error === 'conflict' ? 'conflict' : 'sync_failed');
   const current = JSON.parse(localStorage.getItem('gipfAccount') || 'null');
   if (current?.usernameId !== session.usernameId || current?.authToken !== session.authToken) throw new Error('account_changed');

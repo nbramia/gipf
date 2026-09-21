@@ -1,13 +1,10 @@
-# Games local migration (preparatory, promotion blocked)
+# Games migration: export, retained recovery and authenticated activation
 
-This implementation is stacked on `4487d0c6df5dfe690d55333d1082e4f00755c41e`.
-It does not clear the account-security hold or implement hosted migration.
-The coordinator explicitly restricted this dispatch to export, validation,
-conflict preview and durable staged recovery import. Active destination promotion
-is unavailable until the parent settings/account writer boundary is fixed and
-reviewed. Staging is not completion of the migration acceptance criterion.
-The required writer correction and later activation are tracked in
+Activation is implemented on a child of PR67 head
+`cb28f167f5e9725bad73386eea3638722e6abd34` for
 [nbramia/gipf#66](https://github.com/nbramia/gipf/issues/66).
+This does not clear the PR61 provider-security hold or hosted migration gates.
+No provider, deployment, DNS, redirect or origin cleanup is part of this change.
 
 ## Path and integration
 
@@ -18,7 +15,7 @@ gate. No middleware, authentication API, rewrite or redirect changes are needed.
 The shell must preserve direct protected access on old apex, www and aliases;
 each browser origin has independent storage and needs its own export. Public
 host cutover, hosted protection verification and catalogue integration remain
-coordinator work. Files are selected/downloaded locally; no migration network API.
+coordinator work. Export and staging remain local. Explicit account activation uses authenticated POST actions on the existing prefixed `api/chessProfile` endpoint.
 
 ## Version 1 schema
 
@@ -168,8 +165,7 @@ and that nothing was stored.
 
 Identity and the exact account-transition marker are captured and checked before
 reads and after every asynchronous step. Any active, changed, malformed or
-expired-in-flight transition invalidates the operation. These checks do not
-repair unfenced parent writers in other tabs: close other game tabs before export.
+expired-in-flight transition invalidates the operation. A persistent account generation also fences transitions that finish between awaits. Close old-version game tabs before export and activation; older deployed code cannot observe the new generation protocol.
 
 Import validates the complete file before any write. Preview compares against
 current destination values, reports equal/different/missing records, and requires
@@ -216,6 +212,98 @@ recovery can contain private/unvalidated data. Neither format is accepted as a
 validated migration file or promoted to active keys; keep it private for manual
 repair. No other identity's stage or arbitrary localStorage is downloaded.
 
+## Explicit account activation and recovery
+
+1. Sign into the intended account, select a validated file (or **Preview retained file**), and choose one record per destination key. The default selects the first version; alternatives remain in the retained file. Duplicate destinations reject instead of guessing a merge.
+2. **Preview account activation** checks the authenticated cloud destination and captures local bytes. Review the cloud conflict list and local equal/different/missing list, consent, then **Activate selected progress**. **Keep destination** and **Retain imported file separately** retain their prior no-active-write behavior.
+3. Reload Games before playing. Existing mounted settings/statistics, profile requests and match stores become stale when the durable generation changes; account transitions and activation use the same Web Lock and expiring lease. Delayed responses check identity/generation after awaits. Recovery encryption also compares exact progress and prior recovery bytes before committing. Account restore rechecks progress after decryption before clearing anything.
+
+The server revalidates the complete file, record digests and selected destinations.
+`migration-preview` returns a token over exact Redis snapshots. `migration-activate`
+uses one Lua transaction to compare the receipt, lifetime counter, settings,
+profile, all four matches and extra-progress record, then commit selected domains,
+revisions and ownership together. Ordinary settings/profile/match writers use those
+same keys and revisions, so a stale writer conflicts. A stale preview returns 409
+without mutating destination domains, ownership or claim count. Arrays are encoded
+in JavaScript, never round-tripped through Lua cjson. Existing legacy alternatives
+for explicitly replaced profile domains move into receipt recovery instead of
+silently merging back over the selected import.
+
+A durable receipt at `gipf:migration:v1:<sha256(exportId)>` binds the whole file and
+its immutable selection to one authenticated account. Replaying that selection
+neither increments counters nor reapplies local values after later play. A different
+account, changed file or changed selection receives 409. One export permits one
+activation selection; choose every desired domain before confirming. This is
+ownership of an import operation, not proof that a portable file belongs to its
+claimant: anyone holding a file can choose to import it into their own account.
+There is a lifetime cap of 50 activated files per account, without receipt expiry.
+Failures and replays consume none. Split export files have independent IDs.
+
+Settings/statistics, Chess rating/history/puzzles/mistakes and the four matches
+activate in their existing cloud domains. Other supported preferences, repertoire
+and Diplomacy saves are durably retained in `gipf:migration-extra:v1:<account>` and
+activated in the destination browser; this does not add automatic cross-device
+sync to those games. Sign-out recovery still includes these local progress keys.
+Imported values retain schema bounds; ordinary profile writers retain their
+existing narrower request/domain limits and may reject a subsequent oversized save.
+
+Before any cloud commit, the client retains the source and writes an AES-GCM
+journal at `gamesMigrationActivation:v1:<account>` with exact before/after local
+values, selection and retry token (at most 20 MiB plaintext; practical origin quota
+is usually lower). It precomputes encrypted completion before promotion. A quota
+failure before the journal prevents cloud activation. A lost HTTP response or a
+partial local write leaves the journal pending. **Resume pending activation**
+retries the durable receipt and finishes only keys still equal to their old/imported
+bytes. A third value is a new edit and is never overwritten. Re-preview a cloud
+conflict before retrying. A pending operation blocks activation of another file;
+keep/download recovery and reconcile new edits before resuming it.
+
+**Download activation recovery** decrypts only the current account's allowlisted
+progress journal and, when available, fetches its authenticated cloud receipt,
+including prior exact cloud bytes. It excludes credentials. This is a private,
+manual-repair backup, not a portable migration file; there is no automatic rollback
+UI. If cloud recovery is unavailable, `cloudUnavailable:true` marks the local-only
+backup. The latest local journal is retained until another activation replaces it;
+server receipts remain durable. Guest activation is disabled: guests retain the
+existing visible, consented 50-file/5-MiB plaintext stage and must sign in and select
+the original file for account activation. No automatic guest ownership transfer.
+
+## Activation verification and release gates
+
+`src/migrationActivation.test.js` exercises encrypted recovery, same-account
+fencing, no-write quota failure, lost response, partial promotion, replay, fresh
+conflict preview and identity changes. `tests/migration-activation-redis.test.mjs`
+executes actual Redis Lua and localhost HTTP with separately imported handlers.
+`tests/migration-activation-browser.mjs` runs the built UI through the real handler
+and isolated Redis, including a delayed second-tab settings read, interrupted HTTP,
+reload resume, matches/statistics, replay and account isolation. All browser routing
+is installed before navigation, service workers are blocked, and nonfixture origins
+are denied. The existing staging harness still checks the unchanged middleware.
+
+Run Redis checks sequentially in an isolated disposable container:
+
+```sh
+docker run -d --name gipf-migration-activation-synthetic-redis redis:7-alpine
+GIPF_SYNTHETIC_REDIS=gipf-migration-activation-synthetic-redis node --test --test-concurrency=1 tests/public-security.test.mjs tests/ai-security.test.mjs tests/account-redis.test.mjs tests/match-redis.test.mjs tests/profile-arrays-redis.test.mjs tests/migration-activation-redis.test.mjs
+PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node tests/migration-activation-browser.mjs
+```
+
+Repeat both browser harnesses with `/gipf` and root builds. Live host rewrites,
+provider guards, account authentication against production KV, service workers,
+production durability and request-size/time budgets remain hosted gates. Migration
+requests accept a 5-MiB file plus bounded selection/auth metadata; this raises only
+the migration handler path's application limit (ordinary actions stay at 300,000
+bytes), and the platform/proxy may impose a smaller limit. Large activation payloads
+must be measured on the approved hosted environment before acceptance; they may
+remain staged with a visible error. No hosted checks or deployment are implied by
+local synthetic results.
+
+PR68 overlap: at inspected head `052b1af4ecf6b24353e1d3ad63ca9a0dfdb6b821`, the
+account copies and AccountBoundary match PR67; the profile-handler delta changes
+legacy-claim retries, empty claims and durable claim limits. This child adds migration
+actions before normal scope dispatch and leaves that legacy claim code unchanged.
+PR68 was open when inspected; its later merge still requires combined verification.
+
 ## Writer-bound audit (general review round 1)
 
 | Writer group | Evidence and migration limit |
@@ -233,13 +321,11 @@ Unsupported historical extensions, over-limit counters/strings/arrays, and data
 outside these supported interfaces are **not** silently repaired or removed.
 They produce incomplete-export warnings and remain in source storage; retain the
 source device. This audit and its deterministic fixtures do not prove every
-historical or provider-generated shape can migrate. Active migration acceptance
-and broader recovery completion remain held on #66 and subsequent review.
+historical or provider-generated shape can migrate. Hosted acceptance and independent security review remain separate release gates.
 
 No originals are cleaned up, no origin/cache is cleared, no credentials are
 transferred and no redirect occurs. Re-enter original account/encryption secrets
-for cloud recovery. Keep both the old device and downloaded files until future
-promotion and hosted verification are complete.
+for cloud recovery. Keep both the old device and downloaded files until activation and hosted verification are complete.
 
 ## Focused verification
 
@@ -265,9 +351,7 @@ download-started wording, and the stage-full message. Round 4 adds the same
 boundary with three records, so the running total must count each comma, and
 real-writer scratchpads nested 19–21 deep (excluded alone, other progress
 exported) and 2 and 18 deep (exported).
-`src/migrationParentBoundary.test.jsx` deliberately reproduces the two inherited
-writer defects for #66; its passing assertions describe the defect, not a fixed
-authorization boundary. Flip those assertions when the parent is corrected.
+`src/migrationParentBoundary.test.jsx` now asserts that delayed settings hydration, cloud-conflict recovery and expired leases cannot overwrite newer progress. It includes a same-account transition that has already finished before the delayed response.
 
 `tests/migration-browser.mjs` uses built assets with deny-by-default context
 routing installed before navigation and service workers blocked. Only four

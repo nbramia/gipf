@@ -1,3 +1,4 @@
+import { captureFence, withAccountTransition } from './accountFence.js';
 // account.js — app-level username+password accounts.
 //
 // This repo's convention is to duplicate shared behavior per consumer rather
@@ -227,14 +228,18 @@ export function clearDeviceSecrets() {
   SECRET_KEYS.forEach(k => localStorage.removeItem(k));
 }
 export async function retainProgress(session) {
-  const progress = Object.fromEntries(PROGRESS_KEYS.map(k => [k, localStorage.getItem(k)]).filter(([, v]) => v !== null));
-  if (!Object.keys(progress).length) return;
-  if (session) {
-    const sealed = await encryptApiKey(session.aesKey, JSON.stringify(progress));
-    localStorage.setItem(`gipf:recovery:${session.usernameId}`, JSON.stringify(sealed));
-  } else {
-    localStorage.setItem('gipf:guest:recovery', JSON.stringify(progress));
-  }
+  const check = captureFence({ allowTransition: true });
+  const owner = loadSession();
+  if (owner?.usernameId !== session?.usernameId || owner?.authToken !== session?.authToken) throw new Error('account_changed');
+  const snapshot = () => JSON.stringify(Object.fromEntries(PROGRESS_KEYS.map(k => [k, localStorage.getItem(k)]).filter(([, v]) => v !== null)));
+  const progress = snapshot();
+  if (progress === '{}') return;
+  const key = session ? `gipf:recovery:${session.usernameId}` : 'gipf:guest:recovery';
+  const previous = localStorage.getItem(key);
+  const value = session ? JSON.stringify(await encryptApiKey(session.aesKey, progress)) : progress;
+  check();
+  if (snapshot() !== progress || localStorage.getItem(key) !== previous) throw new Error('progress_changed');
+  localStorage.setItem(key, value);
 }
 async function saveSessionProgress(s, { importGuest = false, apiKey = '', lichessToken = '' } = {}) {
   const previous = loadSession();
@@ -260,11 +265,13 @@ async function saveSessionProgress(s, { importGuest = false, apiKey = '', liches
     if (previous?.usernameId !== s.usernameId) {
       // Validate recovery and retain outgoing progress before any destructive step.
       await retainProgress(previous);
+      const retained = JSON.stringify(PROGRESS_KEYS.map(k => localStorage.getItem(k)));
       const sealed = localStorage.getItem(`gipf:recovery:${s.usernameId}`);
       const restored = sealed ? JSON.parse(await decryptApiKey(s.aesKey, JSON.parse(sealed))) : {};
       const guest = importGuest && !previous ? JSON.parse(localStorage.getItem('gipf:guest:recovery') || '{}') : {};
       if (loadSession()?.authToken !== previous?.authToken) throw new Error('account_changed');
       assertMatchTransition();
+      if (JSON.stringify(PROGRESS_KEYS.map(k => localStorage.getItem(k))) !== retained) throw new Error('progress_changed');
       committing = true;
       PROGRESS_KEYS.forEach(k => localStorage.removeItem(k));
       clearDeviceSecrets();
@@ -290,9 +297,11 @@ async function saveSessionProgress(s, { importGuest = false, apiKey = '', liches
 }
 async function clearSessionProgress() {
   const previous = loadSession();
+  const before = JSON.stringify(PROGRESS_KEYS.map(k => localStorage.getItem(k)));
   await retainProgress(previous);
   if (loadSession()?.authToken !== previous?.authToken) throw new Error('account_changed');
   assertMatchTransition();
+  if (JSON.stringify(PROGRESS_KEYS.map(k => localStorage.getItem(k))) !== before) throw new Error('progress_changed');
   PROGRESS_KEYS.forEach(k => localStorage.removeItem(k));
   clearDeviceSecrets();
   localStorage.removeItem(ACCOUNT_STORAGE_KEY);
@@ -356,25 +365,13 @@ export function setSharedLichessToken(token) {
 
 // Freeze mounted match writers before any asynchronous account recovery/claim.
 // Other tabs check the shared marker directly, without waiting for storage events.
-let matchTransitionMarker = null;
-function assertMatchTransition() {
-  if (localStorage.getItem('gipf:account-transition') !== matchTransitionMarker ||
-      !matchTransitionMarker || JSON.parse(matchTransitionMarker).until <= Date.now()) throw new Error('account_changed');
-}
+let transitionCheck = null;
+function assertMatchTransition() { if (!transitionCheck) throw new Error('account_changed'); transitionCheck(); }
 async function withMatchTransition(operation) {
-  // A crashed tab must not block matches forever. A slow transition expires
-  // closed: every post-await commit check also verifies this ownership lease.
-  const existing = localStorage.getItem('gipf:account-transition');
-  if (existing && JSON.parse(existing).until > Date.now()) throw new Error('account_transition_in_progress');
-  const marker = JSON.stringify({ id: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`, until: Date.now() + 60000 });
-  localStorage.setItem('gipf:account-transition', marker);
-  matchTransitionMarker = marker;
-  window.dispatchEvent(new Event('gipf-account-transition'));
-  try { return await operation(); }
-  finally {
-    if (localStorage.getItem('gipf:account-transition') === marker) localStorage.removeItem('gipf:account-transition');
-    if (matchTransitionMarker === marker) matchTransitionMarker = null;
-  }
+  return withAccountTransition(async check => {
+    transitionCheck = check;
+    try { return await operation(); } finally { transitionCheck = null; }
+  });
 }
 export async function saveSession(session, options) { return withMatchTransition(() => saveSessionProgress(session, options)); }
 export async function clearSession() { return withMatchTransition(clearSessionProgress); }
