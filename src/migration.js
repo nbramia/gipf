@@ -166,9 +166,13 @@ export async function exportProgress(sourceOrigin, guard = captureIdentity()) {
     if (get('chessMatch:v1') === null) read(get,'chessGameState',value => add('chess-match','legacy-chess',fromLegacy(value),'chessGameState'));
     else issues.push('chessGameState: shadowed legacy save is not exported; original retained.');
   }
-  const records = [];
-  const bundle = {format:'ramia-migration',version:1,app:'games',exportId:crypto.randomUUID(),exportedAt:new Date().toISOString(),sourceOrigin,records};
-  let usedBytes = bytes(JSON.stringify(bundle));
+  // Whole records are packed, in priority order, into as many independent files
+  // as needed. Each file is a complete ordinary bundle with its own export ID;
+  // none is complete alone when there are several. A record too large for any
+  // file stays only in its source key and is reported. Nothing is truncated.
+  const newBundle = () => ({format:'ramia-migration',version:1,app:'games',exportId:crypto.randomUUID(),exportedAt:new Date().toISOString(),sourceOrigin,records:[]});
+  const parts = [];
+  const manifest = [];
   const seen = new Set();
   // Prefer the current match's ordinary ID when identical to a backup.
   candidates.sort((a,b) => Number(a.alternative) - Number(b.alternative));
@@ -180,17 +184,28 @@ export async function exportProgress(sourceOrigin, guard = captureIdentity()) {
     if (seen.has(fingerprint)) continue;
     seen.add(fingerprint);
     const record = {kind,id:alternative ? `${id}:${revision}` : id,schemaVersion:1,revision,data};
-    const size = bytes(JSON.stringify(record)) + (records.length ? 1 : 0);
-    if (records.length >= 10000 || usedBytes + size > MAX_BYTES) {
-      issues.push(`${kind} ${record.id}: omitted because the export reaches its 5 MiB / 10,000 record limit; original retained. Keep the source browser for recovery; this partial file is not a complete migration.`);
-      continue;
+    const size = bytes(JSON.stringify(record));
+    let part = parts.find(p => p.bundle.records.length < 10000 && p.used + size + (p.bundle.records.length ? 1 : 0) <= MAX_BYTES);
+    if (!part) {
+      const bundle = newBundle();
+      part = {bundle,used:bytes(JSON.stringify(bundle))};
+      if (part.used + size > MAX_BYTES) {
+        manifest.push({kind,id:record.id,file:null});
+        issues.push(`${kind} ${record.id}: larger than the 5 MiB single-file limit, so it cannot be exported; original retained in this browser. Nothing was truncated.`);
+        continue;
+      }
+      parts.push(part);
     }
-    records.push(record);
-    usedBytes += size;
+    part.used += size + (part.bundle.records.length ? 1 : 0);
+    part.bundle.records.push(record);
+    manifest.push({kind,id:record.id,file:parts.indexOf(part) + 1});
   }
-  await validateFile(JSON.stringify(bundle),guard);
-  guard.check();
-  return {bundle,issues};
+  const bundles = parts.length ? parts.map(p => p.bundle) : [newBundle()];
+  for (const bundle of bundles) {
+    await validateFile(JSON.stringify(bundle),guard);
+    guard.check();
+  }
+  return {bundles,issues,manifest};
 }
 
 export function previewImport(bundle, guard = captureIdentity()) {
@@ -238,7 +253,8 @@ export async function inspectStages(guard = captureIdentity()) {
 export function rawStageRecovery(guard = captureIdentity()) {
   guard.check();
   const raw = localStorage.getItem(stageKey(guard));
-  if (raw === null || bytes(raw) > MAX_BYTES * 2) fail();
+  if (raw === null) throw new Error('no_stage');
+  if (bytes(raw) > MAX_BYTES * 2) fail();
   guard.check();
   return raw;
 }

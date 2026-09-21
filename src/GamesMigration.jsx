@@ -13,7 +13,7 @@ export default function GamesMigration() {
   const [preview,setPreview] = useState([]), [stages,setStages] = useState([]);
   const [busy,setBusy] = useState(false), [error,setError] = useState(''), [status,setStatus] = useState('');
   const [confirmed,setConfirmed] = useState(false), [invalid,setInvalid] = useState(false);
-  const [unreadable,setUnreadable] = useState(0), [rawConsent,setRawConsent] = useState(false);
+  const [unreadable,setUnreadable] = useState(0), [rawConsent,setRawConsent] = useState(false), [downloaded,setDownloaded] = useState([]);
   const guard = useRef(null);
   const mounted = useRef(true);
   useEffect(() => {
@@ -39,11 +39,13 @@ export default function GamesMigration() {
       try { guard.current.check(); } catch (_) { changed = true; }
       if (mounted.current) {
         if (changed) { setInvalid(true); setPrepared(null); setIncoming(null); setStages([]); setPreview([]); }
-        setError(changed ? 'Account changed. Reload this page before continuing.' : 'Unable to complete this operation. Check the file, available storage and account. Originals and active saves remain unchanged.');
+        setError(changed ? 'Account changed. Reload this page before continuing.'
+          : e.message === 'no_stage' ? 'No retained stage exists for this account or guest, so there is nothing to back up. Retain an imported file first.'
+          : 'Unable to complete this operation. Check the file, available storage and account. Originals and active saves remain unchanged.');
       }
     } finally { if (mounted.current) setBusy(false); }
   };
-  const safeDownload = bundle => run(async g => { g.check(); download(bundle); });
+  const safeDownload = (bundle, onDone) => run(async g => { g.check(); download(bundle); onDone?.(); });
   return <main className="games-migration">
     <a href={`${process.env.PUBLIC_URL || ''}/`}>Back to Games</a>
     <h1>Move your Games progress</h1>
@@ -55,11 +57,20 @@ export default function GamesMigration() {
     <p>No passwords, account sessions, API keys, Lichess tokens or encrypted credential containers are transferred. Re-enter your original account and encryption secrets for cloud recovery.</p>
     <fieldset disabled={busy || invalid}>
       <legend>1. Export this browser</legend>
-      <button onClick={() => { setPrepared(null); run(async g => { const result = await exportProgress(window.location.origin,g); g.check(); setPrepared(result); }); }}>Prepare export</button>
+      <button onClick={() => { setPrepared(null); setDownloaded([]); run(async g => { const result = await exportProgress(window.location.origin,g); g.check(); setPrepared(result); }); }}>Prepare export</button>
       {prepared && <div>
-        <p>{prepared.bundle.records.length} supported progress records.</p>
+        <p>{prepared.manifest.filter(r => r.file).length} supported progress records{prepared.bundles.length > 1 && ` in ${prepared.bundles.length} files`}.</p>
         {!!prepared.issues.length && <><strong>Incomplete export — keep the original browser data.</strong><ul>{prepared.issues.map((issue,i) => <li key={i}>{issue}</li>)}</ul></>}
-        <button onClick={() => safeDownload(prepared.bundle)}>{prepared.issues.length ? 'Download incomplete export' : 'Download export'}</button>
+        {prepared.bundles.length === 1
+          ? <button onClick={() => safeDownload(prepared.bundles[0])}>{prepared.issues.length ? 'Download incomplete export' : 'Download export'}</button>
+          : <>
+            <p><strong>Split export:</strong> records are divided into {prepared.bundles.length} files to stay within the 5 MiB file limit. Each file alone is partial. Download all {prepared.bundles.length} files and keep them together; {downloaded.length} of {prepared.bundles.length} downloaded.</p>
+            <ol>{prepared.bundles.map((bundle,i) => <li key={bundle.exportId}>
+              File {i + 1} of {prepared.bundles.length} · {bundle.records.length} records{downloaded.includes(i) && ' · downloaded'}
+              <ul>{bundle.records.map(r => <li key={`${r.kind}/${r.id}`}>{r.kind} · {r.id}</li>)}</ul>
+              <button onClick={() => safeDownload(bundle,() => setDownloaded(d => d.includes(i) ? d : [...d,i]))}>Download file {i + 1} of {prepared.bundles.length}</button>
+            </li>)}</ol>
+          </>}
       </div>}
     </fieldset>
     <fieldset disabled={busy || invalid}>
@@ -95,9 +106,9 @@ export default function GamesMigration() {
       <button onClick={() => run(async g => { const result = await inspectStages(g); g.check(); setStages(result.stages); setUnreadable(result.unreadable); setStatus(result.stages.length || result.unreadable ? 'Retained files loaded for this identity.' : 'No retained files for this identity.'); })}>Show retained files</button>
       {!!unreadable && <p role="alert">{unreadable} retained entries cannot be validated by this build. Their originals are preserved; other valid files remain available below.</p>}
       <ul>{stages.map((bundle,i) => <li key={bundle.exportId}>{bundle.exportedAt} · {bundle.records.length} records <button onClick={() => safeDownload(bundle)}>Download retained file {i + 1}</button></li>)}</ul>
-      <p>Raw recovery is for manual repair of unreadable stages, including a damaged container. It is not a validated migration file and cannot be imported here. Account stages remain encrypted and require the original encryption key; guest stages may contain private, unvalidated data. Keep this backup private.</p>
+      <p>Raw recovery is for manual repair of unreadable stages, including a damaged container. It is not a validated migration file, and this page cannot import or open it. An account's raw backup stays encrypted with a key derived from that account's original credentials; no current Games tool decrypts it. Guest stages may contain private, unvalidated data. Keep this backup private.</p>
       <label><input type="checkbox" checked={rawConsent} onChange={e => setRawConsent(e.target.checked)} /> I understand raw recovery is unvalidated and may contain private data.</label>
-      <button disabled={!rawConsent} onClick={() => run(async g => { const raw = rawStageRecovery(g); g.check(); download(raw,true); })}>Download raw stage recovery</button>
+      <button disabled={!rawConsent} onClick={() => run(async g => { const raw = rawStageRecovery(g); g.check(); download(raw,true); setRawConsent(false); })}>Download raw stage recovery</button>
     </fieldset>
     {busy && <p role="status">Checking local progress…</p>}
     {status && <p role="status">{status}</p>}

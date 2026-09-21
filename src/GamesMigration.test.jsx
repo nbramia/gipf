@@ -6,7 +6,7 @@ jest.mock('./migration.js', () => ({ captureIdentity:jest.fn(() => ({check:jest.
 beforeEach(() => { jest.clearAllMocks(); migration.captureIdentity.mockImplementation(() => ({check:jest.fn(),invalidate:jest.fn()})); migration.inspectStages.mockResolvedValue({stages:[],unreadable:0}); });
 test('states activation hold, shows incomplete export issues and uses explicit import choice', async () => {
   const bundle = {exportId:'synthetic',records:[{kind:'preference',id:'chessDarkMode',data:'true'}]};
-  migration.exportProgress.mockResolvedValue({bundle,issues:['diplomacyGameState: unsupported; original retained.']});
+  migration.exportProgress.mockResolvedValue({bundles:[bundle],manifest:[{kind:'preference',id:'chessDarkMode',file:1}],issues:['diplomacyGameState: unsupported; original retained.']});
   migration.validateFile.mockResolvedValue(bundle);
   migration.previewImport.mockReturnValue([{kind:'preference',id:'chessDarkMode',status:'different'}]);
   migration.stageImport.mockResolvedValue({status:'retained'});
@@ -41,6 +41,47 @@ test('in-flight failure does not overwrite identity-change explanation', async (
   expect(screen.getByRole('button',{name:'Prepare export'}).closest('fieldset').disabled).toBe(true);
 });
 
+test('split export lists each file, says each alone is partial, and tracks downloads', async () => {
+  global.URL.createObjectURL = jest.fn(() => 'blob:synthetic'); global.URL.revokeObjectURL = jest.fn();
+  const click = jest.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(() => {});
+  const bundles = [
+    {exportId:'one',records:[{kind:'diplomacy-save',id:'diplomacyGameState'}]},
+    {exportId:'two',records:[{kind:'preference',id:'chessLearningGoal'},{kind:'preference',id:'chessDarkMode'}]},
+  ];
+  migration.exportProgress.mockResolvedValue({bundles,manifest:[{kind:'diplomacy-save',id:'diplomacyGameState',file:1},{kind:'preference',id:'chessLearningGoal',file:2},{kind:'preference',id:'chessDarkMode',file:2}],issues:[]});
+  render(<GamesMigration />);
+  fireEvent.click(screen.getByRole('button',{name:'Prepare export'}));
+  await screen.findByText(/3 supported progress records in 2 files/);
+  expect(screen.getByText(/Each file alone is partial/).textContent).toMatch(/0 of 2 downloaded/);
+  expect(screen.queryByRole('button',{name:'Download export'})).toBeNull();
+  expect(screen.queryByText(/Incomplete export/)).toBeNull();
+  expect(screen.getByText('diplomacy-save · diplomacyGameState')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button',{name:'Download file 2 of 2'}));
+  await waitFor(() => expect(screen.getByText(/Each file alone is partial/).textContent).toMatch(/1 of 2 downloaded/));
+  expect(click).toHaveBeenCalledTimes(1);
+  expect(screen.getByText(/File 2 of 2 · 2 records · downloaded/)).toBeTruthy();
+  click.mockRestore();
+});
+
+test('raw recovery without a stage explains itself and consent resets after download', async () => {
+  global.URL.createObjectURL = jest.fn(() => 'blob:synthetic'); global.URL.revokeObjectURL = jest.fn();
+  const click = jest.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(() => {});
+  migration.rawStageRecovery.mockImplementationOnce(() => { throw new Error('no_stage'); }).mockReturnValueOnce('[]');
+  render(<GamesMigration />);
+  expect(screen.getByText(/this page cannot import or open it/).textContent).toMatch(/original credentials; no current Games tool decrypts it/);
+  const consent = screen.getByLabelText(/I understand raw recovery/);
+  const button = screen.getByRole('button',{name:'Download raw stage recovery'});
+  fireEvent.click(consent);
+  fireEvent.click(button);
+  expect((await screen.findByRole('alert')).textContent).toMatch(/No retained stage exists for this account or guest/);
+  expect(consent.checked).toBe(true);
+  fireEvent.click(button);
+  await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(consent.checked).toBe(false));
+  expect(button.disabled).toBe(true);
+  click.mockRestore();
+});
+
 test('invalid retained entries are labeled and raw recovery needs separate consent', async () => {
   migration.inspectStages.mockResolvedValue({stages:[{exportId:'valid',exportedAt:'today',records:[]}],unreadable:1});
   render(<GamesMigration />);
@@ -53,7 +94,7 @@ test('invalid retained entries are labeled and raw recovery needs separate conse
 });
 
 test('account/transition event discards prepared material and prevents stale downloads', async () => {
-  migration.exportProgress.mockResolvedValue({bundle:{records:[]},issues:[]});
+  migration.exportProgress.mockResolvedValue({bundles:[{exportId:'e',records:[]}],manifest:[],issues:[]});
   render(<GamesMigration />);
   fireEvent.click(screen.getByRole('button',{name:'Prepare export'}));
   await screen.findByRole('button',{name:'Download export'});

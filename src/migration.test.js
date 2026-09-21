@@ -26,7 +26,7 @@ beforeAll(() => {
 beforeEach(() => localStorage.clear());
 const origin = 'https://old.example.test';
 const snapshot = (game, adapter, board) => ({ v: 1, game, id: `${game}-synthetic`, updatedAt: 3, state: adapter.encodeBoard(board), ui: {} });
-const exportFile = async () => (await exportProgress(origin)).bundle;
+const exportFile = async () => (await exportProgress(origin)).bundles[0];
 
 test.each([
   ['chess', chess, () => { const b = new ChessBoard(); b.move('e2','e4'); return b; }],
@@ -49,7 +49,7 @@ test('legacy empty PGN converts, explicit clear does not revive it, damaged sour
   expect((await exportFile()).records[0].data.id).toBe('legacy-chess');
   localStorage.setItem('chessMatch:v1', 'null');
   const result = await exportProgress(origin);
-  expect(result.bundle.records).toHaveLength(0);
+  expect(result.bundles[0].records).toHaveLength(0);
   expect(result.issues).toHaveLength(1);
   localStorage.setItem('yinshMatch:v1', '{');
   expect((await exportProgress(origin)).issues).toHaveLength(2);
@@ -68,8 +68,8 @@ test('inventory covers all supported record kinds and six-game preferences witho
   Object.entries(values).forEach(([k,v]) => localStorage.setItem(k,v));
   const result = await exportProgress(origin);
   expect(result.issues).toEqual([]);
-  expect(result.bundle.records).toHaveLength(11);
-  expect(JSON.stringify(result.bundle)).not.toMatch(/secret|private|gipfApiKey|chessLichessToken/);
+  expect(result.bundles[0].records).toHaveLength(11);
+  expect(JSON.stringify(result.bundles[0])).not.toMatch(/secret|private|gipfApiKey|chessLichessToken/);
   localStorage.setItem('diplomacyGameState', '{"version":1}');
   expect((await exportProgress(origin)).issues[0]).toContain('diplomacyGameState');
 });
@@ -99,7 +99,7 @@ test('nested unknown match fields reject instead of being hidden by a permissive
   value.state.players[1].resources.future = 7;
   localStorage.setItem('catanMatch:v1', JSON.stringify(value));
   const result = await exportProgress(origin);
-  expect(result.bundle.records).toHaveLength(0);
+  expect(result.bundles[0].records).toHaveLength(0);
   expect(result.issues).toHaveLength(1);
 });
 
@@ -141,7 +141,7 @@ test('Diplomacy actual save round-trips board, negotiation and local order-entry
   const powers = board.getPowerIds();
   saveGame({board,uiPhase:'orders',controllers:Object.fromEntries(powers.map(p => [p,p==='england'?'human':'AI'])),personas:PERSONAS,conversations:createMemory(powers),diplomaticState:createDiplomaticState({board,humanPower:'england'}),uiState:{pendingOrders:{},retreatChoices:{},buildOrders:{}}});
   const original = localStorage.getItem('diplomacyGameState');
-  const {bundle,issues} = await exportProgress(origin);
+  const {bundles:[bundle],issues} = await exportProgress(origin);
   expect(issues).toEqual([]);
   expect(bundle.records[0].kind).toBe('diplomacy-save');
   expect(bundle.records[0].data).toEqual(JSON.parse(original));
@@ -169,7 +169,7 @@ test('active and encrypted alternatives are progress-only, deduplicated, recover
   }));
   localStorage.setItem(`gipf:recovery:${session.usernameId}`,JSON.stringify(sealed));
   localStorage.setItem(`gipf:recovery:${account(5).usernameId}`,'not this account');
-  const {bundle,issues} = await exportProgress(origin);
+  const {bundles:[bundle],issues} = await exportProgress(origin);
   expect(bundle.records).toHaveLength(3);
   expect(issues).toHaveLength(2);
   expect(JSON.stringify(bundle)).not.toMatch(/secret-never-copy|synthetic-never-export|authToken|aesKey|usernameId|"ct"|"iv"/);
@@ -188,7 +188,7 @@ test('excluded encrypted legacy/preferences content makes export explicitly inco
   localStorage.setItem('gipfAccount',JSON.stringify(session));
   const sealed = await encryptApiKey(session.aesKey,JSON.stringify({chessGameState:'{"v":1,"pgn":""}',chessDarkMode:'true',gipfApiKey:'do-not-copy'}));
   localStorage.setItem(`gipf:recovery:${session.usernameId}`,JSON.stringify(sealed));
-  const {bundle,issues} = await exportProgress(origin);
+  const {bundles:[bundle],issues} = await exportProgress(origin);
   expect(bundle.records).toEqual([]);
   expect(issues).toHaveLength(2);
   expect(issues.join(' ')).toMatch(/chessGameState/);
@@ -241,7 +241,7 @@ test('populated statistics and trainer stores preserve existing formats without 
   localStorage.setItem('chessGameLog',JSON.stringify(log));
   localStorage.setItem('chessMistakes',JSON.stringify(mistakes));
   localStorage.setItem('chessPuzzleProgress',JSON.stringify(puzzles));
-  const {bundle,issues} = await exportProgress(origin);
+  const {bundles:[bundle],issues} = await exportProgress(origin);
   expect(issues).toEqual([]);
   expect(bundle.records.find(r => r.kind === 'chess-log').data).toEqual(log);
   expect(bundle.records.find(r => r.kind === 'chess-mistakes').data).toEqual(mistakes);

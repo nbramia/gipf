@@ -109,10 +109,34 @@ try {
   await destination.getByLabel(/I understand raw recovery/).check();
   const rawDownload = destination.waitForEvent('download'); await rawButton.click();
   assert.equal(await readFile(await (await rawDownload).path(),'utf8'),brokenStage);
+  assert.equal(await destination.getByLabel(/I understand raw recovery/).isChecked(),false);
+  assert.equal(await rawButton.isDisabled(),true);
   await destination.getByRole('button',{name:'Prepare export'}).click();
   await destination.getByText(/Other account recovery exists/).waitFor();
   assert.equal(await destination.getByText(/hidden-other-identity/).count(),0);
-  console.log('PASS guest privacy consent, per-entry recovery isolation, explicit raw backup and generic excluded-recovery warning');
+  console.log('PASS guest privacy consent, per-entry recovery isolation, explicit raw backup with consent reset and generic excluded-recovery warning');
+  // Records whose UTF-8 total exceeds one 5 MiB file are split, never dropped.
+  await destination.evaluate(() => {
+    localStorage.setItem('chessLearningGoal','\u754c'.repeat(1000000));
+    localStorage.setItem('chessRepertoire',JSON.stringify({version:1,white:['\u754c'.repeat(800000)],black:[]}));
+  });
+  await destination.getByRole('button',{name:'Prepare export'}).click();
+  await destination.getByText(/Each file alone is partial/).waitFor();
+  const parts = [];
+  for (const n of [1,2]) {
+    const part = destination.waitForEvent('download');
+    await destination.getByRole('button',{name:`Download file ${n} of 2`}).click();
+    parts.push(await readFile(await (await part).path(),'utf8'));
+  }
+  await destination.getByText(/2 of 2 downloaded/).waitFor();
+  const partBundles = parts.map(p => JSON.parse(p));
+  assert.ok(parts.every(p => Buffer.byteLength(p) <= 5 * 1024 * 1024));
+  assert.notEqual(partBundles[0].exportId,partBundles[1].exportId);
+  const ids = partBundles.flatMap(b => b.records.map(r => r.id));
+  assert.ok(ids.includes('chessLearningGoal') && ids.includes('chessRepertoire'));
+  assert.equal(await destination.evaluate(() => localStorage.getItem('chessLearningGoal').length),1000000);
+  await destination.evaluate(() => { localStorage.removeItem('chessLearningGoal'); localStorage.removeItem('chessRepertoire'); });
+  console.log('PASS oversized progress splits into independent downloadable files with sources unchanged');
   for (const width of [1280,480,320]) {
     await destination.setViewportSize({width,height:900});
     if (await destination.evaluate(() => document.documentElement.scrollWidth > innerWidth)) {

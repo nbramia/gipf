@@ -82,14 +82,32 @@ resolved, retreats, retreatResolution and adjustments. All counters, coordinates
 order fields, maps and arrays are checked before engine reconstruction.
 Controllers map country IDs to human/AI. Personas have name, temperament
 `{trust,aggression}`, openingDisposition and blurb. Conversation threads have
-power, messages (`{role,content,turn}`), scratchpad and updatedAt. Scratchpads
-have self, dispositions (trust/stance/intent/optional note), confidence and
-optional priority. Diplomatic state has version 1, humanPower, relations,
-agreements, promises, promiseLedger, scratchpads and summaries. Agreement fields
-are id/type/parties/from/to/provinces/target/actingPower/phase; promise fields are
+power, messages (`{role,content,turn}`), scratchpad and updatedAt. Diplomatic
+state has version 1, humanPower, relations, agreements, promises, promiseLedger,
+scratchpads and summaries. Agreement fields are
+id/type/parties/from/to/provinces/target/actingPower/phase; promise fields are
 id/type/from/to/expectedOrder/madePhase/actingPower. UI state has pendingOrders,
-retreatChoices and buildOrders. Arbitrary additional negotiation extensions are
-unsupported, explicitly reported and left intact rather than silently stripped.
+retreatChoices and buildOrders.
+
+Negotiated content follows the writers that store it verbatim:
+
+- Deal locations (agreement `from`, `to`, `provinces`) use the agent endpoint's
+  `validateDeal` pattern: 2–4 letters in any case with an optional coast, e.g.
+  `SPA`, `spa`, `Spa`, `stp/nc`. `from`/`to` may also be a power id (durable
+  promise promotion) and are nullable. At most 1,000 DMZ provinces.
+- A joint-attack `target` is any non-empty string, as `validateDeal` admits.
+- Scratchpads (hidden state and chat threads) require only what
+  `validateScratchpad` requires: non-empty `self`, a `dispositions` object whose
+  entries have trust −1…1, a known stance and string intent, and confidence 0…1.
+  Disposition keys are any string. Other keys at the scratchpad or disposition
+  level (priority, note, model additions) are open JSON, bounded to 256 extra keys
+  per object, 256 dispositions and 4,096-character key names. Replies are capped
+  at 700 output tokens, well inside these bounds. The secret-key denylist and the
+  5 MiB envelope still apply to that content.
+
+Everything else stays closed: an unknown agreement or promise field, a location
+outside the endpoint pattern, an empty target or an invalid disposition is
+reported and left intact rather than silently stripped.
 
 ## Recovery and preservation
 
@@ -113,14 +131,22 @@ identifier, count or contents. A guest recovery warning also appears when signed
 in. Only storage key names are inspected to detect other account recovery;
 their values are never read or included in ordinary exports.
 
-If the complete export would exceed 5 MiB UTF-8 or 10,000 records, complete
-records that fit are exported and each omitted record is named in the visible
-incomplete-export warning. Current values take priority over recovery alternatives.
-No record is clipped and later smaller records can still fit. The resulting file
-passes the same complete validation as any ordinary export. An individually
-unsupported or oversized record stays in its original storage key and is reported;
-keep that source browser for future/manual recovery. This is a partial recovery
-path, not complete migration, and there is no automatic split or selection UI.
+If the records would exceed 5 MiB UTF-8 or 10,000 records in one file, the
+export is split. Whole records are packed, current values first, into as many
+files as needed. Each file is an ordinary bundle with its own export ID and
+digests, passes the same complete validation, and can be validated, previewed,
+retained and replayed on its own. The page lists every file with its records and
+tracks how many have been downloaded. It states that each file alone is partial
+and that all of them must be kept together. A late Diplomacy game (about 4.1–4.4
+MB at the 80-snapshot history cap) therefore exports alongside other progress
+without anything being deleted.
+
+A single record larger than one 5 MiB file cannot be exported. It is named in
+the incomplete-export warning, stays in its original storage key and is never
+truncated. Keep that source browser for future or manual recovery. Split files
+do not make an export complete when any record is reported as unsupported or too
+large. One identity's retained stage holds at most 5 MiB, so large split files may
+need to be retained under different identities or kept only as downloads.
 
 Identity and the exact account-transition marker are captured and checked before
 reads and after every asynchronous step. Any active, changed, malformed or
@@ -158,8 +184,11 @@ decryption cannot be appended to and is never overwritten.
 
 An explicitly consented **raw stage recovery** download preserves only the current
 identity's original stage container (maximum 10 MiB stored text), even if the
-container cannot be parsed. Account raw recovery stays encrypted, requires the
-original encryption key, and is not an ordinary portable export. Guest raw
+container cannot be parsed. Account raw recovery stays AES-GCM encrypted with a
+key derived from that account's original credentials. No current Games tool,
+including this page, imports, opens or decrypts it, and it is not an ordinary
+portable export. The download needs a fresh consent each time; asking with no
+stage present reports that there is nothing to back up. Guest raw
 recovery can contain private/unvalidated data. Neither format is accepted as a
 validated migration file or promoted to active keys; keep it private for manual
 repair. No other identity's stage or arbitrary localStorage is downloaded.
@@ -174,7 +203,7 @@ repair. No other identity's stage or arbitrary localStorage is downloaded.
 | Chess history, mistakes and log | UI opponent keys come from five tiers/rating ladder (within 32 per bucket). `captureMistake` and `recordGame` cap at 200. Log's 100,000-byte limit follows the existing server boundary. Counts, FEN and string restrictions remain explicit migration validation; permissive historical loaders are not compatibility guarantees. |
 | Four match writers | Existing authoritative decoders enforce 240,000-byte snapshots and UI arrays up to 2,000. Their restrictions stay in force. Yinsh rows now require engine `fullLineLength` (5–11); seeded legal play covers row removal and recovery alternatives through game end. Chess free coaching text now allows the snapshot byte budget; threads allow 10,000 entries, still bounded by snapshot bytes. Other closed typed game geometry, resources and fields remain unchanged. |
 | Diplomacy board | 80 undo snapshots, 12 order-history entries per board; 400 KB is only a writer soft cap. Regression adjudicates 45 phases including a real winter build and saves beyond 1910 and 400 KB. No engine or persistence writer changed. |
-| Diplomacy negotiation | `appendMessage`/scratchpad storage have no text cap; text now uses the envelope budget. Messages, agreements and promises have a 100,000-entry safety ceiling; summaries retain the writer's 200-character cap. Local long-conversation regression added; no live LLM/provider verification. Closed fields, country/province sets, ID/turn/persona bounds still apply. |
+| Diplomacy negotiation | `appendMessage`/scratchpad storage have no text cap; text now uses the envelope budget. Messages, agreements and promises have a 100,000-entry safety ceiling; summaries retain the writer's 200-character cap. Round 2: deal locations, targets and scratchpads now follow the endpoint `validateDeal` / client `validateScratchpad` contracts (see above), covered by writer-driven fixtures through `recordAgreement`, `runNegotiationPhase` with an injected agent, `setScratchpad` and `updateScratchpad`. No live LLM/provider verification. Agreement/promise fields, power sets, ID/turn/persona bounds still apply. |
 | Recovery stores | Existing match alternatives and log recovery accept at most eight entries, using their existing decoders/bounds. Only the captured account's documented match/log encrypted recovery interface is consumed; other known content is visibly excluded. |
 
 Unsupported historical extensions, over-limit counters/strings/arrays, and data
@@ -199,7 +228,13 @@ explicit staging opt-in and invalidation of prepared data on identity events.
 `src/migrationReview.test.js` adds deterministic multi-year/late-game Diplomacy,
 seeded Yinsh through row removal, actual uncapped writers, per-entry stage
 isolation and byte preservation, scoped raw recovery, generic excluded-recovery
-warnings, and explicit UTF-8 overflow with source preservation.
+warnings, and explicit UTF-8 overflow with source preservation. Round 2 adds
+lower/mixed-case deal locations, free-form targets and model-shaped scratchpads
+through the real negotiation writers (with rejected out-of-contract controls), a
+real retreat phase from legal opening orders, split multi-file export of a late
+Diplomacy game with other progress, per-file replay, and the no-stage raw
+recovery message. `src/GamesMigration.test.jsx` covers the split-file listing and
+download count, and consent reset after raw download.
 `src/migrationParentBoundary.test.jsx` deliberately reproduces the two inherited
 writer defects for #66; its passing assertions describe the defect, not a fixed
 authorization boundary. Flip those assertions when the parent is corrected.
