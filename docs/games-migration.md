@@ -25,6 +25,10 @@ coordinator work. Files are selected/downloaded locally; no migration network AP
 All object schemas are closed: unknown fields, wrong types, future versions,
 prototype and credential fields reject. JSON text is at most 5 MiB UTF-8, at
 most 10,000 records and nesting depth 24. No coercion or silent truncation.
+Depth is counted from the export file's root, where a record's data sits three
+levels down (`records`, the record, `data`). Every record kind is checked at
+the depth it will occupy in a file before export; a record that fails is
+excluded and reported alone, its source key unchanged.
 
 Envelope fields are exactly `format:"ramia-migration"`, `version:1`,
 `app:"games"`, `exportId` (UUID), `exportedAt` (canonical ISO UTC timestamp),
@@ -103,10 +107,9 @@ Negotiated content follows the writers that store it verbatim:
   level (priority, note, model additions) are open JSON, bounded to 256 extra keys
   per object, 256 dispositions and 4,096-character key names. Replies are capped
   at 700 output tokens, well inside these bounds. The secret-key denylist, the
-  nesting-depth limit (24) and the 5 MiB envelope still apply to that content.
-  Depth is counted from the export file's root, where a record's data sits three
-  levels down (`records`, the record, `data`), so every record is checked at the
-  depth it will occupy in a file. Secret denial takes precedence over writer fidelity: a writer-valid scratchpad
+  nesting-depth limit (24, counted from the file root as described under
+  Version 1 schema) and the 5 MiB envelope still apply to that content.
+  Secret denial takes precedence over writer fidelity: a writer-valid scratchpad
   with a denylisted key (for example `secret` or `token`) or nesting deeper than
   the limit makes the **whole** Diplomacy save unsupported. It is reported as
   `diplomacyGameState: unsupported or damaged`, excluded from every export file,
@@ -148,8 +151,8 @@ retained and replayed on its own. The page lists every file with its records and
 counts how many downloads have started; it cannot confirm that the browser saved
 a file. Split files are named `games-migration-<exportId>-part-<i>-of-<n>.json`.
 The part index is in the filename only; the envelope carries no cross-file part
-metadata, so renaming a file loses the grouping hint. It states that each file alone is partial
-and that all of them must be kept together. A late Diplomacy game (about 4.1–4.4
+metadata, so renaming a file loses the grouping hint. The page states that each
+file alone is partial and that all of them must be kept together. A late Diplomacy game (about 4.1–4.4
 MB at the 80-snapshot history cap) therefore exports alongside other progress
 without anything being deleted.
 
@@ -171,8 +174,9 @@ repair unfenced parent writers in other tabs: close other game tabs before expor
 Import validates the complete file before any write. Preview compares against
 current destination values, reports equal/different/missing records, and requires
 an explicit keep-destination or retain-imported-alternative choice. Neither
-choice writes active game keys. Equal replay is keyed by app/exportId/kind/id
-and is idempotent; reusing an export ID with different content is rejected.
+choice writes active game keys. Replay is keyed by exportId alone: retaining a
+file whose whole content is canonically identical to the retained file with that
+exportId is idempotent; reusing an export ID with different content is rejected.
 
 Staging uses one bounded atomic localStorage value per captured identity and
 Web Locks to serialize migration writers. Signed-in stages use existing AES-GCM
@@ -185,6 +189,10 @@ Quota failure leaves the old stage
 and all active keys untouched. No multi-key transaction or rollback is claimed.
 Retained files can be downloaded again from the migration page under the same
 identity; they do not automatically activate or cross account boundaries.
+A retained file downloads again as `games-migration-<exportId>.json`, without
+the `-part-<i>-of-<n>` suffix: the stage keeps no part metadata. Keep the
+original split downloads together rather than relying on retained copies to
+reconstruct the grouping.
 Guest staging is unencrypted and accessible to anyone using that browser as a
 guest, including private progress in files exported while signed in. The page
 always warns before guest staging and requires explicit consent; no identifying
