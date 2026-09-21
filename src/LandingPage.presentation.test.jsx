@@ -80,3 +80,55 @@ test('signout cancel preserves account; confirmation calls existing boundary', a
   fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
   await waitFor(() => expect(account.clearSession).toHaveBeenCalledTimes(1));
 });
+test('opening focuses username and Cancel returns focus without stealing initial guest focus', () => {
+  mount();
+  expect(document.activeElement).toBe(document.body);
+  const launcher = screen.getByRole('button', { name: 'Sign in / Create account' });
+  expect(launcher).not.toHaveAttribute('aria-expanded');
+  fireEvent.click(launcher);
+  expect(screen.getByLabelText('Username')).toHaveFocus();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(screen.getByRole('button', { name: 'Sign in / Create account' })).toHaveFocus();
+});
+test.each([false, true])('native submit selects displayed create mode %s and blocks duplicate busy submissions', async creating => {
+  let release;
+  account.deriveCredentials.mockImplementation(() => new Promise(resolve => { release = resolve; }));
+  account.loginAccount.mockResolvedValue({ error: 'bad_credentials' });
+  account.createAccount.mockResolvedValue({ error: 'taken' });
+  mount(); fill();
+  if (creating) {
+    fireEvent.click(screen.getByRole('button', { name: 'Create account', exact: true }));
+    fireEvent.submit(screen.getByLabelText('Password').closest('form'));
+    expect(screen.getByRole('alert')).toHaveTextContent("Those passwords don't match.");
+    expect(account.deriveCredentials).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('Confirm password'), { target: { value: 'synthetic-password' } });
+  }
+  const form = screen.getByLabelText('Password').closest('form');
+  expect(fireEvent.submit(form)).toBe(false);
+  expect(account.deriveCredentials).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole('button', { name: 'Sign in', exact: true })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Working…' })).toBeDisabled();
+  fireEvent.submit(form);
+  expect(account.deriveCredentials).toHaveBeenCalledTimes(1);
+  release(creds);
+  expect(await screen.findByRole('alert')).toHaveTextContent(creating ? 'That username is taken.' : 'Wrong username or password.');
+  expect(creating ? account.createAccount : account.loginAccount).toHaveBeenCalledTimes(1);
+  expect(creating ? account.loginAccount : account.createAccount).not.toHaveBeenCalled();
+});
+test('native submission preserves empty-field and creation length validation', () => {
+  mount(); fill();
+  const form = screen.getByLabelText('Password').closest('form');
+  fireEvent.change(screen.getByLabelText('Username'), { target: { value: ' ' } });
+  fireEvent.submit(form);
+  expect(account.deriveCredentials).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'Synthetic player' } });
+  fireEvent.change(screen.getByLabelText('Password'), { target: { value: '' } });
+  fireEvent.submit(form);
+  expect(account.deriveCredentials).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'short' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create account', exact: true }));
+  fireEvent.change(screen.getByLabelText('Confirm password'), { target: { value: 'short' } });
+  fireEvent.submit(form);
+  expect(screen.getByRole('alert')).toHaveTextContent('Password must be at least 6 characters.');
+  expect(account.deriveCredentials).not.toHaveBeenCalled();
+});

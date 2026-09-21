@@ -22,7 +22,11 @@ Desktop uses two columns; mobile uses one. The launch links are the first keyboa
 stops, and each complete game entry is clickable. Account controls have visible
 labels, password-manager autocomplete hints, visible focus, and announced errors.
 Import consent starts unchecked and is presented only inside the account form.
-The existing account state and handlers are unchanged, including creation,
+Opening the form focuses Username; Cancel returns focus to the launcher. Native
+form submission uses the displayed mode: Enter signs in or creates an account
+only after password confirmation passes, and is blocked while busy. Explicit
+Sign in and Create account buttons retain their existing behavior.
+The existing account service handlers are unchanged, including creation,
 credential encryption/decryption, importGuest, logout, and encrypted recovery.
 Copy explicitly says progress and sync support vary by game.
 
@@ -37,6 +41,17 @@ PLAYWRIGHT_MODULE=/absolute/path/to/playwright node scripts/landing-fixture/chec
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node scripts/landing-fixture/production-check.cjs
 ```
 
+The fixture requires the existing CRA (`react-scripts@5.0.1`) dependency tree:
+`webpack`, `style-loader`, and `css-loader` resolve as hoisted transitive packages,
+not direct dependencies. Changes to CRA or dependency hoisting may make them
+unavailable; no fixture dependencies were added. Playwright must also already
+be installed at the supplied path.
+
+The synthetic fixture loads `landing.css` without `src/index.css` or Tailwind
+preflight, so its typography, spacing and computed-style checks do not establish
+production styling parity. Use the actual production build for that comparison;
+the separate production check below covers YINSH launch, not a full style audit.
+
 The fixture aliases only the account module to a synthetic, sessionStorage-backed
 boundary. Its game destination is a stub. The separate production check serves
 the actual build at `/gipf` and opens the real YINSH guest board. Both block remote
@@ -44,7 +59,8 @@ traffic. Neither tests real account services, cryptography, provider integration
 all game engines, or deployed routing/security. No real credentials are needed.
 
 Screenshots are written to `/tmp/ramia22-games-design-evidence`. Browser checks
-cover desktop, 480px and 320px widths, overflow, keyboard launch, login and signout,
+cover desktop, 480px and 320px widths, overflow, keyboard launch, account opening/Cancel focus, Enter submission in both
+modes, login and signout,
 password visibility, create confirmation/error/recovery text, import consent,
 reduced motion, and text contrast. The focused React tests also assert calls to
 the unchanged account boundaries. The full suite belongs to final verification.

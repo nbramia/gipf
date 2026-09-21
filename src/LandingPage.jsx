@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   deriveCredentials,
@@ -200,6 +200,22 @@ export default function LandingPage() {
     }
   };
 
+  const launcherRef = useRef(null);
+  const usernameRef = useRef(null);
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open) usernameRef.current?.focus();
+    else if (wasOpen.current) launcherRef.current?.focus();
+    wasOpen.current = open;
+  }, [open]);
+
+  const submitAccount = (event) => {
+    event.preventDefault();
+    if (busy || !username.trim() || !password) return;
+    if (creatingAccount) handleCreateAccount();
+    else handleSignIn();
+  };
+
   return (
     <main className="landing-page">
       <div className="landing-shell">
@@ -262,13 +278,13 @@ export default function LandingPage() {
           <button
             type="button"
             onClick={() => setOpen(true)}
-            aria-expanded={false}
+            ref={launcherRef}
             className="landing-button"
           >
             Sign in / Create account
           </button>
         ) : (
-          <div className="landing-form">
+          <form className="landing-form" onSubmit={submitAccount}>
             <div className="landing-form-header">
               <h3 className="landing-form-title">{creatingAccount ? 'Create account' : 'Sign in'}</h3>
               <button
@@ -282,6 +298,7 @@ export default function LandingPage() {
             <div className="landing-fields">
               <label htmlFor="landing-username">Username</label>
               <input
+                ref={usernameRef}
                 id="landing-username"
                 autoComplete="username"
                 type="text"
@@ -330,25 +347,21 @@ export default function LandingPage() {
               {error && <p role="alert" className="landing-error">{error}</p>}
               <div className="landing-actions">
                 <button
-                  type="button"
-                  onClick={() => {
+                  type={creatingAccount ? 'button' : 'submit'}
+                  onClick={creatingAccount ? () => {
                     setCreatingAccount(false);
                     handleSignIn();
-                  }}
+                  } : undefined}
                   disabled={busy || !username.trim() || !password}
                   className="landing-button"
                 >
                   Sign in
                 </button>
                 <button
-                  type="button"
-                  onClick={() => {
-                    if (!creatingAccount) {
-                      setCreatingAccount(true);
-                      setError('');
-                      return;
-                    }
-                    handleCreateAccount();
+                  type={creatingAccount ? 'submit' : 'button'}
+                  onClick={creatingAccount ? undefined : () => {
+                    setCreatingAccount(true);
+                    setError('');
                   }}
                   disabled={busy || !username.trim() || !password}
                   className="landing-button"
@@ -370,7 +383,7 @@ export default function LandingPage() {
                 decrypt. Model assistance sends your own API key through our server to the provider. Usernames aren&rsquo;t case-sensitive.
               </p>
             </div>
-          </div>
+          </form>
         )}
         </div>
       </section>
