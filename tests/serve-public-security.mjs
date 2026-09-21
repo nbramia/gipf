@@ -3,7 +3,8 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { redisAsync } from './redis-fixture.mjs';
+import aiMove from '../api/aiMove.js';
 import account from '../api/chessAccount.js';
 import profile from '../api/chessProfile.js';
 import rating from '../api/chessRating.js';
@@ -17,11 +18,11 @@ process.env.KV_REST_API_URL='https://synthetic.invalid';
 process.env.KV_REST_API_TOKEN='synthetic';
 process.env.GIPF_LEGACY_CLAIM_FROM=new Date(Date.now()-60000).toISOString();
 process.env.GIPF_LEGACY_CLAIM_UNTIL=new Date(Date.now()+86400000).toISOString();
-const handlers={testAI,chessAccount:account,chessProfile:profile,chessRating:rating,zertzAiMove:zertz,chessCoach,catanRules,splendorRules,diplomacyAgent};
+const handlers={aiMove,testAI,chessAccount:account,chessProfile:profile,chessRating:rating,zertzAiMove:zertz,chessCoach,catanRules,splendorRules,diplomacyAgent};
 globalThis.fetch=async (url,options)=>{
   if(url!=='https://synthetic.invalid') return {ok:false,status:401,json:async()=>({error:{message:'synthetic provider rejection'}})};
   const args=JSON.parse(options.body).map(String);
-  const result=JSON.parse(execFileSync('docker',['exec','gipf-pr4-synthetic-redis','redis-cli','--json',...args],{encoding:'utf8'}));
+  const result=await redisAsync(...args);
   return {ok:true,json:async()=>({result})};
 };
 const root=resolve('build');
@@ -44,4 +45,5 @@ const server=http.createServer(async(req,res)=>{
     res.setHeader('Content-Type',({'.js':'text/javascript','.css':'text/css','.json':'application/json','.html':'text/html','.wasm':'application/wasm'})[extname(path)]||'application/octet-stream');res.end(data);
   } catch(_) {res.setHeader('Content-Type','text/html');res.end(await readFile(resolve(root,'index.html')));}
 });
-server.listen(3187,'127.0.0.1',()=>console.log('Synthetic fixture ready at http://127.0.0.1:3187/gipf'));
+const port = Number(process.env.GIPF_TEST_PORT || 3187);
+server.listen(port,'127.0.0.1',()=>console.log(`Synthetic fixture ready at http://127.0.0.1:${port}/gipf`));

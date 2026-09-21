@@ -51,16 +51,20 @@ configuration. Preserve backups before configuring the window.
 
 The authenticated account must also present the old secret capability. Redis
 atomically binds that capability to one account permanently; another account
-cannot transfer it. A repeat claim by its owner is idempotent. Limits are five
-attempts per account per day and five distinct lifetime claims per account.
+cannot transfer it. A repeat claim by its owner is idempotent. Limits are five new data-bearing claims per account per day and five distinct
+lifetime claims per account. The Lua transaction checks the owner and source data
+before either budget: owner repeats, foreign-owner conflicts, and IDs with no source
+consume neither budget. Empty IDs are not bound and return `claimed:false`, so data
+that appears later can still be claimed. General authenticated sync/network limits
+still apply to every request.
 Existing domain collisions retain the original data in `legacyProfiles`; normal
 Chess reads merge those alternatives using the existing monotonic merge rules.
 The source record stays untouched. No public username identifier substitutes for
 the old capability, and no new profile is stored in the old namespace.
 
 Sign-in claims the password-derived legacy profile. Explicit guest import also
-claims the legacy hash of the API key already on that device. Cached older Chess
-sessions attempt their account-profile claim on load. A closed/unavailable window
+claims the legacy hash of the API key already on that device. Chess mounts only read/sync; they do not issue migration claims. Users with cached
+older sessions must sign out and back in during the window to attempt migration. A closed/unavailable window
 does not delete source data; operators must complete recovery during a documented
 window. Forgotten passwords or lost old capabilities cannot be recovered by a
 public-ID lookup.
@@ -91,9 +95,17 @@ access or merge a pending save into the next account.
 
 `server/publicSecurity.js` uses existing `KV_REST_API_URL` / `KV_REST_API_TOKEN`
 (or Upstash aliases) and Redis EVAL with atomic INCR plus expiry. Every instance
-uses the same counters. Account traffic is 20/minute per network identity and
-username; sync is 120/minute per network identity and account; AI is 30/minute
-per network identity shared across proxies. Counters store hashed identities.
+uses the same counters. Account traffic is 20/minute per network identity before authentication and
+20/minute per authenticated account after credential verification; sync is 120/minute per network identity and account; AI is 30/minute
+per network identity shared across proxies, including Yinsh. Counters store hashed identities.
+Knowing a username cannot charge its authenticated account budget: incorrect
+credentials return the same generic 401 for absent and existing accounts. Registration
+uses the network budget and atomic SET NX, never a public-username counter. The
+network limit bounds guessing and storage work across usernames on one network; it
+is intentionally not a global per-username password lockout. A distributed botnet
+can still multiply attempts across networks. Shared-network saturation can throttle
+legitimate users behind the same NAT until its 60-second window expires; passwords
+do not bypass that resource limit.
 Vercel's overwritten `x-vercel-forwarded-for` is the deployed network identity;
 local fixtures use the socket address, never caller `x-forwarded-for`. See the
 [Vercel request-header contract](https://vercel.com/docs/headers/request-headers#x-vercel-forwarded-for).
@@ -106,42 +118,50 @@ the response. Zertz runs in a worker terminated after three seconds, caps work
 at 200 simulations, and returns generic failures. Missing or failed durable
 storage fails closed with 503 for server features; local engines remain usable.
 Sensitive responses set `Cache-Control: no-store`.
+Yinsh retains its existing heuristic engine, simulation/confidence/fallback policy,
+and cache-hit result shape; the search now runs in a fresh worker terminated at
+three seconds, with generic failures and suppressed engine diagnostics. Its 2.5-second
+soft search budget remains unchanged. Warm transposition state is isolated to each
+worker and the duplicate intermediate cache is consolidated into the bounded result
+cache; no model, weights, game rules, or credential derivation changed.
 
-**Coordinator integration required:** the parallel game track owns `api/aiMove.js`.
-After reconciling that track, import `guardRequest` from
-`../server/publicSecurity.js`; after method/preflight checks and before any board
-construction, run:
-
-```js
-if (!await guardRequest(req, res, { bucket: 'ai', limit: 30, maxBytes: 32768 })) return;
-```
-
-Its CPU deadline and redaction must be retained from the repaired implementation.
-Do not declare the public server-AI acceptance criterion complete before this
-callsite and its cross-instance tests are integrated.
+Security headers are deferred. A CSP requires an explicit inventory of Google Fonts,
+Stockfish CDN/blob workers, ONNX/WASM, and the retained subpath/rewrite behavior;
+adding an unverified blanket policy here risks breaking gameplay. Frame protection,
+`nosniff`, Referrer-Policy, and CSP remain release hardening work, with browser and
+both-hostname response-header coverage required.
 
 ## Focused verification and remaining release checks
 
 ```sh
 CI=true npm test -- --watchAll=false --runInBand --runTestsByPath src/games/chess/engine/account.test.js src/games/chess/engine/chessAccountEndpoint.test.js src/games/chess/engine/profileSync.test.js src/LandingPage.test.jsx src/games/chess/ChessGame.test.js
 node --test tests/public-security.test.mjs tests/ai-security.test.mjs
-# Disposable Redis only. The contract test FLUSHDBs this named container.
-docker run --rm -d --name gipf-pr4-synthetic-redis -p 127.0.0.1:16389:6379 redis:7-alpine
+# Explicit disposable Redis only; the contract test FLUSHDBs this container.
+export GIPF_TEST_REDIS_CONTAINER=gipf-test-public-accounts
+docker run --rm -d --name "$GIPF_TEST_REDIS_CONTAINER" redis:7-alpine
 node --test tests/account-redis.test.mjs
 npm run build
 node tests/serve-public-security.mjs
 # Browser fixture is http://127.0.0.1:3187/gipf; stop it before container cleanup.
-docker stop gipf-pr4-synthetic-redis
+docker stop "$GIPF_TEST_REDIS_CONTAINER"
 ```
 
 The fixture uses only synthetic local Redis and refuses real provider calls.
+`GIPF_TEST_REDIS_CONTAINER` must explicitly name a `gipf-test-*` disposable
+container; there is no shared-container default. `GIPF_TEST_PORT` can select a
+nonconflicting loopback port. Before the browser smoke, seed its synthetic late
+migration with `node tests/seed-browser-security.mjs`; this deliberately flushes
+only that disposable container. Navigate Playwright to that fixture URL before
+running `tests/browser-account-smoke.js`.
 Use two synthetic users and separate browser contexts for credentials, explicit
 import, encrypted recovery, conflict handling, and second-device settings reads.
 The repository's pre-existing CRA/source-map warnings may remain in the build.
 
-Before opening the gate: coordinator integrates Yinsh guard, performs independent
-security review, runs the authoritative full regression suite, verifies Vercel
-worker bundling and platform request/deadline behavior, configures durable Redis
-and the bounded claim window, and tests the production-like HTTPS origins without
-logging secrets. Production cutover, hostname changes, origin migration, and new
+Before opening the gate: retain the independent security review and regression evidence;
+land the PR65 empty-array preservation fix with or before this PR; verify Vercel
+worker bundling and platform request/deadline behavior, configure durable Redis
+and the bounded claim window, and test the production-like HTTPS origins without
+logging secrets. In particular, confirm `x-vercel-forwarded-for` is the end-user
+identity through both `gipf.vercel.app` and the `ramia.us/gipf` external rewrite; a
+missing/proxy-only header shares a single bucket and is a release blocker. Production cutover, hostname changes, origin migration, and new
 match restoration are later PRs. No deployment/DNS/provider writes are in this PR.

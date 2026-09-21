@@ -41,7 +41,7 @@ import {
 } from './coach/mistakeStore.js';
 import { DIFFICULTY_TIERS, DEFAULT_TIER_KEY, RATING_LADDER, TIME_CONTROLS, getTimeControl } from './engine/difficulty.js';
 import { DEFAULT_RATING, nearestRung, updateRating, scoreFor, isProvisional, mergeRating } from './engine/rating.js';
-import { claimLegacyProfile, fetchRemoteProfile, putRemoteProfile, mergeHistory, mergePuzzles, mergeMistakes } from './engine/profileSync.js';
+import { fetchRemoteProfile, putRemoteProfile, mergeHistory, mergePuzzles, mergeMistakes } from './engine/profileSync.js';
 import {
   deriveCredentials,
   encryptApiKey,
@@ -457,7 +457,7 @@ export default function ChessGame() {
     if (!syncId) return undefined;
     let cancelled = false;
     setSyncStatus('syncing');
-    claimLegacyProfile(syncId, syncId.profileId).catch(() => {}).then(() => fetchRemoteProfile(syncId))
+    fetchRemoteProfile(syncId)
       .then((remote) => {
         if (cancelled) return;
         if (remote && remote.configured === false) {

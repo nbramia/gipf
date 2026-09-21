@@ -50,3 +50,46 @@ test('threaded chess proxy reaches the bounded provider call with both browser t
   const response=res();await chess(req({apiKey:'synthetic',mode:'thread',messages:[{role:'user',content:'synthetic'}],context:{}}),response);
   assert.equal(response.statusCode,200);
 });
+test('Yinsh checks shared durable AI budget and size before constructing a board, redacts failures',async()=>{
+  const yinsh=(await import('../api/aiMove.js')).default;
+  globalThis.fetch=()=>{throw new Error('size check must precede storage');};
+  const large=res();await yinsh(req({boardState:'x'.repeat(33000)}),large);assert.equal(large.statusCode,413);
+  globalThis.fetch=async(_url,opts)=>{
+    const c=JSON.parse(opts.body);assert.match(c[3],/^gipf:limit:ai:/);
+    return {ok:true,json:async()=>({result:31})};
+  };
+  const denied=res();await yinsh(req({boardState:'synthetic-private-value'}),denied);assert.equal(denied.statusCode,429);
+  globalThis.fetch=async()=>({ok:true,json:async()=>({result:1})});
+  const failed=res();await yinsh(req({boardState:'synthetic-private-value'}),failed);assert.equal(failed.statusCode,500);
+  assert.deepEqual(failed.body,{error:'Unable to calculate move'});assert.equal(failed.headers['Cache-Control'],'no-store');
+});
+test('Yinsh hard deadline terminates stuck CPU work at 3000 ms and redacts worker errors',async(t)=>{
+  const {EventEmitter}=await import('node:events');
+  const {calculateYinshMove}=await import('../server/yinshCalculation.js');
+  let worker;
+  class FakeWorker extends EventEmitter {
+    constructor(){super();worker=this;this.terminated=false;}
+    terminate(){this.terminated=true;}
+  }
+  t.mock.timers.enable({apis:['setTimeout']});
+  const calculation=calculateYinshMove({},FakeWorker);
+  const rejected=assert.rejects(calculation,{message:'calculation_failed'});
+  t.mock.timers.tick(2999);assert.equal(worker.terminated,false);
+  t.mock.timers.tick(1);await rejected;assert.equal(worker.terminated,true);
+  const error=calculateYinshMove({},FakeWorker);worker.emit('error',new Error('synthetic-private-value'));
+  await assert.rejects(error,{message:'calculation_failed'});assert.equal(worker.terminated,true);
+  const exit=calculateYinshMove({},FakeWorker);worker.emit('exit',0);
+  await assert.rejects(exit,{message:'calculation_failed'});
+});
+test('Yinsh deadline terminates an actual non-yielding worker',async()=>{
+  const { Worker }=await import('node:worker_threads');
+  const {calculateYinshMove}=await import('../server/yinshCalculation.js');
+  let exited;
+  class StuckWorker extends Worker {
+    constructor(){super('while (true) {}',{eval:true});exited=new Promise(resolve=>this.once('exit',resolve));}
+  }
+  const started=Date.now();
+  await assert.rejects(calculateYinshMove({},StuckWorker),{message:'calculation_failed'});
+  assert.ok(Date.now()-started>=2900);assert.ok(Date.now()-started<6000);
+  await exited;
+});

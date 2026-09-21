@@ -28,6 +28,10 @@
     "api/zertzAiMove.js": {
       "maxDuration": 10,
       "includeFiles": "{server/zertzWorker.js,src/games/zertz/ZertzBoard.js,src/games/zertz/engine/mcts.js}"
+    },
+    "api/aiMove.js": {
+      "maxDuration": 10,
+      "includeFiles": "{server/yinshCalculation.js,server/yinshWorker.js,src/games/yinsh/YinshBoard.js,src/games/yinsh/YinshNotation.js,src/games/yinsh/engine/mcts.js}"
     }
   }
 }

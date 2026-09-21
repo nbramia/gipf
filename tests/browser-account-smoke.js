@@ -1,10 +1,16 @@
 // Execute with Playwright browser_run_code_unsafe filename against the local fixture.
 async (page) => {
-  const base = 'http://127.0.0.1:3187/gipf';
+  const base = page.url().startsWith('http://127.0.0.1:') ? new URL(page.url()).origin + '/gipf' : 'http://127.0.0.1:3187/gipf';
   const suffix = Date.now();
   const a = `synthetic-a-${suffix}`, b = `synthetic-b-${suffix}`;
   const password = 'synthetic-fixture-password';
   const check = (value, label) => { if (!value) throw new Error(label); return value; };
+  const settlePreferences = async (p, ready = p.getByText(/^Signed in as /)) => {
+    // Mounting Chess initializes preferences; choose them explicitly if cloud differs.
+    const choice = p.getByRole('button', { name: 'Keep this device', exact: true });
+    await Promise.race([ready.waitFor(), choice.waitFor()]);
+    if (await choice.isVisible()) await choice.click();
+  };
   const signIn = async (p, name, create = false) => {
     await p.getByRole('button', { name: 'Sign in / Create account' }).click();
     await p.getByPlaceholder('Username', { exact: true }).fill(name);
@@ -14,6 +20,7 @@ async (page) => {
       await p.getByPlaceholder('Confirm password').fill(password);
     }
     await p.getByRole('button', { name: create ? 'Create account' : 'Sign in', exact: true }).click();
+    await settlePreferences(p);
     await p.getByText(`Signed in as ${name}`).waitFor();
   };
   const signOut = async p => {
@@ -69,6 +76,43 @@ async (page) => {
   await page.getByRole('button', { name: 'Use cloud' }).waitFor({ timeout: 12000 });
   await page.getByRole('button', { name: 'Use cloud' }).click();
   const explicitCloudChoice = check(await page.evaluate(() => localStorage.getItem('yinshWins') === '{"1":9,"2":0}'), 'cloud conflict choice');
+  // Repeated real Chess mounts must not issue legacy claim requests.
+  let mountClaims = 0;
+  const observeClaim = request => {
+    if (request.url().includes('/api/chessProfile') && request.postDataJSON()?.action === 'claim') mountClaims++;
+  };
+  page.on('request', observeClaim);
+  for (let i = 0; i < 6; i++) {
+    await page.goto(base + '/chess');
+    await settlePreferences(page, page.getByRole('button', { name: 'New Game', exact: true }));
+    await page.getByRole('button', { name: 'New Game', exact: true }).waitFor();
+    await page.goto(base);
+    await settlePreferences(page);
+    await page.getByText(`Signed in as ${a}`).waitFor();
+  }
+  page.off('request', observeClaim);
+  check(mountClaims === 0, 'Chess mounts issued legacy claims');
+  const emptyClaims = await page.evaluate(async () => {
+    const s = JSON.parse(localStorage.getItem('gipfAccount'));
+    const outcomes = [];
+    for (let i = 100; i < 108; i++) {
+      const r = await fetch('/gipf/api/chessProfile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({action:'claim',u:s.usernameId,auth:s.authToken,legacyId:i.toString(16).padStart(64,'0')}) });
+      outcomes.push(r.status === 200 && (await r.json()).claimed === false);
+    }
+    return outcomes.every(Boolean);
+  });
+  check(emptyClaims, 'empty claims consumed budget');
   await signOut(page);
-  return { guestImported, secondDevice, logoutCleared, accountBIsolated, accountRecovery, visibleConflict: true, explicitCloudChoice };
+  await page.evaluate(() => localStorage.setItem('gipfApiKey', 'synthetic-late-legacy'));
+  await page.getByRole('checkbox').check();
+  await signIn(page, a);
+  const lateMigration = await page.evaluate(async () => {
+    const s=JSON.parse(localStorage.getItem('gipfAccount'));
+    const r=await fetch('/gipf/api/chessProfile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'read',u:s.usernameId,auth:s.authToken})});
+    const d=await r.json();
+    return Object.values(d.legacyProfiles || {}).some(p=>p.rating?.rating===1777);
+  });
+  check(lateMigration, 'later explicit guest migration failed');
+  await signOut(page);
+  return { guestImported, secondDevice, logoutCleared, accountBIsolated, accountRecovery, visibleConflict: true, explicitCloudChoice, mountClaims, emptyClaims, lateMigration };
 }

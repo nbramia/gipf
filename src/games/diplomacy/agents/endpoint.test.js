@@ -3,7 +3,36 @@
 // security contract (missing key -> 401 with no upstream call, exactly one
 // upstream call on success), and the { message, scratchpad } response schema.
 
-import handler from '../../../../api/diplomacyAgent.js';
+import endpoint from '../../../../api/diplomacyAgent.js';
+// Keep the real durable guard in this provider contract suite. Route only the
+// synthetic Redis boundary separately so upstream call-count assertions remain meaningful.
+const originalSignal = global.AbortSignal;
+const originalStore = [process.env.KV_REST_API_URL, process.env.KV_REST_API_TOKEN];
+beforeEach(() => {
+  process.env.KV_REST_API_URL = 'https://synthetic.invalid';
+  process.env.KV_REST_API_TOKEN = 'synthetic';
+  global.AbortSignal = { timeout: () => undefined };
+});
+afterAll(() => {
+  global.AbortSignal = originalSignal;
+  for (const [i, key] of ['KV_REST_API_URL', 'KV_REST_API_TOKEN'].entries()) {
+    if (originalStore[i] === undefined) delete process.env[key];
+    else process.env[key] = originalStore[i];
+  }
+});
+async function handler(req, res) {
+  const upstream = global.fetch;
+  global.fetch = async (url, options) => {
+    if (url === 'https://synthetic.invalid') {
+      expect(JSON.parse(options.body)[0]).toBe('EVAL');
+      return { ok: true, json: async () => ({ result: 1 }) };
+    }
+    return upstream(url, options);
+  };
+  try { return await endpoint(req, res); }
+  finally { global.fetch = upstream; }
+}
+
 
 function makeRes() {
   return {

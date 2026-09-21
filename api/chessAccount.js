@@ -18,7 +18,6 @@ export default async function handler(req, res) {
   if (!hex64(u) || !hex64(auth)) return res.status(400).json({ error: 'bad_request' });
   if (![enc, encLichess].every(v => v === undefined || v === null || isValidEncShape(v))) return res.status(400).json({ error: 'bad_request' });
   try {
-    if (!await limit('account-user', u, 20)) return res.status(429).json({ error: 'rate_limited' });
     if (action === 'create') {
       if (enc === undefined) return res.status(400).json({ error: 'bad_request' });
       const result = await command('SET', `chess:account:${u}`, JSON.stringify({ authHash: hash(auth), enc: enc || null, encLichess: encLichess || null, createdAt: Date.now() }), 'NX');
@@ -27,6 +26,9 @@ export default async function handler(req, res) {
     }
     const record = await authenticate(req.body, res);
     if (!record) return;
+    // Public usernames cannot spend an authenticated owner's budget.
+    // The pre-auth network counter still bounds password guesses and store work.
+    if (!await limit('account-user', u, 20)) return res.status(429).json({ error: 'rate_limited' });
     if (action === 'login') return res.status(200).json({ configured: true, enc: record.enc || null, encLichess: record.encLichess || null });
     if (action === 'setKey') {
       if (enc === undefined && encLichess === undefined) return res.status(400).json({ error: 'bad_request' });

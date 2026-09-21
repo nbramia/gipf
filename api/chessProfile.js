@@ -1,5 +1,5 @@
 // Authenticated profile persistence. Legacy IDs are capabilities only in claim.
-import { guardRequest, authenticate, command, hex64, limit } from '../server/publicSecurity.js';
+import { guardRequest, authenticate, command, hex64, hash, limit } from '../server/publicSecurity.js';
 export const config = { api: { bodyParser: { sizeLimit: '300kb' } } };
 const MIN_RATING = 100;
 const MAX_RATING = 4000;
@@ -138,12 +138,16 @@ p.revision=p.revision+1; redis.call('SET',KEYS[1],cjson.encode(p)); return p.rev
 const CLAIM = `local owner=redis.call('GET',KEYS[2]); if owner and owner~=ARGV[1] then return -1 end;
 if owner then return 0 end;
 local r=redis.call('GET',KEYS[1]); local p=r and cjson.decode(r) or {revision=0,profile={}};
-if (p.claimCount or 0)>=5 then return -2 end;
 local legacy={};
 for i=3,6 do local d=ARGV[i-1]; local v=redis.call('GET',KEYS[i]); if not v and i==3 then v=redis.call('GET',KEYS[7]) end;
 if v then legacy[d]=cjson.decode(v); if not p.profile[d] then p.profile[d]=legacy[d] end end end;
+if next(legacy)==nil then return 2 end;
+if (p.claimCount or 0)>=5 then return -2 end;
+if tonumber(redis.call('GET',KEYS[8]) or '0')>=5 then return -3 end;
 p.legacyProfiles=p.legacyProfiles or {}; p.legacyProfiles[KEYS[2]]=legacy; p.claimCount=(p.claimCount or 0)+1;
-p.revision=p.revision+1; redis.call('SET',KEYS[1],cjson.encode(p)); redis.call('SET',KEYS[2],ARGV[1]); return 1`;
+p.revision=p.revision+1; local encoded=cjson.encode(p);
+local n=redis.call('INCR',KEYS[8]); if n==1 then redis.call('EXPIRE',KEYS[8],86400) end;
+redis.call('SET',KEYS[1],encoded); redis.call('SET',KEYS[2],ARGV[1]); return 1`;
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') return res.status(405).json({ error: 'use_authenticated_post' });
@@ -162,12 +166,12 @@ export default async function handler(req, res) {
       // Explicit operator window, never a permanent alternate authorization path.
       if (!Number.isFinite(start) || !Number.isFinite(deadline) || deadline - start > 90 * 86400000 || start > Date.now() || Date.now() >= deadline) return res.status(410).json({ error: 'claim_closed' });
       if (!hex64(body.legacyId)) return res.status(400).json({ error: 'bad_request' });
-      if (!await limit('claim-user', body.u, 5, 86400)) return res.status(429).json({ error: 'rate_limited' });
       const id = body.legacyId;
-      const result = await command('EVAL', CLAIM, 7, key, `gipf:claim:${id}`, ...DOMAINS.map(d => `chess:profile:${id}:${d}`), `chess:rating:${id}`, body.u, ...DOMAINS);
+      const result = await command('EVAL', CLAIM, 8, key, `gipf:claim:${id}`, ...DOMAINS.map(d => `chess:profile:${id}:${d}`), `chess:rating:${id}`, `gipf:limit:claim-user:${hash(body.u)}`, body.u, ...DOMAINS);
+      if (result === -3) return res.status(429).json({ error: 'rate_limited' });
       if (result === -2) return res.status(409).json({ error: 'claim_limit' });
       if (result === -1) return res.status(409).json({ error: 'already_claimed' });
-      return res.status(200).json({ configured: true, claimed: true });
+      return res.status(200).json({ configured: true, claimed: result !== 2 });
     }
     if (body.action === 'read') {
       const raw = await command('GET', key);
