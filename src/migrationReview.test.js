@@ -207,6 +207,35 @@ test('records that together exceed one file are split into independent complete 
   expect(Object.fromEntries(Object.keys(localStorage).map(k => [k,localStorage.getItem(k)]))).toEqual(before);
 }, 60000);
 
+// Exact packing boundary: each record after the first costs one comma byte.
+const utf8Bytes = v => new TextEncoder().encode(v).length;
+const emptyBundleBytes = () => utf8Bytes(JSON.stringify({format:'ramia-migration',version:1,app:'games',exportId:'00000000-0000-0000-0000-000000000000',exportedAt:new Date().toISOString(),sourceOrigin:origin,records:[]}));
+const preferenceBytes = (id,data) => utf8Bytes(JSON.stringify({kind:'preference',id,schemaVersion:1,revision:'0'.repeat(64),data}));
+const utf8Text = n => '界'.repeat(Math.floor(n / 3)) + 'a'.repeat(n % 3);
+const goalFilling = total => utf8Text(total - emptyBundleBytes() - preferenceBytes('chessDarkMode','true') - 1 - preferenceBytes('chessLearningGoal',''));
+
+test('two records filling exactly MAX_BYTES, comma included, stay in one file', async () => {
+  localStorage.setItem('chessDarkMode','true');
+  localStorage.setItem('chessLearningGoal',goalFilling(MAX_BYTES));
+  const {bundles,issues} = await exportProgress(origin);
+  expect(issues).toEqual([]);
+  expect(bundles).toHaveLength(1);
+  expect(utf8Bytes(JSON.stringify(bundles[0]))).toBe(MAX_BYTES);
+}, 60000);
+
+test('one byte over MAX_BYTES only through the comma splits into two files, nothing omitted', async () => {
+  localStorage.setItem('chessDarkMode','true');
+  localStorage.setItem('chessLearningGoal',goalFilling(MAX_BYTES + 1));
+  const {bundles,issues,manifest} = await exportProgress(origin);
+  expect(issues).toEqual([]);
+  expect(bundles).toHaveLength(2);
+  expect(manifest.map(m => m.file).sort()).toEqual([1,2]);
+  for (const bundle of bundles) {
+    expect(utf8Bytes(JSON.stringify(bundle))).toBeLessThanOrEqual(MAX_BYTES);
+    expect(await validateFile(JSON.stringify(bundle))).toEqual(bundle);
+  }
+}, 60000);
+
 test('staging split files keeps distinct IDs and replays each file idempotently', async () => {
   const goal = '界'.repeat(1000000);
   localStorage.setItem('chessLearningGoal',goal);
@@ -293,6 +322,8 @@ test.each([
   ['location beyond endpoint pattern',ds => recordAgreement(ds,{type:'dmz',parties:['france','england'],provinces:['Spain']})],
   ['empty joint-attack target',ds => recordAgreement(ds,{type:'joint-attack',parties:['france','england'],target:''})],
   ['scratchpad secret key',ds => setScratchpad(ds,'france',pad({token:'synthetic'}))],
+  ['scratchpad secret key named secret',ds => setScratchpad(ds,'france',pad({secret:'stab France in 1903'}))],
+  ['scratchpad extension nested beyond the depth limit',ds => setScratchpad(ds,'france',pad({plan:JSON.parse('['.repeat(30) + ']'.repeat(30))}))],
   ['scratchpad missing confidence',ds => setScratchpad(ds,'france',{self:'x',dispositions:{}})],
   ['disposition bad stance',ds => setScratchpad(ds,'france',pad({dispositions:{france:{trust:0,stance:'lover',intent:'x'}}}))],
   ['too many disposition keys',ds => setScratchpad(ds,'france',pad({dispositions:Object.fromEntries(Array.from({length:257},(_,i) => [`p${i}`,{trust:0,stance:'neutral',intent:''}]))}))],

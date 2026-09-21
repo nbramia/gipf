@@ -128,7 +128,7 @@ try {
     await destination.getByRole('button',{name:`Download file ${n} of 2`}).click();
     parts.push(await readFile(await (await part).path(),'utf8'));
   }
-  await destination.getByText(/2 of 2 downloaded/).waitFor();
+  await destination.getByText(/2 of 2 downloads started/).waitFor();
   const partBundles = parts.map(p => JSON.parse(p));
   assert.ok(parts.every(p => Buffer.byteLength(p) <= 5 * 1024 * 1024));
   assert.notEqual(partBundles[0].exportId,partBundles[1].exportId);

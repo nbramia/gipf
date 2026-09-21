@@ -52,15 +52,42 @@ test('split export lists each file, says each alone is partial, and tracks downl
   render(<GamesMigration />);
   fireEvent.click(screen.getByRole('button',{name:'Prepare export'}));
   await screen.findByText(/3 supported progress records in 2 files/);
-  expect(screen.getByText(/Each file alone is partial/).textContent).toMatch(/0 of 2 downloaded/);
+  expect(screen.getByText(/Each file alone is partial/).textContent).toMatch(/0 of 2 downloads started\. This page cannot confirm/);
   expect(screen.queryByRole('button',{name:'Download export'})).toBeNull();
   expect(screen.queryByText(/Incomplete export/)).toBeNull();
   expect(screen.getByText('diplomacy-save · diplomacyGameState')).toBeTruthy();
   fireEvent.click(screen.getByRole('button',{name:'Download file 2 of 2'}));
-  await waitFor(() => expect(screen.getByText(/Each file alone is partial/).textContent).toMatch(/1 of 2 downloaded/));
+  await waitFor(() => expect(screen.getByText(/Each file alone is partial/).textContent).toMatch(/1 of 2 downloads started/));
   expect(click).toHaveBeenCalledTimes(1);
-  expect(screen.getByText(/File 2 of 2 · 2 records · downloaded/)).toBeTruthy();
+  expect(click.mock.instances[0].download).toBe('games-migration-two-part-2-of-2.json');
+  expect(screen.getByText(/File 2 of 2 · 2 records · download started/)).toBeTruthy();
   click.mockRestore();
+});
+
+test('single-file export keeps its unsuffixed filename', async () => {
+  global.URL.createObjectURL = jest.fn(() => 'blob:synthetic'); global.URL.revokeObjectURL = jest.fn();
+  const click = jest.spyOn(HTMLAnchorElement.prototype,'click').mockImplementation(() => {});
+  const bundle = {exportId:'solo',records:[{kind:'preference',id:'chessDarkMode'}]};
+  migration.exportProgress.mockResolvedValue({bundles:[bundle],manifest:[{kind:'preference',id:'chessDarkMode',file:1}],issues:[]});
+  render(<GamesMigration />);
+  fireEvent.click(screen.getByRole('button',{name:'Prepare export'}));
+  fireEvent.click(await screen.findByRole('button',{name:'Download export'}));
+  await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+  expect(click.mock.instances[0].download).toBe('games-migration-solo.json');
+  click.mockRestore();
+});
+
+test('a full stage says the limit was reached and nothing was stored', async () => {
+  const bundle = {exportId:'big',records:[{kind:'preference',id:'chessDarkMode',data:'true'}]};
+  migration.validateFile.mockResolvedValue(bundle);
+  migration.previewImport.mockReturnValue([{kind:'preference',id:'chessDarkMode',status:'missing'}]);
+  migration.stageImport.mockRejectedValue(new Error('stage_full'));
+  render(<GamesMigration />);
+  fireEvent.change(screen.getByLabelText('Migration file'), {target:{files:[{size:20,text:async () => '{}'}]}});
+  await screen.findByText('missing');
+  fireEvent.click(screen.getByLabelText(/I understand this only stages/));
+  fireEvent.click(screen.getByRole('button',{name:'Retain imported file separately'}));
+  expect((await screen.findByRole('alert')).textContent).toMatch(/limited to 50 files and 5 MiB in total\. Nothing was stored\. Keep the downloaded file instead\./);
 });
 
 test('raw recovery without a stage explains itself and consent resets after download', async () => {

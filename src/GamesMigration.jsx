@@ -2,10 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import { captureIdentity, exportProgress, validateFile, previewImport, stageImport, inspectStages, rawStageRecovery, MAX_BYTES } from './migration.js';
 import './gamesMigration.css';
 
-function download(bundle, raw = false) {
+// A split file's part index goes only in the filename; the envelope stays closed.
+function download(bundle, raw = false, part = null) {
   const url = URL.createObjectURL(new Blob([raw ? bundle : JSON.stringify(bundle)],{type:'application/json'}));
   const a = document.createElement('a');
-  a.href = url; a.download = raw ? 'games-stage-raw-recovery.json' : `games-migration-${bundle.exportId}.json`; a.click();
+  a.href = url; a.download = raw ? 'games-stage-raw-recovery.json' : `games-migration-${bundle.exportId}${part ? `-part-${part.index}-of-${part.total}` : ''}.json`; a.click();
   setTimeout(() => URL.revokeObjectURL(url),1000);
 }
 export default function GamesMigration() {
@@ -41,11 +42,12 @@ export default function GamesMigration() {
         if (changed) { setInvalid(true); setPrepared(null); setIncoming(null); setStages([]); setPreview([]); }
         setError(changed ? 'Account changed. Reload this page before continuing.'
           : e.message === 'no_stage' ? 'No retained stage exists for this account or guest, so there is nothing to back up. Retain an imported file first.'
+          : e.message === 'stage_full' ? 'This account or guest cannot retain this file: retained files are limited to 50 files and 5 MiB in total. Nothing was stored. Keep the downloaded file instead.'
           : 'Unable to complete this operation. Check the file, available storage and account. Originals and active saves remain unchanged.');
       }
     } finally { if (mounted.current) setBusy(false); }
   };
-  const safeDownload = (bundle, onDone) => run(async g => { g.check(); download(bundle); onDone?.(); });
+  const safeDownload = (bundle, onDone, part) => run(async g => { g.check(); download(bundle,false,part); onDone?.(); });
   return <main className="games-migration">
     <a href={`${process.env.PUBLIC_URL || ''}/`}>Back to Games</a>
     <h1>Move your Games progress</h1>
@@ -64,11 +66,11 @@ export default function GamesMigration() {
         {prepared.bundles.length === 1
           ? <button onClick={() => safeDownload(prepared.bundles[0])}>{prepared.issues.length ? 'Download incomplete export' : 'Download export'}</button>
           : <>
-            <p><strong>Split export:</strong> records are divided into {prepared.bundles.length} files to stay within the 5 MiB file limit. Each file alone is partial. Download all {prepared.bundles.length} files and keep them together; {downloaded.length} of {prepared.bundles.length} downloaded.</p>
+            <p><strong>Split export:</strong> records are divided into {prepared.bundles.length} files to stay within the 5 MiB file limit. Each file alone is partial. Download all {prepared.bundles.length} files and keep them together; {downloaded.length} of {prepared.bundles.length} downloads started. This page cannot confirm that your browser saved them.</p>
             <ol>{prepared.bundles.map((bundle,i) => <li key={bundle.exportId}>
-              File {i + 1} of {prepared.bundles.length} · {bundle.records.length} records{downloaded.includes(i) && ' · downloaded'}
+              File {i + 1} of {prepared.bundles.length} · {bundle.records.length} records{downloaded.includes(i) && ' · download started'}
               <ul>{bundle.records.map(r => <li key={`${r.kind}/${r.id}`}>{r.kind} · {r.id}</li>)}</ul>
-              <button onClick={() => safeDownload(bundle,() => setDownloaded(d => d.includes(i) ? d : [...d,i]))}>Download file {i + 1} of {prepared.bundles.length}</button>
+              <button onClick={() => safeDownload(bundle,() => setDownloaded(d => d.includes(i) ? d : [...d,i]),{index:i + 1,total:prepared.bundles.length})}>Download file {i + 1} of {prepared.bundles.length}</button>
             </li>)}</ol>
           </>}
       </div>}

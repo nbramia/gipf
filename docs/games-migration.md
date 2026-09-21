@@ -102,8 +102,13 @@ Negotiated content follows the writers that store it verbatim:
   Disposition keys are any string. Other keys at the scratchpad or disposition
   level (priority, note, model additions) are open JSON, bounded to 256 extra keys
   per object, 256 dispositions and 4,096-character key names. Replies are capped
-  at 700 output tokens, well inside these bounds. The secret-key denylist and the
-  5 MiB envelope still apply to that content.
+  at 700 output tokens, well inside these bounds. The secret-key denylist, the
+  nesting-depth limit (24) and the 5 MiB envelope still apply to that content.
+  Secret denial takes precedence over writer fidelity: a writer-valid scratchpad
+  with a denylisted key (for example `secret` or `token`) or nesting deeper than
+  the limit makes the **whole** Diplomacy save unsupported. It is reported as
+  `diplomacyGameState: unsupported or damaged`, excluded from every export file,
+  and left unchanged in its source key; nothing is stripped or exported.
 
 Everything else stays closed: an unknown agreement or promise field, a location
 outside the endpoint pattern, an empty target or an invalid disposition is
@@ -133,10 +138,14 @@ their values are never read or included in ordinary exports.
 
 If the records would exceed 5 MiB UTF-8 or 10,000 records in one file, the
 export is split. Whole records are packed, current values first, into as many
-files as needed. Each file is an ordinary bundle with its own export ID and
+files as needed. Packing is first-fit, so a later small record may fill an
+earlier file. Each file is an ordinary bundle with its own export ID and
 digests, passes the same complete validation, and can be validated, previewed,
 retained and replayed on its own. The page lists every file with its records and
-tracks how many have been downloaded. It states that each file alone is partial
+counts how many downloads have started; it cannot confirm that the browser saved
+a file. Split files are named `games-migration-<exportId>-part-<i>-of-<n>.json`.
+The part index is in the filename only; the envelope carries no cross-file part
+metadata, so renaming a file loses the grouping hint. It states that each file alone is partial
 and that all of them must be kept together. A late Diplomacy game (about 4.1–4.4
 MB at the 80-snapshot history cap) therefore exports alongside other progress
 without anything being deleted.
@@ -145,8 +154,11 @@ A single record larger than one 5 MiB file cannot be exported. It is named in
 the incomplete-export warning, stays in its original storage key and is never
 truncated. Keep that source browser for future or manual recovery. Split files
 do not make an export complete when any record is reported as unsupported or too
-large. One identity's retained stage holds at most 5 MiB, so large split files may
-need to be retained under different identities or kept only as downloads.
+large. One identity's retained stage holds at most 5 MiB, so large split files may not
+all fit. Keep such files as downloads rather than retaining them under another
+identity: the usual alternative on one browser is guest staging, which is
+unencrypted. When a file does not fit, the page says the stage limit was reached
+and that nothing was stored.
 
 Identity and the exact account-transition marker are captured and checked before
 reads and after every asynchronous step. Any active, changed, malformed or
@@ -234,7 +246,11 @@ through the real negotiation writers (with rejected out-of-contract controls), a
 real retreat phase from legal opening orders, split multi-file export of a late
 Diplomacy game with other progress, per-file replay, and the no-stage raw
 recovery message. `src/GamesMigration.test.jsx` covers the split-file listing and
-download count, and consent reset after raw download.
+download count, and consent reset after raw download. Round 3 adds the exact
+packing boundary (two records at exactly 5 MiB stay in one file; one byte more,
+through the comma, splits them), secret-key and depth-limit scratchpad controls
+that exclude the whole save, split filenames with a part index, the
+download-started wording, and the stage-full message.
 `src/migrationParentBoundary.test.jsx` deliberately reproduces the two inherited
 writer defects for #66; its passing assertions describe the defect, not a fixed
 authorization boundary. Flip those assertions when the parent is corrected.

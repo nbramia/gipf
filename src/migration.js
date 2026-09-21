@@ -166,8 +166,9 @@ export async function exportProgress(sourceOrigin, guard = captureIdentity()) {
     if (get('chessMatch:v1') === null) read(get,'chessGameState',value => add('chess-match','legacy-chess',fromLegacy(value),'chessGameState'));
     else issues.push('chessGameState: shadowed legacy save is not exported; original retained.');
   }
-  // Whole records are packed, in priority order, into as many independent files
-  // as needed. Each file is a complete ordinary bundle with its own export ID;
+  // Whole records are packed first-fit, visited current values first, into as
+  // many independent files as needed; a later small record may fill an earlier
+  // file. Each file is a complete ordinary bundle with its own export ID;
   // none is complete alone when there are several. A record too large for any
   // file stays only in its source key and is reported. Nothing is truncated.
   const newBundle = () => ({format:'ramia-migration',version:1,app:'games',exportId:crypto.randomUUID(),exportedAt:new Date().toISOString(),sourceOrigin,records:[]});
