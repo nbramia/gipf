@@ -39,10 +39,11 @@ test('explicit resolution retains both alternatives before replacing', () => {
   expect(recovered.alternatives).toEqual(expect.arrayContaining([snapshot(), snapshot('yinsh', 2)]));
 });
 
-test('a crashed transition lease expires without changing the account identity', () => {
+test('a crashed transition requires a fresh writer after lease expiry', () => {
   const store = createMatchStore('yinsh');
   localStorage.setItem('gipf:account-transition', JSON.stringify({id:'crashed',until:Date.now()-1}));
-  expect(() => store.save(snapshot())).not.toThrow();
+  expect(() => store.save(snapshot())).toThrow('account_changed');
+  expect(() => createMatchStore('yinsh').save(snapshot())).not.toThrow();
 });
 
 test('clearing writes an account-owned empty value while a new account can still import', () => {

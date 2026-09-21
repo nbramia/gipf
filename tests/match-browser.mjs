@@ -132,7 +132,7 @@ try {
   await secondTab.evaluate(() => {
     localStorage.setItem('gipf:account-transition',JSON.stringify({id:'synthetic-switch',until:Date.now()+60000}));
   });
-  await tabs.getByText('Account changed. Reload to continue safely.',{exact:true}).waitFor();
+  await tabs.getByText('Account progress changed in another operation. Reload before playing.',{exact:true}).waitFor();
   assert.equal(await tabs.locator('.game-yinsh').count(),0);
   console.log('PASS shared-device transition marker pauses the other tab before identity replacement');
   await tabs.context().close();

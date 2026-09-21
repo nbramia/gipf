@@ -1,38 +1,11 @@
+/** @jest-environment node */
+
 // Smoke test for the Diplomacy agent serverless endpoint. The Anthropic upstream
-// is mocked — no real key, no network in CI. Asserts CORS/preflight, the BYO-key
-// security contract (missing key -> 401 with no upstream call, exactly one
+// and Redis transport are mocked — no real key, no network in CI. Asserts
+// CORS/preflight, the BYO-key security contract (missing key -> 401 with no upstream call, exactly one
 // upstream call on success), and the { message, scratchpad } response schema.
 
-import endpoint from '../../../../api/diplomacyAgent.js';
-// Keep the real durable guard in this provider contract suite. Route only the
-// synthetic Redis boundary separately so upstream call-count assertions remain meaningful.
-const originalSignal = global.AbortSignal;
-const originalStore = [process.env.KV_REST_API_URL, process.env.KV_REST_API_TOKEN];
-beforeEach(() => {
-  process.env.KV_REST_API_URL = 'https://synthetic.invalid';
-  process.env.KV_REST_API_TOKEN = 'synthetic';
-  global.AbortSignal = { timeout: () => undefined };
-});
-afterAll(() => {
-  global.AbortSignal = originalSignal;
-  for (const [i, key] of ['KV_REST_API_URL', 'KV_REST_API_TOKEN'].entries()) {
-    if (originalStore[i] === undefined) delete process.env[key];
-    else process.env[key] = originalStore[i];
-  }
-});
-async function handler(req, res) {
-  const upstream = global.fetch;
-  global.fetch = async (url, options) => {
-    if (url === 'https://synthetic.invalid') {
-      expect(JSON.parse(options.body)[0]).toBe('EVAL');
-      return { ok: true, json: async () => ({ result: 1 }) };
-    }
-    return upstream(url, options);
-  };
-  try { return await endpoint(req, res); }
-  finally { global.fetch = upstream; }
-}
-
+import handler from '../../../../api/diplomacyAgent.js';
 
 function makeRes() {
   return {
@@ -69,14 +42,92 @@ function mockUpstreamText(text) {
   });
 }
 
+// Match the synthetic Redis transport used in tests/ai-security.test.mjs.
+// Keep guardRequest real: only the external I/O is replaced, with a fresh
+// counter per test. Provider assertions deliberately exclude Redis calls.
+const STORE_URL = 'https://synthetic.invalid';
+const ENV_KEYS = ['KV_REST_API_URL', 'KV_REST_API_TOKEN',
+  'UPSTASH_REDIS_REST_URL', 'UPSTASH_REDIS_REST_TOKEN', 'NODE_ENV'];
+let upstreamFetch;
+let storeFetch;
+let originalFetch;
+let originalEnv;
+
+beforeEach(() => {
+  originalFetch = global.fetch;
+  originalEnv = Object.fromEntries(ENV_KEYS.map(key => [key, process.env[key]]));
+  process.env.KV_REST_API_URL = STORE_URL;
+  process.env.KV_REST_API_TOKEN = 'synthetic';
+  const counts = new Map();
+  upstreamFetch = jest.fn();
+  storeFetch = jest.fn(async (_url, options) => {
+    const [command, script, keyCount, key, seconds] = JSON.parse(options.body);
+    expect(command).toBe('EVAL');
+    expect(script).toContain("redis.call('INCR'");
+    expect(script).toContain("redis.call('EXPIRE'");
+    expect(keyCount).toBe(1);
+    expect(key).toMatch(/^gipf:limit:ai:[a-f0-9]{64}$/);
+    expect(seconds).toBe(60);
+    counts.set(key, (counts.get(key) || 0) + 1);
+    return { ok: true, json: async () => ({ result: counts.get(key) }) };
+  });
+  global.fetch = jest.fn((url, options) => {
+    if (url === STORE_URL) return storeFetch(url, options);
+    expect(url).toBe('https://api.anthropic.com/v1/messages');
+    return upstreamFetch(url, options);
+  });
+});
+
 afterEach(() => {
-  delete global.fetch;
+  if (originalFetch === undefined) delete global.fetch;
+  else global.fetch = originalFetch;
+  for (const key of ENV_KEYS) {
+    if (originalEnv[key] === undefined) delete process.env[key];
+    else process.env[key] = originalEnv[key];
+  }
   jest.restoreAllMocks();
 });
 
 describe('diplomacyAgent endpoint', () => {
+  test('production without any configured store fails closed before provider fetch', async () => {
+    process.env.NODE_ENV = 'production';
+    for (const key of ENV_KEYS.filter(key => key !== 'NODE_ENV')) delete process.env[key];
+    const res = makeRes();
+    await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france' } }), res);
+    expect(res.statusCode).toBe(503);
+    expect(res.body).toEqual({ error: 'service_unavailable' });
+    expect(res.headers['Cache-Control']).toBe('no-store');
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('the real guard enforces the AI limit before any provider call', async () => {
+    for (let i = 0; i < 30; i++) {
+      const res = makeRes();
+      await handler(makeReq(), res);
+      expect(res.statusCode).toBe(401);
+    }
+    const res = makeRes();
+    await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france' } }), res);
+    expect(res.statusCode).toBe(429);
+    expect(res.body).toEqual({ error: 'rate_limited' });
+    expect(res.headers['Retry-After']).toBe('60');
+    expect(storeFetch).toHaveBeenCalledTimes(31);
+    expect(upstreamFetch).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['malformed JSON', '{', 400],
+    ['array', [], 400],
+    ['oversized object', { context: 'x'.repeat(33000) }, 413],
+  ])('%s is rejected before storage or provider I/O', async (_label, body, status) => {
+    const res = makeRes();
+    await handler(makeReq({ body }), res);
+    expect(res.statusCode).toBe(status);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
   test('OPTIONS preflight from an allowed origin returns 204 with CORS headers', async () => {
-    global.fetch = jest.fn();
+    upstreamFetch = jest.fn();
     const req = makeReq({ method: 'OPTIONS', origin: 'http://localhost:3000' });
     const res = makeRes();
     await handler(req, res);
@@ -89,7 +140,7 @@ describe('diplomacyAgent endpoint', () => {
   });
 
   test('a non-allowlisted origin gets no Access-Control-Allow-Origin header', async () => {
-    global.fetch = jest.fn();
+    upstreamFetch = jest.fn();
     const req = makeReq({ method: 'OPTIONS', origin: 'https://evil.example.com' });
     const res = makeRes();
     await handler(req, res);
@@ -99,37 +150,37 @@ describe('diplomacyAgent endpoint', () => {
   });
 
   test('non-POST method returns 405', async () => {
-    global.fetch = jest.fn();
+    upstreamFetch = jest.fn();
     const res = makeRes();
     await handler(makeReq({ method: 'GET' }), res);
     expect(res.statusCode).toBe(405);
   });
 
   test('missing API key returns 401 missing_api_key with NO upstream fetch', async () => {
-    global.fetch = jest.fn();
+    upstreamFetch = jest.fn();
     const res = makeRes();
     await handler(makeReq({ body: { power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
 
     expect(res.statusCode).toBe(401);
     expect(res.body).toEqual({ error: 'missing_api_key', message: expect.any(String) });
-    expect(global.fetch).not.toHaveBeenCalled();
+    expect(upstreamFetch).not.toHaveBeenCalled();
   });
 
   test('empty messages are synthesized into one priming turn (no 400)', async () => {
     // The first AI<->AI proposal in a channel opens with no transcript; the
     // endpoint must synthesize a priming turn, not reject it.
-    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Greetings.', scratchpad: VALID_SCRATCHPAD }));
+    upstreamFetch = mockUpstreamText(JSON.stringify({ message: 'Greetings.', scratchpad: VALID_SCRATCHPAD }));
     const res = makeRes();
     await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france' } }), res);
     expect(res.statusCode).toBe(200);
-    expect(global.fetch).toHaveBeenCalledTimes(1);
-    const sent = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(upstreamFetch).toHaveBeenCalledTimes(1);
+    const sent = JSON.parse(upstreamFetch.mock.calls[0][1].body);
     expect(sent.messages).toHaveLength(1);
     expect(sent.messages[0].role).toBe('user');
   });
 
   test('valid request returns 200 { message, scratchpad } and calls upstream exactly once', async () => {
-    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Brest is ours. Stay out of the Channel.', scratchpad: VALID_SCRATCHPAD }));
+    upstreamFetch = mockUpstreamText(JSON.stringify({ message: 'Brest is ours. Stay out of the Channel.', scratchpad: VALID_SCRATCHPAD }));
     const res = makeRes();
     await handler(
       makeReq({
@@ -148,18 +199,18 @@ describe('diplomacyAgent endpoint', () => {
     expect(typeof res.body.message).toBe('string');
     expect(res.body.message.length).toBeGreaterThan(0);
     expect(res.body.scratchpad).toEqual(VALID_SCRATCHPAD);
-    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(upstreamFetch).toHaveBeenCalledTimes(1);
   });
 
   test('upstream gets the BYO key, anthropic-version, and a cached system array', async () => {
-    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Understood.', scratchpad: VALID_SCRATCHPAD }));
+    upstreamFetch = mockUpstreamText(JSON.stringify({ message: 'Understood.', scratchpad: VALID_SCRATCHPAD }));
     const res = makeRes();
     await handler(
       makeReq({ body: { apiKey: 'sk-secret', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }),
       res
     );
 
-    const [url, opts] = global.fetch.mock.calls[0];
+    const [url, opts] = upstreamFetch.mock.calls[0];
     expect(url).toBe('https://api.anthropic.com/v1/messages');
     expect(opts.headers['x-api-key']).toBe('sk-secret');
     expect(opts.headers['anthropic-version']).toBe('2023-06-01');
@@ -170,18 +221,18 @@ describe('diplomacyAgent endpoint', () => {
   });
 
   test('body.model overrides the default model', async () => {
-    global.fetch = mockUpstreamText(JSON.stringify({ message: 'ok', scratchpad: VALID_SCRATCHPAD }));
+    upstreamFetch = mockUpstreamText(JSON.stringify({ message: 'ok', scratchpad: VALID_SCRATCHPAD }));
     const res = makeRes();
     await handler(
       makeReq({ body: { apiKey: 'sk-test', model: 'claude-opus-4-8', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }),
       res
     );
-    const payload = JSON.parse(global.fetch.mock.calls[0][1].body);
+    const payload = JSON.parse(upstreamFetch.mock.calls[0][1].body);
     expect(payload.model).toBe('claude-opus-4-8');
   });
 
   test('visible message contains no markdown headers or bold', async () => {
-    global.fetch = mockUpstreamText(JSON.stringify({ message: 'No markdown here, just prose about Belgium.', scratchpad: VALID_SCRATCHPAD }));
+    upstreamFetch = mockUpstreamText(JSON.stringify({ message: 'No markdown here, just prose about Belgium.', scratchpad: VALID_SCRATCHPAD }));
     const res = makeRes();
     await handler(
       makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }),
@@ -192,7 +243,7 @@ describe('diplomacyAgent endpoint', () => {
   });
 
   test('malformed scratchpad becomes null without throwing, message still returned', async () => {
-    global.fetch = mockUpstreamText(
+    upstreamFetch = mockUpstreamText(
       JSON.stringify({ message: 'We can talk.', scratchpad: { self: 'france', dispositions: { england: { trust: 5, stance: 'bogus' } } } })
     );
     const res = makeRes();
@@ -206,7 +257,7 @@ describe('diplomacyAgent endpoint', () => {
   });
 
   test('non-JSON model output still yields a plain-text message and null scratchpad', async () => {
-    global.fetch = mockUpstreamText('Just a bare sentence, no JSON at all.');
+    upstreamFetch = mockUpstreamText('Just a bare sentence, no JSON at all.');
     const res = makeRes();
     await handler(
       makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }),
@@ -218,12 +269,12 @@ describe('diplomacyAgent endpoint', () => {
   });
 
   test('upstream 401 maps to 401; other upstream errors map to 502', async () => {
-    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: { message: 'bad key' } }) });
+    upstreamFetch = jest.fn().mockResolvedValue({ ok: false, status: 401, json: async () => ({ error: { message: 'bad key' } }) });
     let res = makeRes();
     await handler(makeReq({ body: { apiKey: 'sk-bad', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
     expect(res.statusCode).toBe(401);
 
-    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({ error: { message: 'boom' } }) });
+    upstreamFetch = jest.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({ error: { message: 'boom' } }) });
     res = makeRes();
     await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
     expect(res.statusCode).toBe(502);
@@ -231,26 +282,26 @@ describe('diplomacyAgent endpoint', () => {
 
   test('an emitted summary (<=200 chars) is returned; oversized/absent become empty', async () => {
     // Valid summary surfaces.
-    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Aligned.', scratchpad: VALID_SCRATCHPAD, summary: 'DMZ in the Channel holds.' }));
+    upstreamFetch = mockUpstreamText(JSON.stringify({ message: 'Aligned.', scratchpad: VALID_SCRATCHPAD, summary: 'DMZ in the Channel holds.' }));
     let res = makeRes();
     await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
     expect(res.body.summary).toBe('DMZ in the Channel holds.');
 
     // Oversized summary is dropped to ''.
-    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Aligned.', scratchpad: VALID_SCRATCHPAD, summary: 'x'.repeat(201) }));
+    upstreamFetch = mockUpstreamText(JSON.stringify({ message: 'Aligned.', scratchpad: VALID_SCRATCHPAD, summary: 'x'.repeat(201) }));
     res = makeRes();
     await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
     expect(res.body.summary).toBe('');
 
     // Absent summary is ''.
-    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Aligned.', scratchpad: VALID_SCRATCHPAD }));
+    upstreamFetch = mockUpstreamText(JSON.stringify({ message: 'Aligned.', scratchpad: VALID_SCRATCHPAD }));
     res = makeRes();
     await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
     expect(res.body.summary).toBe('');
   });
 
   test('prior memory (priorSummary/memory) is injected into the system prompt', async () => {
-    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Understood.', scratchpad: VALID_SCRATCHPAD }));
+    upstreamFetch = mockUpstreamText(JSON.stringify({ message: 'Understood.', scratchpad: VALID_SCRATCHPAD }));
     const res = makeRes();
     await handler(
       makeReq({
@@ -264,7 +315,7 @@ describe('diplomacyAgent endpoint', () => {
       }),
       res
     );
-    const payload = JSON.parse(global.fetch.mock.calls[0][1].body);
+    const payload = JSON.parse(upstreamFetch.mock.calls[0][1].body);
     const systemText = payload.system[0].text;
     expect(systemText).toContain('We agreed to a Channel DMZ last phase.');
     expect(systemText).toContain('Previously with this rival:');
@@ -273,19 +324,19 @@ describe('diplomacyAgent endpoint', () => {
 
   test('a well-formed deal is returned; a malformed one becomes null', async () => {
     // Valid support deal surfaces.
-    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Agreed — I cover Belgium.', scratchpad: VALID_SCRATCHPAD, deal: { type: 'support', to: 'BEL' } }));
+    upstreamFetch = mockUpstreamText(JSON.stringify({ message: 'Agreed — I cover Belgium.', scratchpad: VALID_SCRATCHPAD, deal: { type: 'support', to: 'BEL' } }));
     let res = makeRes();
     await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
     expect(res.body.deal).toEqual({ type: 'support', to: 'BEL' });
 
     // Malformed deal (support with no province) drops to null.
-    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Sure.', scratchpad: VALID_SCRATCHPAD, deal: { type: 'support' } }));
+    upstreamFetch = mockUpstreamText(JSON.stringify({ message: 'Sure.', scratchpad: VALID_SCRATCHPAD, deal: { type: 'support' } }));
     res = makeRes();
     await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
     expect(res.body.deal).toBeNull();
 
     // Absent deal is null.
-    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Maybe later.', scratchpad: VALID_SCRATCHPAD }));
+    upstreamFetch = mockUpstreamText(JSON.stringify({ message: 'Maybe later.', scratchpad: VALID_SCRATCHPAD }));
     res = makeRes();
     await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
     expect(res.body.deal).toBeNull();
@@ -293,20 +344,20 @@ describe('diplomacyAgent endpoint', () => {
 
   test('a support deal with a mover province (from) validates; a bad from drops the deal', async () => {
     // New schema: from = province of the supported mover, optional.
-    global.fetch = mockUpstreamText(JSON.stringify({ message: 'I back your Picardy army into Belgium.', scratchpad: VALID_SCRATCHPAD, deal: { type: 'support', from: 'pic', to: 'bel' } }));
+    upstreamFetch = mockUpstreamText(JSON.stringify({ message: 'I back your Picardy army into Belgium.', scratchpad: VALID_SCRATCHPAD, deal: { type: 'support', from: 'pic', to: 'bel' } }));
     let res = makeRes();
     await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
     expect(res.body.deal).toEqual({ type: 'support', from: 'pic', to: 'bel' });
 
     // Malformed from (not a province id) invalidates the deal.
-    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Sure.', scratchpad: VALID_SCRATCHPAD, deal: { type: 'support', from: 'not-a-province', to: 'bel' } }));
+    upstreamFetch = mockUpstreamText(JSON.stringify({ message: 'Sure.', scratchpad: VALID_SCRATCHPAD, deal: { type: 'support', from: 'not-a-province', to: 'bel' } }));
     res = makeRes();
     await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
     expect(res.body.deal).toBeNull();
   });
 
   test('a proposedDeal is rendered into the system prompt with the accept requirement', async () => {
-    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Agreed.', scratchpad: VALID_SCRATCHPAD, accept: true }));
+    upstreamFetch = mockUpstreamText(JSON.stringify({ message: 'Agreed.', scratchpad: VALID_SCRATCHPAD, accept: true }));
     const res = makeRes();
     await handler(
       makeReq({
@@ -320,7 +371,7 @@ describe('diplomacyAgent endpoint', () => {
       }),
       res
     );
-    const systemText = JSON.parse(global.fetch.mock.calls[0][1].body).system[0].text;
+    const systemText = JSON.parse(upstreamFetch.mock.calls[0][1].body).system[0].text;
     expect(systemText).toContain('PENDING PROPOSAL');
     expect(systemText).toContain('"provinces":["bur"]');
     expect(systemText).toContain('"accept": true or false');
@@ -328,23 +379,23 @@ describe('diplomacyAgent endpoint', () => {
   });
 
   test('accept is a strict boolean in the response: false passes, junk becomes null', async () => {
-    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Never.', scratchpad: VALID_SCRATCHPAD, accept: false }));
+    upstreamFetch = mockUpstreamText(JSON.stringify({ message: 'Never.', scratchpad: VALID_SCRATCHPAD, accept: false }));
     let res = makeRes();
     await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
     expect(res.body.accept).toBe(false);
 
-    global.fetch = mockUpstreamText(JSON.stringify({ message: 'Hm.', scratchpad: VALID_SCRATCHPAD, accept: 'yes' }));
+    upstreamFetch = mockUpstreamText(JSON.stringify({ message: 'Hm.', scratchpad: VALID_SCRATCHPAD, accept: 'yes' }));
     res = makeRes();
     await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }), res);
     expect(res.body.accept).toBeNull();
 
     // No PENDING PROPOSAL section when no proposedDeal was sent.
-    const systemText = JSON.parse(global.fetch.mock.calls[0][1].body).system[0].text;
+    const systemText = JSON.parse(upstreamFetch.mock.calls[0][1].body).system[0].text;
     expect(systemText).not.toContain('has formally proposed this deal');
   });
 
   test('a thrown error returns a generic 500 that never echoes the request body', async () => {
-    global.fetch = jest.fn().mockRejectedValue(new Error('network down'));
+    upstreamFetch = jest.fn().mockRejectedValue(new Error('network down'));
     const res = makeRes();
     await handler(
       makeReq({ body: { apiKey: 'sk-supersecret', power: 'france', messages: [{ role: 'user', content: 'hi' }] } }),

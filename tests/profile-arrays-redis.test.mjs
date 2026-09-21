@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import profile from '../api/chessProfile.js';
 import { hash } from '../server/publicSecurity.js';
-const redis = (...args) => JSON.parse(execFileSync('docker', ['exec', '-i', 'gipf-r22-address-synthetic-redis', 'redis-cli', '--json'], {
+const redisContainer = process.env.GIPF_SYNTHETIC_REDIS || 'gipf-r22-address-synthetic-redis';
+if (!/^gipf-[a-z0-9-]+synthetic-redis$/.test(redisContainer)) throw new Error('Synthetic container required');
+const redis = (...args) => JSON.parse(execFileSync('docker', ['exec', '-i', redisContainer, 'redis-cli', '--json'], {
   encoding:'utf8', input:args.map(arg=>JSON.stringify(String(arg))).join(' ')+'\n', maxBuffer:16*1024*1024,
 }));
 const u='a'.repeat(64), auth='b'.repeat(64), other='c'.repeat(64), legacy='d'.repeat(64);

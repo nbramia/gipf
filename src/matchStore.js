@@ -1,3 +1,4 @@
+import { captureFence } from './accountFence.js';
 import { validateMatch } from './matchSchema.js';
 export const matchKey = game => `${game}Match:v1`;
 export const syncKey = game => `${game}MatchSync:v1`;
@@ -11,9 +12,12 @@ function transitioning() {
 // A store belongs to the account and local snapshot seen when its UI mounted.
 // Never recapture credentials when draining a delayed/offline write.
 export function createMatchStore(game) {
+  let checkFence;
+  try { checkFence = captureFence(); } catch (_) { checkFence = () => { throw new Error('account_changed'); }; }
   const owner = identity();
   let known = localStorage.getItem(matchKey(game));
   const assertOwner = () => {
+    checkFence();
     if (identity() !== owner || transitioning()) throw new Error('account_changed');
   };
   const parse = raw => {
