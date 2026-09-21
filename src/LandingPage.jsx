@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   deriveCredentials,
@@ -10,12 +10,40 @@ import {
   saveSession,
   clearSession,
   getSharedApiKey,
-  setSharedApiKey,
   getSharedLichessToken,
-  setSharedLichessToken,
 } from './account';
 
 import { games } from './games-registry.js';
+import './landing.css';
+
+// Small decorative studies of the pieces, not playable boards or saved positions.
+function BoardMotif({ path }) {
+  return (
+    <svg className="landing-motif" viewBox="0 0 120 96" aria-hidden="true" focusable="false">
+      {path === '/yinsh' ? <>
+        <path d="M20 28h80M10 48h100M20 68h80M30 12l42 72M54 8l42 72M12 40l24 42M90 12L48 84M66 8L24 80M108 40L84 82" fill="none" stroke="currentColor" opacity=".25" />
+        <g fill="none" stroke="currentColor" strokeWidth="5"><circle cx="42" cy="28" r="10" /><circle cx="78" cy="68" r="10" /></g>
+        <circle cx="54" cy="48" r="6" fill="currentColor" />
+      </> : path === '/zertz' ? <>
+        {[[-1, 0], [0, 0], [1, 0], [-.5, -1], [.5, -1], [-.5, 1], [.5, 1]].map(([x, y], i) => <circle key={i} cx={60 + x * 30} cy={48 + y * 26} r="12" fill="none" stroke="currentColor" strokeWidth="3" opacity=".5" />)}
+        <circle cx="45" cy="22" r="8" fill="currentColor" /><circle cx="75" cy="74" r="8" fill="currentColor" />
+      </> : path === '/chess' ? <>
+        {[0, 1, 2, 3].map(row => [0, 1, 2, 3].map(col => <rect key={`${row}-${col}`} x={24 + col * 18} y={12 + row * 18} width="18" height="18" fill="currentColor" opacity={(row + col) % 2 ? '.25' : '.07'} />))}
+        <path d="M48 69h29l-5-9V43l-11-9-13 13 9 3-5 10z" fill="currentColor" /><circle cx="62" cy="42" r="2" fill="white" />
+      </> : path === '/catan' ? <>
+        <g fill="currentColor" fillOpacity=".12" stroke="currentColor" strokeWidth="2"><path d="M40 12l19 11v22L40 56 21 45V23z" /><path d="M80 12l19 11v22L80 56 61 45V23z" /><path d="M60 47l19 11v22L60 91 41 80V58z" /></g>
+        <path d="M50 42l10-9 10 9v13H50z" fill="currentColor" />
+      </> : path === '/splendor' ? <>
+        <rect x="57" y="15" width="39" height="58" rx="4" fill="none" stroke="currentColor" strokeWidth="2" />
+        <path d="M67 34l10-8 10 8-10 15z" fill="currentColor" opacity=".6" />
+        {[27, 43, 59].map((x, i) => <circle key={x} cx={x} cy={64 + i * 3} r="13" fill="var(--landing-paper)" stroke="currentColor" strokeWidth="3" />)}
+      </> : <>
+        <path d="M15 26l27-12 24 13 36-5M15 26l10 35 29 20 22-20 26-39M42 14l-2 32 36 15M40 46L25 61M66 27L54 81" fill="none" stroke="currentColor" strokeWidth="2" opacity=".4" />
+        <path d="M61 51h30l-8 10H69zM76 28v22h-12z" fill="currentColor" /><circle cx="36" cy="37" r="7" fill="currentColor" />
+      </>}
+    </svg>
+  );
+}
 
 export default function LandingPage() {
   const [account, setAccount] = useState(() => loadSession());
@@ -26,6 +54,7 @@ export default function LandingPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [creatingAccount, setCreatingAccount] = useState(false);
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
+  const [importGuest, setImportGuest] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -38,16 +67,13 @@ export default function LandingPage() {
     setError('');
   };
 
-  // Signing out does not remove the saved API key/Lichess token from this
-  // device — which matters on a shared computer, so it's confirmed first.
-  // Inline rather than window.confirm: a native dialog is jarring against the
-  // rest of the page and can't carry the explanation legibly.
+  // Retain encrypted recovery before clearing this device.
   const handleSignOut = () => setConfirmingSignOut(true);
-  const confirmSignOut = () => {
+  const confirmSignOut = async () => {
     setConfirmingSignOut(false);
-    clearSession();
+    await clearSession();
+    window.location.reload();
     setAccount(null);
-    // The local gipfApiKey is deliberately retained — matches chess's sign-out.
   };
 
   const handleCreateAccount = async () => {
@@ -93,9 +119,12 @@ export default function LandingPage() {
       }
       // No profile merge here — chess performs the profile merge itself on
       // its next mount, once it sees this session.
-      saveSession(creds);
+      await saveSession(creds, { importGuest, apiKey: currentKey, lichessToken: currentLichess });
+      window.location.reload();
       setAccount(creds);
       closeForm();
+    } catch (_) {
+      setError('Unable to switch accounts safely. Check browser storage and try again.');
     } finally {
       setBusy(false);
     }
@@ -138,6 +167,8 @@ export default function LandingPage() {
         setError(res.message || 'Something went wrong.');
         return;
       }
+      let restoredKey = '';
+      let restoredLichess = '';
       if (res.enc) {
         let key;
         try {
@@ -146,72 +177,98 @@ export default function LandingPage() {
           setError('Wrong username or password.');
           return;
         }
-        if (key) setSharedApiKey(key);
+        restoredKey = key;
       }
       if (res.encLichess) {
         try {
           const token = await decryptApiKey(creds.aesKey, res.encLichess);
-          if (token) setSharedLichessToken(token);
+          restoredLichess = token;
         } catch (_) {
-          /* best-effort — the key decrypt already validated the password */
+          setError('Could not unlock the saved Lichess token.'); return;
         }
       }
       // No profile merge here — chess performs the profile merge itself on
       // its next mount, once it sees this session.
-      saveSession(creds);
+      await saveSession(creds, { importGuest, apiKey: restoredKey, lichessToken: restoredLichess });
+      window.location.reload();
       setAccount(creds);
       closeForm();
+    } catch (_) {
+      setError('Unable to switch accounts safely. Check browser storage and try again.');
     } finally {
       setBusy(false);
     }
   };
 
-  return (
-    <div className="min-h-screen bg-neutral-950 flex flex-col items-center justify-center px-6 py-16">
-      <h1 className="font-display text-5xl sm:text-6xl font-extrabold tracking-tight text-white mb-3">
-        GIPF Project
-      </h1>
-      <p className="text-neutral-400 font-body text-lg mb-8 text-center max-w-md">
-        Abstract strategy board games — playable in the browser.
-      </p>
+  const launcherRef = useRef(null);
+  const usernameRef = useRef(null);
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open) usernameRef.current?.focus();
+    else if (wasOpen.current) launcherRef.current?.focus();
+    wasOpen.current = open;
+  }, [open]);
 
-      <div className="mb-16 w-full max-w-sm flex flex-col items-center">
+  const submitAccount = (event) => {
+    event.preventDefault();
+    if (busy || !username.trim() || !password) return;
+    if (creatingAccount) handleCreateAccount();
+    else handleSignIn();
+  };
+
+  return (
+    <main className="landing-page">
+      <div className="landing-shell">
+        <header className="landing-header">
+          <h1>Games</h1>
+          <div><p>A good move starts here.</p><p>Board games for your browser. Choose a game and play as a guest.</p></div>
+        </header>
+        <nav className="landing-catalogue" aria-label="Choose a game">
+          {games.map((game) => (
+            <Link key={game.path} to={game.path} className={`landing-game landing-game-${game.path.slice(1)}`} aria-label={`Play ${game.name}`}>
+              <BoardMotif path={game.path} />
+              <div className="landing-game-copy"><h2>{game.name}</h2><p>{game.description}</p><span className="landing-play">Play {game.name.toLowerCase()}</span></div>
+            </Link>
+          ))}
+        </nav>
+      <section className="landing-account" aria-labelledby="landing-account-title">
+        <div className="landing-account-intro"><h2 id="landing-account-title">Your account</h2><p>Optional. Use your existing username and password, or create an account.</p><p>You can play without signing in.</p></div>
+        <div className="landing-account-controls">
         {account ? (
           confirmingSignOut ? (
-            <div className="w-full rounded-lg border border-neutral-800 bg-neutral-900/60 p-4 text-center">
-              <p className="font-body text-sm text-neutral-200 mb-1">
-                Sign out of <span className="font-semibold">{account.username}</span>?
+            <div className="landing-confirm">
+              <p className="landing-confirm-title">
+                Sign out of <span className="landing-identity">{account.username}</span>?
               </p>
-              <p className="font-body text-sm text-neutral-400 mb-3">
-                Your saved Anthropic key and Lichess token stay on this device — signing out doesn’t remove them. On
-                a shared computer, remove them separately in a game’s settings.
+              <p className="landing-help">
+                Credentials are removed. Unsynced progress stays encrypted for this account; sign in again to recover it.
               </p>
-              <div className="flex gap-2 justify-center">
+              <div className="landing-actions">
                 <button
                   type="button"
                   onClick={() => setConfirmingSignOut(false)}
-                  className="text-sm font-body text-neutral-400 border border-neutral-800 rounded px-3 py-1 hover:border-neutral-600 hover:text-neutral-200 transition-colors"
+                  className="landing-button"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={confirmSignOut}
-                  className="text-sm font-body text-neutral-100 border border-neutral-600 bg-neutral-800 rounded px-3 py-1 hover:bg-neutral-700 transition-colors"
+                  className="landing-button landing-primary"
                 >
                   Sign out
                 </button>
               </div>
             </div>
           ) : (
-            <div className="flex items-center gap-3">
-              <span className="font-body text-sm text-neutral-300">
+            <div className="landing-signed-in">
+              <span className="landing-identity">
                 Signed in as {account.username}
               </span>
               <button
                 type="button"
                 onClick={handleSignOut}
-                className="text-sm font-body text-neutral-400 border border-neutral-800 rounded px-3 py-1 hover:border-neutral-600 hover:text-neutral-200 transition-colors"
+                className="landing-button"
               >
                 Sign out
               </button>
@@ -221,43 +278,51 @@ export default function LandingPage() {
           <button
             type="button"
             onClick={() => setOpen(true)}
-            className="text-sm font-body text-neutral-500 border border-neutral-800 rounded-full px-4 py-1.5 hover:text-neutral-300 hover:border-neutral-600 transition-colors"
+            ref={launcherRef}
+            className="landing-button"
           >
             Sign in / Create account
           </button>
         ) : (
-          <div className="w-full max-w-sm rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-body text-sm font-semibold text-neutral-200">Account</h3>
+          <form className="landing-form" onSubmit={submitAccount}>
+            <div className="landing-form-header">
+              <h3 className="landing-form-title">{creatingAccount ? 'Create account' : 'Sign in'}</h3>
               <button
                 type="button"
                 onClick={closeForm}
-                className="text-sm font-body text-neutral-500 hover:text-neutral-300 transition-colors"
+                className="landing-button"
               >
                 Cancel
               </button>
             </div>
-            <div className="flex flex-col gap-3">
+            <div className="landing-fields">
+              <label htmlFor="landing-username">Username</label>
               <input
+                ref={usernameRef}
+                id="landing-username"
+                autoComplete="username"
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="Username"
-                className="bg-neutral-950 border border-neutral-800 rounded px-3 py-2 text-sm text-neutral-200 font-body"
+                className="landing-input"
               />
-              <div className="flex gap-2">
+              <label htmlFor="landing-password">Password</label>
+              <div className="landing-password">
                 <input
+                  id="landing-password"
+                  autoComplete={creatingAccount ? 'new-password' : 'current-password'}
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Password"
-                  className="flex-1 min-w-0 bg-neutral-950 border border-neutral-800 rounded px-3 py-2 text-sm text-neutral-200 font-body"
+                  className="landing-input"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  className="text-xs font-body text-neutral-400 border border-neutral-800 rounded px-3 py-2 hover:border-neutral-600 hover:text-neutral-200 transition-colors"
+                  className="landing-button"
                 >
                   {showPassword ? 'Hide' : 'Show'}
                 </button>
@@ -265,83 +330,64 @@ export default function LandingPage() {
               {/* There is no password reset, so a typo at creation is an
                   unrecoverable account. Confirm it. */}
               {creatingAccount && (
+                <>
+                <label htmlFor="landing-password-confirm">Confirm password</label>
                 <input
+                  id="landing-password-confirm"
+                  autoComplete="new-password"
                   type={showPassword ? 'text' : 'password'}
                   value={password2}
                   onChange={(e) => setPassword2(e.target.value)}
                   placeholder="Confirm password"
-                  className="bg-neutral-950 border border-neutral-800 rounded px-3 py-2 text-sm text-neutral-200 font-body"
+                  className="landing-input"
                 />
+                </>
               )}
-              {error && <p className="text-sm text-red-400 font-body">{error}</p>}
-              <div className="flex gap-3">
+              <label className="landing-import"><input type="checkbox" checked={importGuest} onChange={e => setImportGuest(e.target.checked)} /> Import this device's guest progress when signing in</label>
+              {error && <p role="alert" className="landing-error">{error}</p>}
+              <div className="landing-actions">
                 <button
-                  type="button"
-                  onClick={() => {
+                  type={creatingAccount ? 'button' : 'submit'}
+                  onClick={creatingAccount ? () => {
                     setCreatingAccount(false);
                     handleSignIn();
-                  }}
+                  } : undefined}
                   disabled={busy || !username.trim() || !password}
-                  className="flex-1 text-sm font-body text-neutral-200 border border-neutral-800 rounded px-3 py-2 hover:border-neutral-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  className="landing-button"
                 >
                   Sign in
                 </button>
                 <button
-                  type="button"
-                  onClick={() => {
-                    if (!creatingAccount) {
-                      setCreatingAccount(true);
-                      setError('');
-                      return;
-                    }
-                    handleCreateAccount();
+                  type={creatingAccount ? 'submit' : 'button'}
+                  onClick={creatingAccount ? undefined : () => {
+                    setCreatingAccount(true);
+                    setError('');
                   }}
                   disabled={busy || !username.trim() || !password}
-                  className="flex-1 text-sm font-body text-neutral-200 border border-neutral-800 rounded px-3 py-2 hover:border-neutral-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  className="landing-button"
                 >
                   {busy ? 'Working…' : 'Create account'}
                 </button>
               </div>
               {creatingAccount && (
-                <p className="text-xs font-body text-amber-400 leading-relaxed bg-amber-950/40 border border-amber-900/60 rounded px-3 py-2">
+                <p className="landing-warning">
                   There is no password reset and no email on file. If you forget this password,
                   the account — and everything in it — is gone for good. Save it somewhere.
                 </p>
               )}
-              <p className="text-xs font-body text-neutral-500 leading-relaxed">
-                One password unlocks your saved Anthropic API key, your Lichess token and your
-                progress on any device — the same key powers the AI chat in Chess, Catan,
-                Splendor and Diplomacy. Your password never leaves this device: the server only
+              <p className="landing-privacy">
+                Your password unlocks your saved Anthropic API key and Lichess token.
+                Progress and sync support vary by game. The same API key powers the AI chat in Chess, Catan,
+                Splendor and Diplomacy. Your password never leaves this device: the account service only
                 ever stores an unreadable hash, and your keys only as ciphertext it cannot
-                decrypt. Usernames aren&rsquo;t case-sensitive.
+                decrypt. Model assistance sends your own API key through our server to the provider. Usernames aren&rsquo;t case-sensitive.
               </p>
             </div>
-          </div>
+          </form>
         )}
+        </div>
+      </section>
       </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 w-full max-w-xl">
-        {games.map((game) => (
-          <Link
-            key={game.path}
-            to={game.path}
-            className="group block rounded-2xl border border-neutral-800 bg-neutral-900 p-8 transition-all hover:border-neutral-600 hover:bg-neutral-800/60"
-          >
-            <h2
-              className="font-display text-2xl font-bold tracking-wide mb-3"
-              style={{ color: game.accent }}
-            >
-              {game.name}
-            </h2>
-            <p className="text-neutral-400 font-body text-sm leading-relaxed">
-              {game.description}
-            </p>
-            <span className="inline-block mt-5 text-sm font-body text-neutral-500 group-hover:text-neutral-300 transition-colors">
-              Play &rarr;
-            </span>
-          </Link>
-        ))}
-      </div>
-    </div>
+    </main>
   );
 }

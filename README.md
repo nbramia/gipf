@@ -94,7 +94,8 @@ call. See CLAUDE.md for what that constrains.
 ```
 src/
   App.jsx                  # Router: lazy-loads each game
-  LandingPage.jsx          # Landing page with game cards
+  LandingPage.jsx          # Game catalogue + optional account widget
+  landing.css              # Scoped catalogue and optional account styles
   index.css                # Shared Tailwind directives
   games/
     yinsh/                 # Game logic, React UI, engine/ (MCTS + NN), CSS, tests

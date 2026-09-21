@@ -171,6 +171,8 @@ Before modifying game logic for either game:
 |------|---------|
 | `src/App.jsx` | React Router with lazy-loaded game routes |
 | `src/LandingPage.jsx` | Landing page linking to each game + the app-wide account widget |
+| `src/landing.css` | Scoped catalogue and optional account presentation styles |
+| `scripts/landing-fixture/` | Synthetic account browser checks and production guest-launch check; prerequisites and limits in `docs/public-games-design.md` |
 | `src/account.js` | App-level account module -- identical copy of chess's `engine/account.js` (per-consumer copy convention); landing-page sign-in/out, key decrypt into `gipfApiKey` |
 | `src/index.css` | Tailwind directives + shared keyframes only |
 | `vercel.json` | API rewrites + SPA catch-all for client-side routing |
@@ -230,8 +232,8 @@ Before modifying game logic for either game:
 | `hooks/useStockfish.js` | Engine lifecycle; `getMove()` (opponent) + `analyze()` (coaching), serialized |
 | `coach/*.js` | classify, analyzeMove, templates, coachClient, openings, pgn, accuracy, puzzles, material, sound |
 | `api/chessCoach.js` | Vercel serverless coach (Claude API, **bring-your-own key**, no server fallback) |
-| `api/chessRating.js` | Vercel serverless Rated-mode store (Vercel KV; keyed by API-key hash, raw key never sent). Returns `{configured:false}` and the client stays local when no KV env is set |
-| `api/chessProfile.js` | Vercel serverless profile sync store -- four domains (rating, history, puzzles, mistakes) keyed by the same API-key hash; mirrors rating writes to the legacy `chessRating` key for old clients |
+| `api/chessRating.js` | Retired legacy endpoint; returns 410. Claim old cloud data through authenticated `chessProfile` |
+| `api/chessProfile.js` | Authenticated, revisioned Chess profile and separate four-game settings scope; bounded one-owner legacy claims. See `docs/public-accounts.md` |
 | `api/chessAccount.js` | Vercel serverless account store (username+password); Vercel KV keyed by a SHA-256 username hash, auth token stored only as its hash, API key and Lichess explorer token stored only as client-encrypted ciphertext |
 
 See [docs/chess.md](docs/chess.md) for the engine + coaching pipeline and the BYO-key security model.
@@ -244,7 +246,8 @@ opponent history and puzzle/mistake progress) is OPTIONAL and requires a Vercel 
 store linked to the project (injects `KV_REST_API_URL` + `KV_REST_API_TOKEN`); without
 it, ratings persist in localStorage only. A username+password account (`api/chessAccount.js`,
 `engine/account.js`) now also carries the API key + Lichess explorer token + profile across
-devices, keyed by a password-derived id instead of the API-key hash.
+devices using usernameId plus a verified password-derived auth token. Public IDs
+never authorize persistence. See [docs/public-accounts.md](docs/public-accounts.md).
 
 ### Catan (`src/games/catan/`)
 
@@ -466,8 +469,8 @@ gipfAccount  # username+password account session (derived credentials, cached
              # locally so the client isn't re-running PBKDF2 every load).
              # App-wide: landing-page widget + chess settings block; Catan,
              # Splendor, and Diplomacy show signed-in awareness only. Signing
-             # out drops the session but keeps the local key(s) (API key,
-             # chess's Lichess explorer token).
+             # out clears credentials and visible progress; outgoing progress
+             # is retained encrypted in gipf:recovery:<usernameId>.
 ```
 
 Never rename or restructure these without migration logic.

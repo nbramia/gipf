@@ -1,5 +1,13 @@
-// account.js — client-side crypto + sync client for username+password Chess
-// accounts.
+// account.js — app-level username+password accounts.
+//
+// This repo's convention is to duplicate shared behavior per consumer rather
+// than import across game directories (see CLAUDE.md: "no imports between
+// game directories"). This module is an INTENTIONAL identical copy of
+// src/games/chess/engine/account.js — that file is the sibling copy. Both
+// must stay behavior-identical (same namespace 'gipf-chess-account:v1:',
+// same /api/chessAccount endpoint, same PBKDF2 derivation, same gipfAccount
+// session shape) so existing production chess accounts keep working when
+// signed in from the app-level widget on the landing page.
 //
 // No email, no recovery: a forgotten password means a new account. Every
 // secret is derived client-side from the password via PBKDF2 — the server
@@ -7,10 +15,8 @@
 // an auth token plus AES-GCM ciphertexts of the user's two BYO secrets: the
 // Anthropic API key (`enc`) and the Lichess explorer token (`encLichess`).
 // The AES key that decrypts those ciphertexts never leaves the client. The
-// profileId is one of the password-derived secrets, so it's unguessable
-// without the password — that's what lets account profiles reuse the
-// existing /api/chessProfile endpoint unchanged: the profileId doubles as
-// the "opaque id" that endpoint already expects.
+// profileId remains a legacy bearer capability used only for bounded claims.
+// Normal persistence proves ownership with usernameId and authToken.
 
 const NAMESPACE = 'gipf-chess-account:v1:';
 const PBKDF2_ITERATIONS = 310_000;
@@ -123,6 +129,7 @@ async function postAccount(payload) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(10000),
   });
   const data = await r.json();
   if (data.configured === false) return { configured: false };
@@ -201,17 +208,142 @@ export function loadSession() {
   }
 }
 
-export function saveSession(s) {
+// Allowlist of progress only: raw credentials and unrelated apps never enter recovery.
+export const PROGRESS_KEYS = [
+  'chessDarkMode', 'chessShowMoves', 'chessDifficulty', 'chessLearningGoal',
+  'chessShowEvalBar', 'chessSound', 'chessRated', 'chessRating', 'chessRatedGames',
+  'chessGameState', 'chessIntroSeen', 'chessKeyNudgeDismissed', 'chessPuzzleShowTheme', 'chessTimeControl',
+  'chessMistakes', 'chessOppHistory', 'chessPuzzleProgress', 'chessGameLog', 'chessRepertoire',
+  'yinshDarkMode', 'yinshShowMoves', 'yinshRandomSetup', 'yinshKeepScore', 'yinshWins',
+  'yinshDifficulty', 'yinshTwoPlayer', 'zertzDifficulty', 'zertzTwoPlayer', 'yinshShowMoveHistory', 'yinshEvaluationMode', 'zertzDarkMode', 'zertzShowMoves',
+  'catanDarkMode', 'catanShowMoves', 'catanDifficulty', 'catanRulesetId', 'catanPlayerCount', 'catanScenarioId',
+  'splendorDarkMode', 'splendorDifficulty', 'splendorPlayerCount',
+  'diplomacyDarkMode', 'diplomacyShowOrders', 'diplomacyShowLastMoves', 'diplomacySettings', 'diplomacyGameState',
+];
+const SECRET_KEYS = ['gipfApiKey', 'chessApiKey', 'catanApiKey', 'chessLichessToken'];
+export function clearDeviceSecrets() {
+  SECRET_KEYS.forEach(k => localStorage.removeItem(k));
+}
+export async function retainProgress(session) {
+  const progress = Object.fromEntries(PROGRESS_KEYS.map(k => [k, localStorage.getItem(k)]).filter(([, v]) => v !== null));
+  if (!Object.keys(progress).length) return;
+  if (session) {
+    const sealed = await encryptApiKey(session.aesKey, JSON.stringify(progress));
+    localStorage.setItem(`gipf:recovery:${session.usernameId}`, JSON.stringify(sealed));
+  } else {
+    localStorage.setItem('gipf:guest:recovery', JSON.stringify(progress));
+  }
+}
+export async function saveSession(s, { importGuest = false, apiKey = '', lichessToken = '' } = {}) {
+  const previous = loadSession();
+  const guestLegacyKey = !previous && importGuest ? getSharedApiKey() : '';
+  const ids = [s.profileId];
+  if (guestLegacyKey) {
+    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('gipf-chess-rating:v1:' + guestLegacyKey));
+    ids.push(bytesToHex(new Uint8Array(bytes)));
+  }
+  for (const legacyId of ids) {
+    try {
+      await fetch(`${process.env.PUBLIC_URL || ''}/api/chessProfile`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'claim', u: s.usernameId, auth: s.authToken, legacyId }),
+        signal: AbortSignal.timeout(5000),
+      });
+    } catch (_) { /* Cloud unavailable: encrypted recovery remains on this device. */ }
+  }
+  if (loadSession()?.authToken !== previous?.authToken) throw new Error('account_changed');
+  let committing = false;
   try {
+    if (previous?.usernameId !== s.usernameId) {
+      // Validate recovery and retain outgoing progress before any destructive step.
+      await retainProgress(previous);
+      const sealed = localStorage.getItem(`gipf:recovery:${s.usernameId}`);
+      const restored = sealed ? JSON.parse(await decryptApiKey(s.aesKey, JSON.parse(sealed))) : {};
+      const guest = importGuest && !previous ? JSON.parse(localStorage.getItem('gipf:guest:recovery') || '{}') : {};
+      if (loadSession()?.authToken !== previous?.authToken) throw new Error('account_changed');
+      committing = true;
+      PROGRESS_KEYS.forEach(k => localStorage.removeItem(k));
+      clearDeviceSecrets();
+      for (const k of PROGRESS_KEYS) {
+        const value = restored[k] ?? guest[k];
+        if (typeof value === 'string') localStorage.setItem(k, value);
+      }
+    }
     localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify({ v: 1, ...s }));
+    setSharedApiKey(apiKey);
+    setSharedLichessToken(lichessToken);
+  } catch (error) {
+    if (committing) {
+      // A partial localStorage restore must never leave the old identity on
+      // the new account's data. Both recovery copies were staged beforehand.
+      PROGRESS_KEYS.forEach(k => localStorage.removeItem(k));
+      clearDeviceSecrets();
+      localStorage.removeItem(ACCOUNT_STORAGE_KEY);
+      window.location.reload();
+    }
+    throw error;
+  }
+}
+export async function clearSession() {
+  const previous = loadSession();
+  await retainProgress(previous);
+  if (loadSession()?.authToken !== previous?.authToken) throw new Error('account_changed');
+  PROGRESS_KEYS.forEach(k => localStorage.removeItem(k));
+  clearDeviceSecrets();
+  localStorage.removeItem(ACCOUNT_STORAGE_KEY);
+}
+
+// ---- shared API key slot ----------------------------------------------------
+//
+// 'gipfApiKey' is the one BYO Anthropic key shared by chess, Catan, and
+// Splendor (see CLAUDE.md). These two helpers let the landing page's account
+// widget read/write it after sign-in/out without pulling in any game's
+// per-game storage helper (each game keeps its own identical copy, including
+// legacy-key migration, which this module deliberately does not replicate).
+
+export function getSharedApiKey() {
+  try {
+    return localStorage.getItem('gipfApiKey') || '';
+  } catch (_) {
+    return '';
+  }
+}
+
+export function setSharedApiKey(key) {
+  try {
+    if (key) {
+      localStorage.setItem('gipfApiKey', key);
+    } else {
+      ['gipfApiKey', 'chessApiKey', 'catanApiKey'].forEach(k => localStorage.removeItem(k));
+    }
   } catch (_) {
     /* ignore storage failures */
   }
 }
 
-export function clearSession() {
+// ---- shared Lichess token slot ----------------------------------------------
+//
+// 'chessLichessToken' is chess's BYO Lichess explorer token (see
+// coach/openingCoach.js — it's the key that module's own getLichessToken/
+// setLichessToken read and write). These two helpers let the landing page's
+// account widget read/write it after sign-in/out, mirroring
+// getSharedApiKey/setSharedApiKey above, without importing chess's module.
+
+export function getSharedLichessToken() {
   try {
-    localStorage.removeItem(ACCOUNT_STORAGE_KEY);
+    return localStorage.getItem('chessLichessToken') || '';
+  } catch (_) {
+    return '';
+  }
+}
+
+export function setSharedLichessToken(token) {
+  try {
+    if (token) {
+      localStorage.setItem('chessLichessToken', token);
+    } else {
+      localStorage.removeItem('chessLichessToken');
+    }
   } catch (_) {
     /* ignore storage failures */
   }

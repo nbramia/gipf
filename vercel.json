@@ -2,5 +2,32 @@
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
-  ]
+  ],
+  "functions": {
+    "api/chessAccount.js": {
+      "maxDuration": 20
+    },
+    "api/chessProfile.js": {
+      "maxDuration": 20
+    },
+    "api/chessCoach.js": {
+      "maxDuration": 20
+    },
+    "api/catanRules.js": {
+      "maxDuration": 20
+    },
+    "api/splendorRules.js": {
+      "maxDuration": 20
+    },
+    "api/diplomacyAgent.js": {
+      "maxDuration": 20
+    },
+    "api/testAI.js": {
+      "maxDuration": 20
+    },
+    "api/zertzAiMove.js": {
+      "maxDuration": 10,
+      "includeFiles": "{server/zertzWorker.js,src/games/zertz/ZertzBoard.js,src/games/zertz/engine/mcts.js}"
+    }
+  }
 }

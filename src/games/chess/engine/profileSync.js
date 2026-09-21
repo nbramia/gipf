@@ -1,16 +1,10 @@
 // profileSync.js — browser client for cross-device Chess "profile" sync.
 //
-// Supersedes the single-domain ratingSync.js with a unified sync of every
-// locally-tracked chess artifact: rating, opponent history, puzzle progress,
-// and the mistake library. Same security model as ratingSync.js: the profile
-// is keyed by an OPAQUE id — the SHA-256 of the user's Anthropic key under
-// the SAME namespace ratingSync uses ('gipf-chess-rating:v1:'), so ratings
-// already synced under that id carry over unchanged. The raw key is NEVER
-// sent to our server (it only ever goes to Anthropic, per the BYO-key
-// model) — only this hash leaves the browser. If the server has no store
-// provisioned it replies { configured: false } and every helper degrades to
-// "local only" without throwing loudly.
+// Reads and writes require the account's password-derived auth token. Legacy
+// profile IDs are never sent in URLs; they are accepted only by bounded claim.
+// The model key reaches the separate model proxy transiently, not this store.
 
+import { mergeRating } from './rating.js';
 import { ratingIdFromKey } from './ratingSync.js';
 import { evictToCap } from '../coach/mistakeStore.js';
 
@@ -24,45 +18,52 @@ export { ratingIdFromKey as profileIdFromKey };
 // which is a different deployment. PUBLIC_URL is empty on a bare-root deploy.
 const ENDPOINT = `${process.env.PUBLIC_URL || ''}/api/chessProfile`;
 
-// Fetch the stored profile for an id.
-//   → { rating, history, puzzles, mistakes }  each domain possibly null
-//   → { configured: false }                   when the server has no store provisioned
-// Throws only on network/transport failure (caller treats as a transient
-// error), matching fetchRemoteRating's semantics.
-export async function fetchRemoteProfile(id) {
-  if (!id) return { configured: false };
-  const r = await fetch(`${ENDPOINT}?id=${encodeURIComponent(id)}`);
-  if (!r.ok) throw new Error(`profile fetch ${r.status}`);
+// Identity is captured by the caller, never recovered from the currently active
+// session during a delayed write. An old component cannot write for a new user.
+const revisions = new Map();
+async function requestProfile(session, action, fields = {}) {
+  if (!session?.usernameId || !session?.authToken) throw new Error('account_required');
+  const active = JSON.parse(localStorage.getItem('gipfAccount') || 'null');
+  if (active?.usernameId !== session.usernameId || active?.authToken !== session.authToken) throw new Error('account_changed');
+  const r = await fetch(ENDPOINT, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, u: session.usernameId, auth: session.authToken, ...fields }),
+  });
   const data = await r.json();
-  if (data.configured === false) return { configured: false };
-  const p = data.profile || {};
-  return {
-    rating: p.rating ?? null,
-    history: p.history ?? null,
-    puzzles: p.puzzles ?? null,
-    mistakes: p.mistakes ?? null,
-  };
+  if (!r.ok) throw new Error(data.error === 'conflict' ? 'conflict' : 'sync_failed');
+  const current = JSON.parse(localStorage.getItem('gipfAccount') || 'null');
+  if (current?.usernameId !== session.usernameId || current?.authToken !== session.authToken) throw new Error('account_changed');
+  return data;
 }
-
-// Persist a subset of profile domains for an id. `domains` may contain any
-// subset of { rating, history, puzzles, mistakes } — callers push only what
-// changed. `mistakes`, if present, is the raw entries array; it's wrapped in
-// the { v: 1, entries } wire shape here. Resolves true/false, never throws
-// (sync failures must not interrupt play), matching putRemoteRating.
-export async function putRemoteProfile(id, domains) {
-  if (!id) return false;
+export async function claimLegacyProfile(session, legacyId) {
+  return requestProfile(session, 'claim', { legacyId });
+}
+export async function fetchRemoteProfile(session) {
+  const data = await requestProfile(session, 'read');
+  revisions.set(session.usernameId, data.revision);
+  const profile = data.profile || {};
+  // Collision copies stay on the authenticated record. Monotonic merge rules
+  // preserve old review/history data without adding counters a second time.
+  for (const legacy of Object.values(data.legacyProfiles || {})) {
+    profile.rating = mergeRating(profile.rating, legacy.rating);
+    profile.history = mergeHistory(profile.history, legacy.history);
+    profile.puzzles = mergePuzzles(profile.puzzles, legacy.puzzles);
+    profile.mistakes = { v: 1, entries: mergeMistakes(profile.mistakes?.entries, legacy.mistakes?.entries) };
+  }
+  return profile;
+}
+export async function putRemoteProfile(session, domains) {
+  if (!session?.usernameId) return false;
+  const payload = { ...domains };
+  if (payload.mistakes) payload.mistakes = { v: 1, entries: payload.mistakes };
   try {
-    const payload = { ...domains };
-    if (payload.mistakes) payload.mistakes = { v: 1, entries: payload.mistakes };
-    const r = await fetch(ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, domains: payload }),
-    });
-    if (!r.ok) return false;
-    const data = await r.json();
-    return data.configured !== false;
+    const revision = revisions.get(session.usernameId);
+    if (revision === undefined) throw new Error('sync_not_loaded');
+    const data = await requestProfile(session, 'write', { revision, domains: payload });
+    revisions.set(session.usernameId, data.revision);
+    return true;
   } catch (_) {
+    window.dispatchEvent(new CustomEvent('gipf-sync-conflict'));
     return false;
   }
 }
