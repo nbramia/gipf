@@ -1,0 +1,14 @@
+.games-migration { max-width: 58rem; margin: auto; padding: 2rem 1rem 4rem; color: #152238; background: #fafaf8; font-family: system-ui, sans-serif; line-height: 1.6; overflow-wrap: anywhere; }
+.games-migration h1 { font-size: 2rem; font-weight: 700; margin: 1rem 0; }
+.games-migration p { margin: .75rem 0; }
+.games-migration fieldset { min-width: 0; border: 1px solid #8c99ab; padding: 1.25rem; margin: 1.5rem 0; border-radius: .5rem; }
+.games-migration legend { font-weight: 700; padding: 0 .5rem; }
+.games-migration button { border: 1px solid #23496e; background: #23496e; color: white; border-radius: .25rem; padding: .5rem .8rem; margin: .5rem .5rem .5rem 0; cursor: pointer; }
+.games-migration button:disabled { opacity: .5; cursor: default; }
+.games-migration a { color: #23496e; text-decoration: underline; }
+.games-migration :focus-visible { outline: 3px solid #b85c00; outline-offset: 3px; }
+.games-migration input[type=file] { max-width: 100%; display: block; margin: .5rem 0; }
+.games-migration input[type=checkbox] { margin-right: .5rem; }
+.games-migration ul { list-style: disc; padding-left: 1.5rem; margin: 1rem 0; }
+.games-migration .migration-notice { border-left: 4px solid #b85c00; padding: 1rem; background: #fff1db; }
+.games-migration [role=alert] { border: 2px solid #9c2c20; padding: 1rem; }

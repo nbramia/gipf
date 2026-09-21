@@ -12,10 +12,10 @@ import argparse
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, random_split, ConcatDataset, Subset
+from torch.utils.data import DataLoader
 
 from model import YinshValueNet, YinshPolicyValueNet
-from dataset import YinshDataset
+from dataset import load_split
 
 
 def main():
@@ -32,7 +32,11 @@ def main():
     parser.add_argument("--augment", action="store_true", help="6-fold hex rotation augmentation")
     parser.add_argument("--model-type", default="policy-value", choices=["value", "policy-value"],
                         help="Model type: 'value' (legacy) or 'policy-value' (default)")
+    parser.add_argument("--seed", type=int, default=42, help="Data split and training RNG seed")
     args = parser.parse_args()
+    if args.epochs < 1 or args.batch_size < 1:
+        parser.error("epochs and batch-size must be positive")
+    torch.manual_seed(args.seed)
 
     use_policy = args.model_type == "policy-value"
 
@@ -45,30 +49,15 @@ def main():
         device = torch.device("cpu")
     print(f"Device: {device}")
 
-    # Load primary data
-    dataset = YinshDataset(args.data, augment=args.augment)
-    print(f"Primary data: {len(dataset)} positions" + (" (6x augmented)" if args.augment else ""))
-
-    # Optionally merge additional data
-    if args.data_append:
-        append_dataset = YinshDataset(args.data_append, augment=args.augment)
-        n_keep = int(len(append_dataset) * args.merge_ratio)
-        if n_keep > 0:
-            indices = torch.randperm(len(append_dataset))[:n_keep].tolist()
-            append_subset = Subset(append_dataset, indices)
-            dataset = ConcatDataset([dataset, append_subset])
-            print(f"Appended data: {len(append_dataset)} positions, kept {n_keep} ({args.merge_ratio*100:.0f}%)")
-        print(f"Total training data: {len(dataset)} positions")
-
-    # Train/val split (90/10)
-    val_size = max(1, int(len(dataset) * 0.1))
-    train_size = len(dataset) - val_size
-    train_set, val_set = random_split(dataset, [train_size, val_size])
-
-    train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, drop_last=True)
+    # Assign source groups before augmenting only the training subset.
+    train_set, val_set = load_split(args.data, args.data_append, args.merge_ratio,
+                                    args.seed, args.augment)
+    train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True,
+                              drop_last=False,
+                              generator=torch.Generator().manual_seed(args.seed))
     val_loader = DataLoader(val_set, batch_size=args.batch_size)
-
-    print(f"Train: {train_size}, Val: {val_size}")
+    print(f"Split seed: {args.seed}; Train: {len(train_set)} "
+          f"({len(train_set.records)} source positions), Val: {len(val_set)} (unaugmented)")
 
     # Model
     if use_policy:

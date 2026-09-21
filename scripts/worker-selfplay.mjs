@@ -3,6 +3,7 @@
 // Spawned by parallel-selfplay.mjs via child_process.fork().
 // Reads config from env vars, writes output to a dedicated file, reports progress to parent.
 
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
 import { createWriteStream } from 'fs';
@@ -89,6 +90,9 @@ async function main() {
   const { extractFeatures } = await import(resolve(srcDir, 'engine', 'features.js'));
 
   let valueNetwork = null;
+  if ((MODE === 'nn' || MODE === 'mixed') && !MODEL_PATH) {
+    throw new Error('NN self-play requires an explicit model');
+  }
   if ((MODE === 'nn' || MODE === 'mixed') && MODEL_PATH) {
     const vnModule = await import(resolve(srcDir, 'engine', 'valueNetworkNode.js'));
     const { ValueNetwork } = vnModule;
@@ -105,12 +109,9 @@ async function main() {
     2: [[0, 2], [2, 0], [-2, 2], [1, 1], [-1, 1]]
   };
 
-  const VALID_POSITIONS = [];
-  for (let q = -5; q <= 5; q++) {
-    for (let r = -5; r <= 5; r++) {
-      if (Math.abs(q + r) <= 5) VALID_POSITIONS.push([q, r]);
-    }
-  }
+  const VALID_POSITIONS = YinshBoard.generateGridPoints();
+  const legalPositions = new Set(VALID_POSITIONS.map(([q, r]) => `${q},${r}`));
+  if (legalPositions.size !== 85) throw new Error('Unexpected YINSH board geometry');
 
   function setupBoard(useRandom) {
     const board = new YinshBoard({ skipInitialHistory: true });
@@ -132,6 +133,11 @@ async function main() {
         }
       }
     }
+    if (Object.keys(board.boardState).length !== 10 ||
+        Object.keys(board.boardState).some(key => !legalPositions.has(key)) ||
+        [1, 2].some(player => Object.values(board.boardState).filter(piece => piece.player === player).length !== 5)) {
+      throw new Error('Invalid initial ring placement');
+    }
     board.gamePhase = 'play';
     board.currentPlayer = 1;
     board._captureState();
@@ -145,6 +151,7 @@ async function main() {
   send({ type: 'started', workerId: WORKER_ID, games: NUM_GAMES });
 
   for (let g = 0; g < NUM_GAMES; g++) {
+    const gameId = randomUUID();
     if (parentGone) break; // parent died — flush what we have and exit
     const useRandom = g % 2 === 1;
     const board = setupBoard(useRandom);
@@ -200,7 +207,7 @@ async function main() {
     if (winner) {
       for (const pos of positionBuffer) {
         const value = pos.currentPlayer === winner ? 1.0 : -1.0;
-        stream.write(JSON.stringify({ board: pos.board, meta: pos.meta, value, policy: pos.policy }) + '\n');
+        stream.write(JSON.stringify({ gameId, board: pos.board, meta: pos.meta, value, policy: pos.policy }) + '\n');
       }
       totalPositions += positionBuffer.length;
     }
