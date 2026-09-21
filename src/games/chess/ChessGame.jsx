@@ -41,7 +41,7 @@ import {
 } from './coach/mistakeStore.js';
 import { DIFFICULTY_TIERS, DEFAULT_TIER_KEY, RATING_LADDER, TIME_CONTROLS, getTimeControl } from './engine/difficulty.js';
 import { DEFAULT_RATING, nearestRung, updateRating, scoreFor, isProvisional, mergeRating } from './engine/rating.js';
-import { profileIdFromKey, fetchRemoteProfile, putRemoteProfile, mergeHistory, mergePuzzles, mergeMistakes } from './engine/profileSync.js';
+import { fetchRemoteProfile, putRemoteProfile, mergeHistory, mergePuzzles, mergeMistakes } from './engine/profileSync.js';
 import {
   deriveCredentials,
   encryptApiKey,
@@ -201,6 +201,7 @@ export default function ChessGame() {
 
   // Username+password account (engine/account.js): unlocks the API key +
   // profile on any device via a password-derived id, no email/recovery.
+  const [importGuest, setImportGuest] = useState(false);
   const [account, setAccount] = useState(() => loadSession());
   const [accountUsername, setAccountUsername] = useState('');
   const [accountPassword, setAccountPassword] = useState('');
@@ -438,45 +439,15 @@ export default function ChessGame() {
     return push;
   }, []);
 
-  // Best-effort, one-time merge of a legacy key-hash profile into local
-  // storage when an account is created/signed into while an Anthropic key is
-  // already present under a *different* id. Never throws — called before the
-  // account takes over syncId, so its [syncId] pull-effect below folds the
-  // now-enriched local state into the account profile and pushes it up.
-  const mergeLegacyProfile = useCallback(async (creds) => {
-    const key = getApiKey();
-    if (!key) return;
-    try {
-      const legacyId = await profileIdFromKey(key);
-      if (!legacyId || legacyId === creds.profileId) return;
-      const remote = await fetchRemoteProfile(legacyId);
-      if (remote && remote.configured === false) return;
-      mergeRemoteProfileIntoLocal(remote);
-    } catch (_) {
-      /* best-effort */
-    }
-  }, [mergeRemoteProfileIntoLocal]);
-
-  // Derive the opaque sync id: an account's password-derived profileId takes
-  // priority when signed in; otherwise fall back to a hash of the Anthropic
-  // key (or clear it when neither is present).
   useEffect(() => {
-    let cancelled = false;
-    if (account) {
-      setSyncId(account.profileId);
-      return undefined;
-    }
-    const key = getApiKey();
-    if (!key) {
-      setSyncId(null);
-      setSyncStatus('off');
-      return undefined;
-    }
-    profileIdFromKey(key).then((id) => {
-      if (!cancelled) setSyncId(id || null);
-    });
-    return () => { cancelled = true; };
-  }, [keySet, account]);
+    setSyncId(account || null);
+    if (!account) setSyncStatus('off');
+  }, [account]);
+  useEffect(() => {
+    const failed = () => setSyncStatus('error');
+    window.addEventListener('gipf-sync-conflict', failed);
+    return () => window.removeEventListener('gipf-sync-conflict', failed);
+  }, []);
 
   // On a fresh sync id, pull the remote profile and reconcile every domain with
   // local (rating, opponent history, puzzle progress, mistake library), then
@@ -1539,6 +1510,7 @@ export default function ChessGame() {
       confirmLabel: 'Remove key',
       onConfirm: () => {
         setApiKey('');
+        if (account) pushEncryptedKey({ ...account, enc: null });
         setKeySet(false);
         setShowKeyField(false);
       },
@@ -1587,13 +1559,15 @@ export default function ChessGame() {
         setAccountError(res.message || 'Something went wrong.');
         return;
       }
-      await mergeLegacyProfile(creds);
-      saveSession(creds);
+      await saveSession(creds, { importGuest, apiKey: currentKey, lichessToken: token });
+      window.location.reload();
       setAccount(creds);
       setAccountUsername('');
       setAccountPassword('');
       setAccountPassword2('');
       setCreatingAccount(false);
+    } catch (_) {
+      setAccountError('Unable to switch accounts safely. Check browser storage and try again.');
     } finally {
       setAccountBusy(false);
     }
@@ -1636,6 +1610,8 @@ export default function ChessGame() {
         setAccountError(res.message || 'Something went wrong.');
         return;
       }
+      let restoredKey = '';
+      let restoredLichess = '';
       if (res.enc) {
         let key;
         try {
@@ -1645,7 +1621,7 @@ export default function ChessGame() {
           return;
         }
         if (key) {
-          setApiKey(key);
+          restoredKey = key;
           setKeySet(hasApiKey());
         }
       }
@@ -1653,20 +1629,22 @@ export default function ChessGame() {
         try {
           const token = await decryptApiKey(creds.aesKey, res.encLichess);
           if (token) {
-            setLichessToken(token);
+            restoredLichess = token;
             setLichessSet(hasLichessToken());
           }
         } catch (_) {
-          /* best-effort — the key decrypt already validated the password */
+          setAccountError('Could not unlock the saved Lichess token.'); return;
         }
       }
-      await mergeLegacyProfile(creds);
-      saveSession(creds);
+      await saveSession(creds, { importGuest, apiKey: restoredKey, lichessToken: restoredLichess });
+      window.location.reload();
       setAccount(creds);
       setAccountUsername('');
       setAccountPassword('');
       setAccountPassword2('');
       setCreatingAccount(false);
+    } catch (_) {
+      setAccountError('Unable to switch accounts safely. Check browser storage and try again.');
     } finally {
       setAccountBusy(false);
     }
@@ -1676,11 +1654,11 @@ export default function ChessGame() {
     askConfirm({
       title: 'Sign out?',
       body:
-        'Your saved Anthropic key and Lichess token stay on this device — signing out does not remove them. ' +
-        'On a shared computer, remove them separately below.',
+        'Signing out clears credentials and visible progress. Unsynced progress is kept encrypted for this account; sign in again to recover it.',
       confirmLabel: 'Sign out',
-      onConfirm: () => {
-        clearSession();
+      onConfirm: async () => {
+        await clearSession();
+        window.location.reload();
         setAccount(null);
       },
     });
@@ -1707,6 +1685,7 @@ export default function ChessGame() {
       confirmLabel: 'Remove token',
       onConfirm: () => {
         setLichessToken('');
+        if (account) pushEncryptedKey({ ...account, encLichess: null });
         setLichessSet(false);
         setShowLichessField(false);
       },
@@ -2732,7 +2711,7 @@ export default function ChessGame() {
                         ? '☁ Synced to your account — your progress follows you across devices.'
                         : '☁ Synced to your API key — your rating follows you across devices.')}
                       {syncStatus === 'syncing' && '☁ Syncing…'}
-                      {syncStatus === 'error' && '⚠ Couldn’t reach the rating store — using your rating on this device.'}
+                      {syncStatus === 'error' && '⚠ Sync conflict or unavailable store. Local progress is retained; sign out and back in to reconcile.'}
                       {syncStatus === 'local' && 'Saved on this device. (Rating sync isn’t configured on the server.)'}
                       {syncStatus === 'off' && 'Create an account or add an Anthropic API key in Settings to sync your rating across devices.'}
                     </p>
@@ -3074,6 +3053,7 @@ export default function ChessGame() {
                   ) : (
                     <>
                       <div className="flex flex-col gap-2">
+                        <label><input type="checkbox" checked={importGuest} onChange={e => setImportGuest(e.target.checked)} /> Import this device's guest progress</label>
                         <input
                           type="text"
                           value={accountUsername}
@@ -3150,8 +3130,8 @@ export default function ChessGame() {
                       <p className="mt-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
                         One password unlocks your coach key, your Lichess token and your progress on any device — and
                         the same key powers the AI chat in Catan, Splendor and Diplomacy. Your password never leaves
-                        this device: the server only ever stores an unreadable hash, and your keys only as ciphertext
-                        it cannot decrypt. Usernames aren’t case-sensitive.
+                        this device: the account service only ever stores an unreadable hash, and your keys only as ciphertext
+                        it cannot decrypt. Model assistance sends your own API key through our server to the provider. Usernames aren’t case-sensitive.
                       </p>
                     </>
                   )}
@@ -3215,7 +3195,7 @@ export default function ChessGame() {
                       ? '☁ Synced — rating, opponent history, puzzles and mistakes follow your account across devices.'
                       : '☁ Synced to your API key — rating, history, puzzles and mistakes follow you across devices.')}
                   {syncStatus === 'syncing' && '☁ Syncing…'}
-                  {syncStatus === 'error' && '⚠ Couldn’t reach the sync store — your progress is safe on this device.'}
+                  {syncStatus === 'error' && '⚠ Sync conflict or unavailable store. Local progress is retained; sign out and back in to reconcile.'}
                   {syncStatus === 'local' && 'Saved on this device. (Sync isn’t configured on this deployment.)'}
                   {syncStatus === 'off' && 'Not syncing. Create an account (or add an API key) to carry your progress between devices.'}
                 </p>

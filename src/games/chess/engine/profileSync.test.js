@@ -189,3 +189,31 @@ describe('mergeMistakes', () => {
     expect(merged.find((e) => e.fenBefore === 'fen-new')).toBeTruthy();
   });
 });
+
+describe('authenticated profile requests', () => {
+  const a = { usernameId: 'a'.repeat(64), authToken: 'b'.repeat(64) };
+  const b = { usernameId: 'c'.repeat(64), authToken: 'd'.repeat(64) };
+  afterEach(() => { delete global.fetch; localStorage.clear(); });
+  test('old component cannot assign a queued write to a new account', async () => {
+    const { putRemoteProfile } = await import('./profileSync.js');
+    localStorage.setItem('gipfAccount', JSON.stringify(b));
+    global.fetch = jest.fn();
+    expect(await putRemoteProfile(a, { rating: { rating: 1400, ratedGames: 1 } })).toBe(false);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+  test('public ID alone never causes a network request', async () => {
+    const { fetchRemoteProfile } = await import('./profileSync.js');
+    global.fetch = jest.fn();
+    await expect(fetchRemoteProfile(a.usernameId)).rejects.toThrow('account_required');
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+  test('late read rejects after an account switch', async () => {
+    const { fetchRemoteProfile } = await import('./profileSync.js');
+    localStorage.setItem('gipfAccount', JSON.stringify(a));
+    global.fetch = jest.fn(async () => {
+      localStorage.setItem('gipfAccount', JSON.stringify(b));
+      return { ok: true, json: async () => ({ profile: { rating: { rating: 1400 } }, revision: 1 }) };
+    });
+    await expect(fetchRemoteProfile(a)).rejects.toThrow('account_changed');
+  });
+});
