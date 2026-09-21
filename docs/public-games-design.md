@@ -62,7 +62,9 @@ Screenshots are written to `/tmp/ramia22-games-design-evidence`. Browser checks
 cover desktop, 480px and 320px widths, overflow, keyboard launch, account opening/Cancel focus, Enter submission in both
 modes, login and signout,
 password visibility, create confirmation/error/recovery text, import consent,
-reduced motion, and text contrast. The focused React tests also assert calls to
+and reduced motion. The contrast assertion calculates literal palette hex pairs,
+not styles sampled from the rendered page, so it does not detect CSS colour drift.
+The focused React tests also assert calls to
 the unchanged account boundaries. The full suite belongs to final verification.
 
 ## Screenshot critique
