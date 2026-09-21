@@ -8,8 +8,9 @@
 import { fork } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, resolve } from 'path';
-import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, unlinkSync, existsSync, mkdirSync, renameSync } from 'fs';
 import os from 'os';
+import { randomUUID } from 'node:crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -33,6 +34,9 @@ const TEMP_MOVES = getArg('temperature-moves', '15');
 const NUM_WORKERS = parseInt(getArg('workers', String(Math.min(os.cpus().length - 2, 8))), 10);
 
 async function main() {
+  if (![NUM_GAMES, SIMS, NUM_WORKERS].every(n => Number.isInteger(n) && n > 0)) throw new Error('games, sims and workers must be positive integers');
+  const runId = randomUUID();
+  mkdirSync(resolve(projectDir, 'data'), { recursive: true });
   const gamesPerWorker = Math.floor(NUM_GAMES / NUM_WORKERS);
   const extraGames = NUM_GAMES - gamesPerWorker * NUM_WORKERS;
 
@@ -50,7 +54,7 @@ async function main() {
     const workerGames = gamesPerWorker + (i < extraGames ? 1 : 0);
     if (workerGames === 0) continue;
 
-    const workerOutput = `data/w${i}_${Date.now()}.ndjson`;
+    const workerOutput = `data/w${i}_${runId}.ndjson`;
     workerOutputFiles.push(resolve(projectDir, workerOutput));
 
     const env = {
@@ -65,11 +69,13 @@ async function main() {
       TEMP_MOVES: TEMP_MOVES,
     };
 
-    const child = fork(resolve(__dirname, 'worker-selfplay.mjs'), [], { env, stdio: ['pipe', 'pipe', 'inherit', 'ipc'] });
+    const child = fork(resolve(__dirname, 'worker-selfplay.mjs'), [], { env, stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
 
     const workerPromise = new Promise((resolve, reject) => {
       let positions = 0;
       let gamesComplete = 0;
+      let done = false;
+      let failure = null;
 
       child.on('message', (msg) => {
         if (msg.type === 'game_complete') {
@@ -80,13 +86,15 @@ async function main() {
           console.log(`  ${progress}`);
         } else if (msg.type === 'done') {
           positions = msg.positions;
+          done = true;
         } else if (msg.type === 'error') {
+          failure = new Error(msg.error);
           console.error(`  [W${i}] Error: ${msg.error}`);
         }
       });
 
-      child.on('exit', (code) => {
-        if (code === 0) {
+      child.on('close', (code) => {
+        if (code === 0 && done && !failure && gamesComplete === workerGames) {
           resolve({ workerId: i, positions, gamesComplete });
         } else {
           reject(new Error(`Worker ${i} exited with code ${code}`));
@@ -94,7 +102,7 @@ async function main() {
       });
 
       child.on('error', (err) => {
-        reject(new Error(`Worker ${i} error: ${err.message}`));
+        failure = new Error(`Worker ${i} error: ${err.message}`);
       });
     });
 
@@ -116,6 +124,8 @@ async function main() {
     }
   }
 
+  if (failedWorkers) throw new Error(`${failedWorkers} workers failed; preserving worker files, output not published`);
+
   // Concatenate worker outputs
   console.log(`\nConcatenating ${workerOutputFiles.length} output files...`);
   const outputPath = resolve(projectDir, OUTPUT);
@@ -129,10 +139,17 @@ async function main() {
         chunks.push(content.trimEnd());
         combinedLines += content.trim().split('\n').length;
       }
-      unlinkSync(file); // Clean up worker files
+    } else {
+      throw new Error(`Missing worker output: ${file}`);
     }
   }
-  writeFileSync(outputPath, chunks.join('\n') + (chunks.length > 0 ? '\n' : ''));
+  if (combinedLines === 0 || combinedLines !== totalPositions) throw new Error('Incomplete worker output; preserving files');
+  for (const chunk of chunks) for (const line of chunk.split('\n')) JSON.parse(line);
+  mkdirSync(dirname(outputPath), { recursive: true });
+  const staging = `${outputPath}.${runId}.tmp`;
+  writeFileSync(staging, chunks.join('\n') + '\n');
+  renameSync(staging, outputPath);
+  for (const file of workerOutputFiles) unlinkSync(file);
 
   const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
 

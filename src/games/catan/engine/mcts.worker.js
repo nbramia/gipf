@@ -4,7 +4,7 @@ import CatanBoard from '../CatanBoard.js';
 import { MCTS } from './mcts.js';
 
 self.onmessage = async function (event) {
-  const { type, data } = event.data;
+  const { type, data, requestId } = event.data;
   if (type !== 'compute') return;
 
   try {
@@ -16,7 +16,7 @@ self.onmessage = async function (event) {
     const move = await mcts.getBestMove(board, simulations);
 
     self.postMessage({
-      type: 'result',
+      type: 'result', requestId,
       success: true,
       data: { move },
       stats: {
@@ -27,7 +27,7 @@ self.onmessage = async function (event) {
     });
   } catch (error) {
     self.postMessage({
-      type: 'error',
+      type: 'error', requestId,
       success: false,
       error: error.message,
       stack: error.stack,

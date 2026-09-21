@@ -9,7 +9,7 @@
 # 2. Combines with previous datasets
 # 3. Trains with augmentation, fine-tuning from best checkpoint
 # 4. Exports to ONNX
-# 5. Runs tournament vs deployed model (or auto-promotes if first model)
+# 5. Runs tournament vs deployed model (bootstrap requires an explicit choice)
 # 6. Promotes if new model wins
 #
 # Prerequisites:
@@ -23,12 +23,16 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_DIR"
 
 NEXT=$1
+if ! [[ "$NEXT" =~ ^[0-9]+$ ]] || [ "$NEXT" -le 1 ]; then
+  echo "ERROR: candidate version must be greater than 1 (v1 is the deployed pointer)"
+  exit 1
+fi
 GAMES=${2:-50}
 SIMS=${3:-200}
-VENV=training/.venv/bin/python3
+VENV=${VENV:-training/.venv/bin/python3}
 LR=${LR:-2e-4}
 CHECKPOINT_DIR=training/zertz/checkpoints
-DATA_DIR=data/zertz
+DATA_DIR=${DATA_DIR:-data/zertz/feature-v2}
 
 mkdir -p "$CHECKPOINT_DIR" "$DATA_DIR"
 
@@ -41,8 +45,23 @@ if [ -z "$NEXT" ]; then
   exit 1
 fi
 
-# Auto-detect best checkpoint
-BEST_PT=$(ls -1 "$CHECKPOINT_DIR"/v*.pt 2>/dev/null | sort -V | tail -1)
+# Resume the explicitly recorded champion, never the latest unpromoted candidate.
+BEST_PT=${CHECKPOINT:-}
+if [ -z "$BEST_PT" ] && [ -f training/zertz/.deployed-checkpoint ]; then
+  BEST_PT=$(cat training/zertz/.deployed-checkpoint)
+fi
+if [ -n "$BEST_PT" ] && [ ! -s "$BEST_PT" ]; then
+  echo "ERROR: incumbent checkpoint missing: $BEST_PT"
+  exit 1
+fi
+if [ -f public/models/zertz-value-v1.onnx ] && [ -z "$BEST_PT" ]; then
+  echo "ERROR: set CHECKPOINT or training/zertz/.deployed-checkpoint for the incumbent"
+  exit 1
+fi
+CHECKPOINT_ARGS=()
+if [ -n "$BEST_PT" ]; then CHECKPOINT_ARGS=(--checkpoint "$BEST_PT"); fi
+PYTHONPATH=training "$VENV" scripts/zertz/preflight-training.py \
+  "${CHECKPOINT_ARGS[@]}" --data-dir "$DATA_DIR" --deployed-model public/models/zertz-value-v1.onnx
 if [ -z "$BEST_PT" ]; then
   echo "No existing checkpoint found — will train from scratch."
   BEST_VERSION="none"
@@ -60,7 +79,12 @@ echo "================================================================"
 echo ""
 echo "Step 1/5: Generating self-play data (${GAMES} games, ${SIMS} sims)..."
 echo "---"
-node scripts/zertz/parallel-selfplay.mjs \
+SELFPLAY_ARGS=(--mode heuristic)
+if [ -f public/models/zertz-value-v1.onnx ]; then
+  "$VENV" scripts/verify-model.py public/models/zertz-value-v1.onnx
+  SELFPLAY_ARGS=(--mode nn --model public/models/zertz-value-v1.onnx)
+fi
+node scripts/zertz/parallel-selfplay.mjs "${SELFPLAY_ARGS[@]}" \
   --games "$GAMES" --sims "$SIMS" \
   --output "${DATA_DIR}/v${NEXT}_selfplay.ndjson" \
   --workers 6
@@ -78,17 +102,17 @@ echo ""
 echo "Step 2/5: Combining training data..."
 echo "---"
 
-COMBINE_FILES="${DATA_DIR}/v${NEXT}_selfplay.ndjson"
-for f in $(ls -1t "${DATA_DIR}"/v*_selfplay.ndjson 2>/dev/null | grep -v "v${NEXT}_selfplay" | head -3); do
+COMBINE_FILES=("${DATA_DIR}/v${NEXT}_selfplay.ndjson")
+while IFS= read -r f; do
   SIZE=$(wc -c < "$f" | tr -d ' ')
   if [ "$SIZE" -gt 100 ]; then
-    COMBINE_FILES="$COMBINE_FILES $f"
+    COMBINE_FILES+=("$f")
   fi
-done
+done < <(ls -1t "${DATA_DIR}"/v*_selfplay.ndjson 2>/dev/null | grep -v "v${NEXT}_selfplay" | head -3)
 
-FILE_COUNT=$(echo $COMBINE_FILES | wc -w | tr -d ' ')
+FILE_COUNT=${#COMBINE_FILES[@]}
 if [ "$FILE_COUNT" -gt 1 ]; then
-  cat $COMBINE_FILES > "${DATA_DIR}/combined_v${NEXT}.ndjson"
+  cat "${COMBINE_FILES[@]}" > "${DATA_DIR}/combined_v${NEXT}.ndjson"
   TRAIN_DATA="${DATA_DIR}/combined_v${NEXT}.ndjson"
   echo "Combined ${FILE_COUNT} files"
 else
@@ -101,7 +125,8 @@ echo ""
 echo "Step 3/5: Training v${NEXT} (LR=${LR})..."
 echo "---"
 
-PYTHONPATH=training $VENV training/zertz/train.py \
+PYTHONPATH=training "$VENV" training/zertz/train.py "${CHECKPOINT_ARGS[@]}" \
+  --feature-version 2 \
   --data "${TRAIN_DATA}" \
   --lr "${LR}" --epochs 40 --patience 12 \
   --model-type policy-value --augment --distill-weight 0.5 \
@@ -122,9 +147,10 @@ fi
 echo ""
 echo "Step 4/5: Exporting ONNX..."
 echo "---"
-PYTHONPATH=training $VENV training/zertz/export_onnx.py \
+PYTHONPATH=training "$VENV" training/zertz/export_onnx.py \
   --checkpoint "${CHECKPOINT_DIR}/v${NEXT}.pt" \
   --output "public/models/zertz-value-v${NEXT}.onnx"
+"$VENV" scripts/verify-model.py "public/models/zertz-value-v${NEXT}.onnx"
 
 # 5. Tournament
 echo ""
@@ -133,12 +159,13 @@ if [ -f "public/models/zertz-value-v1.onnx" ]; then
   echo "---"
   set +e
   node scripts/zertz/tournament.mjs --games 10 --sims 50 \
-    --model "public/models/zertz-value-v${NEXT}.onnx"
+    --mode nn-vs-nn --model1 "public/models/zertz-value-v${NEXT}.onnx" \
+    --model2 public/models/zertz-value-v1.onnx
   TOURNAMENT_EXIT=$?
   set -e
 else
-  echo "Step 5/5: No deployed model — auto-promoting v${NEXT}"
-  TOURNAMENT_EXIT=0
+  echo "Step 5/5: No incumbent; candidate saved for explicit bootstrap, not promoted"
+  TOURNAMENT_EXIT=1
 fi
 
 # 6. Promote
@@ -146,7 +173,9 @@ echo ""
 echo "================================================================"
 if [ $TOURNAMENT_EXIT -eq 0 ]; then
   echo "  v${NEXT} WINS! Promoting as deployed model."
-  cp "public/models/zertz-value-v${NEXT}.onnx" public/models/zertz-value-v1.onnx
+  "$VENV" scripts/verify-model.py "public/models/zertz-value-v${NEXT}.onnx" \
+    --destination public/models/zertz-value-v1.onnx
+  echo "${CHECKPOINT_DIR}/v${NEXT}.pt" > training/zertz/.deployed-checkpoint
   echo "  Deployed: zertz-value-v1.onnx = v${NEXT}"
   echo ""
   echo "  Next steps:"

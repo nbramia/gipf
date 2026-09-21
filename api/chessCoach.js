@@ -1,3 +1,5 @@
+import { guardRequest } from '../server/publicSecurity.js';
+export const config = { api: { bodyParser: { sizeLimit: '32kb' } } };
 // /api/chessCoach.js — Vercel serverless endpoint that turns structured
 // Stockfish analysis into natural-language coaching prose via the Claude API.
 //
@@ -158,6 +160,38 @@ const ANALYZE_POSITION_TOOL = {
   },
 };
 
+// Mirror the browser tool schema, as for analyze_position above.
+const QUERY_OPENINGS_TOOL = {
+  name: 'query_openings',
+  description:
+    'Look up how often strong human players (Lichess masters database) have ' +
+    'played each move in a position, with their win/draw/loss rates. Use this for ' +
+    'opening questions about what is popular, mainstream, or theory — i.e. what ' +
+    'humans actually play — as opposed to the objective engine evaluation from ' +
+    'analyze_position. Only works in opening/known positions; returns an error ' +
+    'if there is no master data or no Lichess token. NEVER invent popularity ' +
+    'percentages or move counts you did not get from this tool.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      from: {
+        type: 'string',
+        enum: ['before', 'after'],
+        description:
+          "Which position to query: 'before' = the position the player faced for " +
+          "this move; 'after' = the position after the move. Defaults to 'before'.",
+      },
+      moves: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Optional sequence of moves (SAN or UCI) to play from the chosen position ' +
+          'before querying, to ask about a specific resulting position.',
+      },
+    },
+  },
+};
+
 function buildThreadSystem(context) {
   const c = context || {};
   const facts = [];
@@ -201,6 +235,7 @@ async function handleThread(req, res, body, apiKey) {
   ];
 
   const upstream = await fetch(ANTHROPIC_URL, {
+    signal: AbortSignal.timeout(12000),
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -220,8 +255,8 @@ async function handleThread(req, res, body, apiKey) {
     const status = upstream.status === 401 ? 401 : 502;
     let detail = 'Upstream error.';
     try {
-      const j = await upstream.json();
-      detail = (j && j.error && j.error.message) || detail;
+      await upstream.json();
+      detail = 'Model provider rejected the request.';
     } catch (_) {
       /* ignore */
     }
@@ -235,6 +270,8 @@ async function handleThread(req, res, body, apiKey) {
 }
 
 export default async function handler(req, res) {
+  if (req.method === 'POST' && !await guardRequest(req, res, { bucket: 'ai', limit: 30 })) return;
+  res.setHeader('Cache-Control', 'no-store');
   applyCors(req, res);
 
   if (req.method === 'OPTIONS') {
@@ -271,6 +308,7 @@ export default async function handler(req, res) {
     const prompt = buildPrompt(body);
 
     const upstream = await fetch(ANTHROPIC_URL, {
+    signal: AbortSignal.timeout(12000),
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -291,8 +329,8 @@ export default async function handler(req, res) {
       const status = upstream.status === 401 ? 401 : 502;
       let detail = 'Upstream error.';
       try {
-        const j = await upstream.json();
-        detail = (j && j.error && j.error.message) || detail;
+        await upstream.json();
+        detail = 'Model provider rejected the request.';
       } catch (_) {
         /* ignore */
       }
