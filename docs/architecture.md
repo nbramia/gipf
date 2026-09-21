@@ -7,7 +7,8 @@ GIPF Project is a multi-game React application. Each game is self-contained in `
 ```
 src/
   App.jsx              # BrowserRouter + React.lazy routes
-  LandingPage.jsx      # Landing page with game cards
+  LandingPage.jsx      # Game catalogue + optional account widget
+  landing.css          # Scoped catalogue and optional account styles
   index.css            # Tailwind directives + shared keyframes
   index.js             # React DOM entry point
   games/

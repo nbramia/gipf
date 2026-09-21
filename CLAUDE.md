@@ -171,6 +171,8 @@ Before modifying game logic for either game:
 |------|---------|
 | `src/App.jsx` | React Router with lazy-loaded game routes |
 | `src/LandingPage.jsx` | Landing page linking to each game + the app-wide account widget |
+| `src/landing.css` | Scoped catalogue and optional account presentation styles |
+| `scripts/landing-fixture/` | Synthetic account browser checks and production guest-launch check; prerequisites and limits in `docs/public-games-design.md` |
 | `src/account.js` | App-level account module -- identical copy of chess's `engine/account.js` (per-consumer copy convention); landing-page sign-in/out, key decrypt into `gipfApiKey` |
 | `src/MatchBoundary.jsx` | Match hydration, persistence context, conflict choices, and recovery UI |
 | `src/matchStore.js` | Account-bound local match storage, recovery alternatives, and cloud CAS requests |

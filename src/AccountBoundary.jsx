@@ -96,6 +96,8 @@ export default function AccountBoundary({ children }) {
       <button className="mx-3 underline" onClick={conflict.local}>Keep this device</button>
       <button className="underline" onClick={conflict.cloud}>Use cloud</button>
     </div>}
+    {error && <div role="status" className="bg-amber-100 text-black p-2">{error}</div>}
+    {ready ? <React.Fragment key={generation}>{children}</React.Fragment> : !conflict && <p>Loading account preferences…</p>}
     <button className="m-2 underline text-sm" onClick={() => {
       try { assertStatsOwner(); setStatBackups(JSON.parse(localStorage.getItem('chessStatsRecovery:v1') || '[]')); }
       catch (_) { setError('Statistics recovery unavailable.'); }
@@ -113,7 +115,5 @@ export default function AccountBoundary({ children }) {
       {!statBackups.length && <p>No statistics alternatives saved.</p>}
       <button onClick={() => setStatBackups(null)}>Close</button>
     </div>}
-    {error && <div role="status" className="bg-amber-100 text-black p-2">{error}</div>}
-    {ready ? <React.Fragment key={generation}>{children}</React.Fragment> : !conflict && <p>Loading account preferences…</p>}
   </>;
 }

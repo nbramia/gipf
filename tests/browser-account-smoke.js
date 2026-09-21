@@ -11,8 +11,11 @@ async (page) => {
     await Promise.race([ready.waitFor(), choice.waitFor()]);
     if (await choice.isVisible()) await choice.click();
   };
-  const signIn = async (p, name, create = false) => {
+  const signIn = async (p, name, create = false, importGuest = false) => {
     await p.getByRole('button', { name: 'Sign in / Create account' }).click();
+    const consent = p.getByRole('checkbox', { name: "Import this device's guest progress when signing in" });
+    check(!(await consent.isChecked()), 'guest import defaults unchecked');
+    if (importGuest) await consent.check();
     await p.getByPlaceholder('Username', { exact: true }).fill(name);
     await p.getByPlaceholder('Password', { exact: true }).fill(password);
     if (create) {
@@ -37,8 +40,7 @@ async (page) => {
     localStorage.setItem('yinshWins', '{"1":2,"2":0}');
   });
   await page.reload();
-  await page.getByRole('checkbox').check();
-  await signIn(page, a, true);
+  await signIn(page, a, true, true);
   const guestImported = check(await page.evaluate(() => localStorage.getItem('chessRating') === '1234'), 'guest import');
   await page.waitForTimeout(5500);
   const context = await page.context().browser().newContext();
@@ -104,8 +106,7 @@ async (page) => {
   check(emptyClaims, 'empty claims consumed budget');
   await signOut(page);
   await page.evaluate(() => localStorage.setItem('gipfApiKey', 'synthetic-late-legacy'));
-  await page.getByRole('checkbox').check();
-  await signIn(page, a);
+  await signIn(page, a, false, true);
   const lateMigration = await page.evaluate(async () => {
     const s=JSON.parse(localStorage.getItem('gipfAccount'));
     const r=await fetch('/gipf/api/chessProfile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'read',u:s.usernameId,auth:s.authToken})});
