@@ -180,7 +180,7 @@
 .gem-gold   { --chip: #d6a341; --spot: #fff0c0; color: #3a2906; }
 
 /* Small gems (card cost/bonus, player holdings, noble reqs): flat matte tiles. */
-.spl-cost-pip, .spl-card-bonus, .spl-gemstack-bonus, .spl-noble-pip {
+.spl-cost-pip, .spl-card-bonus, .spl-gemstack-bonus, .spl-noble-pip, .spl-hero-bonus {
   background: var(--chip);
   box-shadow: var(--gem-edge);
 }
