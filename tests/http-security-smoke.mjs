@@ -33,11 +33,15 @@ await call('aiMove',{boardState:'synthetic-private-value'},400);
 console.log('PASS: real HTTP handlers, synthetic Redis/provider boundary, valid and error paths');
 
 // Only the fixture network counter is reset to model a fresh network; owner counters stay intact.
-const network=`gipf:limit:account:${hash('127.0.0.1')}`;
-redis('DEL',network);
+const network=`gipf:limit:account:${hash('127.0.0.1')}`, failures=`gipf:limit:auth-fail:${hash('127.0.0.1')}`;
+redis('DEL',network,failures);
 for(let i=0;i<20;i++) await call('chessAccount',{action:'login',u,auth:'8'.repeat(64)},401);
 await call('chessAccount',{action:'login',u,auth:'8'.repeat(64)},429);
 redis('DEL',network);
+// The shared failed-authentication budget still refuses the right password from this network.
+await call('chessAccount',{action:'login',u,auth},429);
+await call('chessProfile',{action:'read',u,auth},429);
+redis('DEL',failures);
 await call('chessAccount',{action:'login',u,auth},200);
 await call('chessAccount',{action:'setKey',u,auth,enc:null},200);
 const emptyIds=Array.from({length:8},(_,i)=>(i+80).toString(16).padStart(64,'0'));
