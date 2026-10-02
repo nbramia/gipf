@@ -50,6 +50,14 @@ Two places, from the same build. Its own Vercel project at `gipf.vercel.app`, an
 [`nbramia/ramia`](https://github.com/nbramia/ramia) shell. The rewrite targets this
 project's production alias, so a push here goes live in both without touching that repo.
 
+A second Vercel project, `play`, builds the same `main` with `PUBLIC_URL=/` (a project
+environment variable) and serves the public catalogue at `play.ramia.us`. It has no
+`SITE_PASSWORD`, so `middleware.js` falls through and that origin is ungated; the
+`gipf` project keeps its password and stays the gated migration/export origin. Both
+projects connect the same Upstash store, so one account works on either origin.
+Never add `SITE_PASSWORD` to `play` or remove it from `gipf` without deciding that
+out loud.
+
 **The app therefore does not own the URL root, and code must not assume it does.**
 
 - `homepage` in `package.json` sets the deploy prefix; CRA exposes it as
