@@ -28,7 +28,7 @@ missing source-map source warning remain; no new build errors.
 
 Command:
 ```sh
-./node_modules/.bin/eslint --no-eslintrc --config tests/security-eslint.cjs --resolve-plugins-relative-to . api/chessAccount.js api/chessProfile.js api/chessRating.js api/chessCoach.js api/catanRules.js api/splendorRules.js api/diplomacyAgent.js api/zertzAiMove.js api/testAI.js server/publicSecurity.js server/zertzWorker.js src/account.js src/AccountBoundary.jsx src/App.jsx src/LandingPage.jsx src/games/chess/engine/account.js src/games/chess/engine/profileSync.js src/games/chess/engine/ratingSync.js src/games/chess/ChessGame.jsx
+./node_modules/.bin/eslint --no-eslintrc --config tests/security-eslint.cjs --resolve-plugins-relative-to . api/chessAccount.js api/chessProfile.js api/chessRating.js api/chessCoach.js api/catanRules.js api/splendorRules.js api/diplomacyAgent.js api/zertzAiMove.js server/publicSecurity.js server/zertzWorker.js src/account.js src/AccountBoundary.jsx src/App.jsx src/LandingPage.jsx src/games/chess/engine/account.js src/games/chess/engine/profileSync.js src/games/chess/engine/ratingSync.js src/games/chess/ChessGame.jsx
 ```
 Result: exit 0, zero errors, six pre-existing Chess hook dependency warnings.
 `git diff --check` also passed. Full unedited local command logs retained for the

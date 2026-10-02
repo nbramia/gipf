@@ -264,7 +264,7 @@ test('claim retry budget includes preflight and previous attempts',async()=>{
   Date.now=()=>now()+elapsed;
   globalThis.fetch=async(url,options)=>{
     const args=JSON.parse(options.body);
-    if(args[0]==='MGET') reads++;
+    if(args[0]==='MGET' && !args[1].startsWith('chess:account:')) reads++; // authentication is not a claim snapshot
     if(args[0]==='EVAL' && args[2]===8) {
       attempts++;redis('SET',key,JSON.stringify({revision:attempts,profile:{}}));
     }

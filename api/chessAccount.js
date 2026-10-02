@@ -1,5 +1,7 @@
 // Existing PBKDF2/AES-GCM credentials are unchanged; only the verifier is stored.
 import { guardRequest, authenticate, command, hash, hex64, limit } from '../server/publicSecurity.js';
+export const CREATE_PER_NETWORK = 5;
+export const CREATE_PER_DAY = 50;
 const BASE64_RE = /^[A-Za-z0-9+/=]+$/;
 export const config = { api: { bodyParser: { sizeLimit: '12kb' } } };
 function isValidEncShape(enc) {
@@ -20,11 +22,14 @@ export default async function handler(req, res) {
   try {
     if (action === 'create') {
       if (enc === undefined) return res.status(400).json({ error: 'bad_request' });
+      // Every account can hold several megabytes, so creation is the store's growth bound.
+      if (!await limit('account-create', req.network, CREATE_PER_NETWORK, 86400) ||
+          !await limit('account-create-all', 'all', CREATE_PER_DAY, 86400)) return res.status(429).json({ error: 'rate_limited' });
       const result = await command('SET', `chess:account:${u}`, JSON.stringify({ authHash: hash(auth), enc: enc || null, encLichess: encLichess || null, createdAt: Date.now() }), 'NX');
       if (result !== 'OK') return res.status(409).json({ error: 'taken' });
       return res.status(200).json({ configured: true, created: true });
     }
-    const record = await authenticate(req.body, res);
+    const record = await authenticate(req.body, res, req.network);
     if (!record) return;
     // Public usernames cannot spend an authenticated owner's budget.
     // The pre-auth network counter still bounds password guesses and store work.

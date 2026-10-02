@@ -9,7 +9,6 @@ import account from '../api/chessAccount.js';
 import profile from '../api/chessProfile.js';
 import rating from '../api/chessRating.js';
 import zertz from '../api/zertzAiMove.js';
-import testAI from '../api/testAI.js';
 import chessCoach from '../api/chessCoach.js';
 import catanRules from '../api/catanRules.js';
 import splendorRules from '../api/splendorRules.js';
@@ -18,7 +17,7 @@ process.env.KV_REST_API_URL='https://synthetic.invalid';
 process.env.KV_REST_API_TOKEN='synthetic';
 process.env.GIPF_LEGACY_CLAIM_FROM=new Date(Date.now()-60000).toISOString();
 process.env.GIPF_LEGACY_CLAIM_UNTIL=new Date(Date.now()+86400000).toISOString();
-const handlers={aiMove,testAI,chessAccount:account,chessProfile:profile,chessRating:rating,zertzAiMove:zertz,chessCoach,catanRules,splendorRules,diplomacyAgent};
+const handlers={aiMove,chessAccount:account,chessProfile:profile,chessRating:rating,zertzAiMove:zertz,chessCoach,catanRules,splendorRules,diplomacyAgent};
 globalThis.fetch=async (url,options)=>{
   if(url!=='https://synthetic.invalid') return {ok:false,status:401,json:async()=>({error:{message:'synthetic provider rejection'}})};
   const args=JSON.parse(options.body).map(String);

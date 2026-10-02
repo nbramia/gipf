@@ -22,9 +22,6 @@
     "api/diplomacyAgent.js": {
       "maxDuration": 20
     },
-    "api/testAI.js": {
-      "maxDuration": 20
-    },
     "api/zertzAiMove.js": {
       "maxDuration": 10,
       "includeFiles": "{server/zertzWorker.js,src/games/zertz/ZertzBoard.js,src/games/zertz/engine/mcts.js}"

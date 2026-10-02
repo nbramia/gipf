@@ -21,6 +21,17 @@ export async function limit(bucket, identity, maximum, seconds = 60) {
   const n = await command('EVAL', LIMIT_SCRIPT, 1, `gipf:limit:${bucket}:${hash(identity)}`, seconds);
   return Number.isFinite(Number(n)) && Number(n) <= maximum;
 }
+// One IPv6 subscriber controls a whole /64, so it is one network; IPv4 stays per address.
+export function networkIdentity(ip) {
+  const s = String(ip || 'unknown').trim().split('%')[0];
+  if (!s.includes(':')) return s;
+  const mapped = s.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
+  if (mapped) return mapped[1];
+  const [head, tail] = s.split('::');
+  const left = head ? head.split(':') : [], right = tail ? tail.split(':') : [];
+  const groups = tail === undefined ? left : [...left, ...Array(Math.max(0, 8 - left.length - right.length)).fill('0'), ...right];
+  return `${groups.slice(0, 4).map(g => parseInt(g || '0', 16).toString(16)).join(':')}::/64`;
+}
 export async function guardRequest(req, res, { bucket = 'public', limit: maximum = 60, maxBytes = 32768 } = {}) {
   res.setHeader('Cache-Control', 'no-store');
   try {
@@ -30,16 +41,24 @@ export async function guardRequest(req, res, { bucket = 'public', limit: maximum
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) { res.status(400).json({ error: 'bad_request' }); return false; }
     // Vercel overwrites x-vercel-forwarded-for. Never trust caller x-forwarded-for.
     const ip = process.env.VERCEL ? req.headers['x-vercel-forwarded-for'] : req.socket?.remoteAddress;
-    if (!(await limit(bucket, String(ip || 'unknown'), maximum))) {
+    req.network = networkIdentity(ip);
+    if (!(await limit(bucket, req.network, maximum))) {
       res.setHeader('Retry-After', '60'); res.status(429).json({ error: 'rate_limited' }); return false;
     }
     return true;
   } catch (_) { res.status(503).json({ error: 'service_unavailable' }); return false; }
 }
-export async function authenticate(body, res) {
+// Failed verifications share one per-network budget across every endpoint, so the
+// higher sync limit cannot be used as a faster password oracle.
+export const AUTH_FAILURES = 20;
+export async function authenticate(body, res, network) {
   if (!hex64(body.u) || !hex64(body.auth)) { res.status(401).json({ error: 'bad_credentials' }); return null; }
-  const record = await read(`chess:account:${body.u}`);
+  const failures = `gipf:limit:auth-fail:${hash(String(network))}`;
+  const [raw, failed] = await command('MGET', `chess:account:${body.u}`, failures);
+  if (Number(failed) >= AUTH_FAILURES) { res.setHeader('Retry-After', '60'); res.status(429).json({ error: 'rate_limited' }); return null; }
+  const record = raw == null ? null : JSON.parse(raw);
   if (!hex64(record?.authHash) || !timingSafeEqual(Buffer.from(hash(body.auth), 'hex'), Buffer.from(record.authHash, 'hex'))) {
+    await command('EVAL', LIMIT_SCRIPT, 1, failures, 60);
     res.status(401).json({ error: 'bad_credentials' }); return null;
   }
   return record;

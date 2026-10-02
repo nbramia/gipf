@@ -21,7 +21,7 @@ test('missing durable store fails closed', async () => {
 test('legacy encrypted envelopes are returned unchanged after ownership proof', async () => {
   global.fetch = jest.fn(async (_url, options) => {
     const command = JSON.parse(options.body);
-    return { ok: true, json: async () => ({ result: command[0] === 'GET' ? JSON.stringify({ authHash: hash(auth), enc, encLichess: enc }) : 1 }) };
+    return { ok: true, json: async () => ({ result: command[0] === 'MGET' ? [JSON.stringify({ authHash: hash(auth), enc, encLichess: enc }), null] : 1 }) };
   });
   const response = res(); await handler(req({ action: 'login', u, auth }), response);
   expect(response.statusCode).toBe(200); expect(response.body.enc).toEqual(enc); expect(response.body.encLichess).toEqual(enc);

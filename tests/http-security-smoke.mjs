@@ -26,7 +26,6 @@ for(const name of ['chessCoach','catanRules','splendorRules','diplomacyAgent']) 
   await call(name,{apiKey:'synthetic-provider-key',fen:'synthetic-fen',messages:[{role:'user',content:'synthetic question'}]},401);
 }
 await call('chessCoach',{apiKey:'synthetic-provider-key',mode:'thread',context:{},messages:[{role:'user',content:'synthetic question'}]},401);
-await call('testAI',{},200);
 await call('zertzAiMove',{boardState:new ZertzBoard().serializeState(),simulations:50},200);
 await call('zertzAiMove',{boardState:{}},500);
 await call('aiMove',new YinshBoard().serializeState(),200);

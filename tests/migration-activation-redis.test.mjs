@@ -95,7 +95,7 @@ test('CPU preflight rejects amplified PGNs, dense PGN tokens, record counts and 
    {...payload(file()),selected:['__proto__']}, {...payload(file()),selected:[{}]},
  ];
  const original=fetch;let snapshots=0;
- globalThis.fetch=async(url,options)=>{if(JSON.parse(options.body)[0]==='MGET')snapshots++;return original(url,options);};
+ globalThis.fetch=async(url,options)=>{const [cmd,first]=JSON.parse(options.body);if(cmd==='MGET'&&!first.startsWith('chess:account:'))snapshots++;return original(url,options);};
  for(const p of cases) for(const action of ['migration-preview','migration-activate','migration-recovery']) {
    const start=performance.now();assert.equal((await call({action,...p})).statusCode,400);
    assert.ok(performance.now()-start<3000,'bounded invalid request must return well below function duration');

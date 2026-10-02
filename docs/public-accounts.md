@@ -164,10 +164,24 @@ is intentionally not a global per-username password lockout. A distributed botne
 can still multiply attempts across networks. Shared-network saturation can throttle
 legitimate users behind the same NAT until its 60-second window expires; passwords
 do not bypass that resource limit.
+Failed credential checks from every endpoint share one 20/minute per-network budget;
+once spent, even a correct password gets 429 from that network until the window
+expires, so the higher sync limit is not a faster password oracle.
+Registration is additionally capped at 5 accounts per network and 50 accounts across
+all networks per rolling day. Each account can hold several megabytes (settings,
+profile, four matches, migration receipts), so account creation is the store's growth
+bound. The global cap means a flood can pause new registrations for a day; existing
+accounts are unaffected. It bounds, rather than eliminates, aggregate storage abuse on
+the free Upstash store: keep eviction disabled so a full store refuses writes instead
+of dropping real accounts, and watch its memory and command usage.
 Vercel's overwritten `x-vercel-forwarded-for` is the deployed network identity;
-local fixtures use the socket address, never caller `x-forwarded-for`. See the
+local fixtures use the socket address, never caller `x-forwarded-for`. IPv6 addresses
+are grouped by /64, since one subscriber controls the whole prefix; IPv4 stays per
+address. See the
 [Vercel request-header contract](https://vercel.com/docs/headers/request-headers#x-vercel-forwarded-for).
 
+Direct Chess match writes apply the migration PGN bound (8 KiB, 1,024 tokens)
+before replaying the PGN, so a single write cannot buy seconds of CPU.
 Storage fetches have three-second abort deadlines. Account input is 12 KiB,
 profile input 300,000 bytes, model/AI input 32 KiB, enforced by handler checks (with parser size hints as defense in depth).
 `vercel.json` also sets explicit platform execution deadlines and includes the

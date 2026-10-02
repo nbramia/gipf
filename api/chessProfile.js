@@ -197,7 +197,7 @@ export default async function handler(req, res) {
   const migration = ['migration-preview','migration-activate','migration-recovery'].includes(body.action);
   if (!migration && Buffer.byteLength(JSON.stringify(body)) > 300000) return res.status(413).json({ error: 'too_large' });
   try {
-    if (!await authenticate(body, res)) return;
+    if (!await authenticate(body, res, req.network)) return;
     if (!await limit(migration ? 'migration-user' : 'sync-user', body.u, migration ? 30 : 120, migration ? 3600 : 60)) return res.status(429).json({ error: 'rate_limited' });
     if (migration) return await migrationActivation(body, res, SETTING_KEYS, claimDeadline);
     const settings = body.scope === 'settings';
