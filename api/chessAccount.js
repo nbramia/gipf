@@ -23,6 +23,8 @@ export default async function handler(req, res) {
     if (action === 'create') {
       if (enc === undefined) return res.status(400).json({ error: 'bad_request' });
       // Every account can hold several megabytes, so creation is the store's growth bound.
+      // A taken name spends no creation budget; SET NX below still settles races.
+      if (await command('EXISTS', `chess:account:${u}`)) return res.status(409).json({ error: 'taken' });
       if (!await limit('account-create', req.network, CREATE_PER_NETWORK, 86400) ||
           !await limit('account-create-all', 'all', CREATE_PER_DAY, 86400)) return res.status(429).json({ error: 'rate_limited' });
       const result = await command('SET', `chess:account:${u}`, JSON.stringify({ authHash: hash(auth), enc: enc || null, encLichess: encLichess || null, createdAt: Date.now() }), 'NX');

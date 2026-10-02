@@ -168,7 +168,8 @@ Failed credential checks from every endpoint share one 20/minute per-network bud
 once spent, even a correct password gets 429 from that network until the window
 expires, so the higher sync limit is not a faster password oracle.
 Registration is additionally capped at 5 accounts per network and 50 accounts across
-all networks per rolling day. Each account can hold several megabytes (settings,
+all networks per fixed 24-hour window (it starts at the window's first registration);
+an attempt on a taken username spends neither. Each account can hold several megabytes (settings,
 profile, four matches, migration receipts), so account creation is the store's growth
 bound. The global cap means a flood can pause new registrations for a day; existing
 accounts are unaffected. It bounds, rather than eliminates, aggregate storage abuse on
@@ -182,6 +183,8 @@ address. See the
 
 Direct Chess match writes apply the migration PGN bound (8 KiB, 1,024 tokens)
 before replaying the PGN, so a single write cannot buy seconds of CPU.
+A legitimate game beyond that bound (roughly 340 moves) is no longer synced to the
+cloud; autosave gets 400 and the match stays on the device.
 Storage fetches have three-second abort deadlines. Account input is 12 KiB,
 profile input 300,000 bytes, model/AI input 32 KiB, enforced by handler checks (with parser size hints as defense in depth).
 `vercel.json` also sets explicit platform execution deadlines and includes the

@@ -49,6 +49,7 @@ function fakeStore() {
     if(cmd==='EVAL') { const key=a[2]; data.set(key,String(Number(data.get(key)||0)+1)); result=Number(data.get(key)); }
     else if(cmd==='MGET') result=a.map(k=>data.get(k)??null);
     else if(cmd==='GET') result=data.get(a[0])??null;
+    else if(cmd==='EXISTS') result=data.has(a[0])?1:0;
     else if(cmd==='SET') { if(a[2]==='NX'&&data.has(a[0])) result=null; else { data.set(a[0],a[1]); result='OK'; } }
     return {ok:true,json:async()=>({result})};
   };
@@ -85,6 +86,15 @@ test('account creation is capped per network and across all networks', async()=>
   let accepted=CREATE_PER_NETWORK;
   for(let net=2; accepted<CREATE_PER_DAY; net++) for(let i=0;i<CREATE_PER_NETWORK&&accepted<CREATE_PER_DAY;i++) { assert.equal(await create(++n,`192.0.2.${net}`),200); accepted++; }
   assert.equal(await create(++n,'198.51.100.1'),429);
+});
+test('a taken username spends no creation budget', async()=>{
+  fakeStore();
+  const { default: account, CREATE_PER_NETWORK }=await import('../api/chessAccount.js');
+  const enc={iv:'AAAAAAAAAAAAAAAA',ct:'AAAAAAAAAAAAAAAAAAAAAA=='};
+  const create=async u=>{ const res=response(); await account({method:'POST',headers:{},socket:{remoteAddress:'203.0.113.9'},body:{action:'create',u,auth:'b'.repeat(64),enc}},res); return res.statusCode; };
+  assert.equal(await create('e'.repeat(64)),200);
+  for(let i=0;i<CREATE_PER_NETWORK*2;i++) assert.equal(await create('e'.repeat(64)),409);
+  for(let i=1;i<CREATE_PER_NETWORK;i++) assert.equal(await create(i.toString(16).padStart(64,'f')),200);
 });
 test('direct Chess match writes bound PGN before replay', async()=>{
   const { validMatch }=await import('../server/matchValidation.js');
