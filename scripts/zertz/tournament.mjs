@@ -1,115 +1,60 @@
 #!/usr/bin/env node
-
-/**
- * Tournament: Heuristic vs NN head-to-head for Zertz.
- *
- * Usage:
- *   node scripts/zertz/tournament.mjs --games 10 --sims 50
- *   node scripts/zertz/tournament.mjs --games 10 --sims 50 --model public/models/zertz-value-v1.onnx
- */
-
+// Explicit candidate-versus-incumbent gate; heuristic is a separate benchmark.
 import ZertzBoard from '../../src/games/zertz/ZertzBoard.js';
 import { MCTS, applyMove } from '../../src/games/zertz/engine/mcts.js';
+import { ValueNetwork } from '../../src/games/zertz/engine/valueNetworkNode.js';
 
 const args = process.argv.slice(2);
-function getArg(name, defaultVal) {
-  const idx = args.indexOf(`--${name}`);
-  return idx >= 0 && args[idx + 1] ? args[idx + 1] : defaultVal;
+function getArg(name, fallback) {
+  const index = args.indexOf(`--${name}`);
+  return index >= 0 ? args[index + 1] : fallback;
 }
+const games = Number(getArg('games', '10'));
+const sims = Number(getArg('sims', '100'));
+const mode = getArg('mode', 'nn-vs-nn');
 
-const NUM_GAMES = parseInt(getArg('games', '10'), 10);
-const SIMS = parseInt(getArg('sims', '100'), 10);
-const MODEL_PATH = getArg('model', null);
-
-let valueNetwork = null;
-
-async function loadModel() {
-  if (!MODEL_PATH) return;
-  try {
-    const { ValueNetwork } = await import('../../src/games/zertz/engine/valueNetworkNode.js');
-    valueNetwork = new ValueNetwork();
-    await valueNetwork.load(MODEL_PATH);
-    console.log(`Loaded NN model: ${MODEL_PATH}`);
-  } catch (e) {
-    console.warn(`Failed to load model: ${e.message}`);
-    console.log('Running heuristic vs heuristic instead');
+async function loadModel(path, label) {
+  if (!path) throw new Error(`${label} model path required`);
+  const network = new ValueNetwork();
+  if (!(await network.load(path)) || !network.isLoaded()) throw new Error(`Failed to load ${label}: ${path}`);
+  // A parseable ONNX file with incompatible inputs/outputs must also fail closed.
+  const result = await network.evaluatePositionWithPolicy(new ZertzBoard({ skipInitialHistory: true }));
+  if (!Number.isFinite(result.value) || (result.policy && !result.policy.every(Number.isFinite))) {
+    throw new Error(`Invalid ${label} inference`);
   }
-}
-
-async function playGame(gameNum, nnPlaysAs) {
-  const board = new ZertzBoard({ skipInitialHistory: true });
-  const heuristicMcts = new MCTS({ evaluationMode: 'heuristic' });
-  const nnMcts = valueNetwork
-    ? new MCTS({ evaluationMode: 'nn', valueNetwork })
-    : new MCTS({ evaluationMode: 'heuristic' }); // fallback
-
-  let moveCount = 0;
-
-  while (board.gamePhase !== 'game-over' && moveCount < 200) {
-    const isNnTurn = board.currentPlayer === nnPlaysAs;
-    const mcts = isNnTurn ? nnMcts : heuristicMcts;
-
-    const move = await mcts.getBestMove(board, SIMS);
-    if (!move) break;
-
-    applyMove(board, move);
-    moveCount++;
-  }
-
-  return { winner: board.winner, moves: moveCount };
+  return network;
 }
 
 async function main() {
-  await loadModel();
-
-  const results = { nn: 0, heuristic: 0, draw: 0 };
-  const startTime = Date.now();
-
-  console.log(`\nTournament: ${NUM_GAMES} games, ${SIMS} sims/move`);
-  console.log(`NN: ${valueNetwork ? 'loaded' : 'heuristic (no model)'}`);
-  console.log('---');
-
-  for (let i = 0; i < NUM_GAMES; i++) {
-    // Alternate which player the NN controls
-    const nnPlaysAs = (i % 2) + 1;
-    const { winner, moves } = await playGame(i, nnPlaysAs);
-
-    let result;
-    if (winner === null) {
-      results.draw++;
-      result = 'draw';
-    } else if (winner === nnPlaysAs) {
-      results.nn++;
-      result = 'NN wins';
-    } else {
-      results.heuristic++;
-      result = 'Heuristic wins';
+  if (!['nn-vs-nn', 'heuristic-vs-nn'].includes(mode)) throw new Error('Invalid tournament mode');
+  if (!Number.isInteger(games) || games < 2 || games % 2 || !Number.isInteger(sims) || sims < 1) {
+    throw new Error('Use a positive even game count and positive simulations');
+  }
+  const candidate = await loadModel(getArg('model1', getArg('model', null)), 'candidate');
+  const incumbent = mode === 'nn-vs-nn' ? await loadModel(getArg('model2', null), 'incumbent') : null;
+  const results = { candidate: 0, opponent: 0, draws: 0 };
+  for (let game = 0; game < games; game++) {
+    const candidateSide = game % 2 + 1;
+    const board = new ZertzBoard({ skipInitialHistory: true });
+    const candidateMcts = new MCTS({ evaluationMode: 'nn', valueNetwork: candidate });
+    const opponentMcts = new MCTS(incumbent
+      ? { evaluationMode: 'nn', valueNetwork: incumbent }
+      : { evaluationMode: 'heuristic' });
+    let moves = 0;
+    while (board.gamePhase !== 'game-over' && moves < 200) {
+      const mcts = board.currentPlayer === candidateSide ? candidateMcts : opponentMcts;
+      const move = await mcts.getBestMove(board, sims);
+      if (!move) throw new Error('No move before terminal state');
+      applyMove(board, move);
+      moves++;
     }
-
-    console.log(`  Game ${i + 1}: NN=P${nnPlaysAs}, ${result} (${moves} moves)`);
+    if (board.winner == null) results.draws++;
+    else if (board.winner === candidateSide) results.candidate++;
+    else results.opponent++;
+    console.log(`Game ${game + 1}: candidate=P${candidateSide}, winner=${board.winner}, moves=${moves}`);
   }
-
-  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-  console.log('---');
-  console.log(`Results: NN=${results.nn}, Heuristic=${results.heuristic}, Draws=${results.draw}`);
-  console.log(`Time: ${elapsed}s`);
-
-  // Exit code: 0 if NN wins majority, 1 otherwise
-  // Also fail if no model was loaded (heuristic vs heuristic is meaningless)
-  if (!valueNetwork) {
-    console.log('FAIL: No NN model loaded — cannot evaluate.');
-    process.exit(1);
-  }
-  if (results.nn > results.heuristic) {
-    console.log('RESULT: NN wins the tournament.');
-    process.exit(0);
-  } else {
-    console.log('RESULT: Heuristic wins or tied — NN not promoted.');
-    process.exit(1);
-  }
+  console.log(`Results (${mode}): ${JSON.stringify(results)}`);
+  // A strict majority of all games is required, including draws in the denominator.
+  process.exitCode = results.candidate > games / 2 ? 0 : 1;
 }
-
-main().catch(err => {
-  console.error(err);
-  process.exit(1);
-});
+main().catch(error => { console.error(error); process.exitCode = 1; });

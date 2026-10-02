@@ -1,55 +1,51 @@
 import YinshBoard from '../YinshBoard.js';
 
-const transpositionTable = new Map();
-
-class MCTSNode {
+export class MCTSNode {
   constructor(board, parentMove = null, parent = null, mcts = null) {
     this.board = board.clone();
     this.parentMove = parentMove;  // The move that led to this state
     this.parent = parent;  // Add parent reference needed for backpropagation
     this.children = new Map();     // Map of move -> MCTSNode
-    this.visits = 0;               // Number of times this node was visited
-    this.wins = 0;                 // Total score from this node's simulations
+    // Shared values always belong to board.currentPlayer. Tree edges and parent
+    // pointers remain local: a transposition must not redirect backpropagation.
+    this.stats = { visits: 0, wins: 0 };
     this.untriedMoves = null;      // Lazy-loaded list of possible moves
     this.stateHash = board.getStateHash();  // Cache the state hash
     this.mcts = mcts;  // Reference to MCTS instance
     this.prior = 0;    // Policy prior probability (set by PUCT)
 
     // Get state hash and check transposition table
-    const existingNode = transpositionTable.get(this.stateHash);
-    if (existingNode) {
-      // Copy stats from existing node
-      this.visits = existingNode.visits;
-      this.wins = existingNode.wins;
-      this.children = existingNode.children;
-      this.untriedMoves = existingNode.untriedMoves;
-    } else {
-      // Store this new node in the table
-      transpositionTable.set(this.stateHash, this);
+    if (mcts) {
+      const existingStats = mcts.transpositionTable.get(this.stateHash);
+      if (existingStats) this.stats = existingStats;
+      else mcts.transpositionTable.set(this.stateHash, this.stats);
     }
+  }
+
+  get visits() { return this.stats.visits; }
+  get wins() { return this.stats.wins; }
+
+  valueFor(player) {
+    const value = this.visits ? this.wins / this.visits : 0;
+    return player === this.board.getCurrentPlayer() ? value : -value;
   }
 
   // UCB1 formula for node selection (used as fallback when no policy)
   ucb1(parentVisits, explorationConstant = 1.41) {
-    // Get latest stats from transposition table
-    const nodeData = transpositionTable.get(this.stateHash);
-    const visits = nodeData ? nodeData.visits : this.visits;
-    const wins = nodeData ? nodeData.wins : this.wins;
+    const visits = this.visits;
 
     if (visits === 0) return Infinity;
-    const exploitation = wins / visits;
+    const exploitation = this.valueFor(this.parent?.board.getCurrentPlayer() ?? this.board.getCurrentPlayer());
     const exploration = Math.sqrt(Math.log(parentVisits) / visits);
     return exploitation + explorationConstant * exploration;
   }
 
   // PUCT formula for policy-guided selection (AlphaZero style)
   puct(parentVisits, cPuct = 2.5) {
-    const nodeData = transpositionTable.get(this.stateHash);
-    const visits = nodeData ? nodeData.visits : this.visits;
-    const wins = nodeData ? nodeData.wins : this.wins;
+    const visits = this.visits;
 
     if (visits === 0) return Infinity;
-    const q = wins / visits;
+    const q = this.valueFor(this.parent?.board.getCurrentPlayer() ?? this.board.getCurrentPlayer());
     const normalizedQ = this.mcts ? this.mcts.normalizeQ(q) : 0.5;
     return normalizedQ + cPuct * this.prior * Math.sqrt(parentVisits) / (1 + visits);
   }
@@ -70,16 +66,15 @@ class MCTSNode {
 
   // Add method to update node stats
   updateStats(result) {
-    this.visits++;
-    this.wins += result;
-    // Update transposition table
-    transpositionTable.set(this.stateHash, this);
+    this.stats.visits++;
+    this.stats.wins += result;
   }
 }
 
 export default class MCTS {
   constructor(maxTableSize = 100000, options = {}) {
     this.maxTableSize = maxTableSize;
+    this.transpositionTable = new Map();
     this.evaluationMode = options.evaluationMode || 'heuristic';
     this.valueNetwork = options.valueNetwork || null;
     // PUCT Q-value normalization bounds (updated during backpropagation)
@@ -406,9 +401,7 @@ export default class MCTS {
         const piece = board.getBoardState()[`${q},${r}`];
         if (piece?.type === 'ring' && piece.player === forPlayer) {
           // Calculate mobility (available moves)
-          const testBoard = board.clone();
-          testBoard.handleClick(q, r);
-          const validMoves = testBoard.getValidMoves();
+          const validMoves = board.calculateValidMoves(q, r);
           mobility += validMoves.length;
           
           // Calculate distance from center
@@ -553,15 +546,17 @@ export default class MCTS {
   }
 
   backpropagate(node, result) {
+    // simulate() returns a value for the evaluated node's current player.
+    const evaluatedPlayer = node.board.getCurrentPlayer();
     while (node !== null) {
-      node.updateStats(result);
+      node.updateStats(node.board.getCurrentPlayer() === evaluatedPlayer ? result : -result);
       // Track Q-value bounds for PUCT normalization
       if (node.visits > 0) {
         const q = node.wins / node.visits;
-        if (q < this.qMin) this.qMin = q;
-        if (q > this.qMax) this.qMax = q;
+        // Selection may read either perspective, so normalize both symmetrically.
+        this.qMin = Math.min(this.qMin, -Math.abs(q));
+        this.qMax = Math.max(this.qMax, Math.abs(q));
       }
-      result = -result;
       node = node.parent;
     }
     this.cleanTranspositionTable();
@@ -655,25 +650,7 @@ export default class MCTS {
         const testBoard = board.clone();
         this._applyMove(testBoard, move);
 
-        // Evaluate best opponent reply position
-        let worstOppResponse = 0;
-        const oppRings = this._getPlayerRings(testBoard, opponent);
-        for (const [ringQ, ringR] of oppRings) {
-          const oppMoves = this._getRingMovesFrom(testBoard, ringQ, ringR);
-          for (const oppMove of oppMoves) {
-            const oppWinCheck = this._simulateAndCheckWin(oppMove, testBoard, opponent);
-            if (oppWinCheck.wins) {
-              worstOppResponse = Math.max(worstOppResponse, 10000);
-              break;
-            } else if (oppWinCheck.maxRow >= 4) {
-              worstOppResponse = Math.max(worstOppResponse, 3000);
-            } else if (oppWinCheck.maxRow >= 3) {
-              worstOppResponse = Math.max(worstOppResponse, 500);
-            }
-          }
-          if (worstOppResponse >= 10000) break;
-        }
-        score -= worstOppResponse;
+        score -= this._getOpponentResponsePenalty(testBoard, opponent);
       }
 
       // ALSO check if this move creates NEW threats for opponent (not pre-existing)
@@ -755,6 +732,33 @@ export default class MCTS {
     }
 
     return { move: bestMove, score: bestScore, allScores };
+  }
+
+  /** Bounded opponent lookahead from the actual state after a candidate action. */
+  _getOpponentResponsePenalty(board, opponent) {
+    const winner = board.isGameOver();
+    if (winner) return winner === opponent ? 10000 : 0;
+
+    const phase = board.getGamePhase();
+    if (phase === 'remove-row' || phase === 'remove-ring') {
+      // Scoring is mandatory, not an ordinary ring reply. Count an opponent
+      // row even while the mover resolves first; this is a conservative threat
+      // estimate, not a search through every possible resolution sequence.
+      const opponentScoring = phase === 'remove-ring' && board.getCurrentPlayer() === opponent;
+      return opponentScoring || board.checkForRows().some(row => row.player === opponent) ? 10000 : 0;
+    }
+    if (phase !== 'play' || board.getCurrentPlayer() !== opponent) return 0;
+
+    let penalty = 0;
+    for (const [q, r] of this._getPlayerRings(board, opponent)) {
+      for (const move of this._getRingMovesFrom(board, q, r)) {
+        const reply = this._simulateAndCheckWin(move, board, opponent);
+        if (reply.wins) return 10000;
+        if (reply.maxRow >= 4) penalty = Math.max(penalty, 3000);
+        else if (reply.maxRow >= 3) penalty = Math.max(penalty, 500);
+      }
+    }
+    return penalty;
   }
 
   /**
@@ -1334,6 +1338,8 @@ export default class MCTS {
   }
 
   _evaluatePlayoutResult(board, startingPlayer) {
+    const winner = board.isGameOver();
+    if (winner) return winner === startingPlayer ? 10000 : -10000;
     const evaluation = this.evaluatePosition(board, startingPlayer);
     let score = 0;
 
@@ -1347,72 +1353,36 @@ export default class MCTS {
     const myMarkerDist = evaluation?.myMarkerDist || { vulnerableMarkers: 0, clusters: 0 };
     const oppMarkerDist = evaluation?.oppMarkerDist || { vulnerableMarkers: 0, clusters: 0 };
 
-    // For ring removal phase, evaluate ring strategic value
-    if (board.getGamePhase() === 'remove-ring') {
-      const boardState = board.getBoardState();
-      for (const [key, piece] of Object.entries(boardState)) {
-        if (piece.type === 'ring' && piece.player === startingPlayer) {
-          const [q, r] = key.split(',').map(Number);
-          // Test mobility of this ring
-          const testBoard = board.clone();
-          testBoard.handleClick(q, r);
-          const validMoves = testBoard.getValidMoves();
-          
-          // Value rings that can jump over opponent markers
-          let jumpPotential = 0;
-          for (const move of validMoves) {
-            const moveBoard = testBoard.clone();
-            const beforeMarkers = this._countOpponentMarkers(moveBoard, 3 - startingPlayer);
-            moveBoard.handleClick(move[0], move[1]);
-            const afterMarkers = this._countOpponentMarkers(moveBoard, 3 - startingPlayer);
-            if (afterMarkers < beforeMarkers) {
-              jumpPotential += (beforeMarkers - afterMarkers);
-            }
-          }
-          
-          // Add to score based on ring's strategic value
-          score -= validMoves.length * 50;  // Penalize removing mobile rings
-          score -= jumpPotential * 100;     // Heavily penalize removing rings that can capture
-          
-          // Consider position relative to center
-          const distFromCenter = Math.abs(q) + Math.abs(r);
-          if (distFromCenter <= 2) {
-            score -= 200;  // Penalize removing central rings
-          }
-        }
-      }
-    } else {
-      // Check for immediate scoring
-      if (myScoring.length > 0) return 10000;
-      if (oppScoring.length > 0) return -10000;
+    // Use the same signed player-relative evaluation in every nonterminal phase.
+    if (myScoring.length > 0) return 10000;
+    if (oppScoring.length > 0) return -10000;
 
-      // Ring score difference (most important)
-      const ringScoreDiff = board.getScores()[startingPlayer] -
-                           board.getScores()[3 - startingPlayer];
-      score += ringScoreDiff * 5000;
+    // Ring score difference (most important)
+    const ringScoreDiff = board.getScores()[startingPlayer] -
+                         board.getScores()[3 - startingPlayer];
+    score += ringScoreDiff * 5000;
 
-      // Row evaluation
-      const myRows = evaluation?.myRows || { maxRow: 0, numThrees: 0, numFours: 0 };
-      const oppRows = evaluation?.oppRows || { maxRow: 0, numThrees: 0, numFours: 0 };
+    // Row evaluation
+    const myRows = evaluation?.myRows || { maxRow: 0, numThrees: 0, numFours: 0 };
+    const oppRows = evaluation?.oppRows || { maxRow: 0, numThrees: 0, numFours: 0 };
 
-      score += (myRows.numFours || 0) * 1200;
-      score += (myRows.numThrees || 0) * 300;
-      score -= (oppRows.numFours || 0) * 1200;
-      score -= (oppRows.numThrees || 0) * 300;
+    score += (myRows.numFours || 0) * 1200;
+    score += (myRows.numThrees || 0) * 300;
+    score -= (oppRows.numFours || 0) * 1200;
+    score -= (oppRows.numThrees || 0) * 300;
 
-      // Marker control
-      const myMarkers = evaluation?.myMarkers || 0;
-      const oppMarkers = evaluation?.oppMarkers || 0;
-      score += (myMarkers - oppMarkers) * 50;
+    // Marker control
+    const myMarkers = evaluation?.myMarkers || 0;
+    const oppMarkers = evaluation?.oppMarkers || 0;
+    score += (myMarkers - oppMarkers) * 50;
 
-      // Ring mobility advantage
-      score += (myRingPosition.mobility - oppRingPosition.mobility) * 20;
-      score += (myRingPosition.positioning - oppRingPosition.positioning) * 30;
+    // Ring mobility advantage
+    score += (myRingPosition.mobility - oppRingPosition.mobility) * 20;
+    score += (myRingPosition.positioning - oppRingPosition.positioning) * 30;
 
-      // Vulnerability penalty
-      score -= (myMarkerDist.vulnerableMarkers || 0) * 40;
-      score += (oppMarkerDist.vulnerableMarkers || 0) * 40;
-    }
+    // Vulnerability penalty
+    score -= (myMarkerDist.vulnerableMarkers || 0) * 40;
+    score += (oppMarkerDist.vulnerableMarkers || 0) * 40;
 
     return score;
   }
@@ -1477,6 +1447,7 @@ export default class MCTS {
 
   // Add method to manage table size
   cleanTranspositionTable() {
+    const transpositionTable = this.transpositionTable;
     if (transpositionTable.size > this.maxTableSize) {
       const entries = Array.from(transpositionTable.entries());
       entries.sort((a, b) => a[1].visits - b[1].visits);
@@ -1489,7 +1460,7 @@ export default class MCTS {
   }
 
   async getBestMove(board, numSimulations = 500) {
-    transpositionTable.clear();
+    this.transpositionTable.clear();
     // Reset Q normalization bounds for each search
     this.qMin = Infinity;
     this.qMax = -Infinity;
@@ -1572,7 +1543,8 @@ export default class MCTS {
     // Run simulations
     for (let i = 0; i < numSimulations; i++) {
       let node = this.select(rootNode);
-      let childNode = this.expand(node);
+      // Terminal (or otherwise childless) leaves still need a visit and value.
+      let childNode = this.expand(node) || node;
 
       if (childNode) {
         const result = useNN
@@ -1582,22 +1554,13 @@ export default class MCTS {
       }
     }
 
-    let bestVisits = -1;
-    let bestMove = null;
-
-    for (const [moveKey, child] of rootNode.children.entries()) {
-      // Parse the move back from JSON string
-      const move = JSON.parse(moveKey);
-      if (child.visits > bestVisits) {
-        bestVisits = child.visits;
-        bestMove = move;
-      }
-    }
+    const bestChild = this._bestRootChild(rootNode);
+    const bestMove = bestChild?.move;
 
     return bestMove ? {
       move: bestMove.start,
       destination: bestMove.end,
-      confidence: bestVisits / rootNode.visits,
+      confidence: bestChild.node.visits / rootNode.visits,
       type: bestMove.type,
       row: bestMove.row,
       rootNode
@@ -1707,37 +1670,34 @@ export default class MCTS {
     }
   }
 
-  runIteration(board) {
-    const stateHash = board.getStateHash();
-    const existingNode = transpositionTable.get(stateHash);
-    
-    if (existingNode) {
-      this.root = existingNode;
-    } else {
+  // Visits remain primary; equal visits must use the root player's value,
+  // including scoring actions that leave the same player to act.
+  _bestRootChild(root) {
+    let best = null;
+    for (const [key, node] of root.children) {
+      const value = node.valueFor(root.board.getCurrentPlayer());
+      if (!best || node.visits > best.node.visits ||
+          (node.visits === best.node.visits && (value > best.value ||
+            (value === best.value && (node.prior > best.node.prior ||
+              (node.prior === best.node.prior && key < best.key)))))) {
+        best = { key, node, value };
+      }
+    }
+    return best ? { move: JSON.parse(best.key), node: best.node } : null;
+  }
+
+  async runIteration(board) {
+    if (!this.root || this.root.stateHash !== board.getStateHash()) {
       this.root = new MCTSNode(board, null, null, this);
     }
     
     const node = this.select(this.root);
-    const expandedNode = this.expand(node);
+    const expandedNode = this.expand(node) || node;
     
-    if (!expandedNode) return null;
-    
-    const result = this.simulate(expandedNode);
+    const result = await this.simulate(expandedNode);
     this.backpropagate(expandedNode, result);
     
-    // Find best child
-    let bestChild = null;
-    let bestVisits = -1;
-    
-    for (const [move, child] of this.root.children.entries()) {
-      const nodeData = transpositionTable.get(child.stateHash);
-      const visits = nodeData ? nodeData.visits : child.visits;
-      
-      if (visits > bestVisits) {
-        bestVisits = visits;
-        bestChild = { move, node: child };
-      }
-    }
+    const bestChild = this._bestRootChild(this.root);
     
     if (bestChild) {
       // For row removal, include the full row information
@@ -1799,13 +1759,16 @@ export default class MCTS {
     return {
       move: validMoves[0].start,
       destination: validMoves[0].end,
+      type: validMoves[0].type,
+      row: validMoves[0].row,
       confidence: 0.5
     };
   }
 
   // Add method to clear table between games
   clearTranspositionTable() {
-    transpositionTable.clear();
+    this.transpositionTable.clear();
+    this.root = null;
   }
 
   getLegalMoves(board) {
@@ -2030,12 +1993,7 @@ export default class MCTS {
         board.handleClick(move.end[0], move.end[1]);
       }
     } else if (gamePhase === 'remove-row') {
-      // In remove-row phase, click one of the row positions
-      // The board will handle which row this selects
-      if (move.row && move.row.length > 0) {
-        const [q, r] = move.row[0];
-        board.handleClick(q, r);
-      }
+      if (!board.removeRow(move.row)) throw new Error('Invalid remove-row action');
     } else if (gamePhase === 'remove-ring') {
       // In remove-ring phase, click the ring to remove
       if (move.start) {

@@ -81,6 +81,10 @@ else
   VERSION=$((LATEST + 1))
   echo "$VERSION" > .current-version
 fi
+if ! [[ "$VERSION" =~ ^[0-9]+$ ]] || [ "$VERSION" -le 1 ]; then
+  log "ERROR: candidate version must be greater than 1 (v1 is the deployed pointer)"
+  exit 1
+fi
 
 if [ -f .deployed-checkpoint ]; then
   DEPLOYED_PT=$(cat .deployed-checkpoint)
@@ -204,11 +208,8 @@ for ((iter=0; iter<MAX_ITERATIONS; iter++)); do
     WIN_COUNT=$((WIN_COUNT + 1))
     log "v${VERSION} WINS! Promoting as deployed model. (${ITER_TIME}s)"
 
-    cp "public/models/yinsh-value-v${VERSION}.onnx" public/models/yinsh-value-v1.onnx
-    # Copy .data file if it exists (policy-value models may have external data)
-    if [ -f "public/models/yinsh-value-v${VERSION}.onnx.data" ]; then
-      cp "public/models/yinsh-value-v${VERSION}.onnx.data" public/models/yinsh-value-v1.onnx.data
-    fi
+    $VENV scripts/verify-model.py "public/models/yinsh-value-v${VERSION}.onnx" \
+      --destination public/models/yinsh-value-v1.onnx
 
     DEPLOYED_PT="training/v${VERSION}.pt"
     echo "$DEPLOYED_PT" > .deployed-checkpoint

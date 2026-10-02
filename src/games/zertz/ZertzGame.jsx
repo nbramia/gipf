@@ -1,3 +1,5 @@
+import MatchBoundary, { useSavedMatch } from '../../MatchBoundary.jsx';
+import { encodeBoard, decodeMatch } from './matchSnapshot.js';
 // ZertzGame.jsx - React UI + SVG rendering for Zertz
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
@@ -10,7 +12,7 @@ import './zertz.css';
 const DIFFICULTY_CONFIG = {
   easy: { simulations: 100, evaluationMode: 'heuristic' },
   advanced: { simulations: 200, evaluationMode: 'heuristic' },
-  expert: { simulations: 300, evaluationMode: 'nn', modelPath: '/models/zertz-value-v1.onnx' },
+  expert: { simulations: 300, evaluationMode: 'nn', modelPath: `${process.env.PUBLIC_URL || ''}/models/zertz-value-v1.onnx` },
 };
 
 // Toggle component
@@ -54,7 +56,10 @@ const hexPoints = (cx, cy, size) => {
 const MARBLE_LABEL = { white: 'White', grey: 'Grey', black: 'Black' };
 
 const ZertzGame = () => {
-  const [board, setBoard] = useState(() => new ZertzBoard());
+  const savedMatch = useSavedMatch();
+  const resumed = savedMatch?.restored;
+  const savedUI = resumed?.ui || {};
+  const [board, commitBoard] = useState(() => resumed?.board || new ZertzBoard());
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('zertzDarkMode');
     return saved ? JSON.parse(saved) : false;
@@ -64,27 +69,46 @@ const ZertzGame = () => {
     return saved ? JSON.parse(saved) : true;
   });
   const [twoPlayerMode, setTwoPlayerMode] = useState(() => {
+    if (savedUI.twoPlayerMode !== undefined) return savedUI.twoPlayerMode;
     const saved = localStorage.getItem('zertzTwoPlayer');
     return saved ? JSON.parse(saved) : false;
   });
-  const [humanPlayer, setHumanPlayer] = useState(() => Math.random() < 0.5 ? 1 : 2);
+  const [humanPlayer, setHumanPlayer] = useState(() => savedUI.humanPlayer || (Math.random() < 0.5 ? 1 : 2));
   const [difficulty, setDifficulty] = useState(() => {
+    if (savedUI.difficulty) return savedUI.difficulty;
     const saved = localStorage.getItem('zertzDifficulty');
     return saved || 'advanced';
   });
   const [isAiThinking, setIsAiThinking] = useState(false);
   const [aiSuggestion, setAiSuggestion] = useState(null);
-  const [showModal, setShowModal] = useState(true);
+  const [showModal, setShowModal] = useState(() => savedUI.showModal ?? true);
   const [showSettings, setShowSettings] = useState(false);
   const [showRules, setShowRules] = useState(false);
-  const [lastMoveKeys, setLastMoveKeys] = useState([]);
+  const [lastMoveKeys, setLastMoveKeys] = useState(() => savedUI.lastMoveKeys || []);
 
-  const { computeMove, isSupported: workerSupported } = useAIWorker();
+  useEffect(() => { savedMatch?.persist(encodeBoard(board), { humanPlayer, twoPlayerMode, showModal, difficulty, lastMoveKeys }); }, [board, humanPlayer, twoPlayerMode, showModal, difficulty, lastMoveKeys, savedMatch]);
+
+  const { computeMove, cancelPending, isSupported: workerSupported } = useAIWorker();
+  const stateVersion = useRef(0);
+  const [aiFallback, setAiFallback] = useState(false);
+  const invalidateAI = useCallback(() => {
+    stateVersion.current += 1;
+    cancelPending();
+    setIsAiThinking(false);
+    setAiSuggestion(null);
+  }, [cancelPending]);
+  const setBoard = useCallback((nextBoard) => {
+    invalidateAI();
+    commitBoard(nextBoard);
+  }, [invalidateAI]);
+  useEffect(() => () => { stateVersion.current += 1; }, []);
+
   const aiTimerRef = useRef(null);
 
   useEffect(() => {
     localStorage.setItem('zertzDarkMode', JSON.stringify(darkMode));
-  }, [darkMode]);
+    savedMatch?.setTheme(darkMode);
+  }, [darkMode, savedMatch]);
   useEffect(() => {
     localStorage.setItem('zertzShowMoves', JSON.stringify(showPossibleMoves));
   }, [showPossibleMoves]);
@@ -119,10 +143,13 @@ const ZertzGame = () => {
     if (board.gamePhase === 'game-over') return;
 
     const config = DIFFICULTY_CONFIG[difficulty] || DIFFICULTY_CONFIG.advanced;
+    const version = ++stateVersion.current;
     setIsAiThinking(true);
     setAiSuggestion(null);
 
-    const onSuccess = (move) => {
+    const onSuccess = (move, stats) => {
+      if (!savedMatch?.isCurrent() || version !== stateVersion.current) return;
+      setAiFallback(config.evaluationMode === 'nn' && stats?.evaluationMode !== 'nn');
       setIsAiThinking(false);
       if (!move) return;
 
@@ -143,6 +170,7 @@ const ZertzGame = () => {
     };
 
     const onError = (err) => {
+      if (!savedMatch?.isCurrent() || version !== stateVersion.current) return;
       console.warn('AI error:', err);
       setIsAiThinking(false);
     };
@@ -159,8 +187,8 @@ const ZertzGame = () => {
       );
     } else {
       // Fallback: run MCTS on main thread (blocking but functional)
-      const mcts = new MCTS({ evaluationMode: config.evaluationMode });
-      mcts.getBestMove(board, config.simulations).then(onSuccess).catch(onError);
+      const mcts = new MCTS({ evaluationMode: 'heuristic' });
+      mcts.getBestMove(board.clone(), config.simulations).then(onSuccess).catch(onError);
     }
   }, [board, difficulty, isAiThinking, workerSupported, computeMove]);
 
@@ -229,6 +257,7 @@ const ZertzGame = () => {
   const handleRedo = () => { if (board.canRedo()) { board.redo(); setBoard(board.clone()); setLastMoveKeys([]); } };
 
   const startNewGame = () => {
+    savedMatch?.startNew();
     board.startNewGame();
     setBoard(board.clone());
     setShowModal(false);
@@ -292,7 +321,7 @@ const ZertzGame = () => {
           {['easy', 'advanced', 'expert'].map(d => (
             <button
               key={d}
-              onClick={() => setDifficulty(d)}
+              onClick={() => { invalidateAI(); setAiFallback(false); setDifficulty(d); }}
               className="flex-1 py-1.5 px-2 rounded text-xs font-semibold capitalize transition-all"
               style={{
                 backgroundColor: difficulty === d ? 'var(--color-btn-primary-bg)' : 'transparent',
@@ -305,7 +334,7 @@ const ZertzGame = () => {
           ))}
         </div>
       </div>
-      <Toggle label="Two Players" checked={twoPlayerMode} onChange={() => setTwoPlayerMode(!twoPlayerMode)} />
+      <Toggle label="Two Players" checked={twoPlayerMode} onChange={() => { invalidateAI(); setTwoPlayerMode(!twoPlayerMode); }} />
       <Toggle label="Dark Mode" checked={darkMode} onChange={() => setDarkMode(!darkMode)} />
       <Toggle label="Show Valid Moves" checked={showPossibleMoves} onChange={() => setShowPossibleMoves(!showPossibleMoves)} />
       <button
@@ -873,6 +902,10 @@ const ZertzGame = () => {
         </div>
       )}
 
+      {aiFallback && <p role="status" className="text-sm px-4 py-2">
+        Neural model unavailable — using heuristic AI.
+      </p>}
+
       {/* AI Thinking Overlay */}
       {isAiThinking && (
         <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-40 pointer-events-none">
@@ -1129,10 +1162,10 @@ const ZertzGame = () => {
 
           {/* Controls row */}
           <div className="flex gap-2 items-center flex-wrap justify-center">
-            <button onClick={handleUndo} disabled={!board.canUndo() || isAiThinking} className={`${btnClass} ${!board.canUndo() || isAiThinking ? 'opacity-30 cursor-not-allowed' : ''}`} title="Undo (Ctrl+Z)">
+            <button onClick={handleUndo} disabled={!board.canUndo()} className={`${btnClass} ${!board.canUndo() ? 'opacity-30 cursor-not-allowed' : ''}`} title="Undo (Ctrl+Z)">
               Undo
             </button>
-            <button onClick={handleRedo} disabled={!board.canRedo() || isAiThinking} className={`${btnClass} ${!board.canRedo() || isAiThinking ? 'opacity-30 cursor-not-allowed' : ''}`} title="Redo (Ctrl+Shift+Z)">
+            <button onClick={handleRedo} disabled={!board.canRedo()} className={`${btnClass} ${!board.canRedo() ? 'opacity-30 cursor-not-allowed' : ''}`} title="Redo (Ctrl+Shift+Z)">
               Redo
             </button>
             {/* AI Suggest — visible when human's turn or 2-player mode */}
@@ -1179,4 +1212,4 @@ const ZertzGame = () => {
   );
 };
 
-export default ZertzGame;
+export default function ResumableZertzGame() { return <MatchBoundary game="zertz" decode={decodeMatch}><ZertzGame /></MatchBoundary>; }

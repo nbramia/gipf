@@ -28,12 +28,12 @@ const mcts = new MCTS(100000, { evaluationMode: 'heuristic' });  // default
 const mcts = new MCTS(100000, { evaluationMode: 'nn', valueNetwork });  // neural network
 ```
 
-Both modes share the same MCTS tree search (selection, expansion, backpropagation) and heuristic pre-sorting of root moves. They differ only in how leaf nodes are evaluated during simulation:
+Both modes share tree-search infrastructure and heuristic pre-sorting of root moves. NN mode can also supply root policy priors; leaf evaluation differs as follows:
 
 - **Heuristic mode** (`_simulateWithRollout`): Plays out 12 moves using fast heuristic move selection, then scores the resulting position with `_evaluatePlayoutResult()`.
 - **NN mode** (`_evaluateWithNN`): Calls `valueNetwork.evaluatePosition(board)` to get a scalar value in [-1, 1], scaled to ±5000 to match the heuristic score range.
 
-Users toggle between modes via the "Neural Network AI" setting in the UI (stored as `yinshEvaluationMode` in localStorage).
+The YINSH UI uses difficulty presets: Easy/Advanced/Expert request separate NN models at 100/150/200 simulations. `yinshDifficulty` stores the selection; `yinshEvaluationMode` is retained for preference migration. Constructor mode defaults and heuristic fallback are separate from these UI presets.
 
 ## MCTS Algorithm
 
@@ -43,13 +43,13 @@ The algorithm runs a configurable number of simulations, each consisting of four
 
 ```
 UCB1 (fallback, no policy available):
-UCB1 = (wins / visits) + 1.41 * sqrt(ln(parent_visits) / visits)
+UCB1 = value_for_acting_parent + 1.41 * sqrt(ln(parent_visits) / visits)
 
 PUCT (AlphaZero-style, used whenever NN mode has fetched a root policy):
 PUCT = normalizedQ + cPuct * prior * sqrt(parent_visits) / (1 + visits)
 ```
 
-`cPuct = 2.5`. `normalizedQ` is the node's win rate min-max normalized against the `qMin`/`qMax` range observed so far this search (tracked during backpropagation, reset at the start of each `getBestMove()` call). `prior` comes from the network's policy output at the root (see below); non-root nodes get a prior of 0 unless a policy fetch assigned one. When NN mode hasn't produced a policy (heuristic mode, or a failed policy fetch), selection falls back to plain UCB1.
+`cPuct = 2.5`. YINSH stores signed state values from `board.currentPlayer`'s perspective. Selection translates the child value to the acting parent's perspective before UCB1 or PUCT scoring. `normalizedQ` uses symmetric `qMin`/`qMax` bounds observed during backup and reset for each search. Policy priors are fetched at the root; YINSH's non-root priors remain zero. With no policy, YINSH falls back to UCB1. ZERTZ's explicit non-root UCB1 fallback is described separately below.
 
 This balances exploitation (known good moves) with exploration (untried moves, or moves the policy favors).
 
@@ -59,9 +59,9 @@ This balances exploitation (known good moves) with exploration (untried moves, o
 
 **3. Simulation** -- Evaluate the expanded node. In heuristic mode, play out 12 moves with `_selectMoveByFastHeuristic()` then call `_evaluatePlayoutResult()`. In NN mode, run a single forward pass through the value network.
 
-**4. Backpropagation** -- Propagate the result back up the tree, updating visit counts and win statistics, and updating the running `qMin`/`qMax` bounds used to normalize Q for PUCT. Results are negated at each level for alternating players.
+**4. Backpropagation** -- Evaluations belong to the evaluated state's current player. Each ancestor stores that result with a sign determined by its actual current player: same-player row/ring actions preserve the sign, and a player change inverts it. Terminal wins/losses use the same perspective convention (±10000); nonterminal NN values are scaled by 5000. Backup also updates symmetric Q bounds for PUCT.
 
-After all simulations, the root's child with the most visits is selected as the best move. `getBestMove()` is `async` to support NN inference; heuristic-only calls resolve synchronously within the async wrapper.
+After simulations, both `getBestMove()` and `runIteration()` select by visits, then mean value for the root's actual current player, then prior, then a stable serialized action key. Equal-visit low-budget searches therefore retain evaluated values, including same-player scoring actions. `getBestMove()` is `async` to support NN inference; heuristic-only calls resolve synchronously within the async wrapper.
 
 ### Fast Heuristic Pre-filter
 
@@ -74,7 +74,7 @@ This pre-filter runs in both evaluation modes.
 
 ### Transposition Table
 
-A global hash map caches board states to reuse node statistics when the same position is reached via different move orders. The table is cleared at the start of each `getBestMove()` call and cleaned periodically to manage memory (max 100,000 entries for Yinsh; Zertz uses the same pattern with a 50,000-entry cap).
+YINSH keeps a per-engine table of state statistics, cleared at each `getBestMove()` call and capped at 100,000 entries. Transpositions share current-player-relative visit/value statistics, while child maps and parent pointers stay local to each tree path. State hashes include phase, player, scores, setup counts, and the saved next player for scoring resolution. ZERTZ has its own table with a 50,000-entry cap.
 
 ## Heuristic Evaluation (Default Mode)
 
@@ -115,7 +115,7 @@ Value head:
   Conv2d(64, 1, 1x1) → BN → ReLU → Flatten(121)
   Concat(121 + 5 meta = 126)
   Linear(126, 128) → ReLU → Linear(128, 1) → Tanh
-  Output: scalar in [-1, +1] (current player's winning probability)
+  Output: signed value in [-1, +1] from the current player's perspective
 
 Policy head:
   Conv2d(64, 2, 1x1) → BN → ReLU → Flatten(242)
@@ -145,7 +145,7 @@ Converts board state to neural network input:
 | 3 | Opponent rings on board | / 5 |
 | 4 | Phase encoding | play=0, remove-row=0.5, remove-ring=1.0 |
 
-Features are always from the **current player's perspective** — the network learns a single perspective and the feature extraction handles the rotation.
+Features are always from the **current player's perspective**; feature extraction assigns the player-relative channels, while rotational augmentation is a separate training operation. The 11x11 tensor embeds the board's 85 legal intersections; unused grid cells do not become legal moves.
 
 ### Browser Inference (`src/games/yinsh/engine/valueNetwork.js`)
 
@@ -154,13 +154,18 @@ Uses `onnxruntime-web` (WASM backend) for browser inference. The model is lazy-l
 ```
 Worker receives evaluationMode='nn'
   → import('valueNetwork.js')
-  → loadValueNetwork('/models/yinsh-value-v1.onnx')
+  → load the requested tier model at `${PUBLIC_URL}/models/...`
+  → probe its tensor contract and require a finite value output
   → MCTS calls evaluatePosition() per simulation
 ```
 
+Both games bundle `onnxruntime-web` and use single-threaded WASM. `PUBLIC_URL` is empty on a root deployment or `/gipf` on the shared-domain deployment. Workers cache only successfully loaded models; failed loads remain retryable. They report requested and actual evaluation modes, and the UI displays “Neural model unavailable — using heuristic AI” when an NN request falls back. A later successful load clears the notice.
+
+Request IDs, worker identity, and board versions reject stale or duplicate results and errors. Reset, undo/redo, position changes, and AI settings changes cancel pending work; cancellation terminates that worker and discards its model cache. Main-thread fallback searches a clone and checks the same board version before applying a result. See the [browser repair report](yinsh-zertz-browser-repairs-2026-09-20.md) for the scoped Chromium production-build smoke evidence and its limitations.
+
 ### Node.js Inference (`src/games/yinsh/engine/valueNetworkNode.js`)
 
-Uses `onnxruntime-node` (native backend) for CLI scripts (tournament, future training data generation with NN self-play). Same API as browser version.
+Uses `onnxruntime-node` (native backend) for tournaments and NN self-play generation. Each game has its own wrapper; ZERTZ's wrapper also selects the explicit feature schema described below.
 
 ### Training Pipeline (`training/`)
 
@@ -174,36 +179,47 @@ Uses `onnxruntime-node` (native backend) for CLI scripts (tournament, future tra
 
 **Training workflow:**
 ```bash
-# 1. Generate self-play data
-npm run generate-data -- --games 200 --sims 100
+# 1. Generate self-play data with the deployed incumbent
+npm run generate-data -- --games 200 --sims 100 --mode nn \
+  --model public/models/yinsh-value-v1.onnx
 
-# 2. Train (uses MPS on Apple Silicon, CUDA on NVIDIA, CPU fallback)
-cd training
-.venv/bin/python3 train.py --data ../data/train.ndjson --epochs 30
+# 2. Train a candidate (set incumbent.pt to the checkpoint being continued)
+training/.venv/bin/python3 training/train.py --data data/train.ndjson \
+  --checkpoint training/incumbent.pt --augment --seed 42 --epochs 30 \
+  --output training/candidate.pt
 
 # 3. Export to ONNX
-.venv/bin/python3 export_onnx.py --checkpoint best.pt --output ../public/models/yinsh-value-v1.onnx
+training/.venv/bin/python3 training/export_onnx.py \
+  --checkpoint training/candidate.pt --output public/models/yinsh-candidate.onnx
 
 # 4. Verify with tournament
-npm run tournament -- --games 5 --sims 50
+npm run tournament -- --mode nn-vs-nn --games 5 --sims 50 \
+  --model1 public/models/yinsh-candidate.onnx --model2 public/models/yinsh-value-v1.onnx
 ```
 
 **Data format** (NDJSON, one position per line):
 ```json
-{"board": [484 floats], "meta": [5 floats], "value": 1.0, "policy": [121 floats]}
+{"gameId": "uuid", "board": [484 floats], "meta": [5 floats], "value": 1.0, "policy": [121 floats]}
 ```
 - `board`: 4 x 11 x 11 feature planes flattened
 - `meta`: 5 scalar metadata values
 - `value`: +1.0 if current player won the game, -1.0 if lost
-- `policy`: optional, 121-element move-visit distribution from self-play (`dataset.py` falls back to a uniform distribution over legal destinations when this field is absent)
+- `gameId`: a UUID shared by all positions from one game, unique across processes and runs
+- `policy`: optional, 121-element move-visit distribution from self-play (`dataset.py` falls back to a uniform distribution over all 121 tensor cells when absent; historical records do not provide a legal-action mask)
 
-`dataset.py` also applies 6-fold hexagonal rotation augmentation (the 6 axial rotations of the hex grid) when enabled, expanding each recorded position into 6 training examples with the board and policy target rotated consistently (meta scalars are rotation-invariant).
+Both trainers assign whole source games to train or validation before applying 6-fold hexagonal rotation augmentation to training only. Validation contains original, unaugmented positions. `--seed` (default 42) controls group assignment, appended-data sampling, and PyTorch randomness. The holdout is approximately 10% of source groups, so its position count may differ from 10% of records. Primary and sampled appended records are grouped together, preventing duplicate game IDs from crossing the split.
 
-**Training config:** Batch size 256, Adam lr=1e-3 with cosine annealing to 1e-5, 90/10 train/val split, early stopping with patience 8.
+Legacy NDJSON without `gameId` remains readable and emits a warning during splitting. Its fallback groups identical board/meta inputs and their rotations, ignoring labels and policy targets; a position represented by a legacy record also ties matching identified games together. This duplicate-identity protection applies to those legacy identities, not all recurring positions in different identified games. Historical game boundaries cannot be recovered: the fallback **cannot guarantee source-game isolation** for legacy records. New validation losses therefore should not be compared directly with old position-split, augmented-validation losses. Empty data or fewer than two independent groups raises an actionable error; small training subsets keep their final partial batch instead of silently training zero batches.
+
+**YINSH trainer defaults:** Batch size 256, Adam lr=1e-3 with cosine annealing to 1e-5, approximately 90/10 source-group split, early stopping with patience 8. Shell wrappers override several training defaults.
 
 ### Model Promotion
 
-There's no fixed "current model" to document here: checkpoints accumulate continuously and a new one only replaces the deployed model after it wins a gated match against the incumbent. The gate is a real SPRT (`scripts/tournament.mjs --sprt`): H0 p=0.5 vs H1 p=0.55, alpha=0.05, beta=0.10, capped at 40 games, with sides interleaved each game. A challenger that clears the SPRT `accept` threshold gets promoted; `reject` or hitting the game cap without a decision means it stays on the bench. This keeps the doc accurate regardless of how far training has progressed, rather than pinning a version number and win rate that go stale immediately.
+YINSH's continuous loop uses SPRT (`scripts/tournament.mjs --sprt`): H0 p=0.5 versus H1 p=0.55, alpha=0.05, beta=0.10, capped at 40 games with alternating sides. Only `accept` permits promotion; rejection or an inconclusive game cap keeps the incumbent. The one-shot wrapper uses a fixed candidate-versus-incumbent tournament. Passing either gate is evidence from that match, not a general strength guarantee.
+
+Both parallel generators await every worker's completion and successful exit before atomically publishing the merged dataset. Missing completion, failed workers, missing files, malformed records, or mismatched position counts fail the command and preserve worker artifacts for recovery. Drawn games contribute no labeled positions; an entirely empty generation fails. YINSH randomized setup draws exclusively from `YinshBoard.generateGridPoints()` (85 legal points) and verifies all ten ring placements.
+
+Promotion validates the complete candidate ONNX bundle with `scripts/verify-model.py`, including any referenced external tensors, and publishes a single embedded-weight model through an atomic file replacement. An embedded candidate does not require a `.onnx.data` sidecar. Candidate versions must not overwrite the deployed `v1` pointer before evaluation. No training data or model artifacts should be pushed during regression testing.
 
 ## Multi-Phase Intelligence
 
@@ -213,7 +229,7 @@ The AI handles all game phases:
 
 **Play:** Full MCTS with the selected evaluation mode.
 
-**Remove-row:** Evaluates which row removal leaves the best board position (considers clustering, mobility, and remaining threats).
+**Remove-row:** Executes an explicit, validated five-marker row. Each row is immediately followed by its owner's scoring-ring removal; only then are remaining rows recomputed, with the original mover's rows before the opponent's. See [row resolution](architecture.md#row-resolution-queue).
 
 **Remove-ring:** Evaluates which ring sacrifice is least costly (considers positional value, mobility impact, and endgame awareness).
 
@@ -221,11 +237,11 @@ The AI handles all game phases:
 
 ### Local Mode (Default)
 
-Runs MCTS in a Web Worker (`mcts.worker.js`) to prevent UI blocking. 200 simulations per move. The worker accepts `evaluationMode` in its message data and handles ONNX model loading internally.
+Runs MCTS in a Web Worker (`mcts.worker.js`) with the selected difficulty's simulation count. The worker accepts `evaluationMode` and a model path, handles ONNX loading internally, and reports the actual mode used.
 
 ### API Mode
 
-Sends board state to a Vercel serverless function at `/api/aiMove`, which runs MCTS server-side with 30-500 simulations and a 2.5-second time budget. Currently heuristic-only (no NN support in serverless).
+The optional Vercel endpoint `${PUBLIC_URL}/api/aiMove` runs heuristic MCTS server-side with 30-500 simulations and a 2.5-second time budget. The browser uses local workers by default. See the [snapshot and resolved-response contract](yinsh-api.md); the endpoint restores canonical state and awaits search results.
 
 ## Integration with Game Logic
 
@@ -252,21 +268,78 @@ npm run test:engine       # MCTS-specific tests
 npm run tournament        # Compare heuristic vs NN
 ```
 
-When modifying AI behavior, play several complete games against the AI to verify it makes legal moves in all phases and doesn't exhibit degenerate strategies. Run the tournament to verify NN changes don't regress against the heuristic baseline.
+Use deterministic legality, perspective, and search regressions, plus full-suite/build checks, when modifying AI behavior. Browser play-throughs and heuristic benchmarks provide additional evidence; promotion still requires the explicit incumbent gate.
 
 ## Zertz
 
 Zertz has its own trained network and training loop, structurally parallel to Yinsh's but with a few real differences.
 
-**MCTS** (`src/games/zertz/engine/mcts.js`) uses the same PUCT/UCB1 split as Yinsh: PUCT (`cPuct = 2.5`) with policy priors plus Dirichlet noise (alpha 0.3, epsilon 0.25) when NN mode has a policy, falling back to UCB1 (exploration constant 1.414) otherwise. Its transposition table caps at 50,000 entries (vs Yinsh's 100,000), cleared each `getBestMove()` call.
+**MCTS** (`src/games/zertz/engine/mcts.js`) uses PUCT (`cPuct = 2.5`) at the root when policy priors are available, with Dirichlet noise (alpha 0.3, epsilon 0.25). Non-root nodes have no policy priors and explicitly use UCB1 (exploration constant 1.414), as does heuristic-only search. Its transposition table caps at 50,000 entries and is cleared each search.
 
-**Network and features** (`src/games/zertz/engine/features.js`): 5 planes x 7x7 (ring presence, white/grey/black marble, free/removable rings) mapping the 37-hex board, plus 12 meta scalars. Own ONNX model, own `training/zertz/` pipeline (`model.py`, `dataset.py`, `train.py`, `export_onnx.py`), same shape as Yinsh's (self-play → train → export → tournament).
+Opening positions have 111 legal actions. With a smaller simulation budget, root expansion follows available policy priors without pruning any action. Final choice compares visits, mean evaluated value, prior, then a stable move key, so equal-visit children do not default to the first random expansion. ZERTZ stores edge values for the player choosing the action; placement/removal and mandatory jump chains do not flip value simply because another action occurred.
 
-**Difficulty wiring in the UI** (`src/games/zertz/ZertzGame.jsx`): three tiers, `easy` and `advanced` (the default on load) run heuristic MCTS at 100/200 simulations; `expert` is the only tier that loads the trained network (`/models/zertz-value-v1.onnx`) at 300 simulations.
+**Feature compatibility:** ZERTZ owns `engine/features.js` and `training/zertz/`. Feature-v2 adds a sixth, one-hot plane identifying the forced jumping marble during a capture chain; it is zero outside capture or before a jumper is selected. This distinguishes otherwise identical positions with different legal continuations. The first five planes (rings, three marble colors, removable rings), 12 meta scalars, and 49 destination-policy logits retain their previous meanings.
+
+| Contract | Legacy v1 | New v2 |
+|----------|-----------|--------|
+| Board tensor | `[batch, 5, 7, 7]` (245 floats per record) | `[batch, 6, 7, 7]` (294 floats per record) |
+| Meta tensor | `[batch, 12]` | `[batch, 12]` |
+| ONNX inputs | `board_input`, `meta_input` | `board_v2_input`, `meta_input` |
+| NDJSON tag | `featureVersion: 1`, or untagged exact legacy shape | `featureVersion: 2` required |
+
+Browser and Node loaders use the versioned input names to select extraction, then probe the tensor contract and finite value output. Browser adapters additionally reject missing, empty, or nonfinite declared policy output. Unknown names or incompatible shapes fail loading. Export also writes `zertz.feature_version` and `zertz.feature_schema` metadata; checkpoints store `feature_version`, with untagged five-plane input-convolution weights accepted explicitly as legacy v1. Definitions live in `src/games/zertz/engine/features.js` and `training/zertz/schema.py`.
+
+New self-play writes v2 records plus `gameId`, including when an explicit legacy network supplies evaluations through its v1 extraction path. Training rejects mixed v1/v2 datasets and incompatible checkpoints; historical arrays cannot recover missing jumping-marble identity. Generate fresh v2 data and train a new model without a v1 `--checkpoint`, for example:
+
+```bash
+PYTHONPATH=training training/.venv/bin/python3 training/zertz/train.py \
+  --data data/zertz/fresh-v2.ndjson --feature-version 2 --augment --seed 42 \
+  --output-dir training/zertz/candidate-v2
+```
+
+Keep old models and datasets on their explicit legacy paths; do not combine historical v1 files into the new dataset. Export the new checkpoint to a separate candidate path and use the incumbent tournament gate before any promotion. Deployment filenames are champion pointers, not feature-version tags, and this migration does not replace shipped weights.
+
+### ZERTZ feature-v2 bootstrap
+
+Both ZERTZ wrappers preflight the selected checkpoint and existing generation files before launching self-play. They require a v2 checkpoint to continue training and reject v1 with an explicit bootstrap instruction. `DATA_DIR` defaults to `data/zertz/feature-v2`; set it to another dedicated v2 directory if needed. Historical `data/zertz/v*_selfplay.ndjson` files remain untouched and are not searched by the default loop. An explicitly selected directory containing legacy records, invalid JSON, or incompatible feature shapes/tags fails preflight rather than silently mixing schemas.
+
+The wrappers also pass the deployed ONNX path to preflight. A resumed v2 checkpoint requires v2 ONNX input names and a successful six-plane inference probe; legacy, unknown, corrupt, and missing deployed models fail before Node self-play. Schema agreement does not prove exact weight identity: installation must still pair the champion checkpoint with its own exported ONNX. Explicit scratch preflight supplies `--deployed-model` with an absent path and omits `--checkpoint`; both incumbent artifacts must be absent. Manual bootstrap using a v1 evaluation model follows the individual commands below, outside the normal wrappers.
+
+To bootstrap from a legacy incumbent, run the following steps manually from the repository root, using fresh candidate paths. Legacy NN inference is still available for generating correctly tagged v2 records; the missing identity is extracted from each live board, never fabricated from old data.
+
+```bash
+mkdir -p data/zertz/feature-v2
+node scripts/zertz/parallel-selfplay.mjs --games 50 --sims 200 --workers 6 \
+  --mode nn --model public/models/zertz-value-v1.onnx \
+  --output data/zertz/feature-v2/bootstrap.ndjson
+PYTHONPATH=training training/.venv/bin/python3 training/zertz/train.py \
+  --data data/zertz/feature-v2/bootstrap.ndjson --feature-version 2 \
+  --augment --seed 42 --output-dir training/zertz/bootstrap-v2
+PYTHONPATH=training training/.venv/bin/python3 training/zertz/export_onnx.py \
+  --checkpoint training/zertz/bootstrap-v2/best.pt \
+  --output public/models/zertz-bootstrap-v2.onnx
+node scripts/zertz/tournament.mjs --mode nn-vs-nn --games 20 --sims 100 \
+  --model1 public/models/zertz-bootstrap-v2.onnx \
+  --model2 public/models/zertz-value-v1.onnx
+```
+
+Stop on any error or a nonzero tournament exit. These steps do not install the candidate. Only after the candidate wins and an explicit decision to install it, update the model and matching checkpoint pointer:
+
+```bash
+training/.venv/bin/python3 scripts/verify-model.py public/models/zertz-bootstrap-v2.onnx \
+  --destination public/models/zertz-value-v1.onnx
+echo training/zertz/bootstrap-v2/best.pt > training/zertz/.deployed-checkpoint
+```
+
+The next normal one-shot invocation is `DATA_DIR=data/zertz/feature-v2 ./scripts/zertz/train-iteration.sh <unused-version> 50 200` (replace `<unused-version>` with an unused integer greater than 1). The continuous path is `DATA_DIR=data/zertz/feature-v2 ./scripts/zertz/continuous-train.sh --max-iterations 1`; first check that `training/zertz/.current-version`, if present, names an unused candidate version. Both paths resume the recorded v2 champion, generate with the deployed NN, and keep the explicit incumbent gate. The continuous script retains its existing commit/push behavior after promotion, so it is not a dry run. If no incumbent exists, manual generation can use `--mode heuristic`, but neither the wrappers nor the bootstrap procedure treats that absence as a tournament win.
+
+**Difficulty wiring in the UI** (`src/games/zertz/ZertzGame.jsx`): `easy` and `advanced` (the default) run heuristic MCTS at 100/200 simulations; `expert` requests `${PUBLIC_URL}/models/zertz-value-v1.onnx` at 300 simulations. An unavailable or incompatible model is visibly reported as heuristic fallback.
 
 **Training loss adds heuristic distillation.** Unlike Yinsh, `training/zertz/train.py` blends a third loss term: `loss = value_loss + policy_loss + distill_weight * heuristic_loss`, where `heuristic_loss` regularizes the value head's prediction toward the hand-crafted heuristic evaluation (`--distill-weight`, default 0.5, 0 disables it). Yinsh's training loop has no equivalent term.
 
-**Promotion gate is simpler, not SPRT.** `scripts/zertz/tournament.mjs` plays a fixed set of games and promotes on a plain win/tie majority check (NN wins more than heuristic across the tournament), not the sequential SPRT test Yinsh uses. `scripts/zertz/continuous-train.sh` drives the self-play → train → tournament → promote loop autonomously.
+**Promotion gate:** `scripts/zertz/tournament.mjs --mode nn-vs-nn --model1 candidate.onnx --model2 incumbent.onnx --games 20` alternates candidate sides and requires candidate wins in more than half of all games (draws count in the denominator). Missing, corrupt, unloaded, or incompatible models fail before results. The separate `--mode heuristic-vs-nn --model candidate.onnx` mode is a benchmark; wrappers never use it for promotion. Both ZERTZ wrappers resume `training/zertz/.deployed-checkpoint` (or an explicitly supplied `CHECKPOINT` for initialization) and use the deployed incumbent for NN self-play. They do not infer the champion from the latest numbered checkpoint. Without an incumbent, scratch training may produce a candidate, but bootstrap installation requires an explicit operator choice and is never an automatic tournament win.
+
+Focused regression command (use an environment with `training/requirements.txt` installed): `PYTHONPATH=training python3 -m unittest discover -s tests -p 'test_training*.py' -v`. Subprocess fixtures isolate coordinators, tournament failures, and shell-wrapper continuation from actual training/promotion/push actions.
 
 **API mode:** like Yinsh, `/api/zertzAiMove` is a heuristic-only serverless fallback (no NN support server-side).
 

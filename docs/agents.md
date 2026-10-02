@@ -139,7 +139,9 @@ User clicks SVG -> handle click
 - All game-specific CSS goes in `<game>.css`, scoped under `.game-<name>`
 - Never add CSS variables to `:root` -- scope them under the game wrapper
 - New animations need prefixed keyframe names (`yinsh-*`, `zertz-*`)
-- Shared CSS (only Tailwind directives and `slide-in-right`) lives in `src/index.css`
+- Shared Tailwind directives and `slide-in-right` live in `src/index.css`
+- App-level match chrome lives in `src/matchBoundary.css`, scoped under
+  `.match-chrome` / `.match-chrome.dark` with `--match-*` variables
 
 ### localStorage
 

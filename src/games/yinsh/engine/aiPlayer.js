@@ -34,10 +34,7 @@ export function applyAIMove(board, move) {
   let flipped = [];
 
   if (type === 'remove-row') {
-    // Click one marker in the row — handleClick removes the entire matching row
-    if (row && row.length > 0) {
-      board.handleClick(row[0][0], row[0][1]);
-    }
+    board.removeRow(row);
   } else if (type === 'remove-ring') {
     board.handleClick(from[0], from[1]);
   } else if (type === 'place-ring' || board.getGamePhase() === 'setup') {

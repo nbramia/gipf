@@ -143,14 +143,14 @@ export default class ChessBoard {
   undo() {
     if (!this.canUndo()) return false;
     this.pointer -= 1;
-    this.chess.load(this.positions[this.pointer]);
+    this._rebuildHistory();
     return true;
   }
 
   redo() {
     if (!this.canRedo()) return false;
     this.pointer += 1;
-    this.chess.load(this.positions[this.pointer]);
+    this._rebuildHistory();
     return true;
   }
 
@@ -187,7 +187,7 @@ export default class ChessBoard {
       return false;
     }
     const verbose = fresh.history({ verbose: true });
-    const replay = new Chess();
+    const replay = new Chess(fresh.getHeaders().FEN || undefined);
     this.positions = [replay.fen()];
     this.moves = [];
     for (const m of verbose) {
@@ -200,6 +200,16 @@ export default class ChessBoard {
     return true;
   }
 
+  // FEN alone loses repetition history. Rebuild the engine from the recorded
+  // start and moves whenever UI cloning or undo/redo changes the live instance.
+  _rebuildHistory() {
+    const replay = new Chess(this.positions[0]);
+    for (const move of this.moves.slice(0, this.pointer)) {
+      replay.move({ from: move.from, to: move.to, promotion: move.promotion });
+    }
+    this.chess = replay;
+  }
+
   // --- Cloning ------------------------------------------------------------
 
   clone() {
@@ -207,7 +217,7 @@ export default class ChessBoard {
     copy.positions = [...this.positions];
     copy.moves = [...this.moves];
     copy.pointer = this.pointer;
-    copy.chess.load(this.positions[this.pointer]);
+    copy._rebuildHistory();
     return copy;
   }
 }

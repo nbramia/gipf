@@ -1,13 +1,33 @@
 // Feature extraction for Zertz neural network
 // Converts board state to tensor format for the value network
 
-import ZertzBoard from '../ZertzBoard.js';
-
 // 7x7 grid maps the 37-hex board (q+3, r+3)
 const GRID_SIZE = 7;
 const OFFSET = 3;
-const NUM_PLANES = 5;
+const FEATURE_VERSION = 2;
+const LEGACY_NUM_PLANES = 5;
+const NUM_PLANES = 6;
 const NUM_META = 12;
+
+export function featureSchema(version) {
+  if (version !== 1 && version !== 2) {
+    throw new Error(`Unsupported ZERTZ feature version: ${version}`);
+  }
+  return { version, numPlanes: version === 1 ? LEGACY_NUM_PLANES : NUM_PLANES,
+    boardInput: version === 1 ? 'board_input' : 'board_v2_input', metaInput: 'meta_input' };
+}
+
+// Input names are the runtime-readable schema tag (older native ORT has no
+// inputMetadata/custom-metadata API). The load-time inference probe also checks shapes.
+export function modelFeatureSchema(session) {
+  const names = session.inputNames;
+  const version = names?.includes('board_v2_input') ? 2 : 1;
+  const schema = featureSchema(version);
+  if (names?.length !== 2 || !names.includes(schema.boardInput) || !names.includes(schema.metaInput)) {
+    throw new Error(`Unsupported ZERTZ model input schema: ${JSON.stringify(names)}`);
+  }
+  return schema;
+}
 
 /**
  * Check if (q, r) is a valid hex position
@@ -18,11 +38,12 @@ function isValidHex(q, r) {
 
 /**
  * Extract feature planes from a ZertzBoard.
- * Returns { board: Float32Array(245), meta: Float32Array(12) }
+ * V2: 6x7x7 planes; explicit v1: the original 5x7x7 planes. Both have 12 meta scalars.
  * Features are always from the current player's perspective.
  */
-export function extractFeatures(board) {
-  const boardFeatures = new Float32Array(NUM_PLANES * GRID_SIZE * GRID_SIZE); // 5 x 7 x 7 = 245
+export function extractFeatures(board, version = FEATURE_VERSION) {
+  const { numPlanes } = featureSchema(version);
+  const boardFeatures = new Float32Array(numPlanes * GRID_SIZE * GRID_SIZE);
   const metaFeatures = new Float32Array(NUM_META); // 12
 
   const currentPlayer = board.currentPlayer;
@@ -82,6 +103,17 @@ export function extractFeatures(board) {
     }
   }
 
+  // Plane 5: forced continuation identity; all zero before a jumping marble is
+  // selected and in non-capture phases. Never reconstruct it from occupancy.
+  if (version === 2 && board.gamePhase === 'capture' && board.jumpingMarble != null) {
+    const [q, r] = board.jumpingMarble.split(',').map(Number);
+    if (!Number.isInteger(q) || !Number.isInteger(r) || !isValidHex(q, r) ||
+        !board.rings.has(board.jumpingMarble) || !board.marbles[board.jumpingMarble]) {
+      throw new Error('Invalid ZERTZ forced jumping marble');
+    }
+    boardFeatures[5 * GRID_SIZE * GRID_SIZE + (r + OFFSET) * GRID_SIZE + q + OFFSET] = 1;
+  }
+
   // Meta features (12 scalars)
   const myCaps = board.captures[currentPlayer];
   const oppCaps = board.captures[opponent];
@@ -124,6 +156,10 @@ export function extractFeatures(board) {
  * Returns array of 6 rotated { board, meta } feature sets.
  */
 export function augmentFeatures(boardFeatures, metaFeatures) {
+  const numPlanes = boardFeatures.length / (GRID_SIZE * GRID_SIZE);
+  if (![LEGACY_NUM_PLANES, NUM_PLANES].includes(numPlanes) || metaFeatures.length !== NUM_META) {
+    throw new Error('Unsupported ZERTZ augmentation feature shape');
+  }
   const results = [{ board: boardFeatures, meta: metaFeatures }];
 
   // 5 additional rotations (60, 120, 180, 240, 300 degrees)
@@ -152,7 +188,7 @@ export function augmentFeatures(boardFeatures, metaFeatures) {
         const dstGj = rr + OFFSET;
         const dstIdx = dstGj * GRID_SIZE + dstGi;
 
-        for (let plane = 0; plane < NUM_PLANES; plane++) {
+        for (let plane = 0; plane < numPlanes; plane++) {
           rotated[plane * GRID_SIZE * GRID_SIZE + dstIdx] =
             boardFeatures[plane * GRID_SIZE * GRID_SIZE + srcIdx];
         }
@@ -165,4 +201,4 @@ export function augmentFeatures(boardFeatures, metaFeatures) {
   return results;
 }
 
-export { GRID_SIZE, OFFSET, NUM_PLANES, NUM_META };
+export { GRID_SIZE, OFFSET, NUM_PLANES, NUM_META, FEATURE_VERSION, LEGACY_NUM_PLANES };

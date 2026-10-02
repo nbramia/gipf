@@ -14,7 +14,7 @@ async function getValueNetwork(modelPath) {
   try {
     const { ValueNetwork } = await import('./valueNetwork.js');
     const vn = new ValueNetwork();
-    await vn.load(modelPath);
+    if (!await vn.load(modelPath)) return null;
     loadedModels.set(modelPath, vn);
     return vn;
   } catch (e) {
@@ -24,12 +24,12 @@ async function getValueNetwork(modelPath) {
 }
 
 self.onmessage = async function (e) {
-  const { type, data } = e.data;
+  const { type, data, requestId } = e.data;
 
   if (type !== 'compute') return;
 
   try {
-    const { boardState, simulations, evaluationMode, modelPath } = data;
+    const { boardState, simulations, evaluationMode, modelPath = `${process.env.PUBLIC_URL || ''}/models/zertz-value-v1.onnx` } = data;
 
     // Reconstruct board from serialized state
     const board = ZertzBoard.fromSerializedState(boardState);
@@ -50,9 +50,11 @@ self.onmessage = async function (e) {
 
     self.postMessage({
       type: 'result',
+      requestId,
       data: { move },
       success: true,
       stats: {
+        requestedEvaluationMode: evaluationMode,
         simulations,
         phase: board.gamePhase,
         evaluationMode: valueNetwork ? evaluationMode : 'heuristic',
@@ -61,6 +63,7 @@ self.onmessage = async function (e) {
   } catch (err) {
     self.postMessage({
       type: 'error',
+      requestId,
       error: err.message,
       stack: err.stack,
       success: false,

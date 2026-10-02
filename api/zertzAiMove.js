@@ -1,8 +1,19 @@
+import { Worker } from 'node:worker_threads';
+import { guardRequest } from '../server/publicSecurity.js';
+export const config = { api: { bodyParser: { sizeLimit: '32kb' } } };
 // Serverless API endpoint for Zertz AI move computation
 // Heuristic-only (no NN in serverless environment)
 
-import ZertzBoard from '../src/games/zertz/ZertzBoard.js';
-import { MCTS } from '../src/games/zertz/engine/mcts.js';
+
+function calculate(boardState, simulations) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('../server/zertzWorker.js', import.meta.url), { workerData: { boardState, simulations } });
+    const timer = setTimeout(() => { worker.terminate(); reject(new Error('timeout')); }, 3000);
+    worker.once('message', result => { clearTimeout(timer); worker.terminate(); resolve(result); });
+    worker.once('error', () => { clearTimeout(timer); worker.terminate(); reject(new Error('calculation_failed')); });
+    worker.once('exit', code => { clearTimeout(timer); if (code !== 0) reject(new Error('calculation_failed')); });
+  });
+}
 
 const ALLOWED_ORIGINS = [
   'https://gipf.vercel.app',
@@ -39,6 +50,7 @@ export default async function handler(req, res) {
     return;
   }
 
+  if (!await guardRequest(req, res, { bucket: 'ai', limit: 30 })) return;
   try {
     const { boardState, simulations = 200 } = req.body;
 
@@ -48,27 +60,24 @@ export default async function handler(req, res) {
     }
 
     // Clamp simulations
-    const sims = Math.min(Math.max(simulations, 50), 500);
+    const sims = Number.isFinite(simulations) ? Math.min(Math.max(simulations, 50), 200) : 50;
 
     // Reconstruct board and compute move
-    const board = ZertzBoard.fromSerializedState(boardState);
-    const mcts = new MCTS({ evaluationMode: 'heuristic' });
-    const move = await mcts.getBestMove(board, sims);
+    const { move, phase } = await calculate(boardState, sims);
 
     res.status(200).json({
       success: true,
       move,
       stats: {
         simulations: sims,
-        phase: board.gamePhase,
+        phase,
         evaluationMode: 'heuristic',
       },
     });
   } catch (err) {
-    console.error('AI move error:', err);
     res.status(500).json({
       success: false,
-      error: err.message,
+      error: 'Unable to calculate move',
     });
   }
 }

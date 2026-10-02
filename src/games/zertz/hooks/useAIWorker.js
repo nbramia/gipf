@@ -1,65 +1,77 @@
-// React hook for Zertz AI Web Worker communication
-import { useRef, useEffect, useCallback, useState } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
+import { createAIWorker } from './createAIWorker.js';
 
 export default function useAIWorker() {
   const workerRef = useRef(null);
-  const callbackRef = useRef(null);
+  const pendingRef = useRef(null);
+  const sequenceRef = useRef(0);
+  const mountedRef = useRef(false);
   const [isSupported, setIsSupported] = useState(false);
 
-  useEffect(() => {
+  const startWorker = useCallback(() => {
     try {
-      const worker = new Worker(
-        new URL('../engine/mcts.worker.js', import.meta.url),
-        { type: 'module' }
-      );
-
-      worker.onmessage = (e) => {
-        const { success, data, error, stats } = e.data;
-        if (callbackRef.current) {
-          if (success) {
-            callbackRef.current.onSuccess(data.move, stats);
-          } else {
-            callbackRef.current.onError(error);
-          }
-          callbackRef.current = null;
-        }
-      };
-
-      worker.onerror = (e) => {
-        if (callbackRef.current) {
-          callbackRef.current.onError(e.message);
-          callbackRef.current = null;
-        }
-      };
-
+      const worker = createAIWorker();
       workerRef.current = worker;
-      setIsSupported(true);
-
-      return () => {
+      worker.onmessage = ({ data: message }) => {
+        const pending = pendingRef.current;
+        if (workerRef.current !== worker || !pending || message.requestId !== pending.requestId) return;
+        if (message.type !== 'result' && message.type !== 'error') return;
+        pendingRef.current = null;
+        if (message.type === 'result') pending.onSuccess(message.data.move, message.stats);
+        else pending.onError(message.error);
+      };
+      worker.onerror = (event) => {
+        if (workerRef.current !== worker) return;
+        const pending = pendingRef.current;
+        pendingRef.current = null;
         worker.terminate();
         workerRef.current = null;
+        if (pending) pending.onError(event.message || 'Worker error');
       };
+      setIsSupported(true);
+      return worker;
     } catch {
       setIsSupported(false);
+      return null;
     }
   }, []);
 
-  const computeMove = useCallback(
-    (boardState, simulations, onSuccess, onError, evaluationMode = 'heuristic', modelPath = null) => {
-      if (!workerRef.current) {
-        onError('Worker not available');
-        return;
-      }
+  const cancelPending = useCallback(() => {
+    if (!pendingRef.current) return;
+    pendingRef.current = null;
+    const worker = workerRef.current;
+    workerRef.current = null;
+    if (worker) worker.terminate();
+  }, []);
 
-      callbackRef.current = { onSuccess, onError };
+  useEffect(() => {
+    mountedRef.current = true;
+    startWorker();
+    return () => {
+      mountedRef.current = false;
+      pendingRef.current = null;
+      const worker = workerRef.current;
+      workerRef.current = null;
+      if (worker) worker.terminate();
+    };
+  }, [startWorker]);
 
-      workerRef.current.postMessage({
-        type: 'compute',
-        data: { boardState, simulations, evaluationMode, modelPath },
-      });
-    },
-    []
-  );
+  const computeMove = useCallback((boardState, simulations, onSuccess, onError,
+    evaluationMode = 'heuristic', modelPath = `${process.env.PUBLIC_URL || ''}/models/zertz-value-v1.onnx`) => {
+    if (!mountedRef.current) return;
+    cancelPending();
+    const worker = workerRef.current || startWorker();
+    if (!worker) { onError('Worker not available'); return; }
+    const requestId = ++sequenceRef.current;
+    pendingRef.current = { requestId, onSuccess, onError };
+    try {
+      worker.postMessage({ type: 'compute', requestId,
+        data: { boardState, simulations, evaluationMode, modelPath } });
+    } catch (error) {
+      pendingRef.current = null;
+      onError(error.message);
+    }
+  }, [cancelPending, startWorker]);
 
-  return { computeMove, isSupported };
+  return { computeMove, cancelPending, isSupported };
 }

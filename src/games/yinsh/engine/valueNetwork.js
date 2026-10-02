@@ -4,7 +4,7 @@
 // Supports both class-based (multiple models) and module-level (single model) API.
 // Handles both value-only and policy-value models transparently.
 
-import { extractFeatures, BOARD_FEATURES, META_FEATURES } from './features.js';
+import { extractFeatures } from './features.js';
 
 /**
  * ValueNetwork class — allows loading multiple models simultaneously.
@@ -16,7 +16,7 @@ export class ValueNetwork {
     this.hasPolicy = false;
   }
 
-  async load(modelPath = '/models/yinsh-value-v1.onnx') {
+  async load(modelPath = `${process.env.PUBLIC_URL || ''}/models/yinsh-value-v1.onnx`) {
     if (this.session) return true;
     if (this.loading) {
       while (this.loading) {
@@ -29,9 +29,26 @@ export class ValueNetwork {
     try {
       const ort = await import('onnxruntime-web');
       ort.env.wasm.numThreads = 1;
-      this.session = await ort.InferenceSession.create(modelPath, {
+      const session = await ort.InferenceSession.create(modelPath, {
         executionProviders: ['wasm'],
       });
+      // A parsed model is not necessarily compatible with this game's feature contract.
+      // Probe inference before caching it; future metadata checks can precede this probe.
+      try {
+        const result = await session.run({
+          board_planes: new ort.Tensor('float32', new Float32Array(4 * 11 * 11), [1, 4, 11, 11]),
+          meta: new ort.Tensor('float32', new Float32Array(5), [1, 5]),
+        });
+        if (!Number.isFinite(result.value?.data?.[0])) throw new Error('Invalid value output');
+        if (session.outputNames.includes('policy') &&
+            (!result.policy?.data?.length || !Array.from(result.policy.data).every(Number.isFinite))) {
+          throw new Error('Invalid policy output');
+        }
+      } catch (error) {
+        await session.release();
+        throw error;
+      }
+      this.session = session;
       // Detect if model has policy output
       this.hasPolicy = this.session.outputNames.includes('policy');
       return true;
@@ -93,7 +110,7 @@ export class ValueNetwork {
 // Backward-compatible module-level API (delegates to a default instance)
 const _default = new ValueNetwork();
 
-export async function loadValueNetwork(modelPath = '/models/yinsh-value-v1.onnx') {
+export async function loadValueNetwork(modelPath = `${process.env.PUBLIC_URL || ''}/models/yinsh-value-v1.onnx`) {
   if (_default.isLoaded()) return true;
   return _default.load(modelPath);
 }

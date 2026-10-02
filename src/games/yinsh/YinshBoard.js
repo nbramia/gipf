@@ -156,6 +156,8 @@ export default class YinshBoard {
    * Static method to create a new board instance from serialized data
    */
   static fromSerializedState(serialized) {
+    // A restored board owns its mutable state, including pending resolution.
+    serialized = JSON.parse(JSON.stringify(serialized));
     const board = new YinshBoard({
       initialBoardState: serialized.boardState,
       initialPhase: serialized.gamePhase,
@@ -448,10 +450,18 @@ export default class YinshBoard {
    * This implements the iterative row resolution system
    */
   _startNextRowResolution() {
+    // Rows are choices derived from the live position, never deferred actions.
+    // Rebuild in mover-first order after each row/ring pair.
+    const liveRows = this.checkForRows();
+    const nextPlayer = this.nextTurnPlayer ?? (3 - this.currentPlayer);
+    this.rowResolutionQueue = [3 - nextPlayer, nextPlayer]
+      .map(player => ({ player, rows: liveRows.filter(row => row.player === player) }))
+      .filter(entry => entry.rows.length > 0);
+    this.pendingRowsAfterRingRemoval = false;
     if (this.rowResolutionQueue.length === 0) {
       // All rows resolved, return to play phase
       this.gamePhase = 'play';
-      this.currentPlayer = this.nextTurnPlayer;
+      this.currentPlayer = nextPlayer;
       this.nextTurnPlayer = null;
       this.rows = [];
       return;
@@ -462,6 +472,33 @@ export default class YinshBoard {
     this.currentPlayer = player;
     this.rows = rows;
     this.gamePhase = 'remove-row';
+  }
+
+  /** Remove exactly one currently legal five-marker row, then its scoring ring. */
+  removeRow(markers) {
+    if (this.gamePhase !== 'remove-row' || !Array.isArray(markers) ||
+        markers.length !== YinshBoard.MARKERS_IN_ROW ||
+        !markers.every(pos => Array.isArray(pos) && pos.length === 2 && pos.every(Number.isInteger))) {
+      return false;
+    }
+    const rowKey = points => points.map(([q, r]) => this._toKey(q, r)).sort().join('|');
+    const requestedKey = rowKey(markers);
+    const row = this.checkForRows().find(candidate =>
+      candidate.player === this.currentPlayer && rowKey(candidate.markers) === requestedKey);
+    if (!row) return false;
+
+    this.removeMarkers(row.markers);
+    this.rows = [];
+    this.rowResolutionQueue = [];
+    const notation = this.notation.recordRowRemoval(this.currentPlayer, row.markers);
+    if (this.enableLogging) {
+      const playerSymbol = this.currentPlayer === 1 ? '○' : '●';
+      console.log(`${this.notation.currentMoveNumber}. ${playerSymbol} ${notation}`);
+    }
+    this.pendingRowsAfterRingRemoval = true;
+    this.gamePhase = 'remove-ring';
+    this._captureState();
+    return true;
   }
 
   /**
@@ -703,56 +740,11 @@ export default class YinshBoard {
     }
 
     if (this.gamePhase === 'remove-row') {
-      // Find the row being removed
-      const row = this.rows.find(row => {
-        if (row.markers.length === YinshBoard.MARKERS_IN_ROW) {
-          return row.markers.some(([mq, mr]) => mq === q && mr === r);
-        } else {
-          const firstMarker = row.markers[0];
-          const lastMarker = row.markers[row.markers.length - 1];
-          return (q === firstMarker[0] && r === firstMarker[1]) ||
-                 (q === lastMarker[0] && r === lastMarker[1]);
-        }
-      });
-      if (!row) return;
-
-      // Remove the markers
-      const newState = { ...this.boardState };
-      row.markers.forEach(([markerQ, markerR]) => {
-        delete newState[this._toKey(markerQ, markerR)];
-      });
-      this.boardState = newState;
-      this.rows = [];
-
-      // Log the row removal
-      const notation = this.notation.recordRowRemoval(this.currentPlayer, row.markers);
-      if (this.enableLogging) {
-        const playerSymbol = this.currentPlayer === 1 ? '○' : '●';
-        console.log(`${this.notation.currentMoveNumber}. ${playerSymbol} ${notation}`);
-      }
-
-      // Check for NEW rows created by marker removal for current player
-      const newRows = this.checkForRows();
-      const currentPlayerNewRows = newRows.filter(r => r.player === this.currentPlayer);
-
-      if (currentPlayerNewRows.length > 0) {
-        // New rows appeared! Add to FRONT of queue for immediate resolution
-        this.rowResolutionQueue.unshift({
-          player: this.currentPlayer,
-          rows: currentPlayerNewRows
-        });
-        this._startNextRowResolution();
-        // Capture state for undo
-        this._captureState();
-        return;
-      }
-
-      // No new rows, proceed to ring removal
-      this.pendingRowsAfterRingRemoval = true;
-      this.gamePhase = 'remove-ring';
-
-      // Capture state for undo
-      this._captureState();
+      // Preserve click selection while validating against current markers.
+      const row = this.checkForRows().find(candidate =>
+        candidate.player === this.currentPlayer &&
+        candidate.markers.some(([mq, mr]) => mq === q && mr === r));
+      if (row) this.removeRow(row.markers);
       return;
     }
 
@@ -785,35 +777,16 @@ export default class YinshBoard {
       if (gameWon) {
         this.gamePhase = 'game-over';
         this.winner = this.currentPlayer;
+        this.rows = [];
+        this.rowResolutionQueue = [];
+        this.pendingRowsAfterRingRemoval = false;
+        this.nextTurnPlayer = null;
         // Capture final state for undo
         this._captureState();
         return;
       }
 
-      // Check for NEW rows created by ring removal
-      const newRows = this.checkForRows();
-      const currentPlayerNewRows = newRows.filter(r => r.player === this.currentPlayer);
-
-      if (currentPlayerNewRows.length > 0) {
-        // New rows appeared after ring removal! Add to FRONT of queue
-        this.rowResolutionQueue.unshift({
-          player: this.currentPlayer,
-          rows: currentPlayerNewRows
-        });
-        this.pendingRowsAfterRingRemoval = false;
-        this._startNextRowResolution();
-        // Capture state for undo
-        this._captureState();
-        return;
-      }
-
-      // Remove the completed queue item
-      if (this.pendingRowsAfterRingRemoval && this.rowResolutionQueue.length > 0) {
-        this.rowResolutionQueue.shift();
-        this.pendingRowsAfterRingRemoval = false;
-      }
-
-      // Continue processing queue or return to play
+      // Recompute remaining rows only after scoring this row's ring.
       this._startNextRowResolution();
 
       // Capture state for undo
@@ -872,7 +845,7 @@ export default class YinshBoard {
     const boardString = grid.map(row => row.join('')).join('');
     
     // Append current player and scores to make state unique
-    return `${boardString}|p${this.currentPlayer}|s${this.scores[1]}${this.scores[2]}|${this.gamePhase}`;
+    return `${boardString}|p${this.currentPlayer}|s${this.scores[1]}${this.scores[2]}|${this.gamePhase}|next${this.nextTurnPlayer}|placed${this.ringsPlaced[1]},${this.ringsPlaced[2]}`;
   }
 
   getWinner() {

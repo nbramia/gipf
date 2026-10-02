@@ -20,6 +20,10 @@
 set -e
 
 NEXT=$1
+if ! [[ "$NEXT" =~ ^[0-9]+$ ]] || [ "$NEXT" -le 1 ]; then
+  echo "ERROR: candidate version must be greater than 1 (v1 is the deployed pointer)"
+  exit 1
+fi
 GAMES=${2:-50}
 SIMS=${3:-200}
 VENV=training/.venv/bin/python3
@@ -135,14 +139,8 @@ $VENV training/export_onnx.py \
   --checkpoint training/v${NEXT}.pt \
   --output public/models/yinsh-value-v${NEXT}.onnx
 
-# Verify ONNX files
-for f in "public/models/yinsh-value-v${NEXT}.onnx" "public/models/yinsh-value-v${NEXT}.onnx.data"; do
-  FILE_TYPE=$(file -b "$f")
-  if echo "$FILE_TYPE" | grep -qi "empty"; then
-    echo "ERROR: ONNX file corrupted: $f"
-    exit 1
-  fi
-done
+# Validate embedded or external-weight ONNX bundles before the gate.
+$VENV scripts/verify-model.py "public/models/yinsh-value-v${NEXT}.onnx"
 
 # 5. Tournament: new vs deployed (20 games)
 echo ""
@@ -161,14 +159,12 @@ echo ""
 echo "═══════════════════════════════════════════════════════════"
 if [ $TOURNAMENT_EXIT -eq 0 ]; then
   echo "  v${NEXT} WINS! Promoting as deployed model."
-  cp public/models/yinsh-value-v${NEXT}.onnx public/models/yinsh-value-v1.onnx
-  cp public/models/yinsh-value-v${NEXT}.onnx.data public/models/yinsh-value-v1.onnx.data
-  # Verify deployment
-  FILE_TYPE=$(file -b "public/models/yinsh-value-v1.onnx.data")
-  echo "  Deployed: yinsh-value-v1.onnx = v${NEXT} (verified: ${FILE_TYPE})"
+  $VENV scripts/verify-model.py "public/models/yinsh-value-v${NEXT}.onnx" \
+    --destination public/models/yinsh-value-v1.onnx
+  echo "  Deployed: yinsh-value-v1.onnx = v${NEXT} (verified embedded weights)"
   echo ""
   echo "  Next steps:"
-  echo "    git add public/models/yinsh-value-v1.onnx public/models/yinsh-value-v1.onnx.data"
+  echo "    git add public/models/yinsh-value-v1.onnx"
   echo "    git commit -m 'feat: deploy v${NEXT} model'"
   echo "    git push origin HEAD:main"
 elif [ $TOURNAMENT_EXIT -eq 2 ]; then

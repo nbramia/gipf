@@ -395,7 +395,7 @@ describe('YinshBoard - Remove Markers and Rings', () => {
 });
 
 describe('YinshBoard - Edge Cases & Row Resolution', () => {
-  test('multiple rows for same player - resolves all rows before ring removal', () => {
+  test('multiple rows for same player - scores one ring after each row', () => {
     const board = createEmptyBoard();
     board.gamePhase = 'play';
     board.currentPlayer = 1;
@@ -427,8 +427,9 @@ describe('YinshBoard - Edge Cases & Row Resolution', () => {
     // Remove first row by clicking a marker
     board.handleClick(0, 0);
 
-    // After removing first row, second row is detected and must be resolved
-    // So we stay in remove-row phase for the second row
+    expect(board.gamePhase).toBe('remove-ring');
+    board.handleClick(-1, -1);
+    expect(board.scores[1]).toBe(1);
     expect(board.gamePhase).toBe('remove-row');
 
     // Remove second row
@@ -436,6 +437,12 @@ describe('YinshBoard - Edge Cases & Row Resolution', () => {
 
     // NOW we should be in remove-ring phase
     expect(board.gamePhase).toBe('remove-ring');
+    board.handleClick(-2, -2);
+    expect(board.scores[1]).toBe(2);
+    expect(board.gamePhase).toBe('play');
+    expect(board.currentPlayer).toBe(2);
+    expect(board.rows).toEqual([]);
+    expect(board.rowResolutionQueue).toEqual([]);
   });
 
   test('both players have rows - active player resolves first', () => {
