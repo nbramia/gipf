@@ -45,18 +45,35 @@ GIPF Project is a multi-game React application hosting browser-based implementat
 
 ### Where this deploys
 
-Two places, from the same build. Its own Vercel project at `gipf.vercel.app`, and
+The cross-repo picture (hosts, stores, gates, migration and rollback) is the canonical
+[ramia system map](https://github.com/nbramia/ramia/blob/main/docs/system-map.md).
+
+The `gipf` Vercel project serves two places from one build: its own alias `gipf.vercel.app`, and
 `ramia.us/gipf` — a subpath of a shared domain, reached by a rewrite from the
 [`nbramia/ramia`](https://github.com/nbramia/ramia) shell. The rewrite targets this
 project's production alias, so a push here goes live in both without touching that repo.
 
-A second Vercel project, `play`, builds the same `main` with `PUBLIC_URL=/` (a project
-environment variable) and serves the public catalogue at `play.ramia.us`. It has no
-`SITE_PASSWORD`, so `middleware.js` falls through and that origin is ungated; the
-`gipf` project keeps its password and stays the gated migration/export origin. Both
-projects connect the same Upstash store, so one account works on either origin.
-Never add `SITE_PASSWORD` to `play` or remove it from `gipf` without deciding that
-out loud.
+A second Vercel project, `play`, builds the same repository for the URL root (its
+`PUBLIC_URL` comes from a project setting this repo cannot show) and serves the ungated public catalogue at `play.ramia.us`.
+It has no `SITE_PASSWORD`, so `middleware.js` falls through and that origin is open. The
+`gipf` project keeps `SITE_PASSWORD` and is the gated origin (and the migration/export
+source for existing browser data). Never add `SITE_PASSWORD` to `play` or remove it from
+`gipf` without deciding that out loud.
+
+The projects do not share a store. `play` reads the Upstash Redis REST store named by its
+`KV_REST_API_URL`/`KV_REST_API_TOKEN` variables (the `UPSTASH_REDIS_REST_*` aliases also
+work; see `server/publicSecurity.js`); `gipf` needs its own such variables for accounts to
+function and otherwise returns 503 from the account/profile endpoints. Accounts are
+therefore per-store, not per-origin. Which branch each project deploys is a project
+setting, not something this repo encodes: check the Vercel dashboard before assuming a
+push to `main` reaches `play`.
+
+`public/tiles.json` is generated from `homepage`, not `PUBLIC_URL`, so every build, including
+`play`'s, emits `/gipf`-prefixed hrefs. Those resolve correctly only under `ramia.us/gipf`. Home
+(`nbramia/ramia` `apps/home/src/registry.js`) reads `https://play.ramia.us/tiles.json` and
+resolves each href against that origin, so its Games links point at `play.ramia.us/gipf/<game>`,
+which no route matches when `play` is built for the root (`src/App.jsx` has no catch-all, so
+the page renders empty). Not yet checked in a browser.
 
 **The app therefore does not own the URL root, and code must not assume it does.**
 
@@ -256,18 +273,18 @@ between game directories. The account module retains its per-consumer copies.
 | `api/chessCoach.js` | Vercel serverless coach (Claude API, **bring-your-own key**, no server fallback) |
 | `api/chessRating.js` | Retired legacy endpoint; returns 410. Claim old cloud data through authenticated `chessProfile` |
 | `api/chessProfile.js` | Authenticated, revisioned Chess profile and separate four-game settings scope; bounded one-owner legacy claims. See `docs/public-accounts.md` |
-| `api/chessAccount.js` | Vercel serverless account store (username+password); Vercel KV keyed by a SHA-256 username hash, auth token stored only as its hash, API key and Lichess explorer token stored only as client-encrypted ciphertext |
+| `api/chessAccount.js` | Vercel serverless account store (username+password); Redis REST store (Upstash) keyed by a SHA-256 username hash, auth token stored only as its hash, API key and Lichess explorer token stored only as client-encrypted ciphertext |
 
 See [docs/chess.md](docs/chess.md) for the engine + coaching pipeline and the BYO-key security model.
 
 **Rated mode** (`chessRated`/`chessRating`/`chessRatedGames`): a single Elo that
 updates from wins/losses/draws vs a matched `RATING_LADDER` rung. Undo/flip/coach/eval
-are locked out while rated. Cross-device sync via `api/chessRating.js` (superseded for
-new syncs by the unified profile endpoint `api/chessProfile.js`, which also carries
-opponent history and puzzle/mistake progress) is OPTIONAL and requires a Vercel KV
-store linked to the project (injects `KV_REST_API_URL` + `KV_REST_API_TOKEN`); without
-it, ratings persist in localStorage only. A username+password account (`api/chessAccount.js`,
-`engine/account.js`) now also carries the API key + Lichess explorer token + profile across
+are locked out while rated. Cross-device sync goes through the authenticated profile
+endpoint `api/chessProfile.js` (rating, opponent history, puzzle/mistake progress); the
+old `api/chessRating.js` returns 410. Sync needs a Redis REST store
+(`KV_REST_API_URL` + `KV_REST_API_TOKEN`, or the `UPSTASH_REDIS_REST_*` aliases);
+without it the endpoints return 503 and ratings persist in localStorage only. A
+username+password account (`api/chessAccount.js`, `engine/account.js`) also carries the API key + Lichess explorer token + profile across
 devices using usernameId plus a verified password-derived auth token. Public IDs
 never authorize persistence. See [docs/public-accounts.md](docs/public-accounts.md).
 
@@ -359,6 +376,7 @@ See [docs/diplomacy.md](docs/diplomacy.md) for rule coverage and AI/agents detai
 /catan      -> CatanGame (lazy-loaded chunk)
 /splendor   -> SplendorGame (lazy-loaded chunk)
 /diplomacy  -> DiplomacyGame (lazy-loaded chunk)
+/migration  -> GamesMigration (outside the account boundary; local export/stage, authenticated activation)
 ```
 
 `React.lazy()` with `<Suspense>` ensures code splitting. Visiting `/zertz` does NOT load the yinsh MCTS engine bundle. The `vercel.json` catch-all rewrite ensures direct URL access works.
@@ -532,9 +550,9 @@ Vercel auto-deploys on push to `main`. There is no CI gate -- **you are the gate
 git push origin main          # Deploy (only after all checks pass)
 ```
 
-Production URL: https://gipf.vercel.app
+Production URLs: https://gipf.vercel.app (gated, `/gipf` prefix) and https://play.ramia.us (ungated, root).
 
-CORS origins for the Yinsh AI API are in `api/aiMove.js` (two lists -- main handler and error handler). Update both if adding a new domain. The Diplomacy agent endpoint `api/diplomacyAgent.js` keeps its own `ALLOWED_ORIGINS` list (single `applyCors` helper, reused in the error handler) -- update it too.
+Each serverless endpoint keeps its own `ALLOWED_ORIGINS` list (`api/aiMove.js`, `zertzAiMove.js`, `chessCoach.js`, `catanRules.js`, `splendorRules.js`, `diplomacyAgent.js`); update the relevant file when adding a cross-origin caller. The browser only needs a CORS entry for cross-origin calls; same-origin calls (`play.ramia.us` to its own `/api`) work without one, and no `ALLOWED_ORIGINS` list includes `play.ramia.us`.
 
 ---
 

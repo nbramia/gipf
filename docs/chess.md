@@ -232,13 +232,12 @@ tier:
   below Stockfish's ~1320 Elo floor are reached by sampling a weaker move
   from the full-strength MultiPV lines rather than by limiting engine
   strength, so evals stay honest even against the weakest rungs.
-- **Cross-device sync (optional):** rating is one of four domains synced by
+- **Cross-device sync (account-only):** rating is one of four domains synced by
   `engine/profileSync.js` -- see "Player profile & cross-device sync" below.
-  The id is the SHA-256 hash of the player's Anthropic API key (namespaced
-  before hashing), the same id `ratingSync.js` used, so a rating already
-  synced under the old endpoint carries over unchanged. `api/chessProfile.js`
-  mirrors every rating write to the legacy `chess:rating:{id}` key, so a
-  client still calling `api/chessRating.js` directly stays coherent.
+  Reads and writes are authenticated with a username+password account; a
+  key-hash or other public identifier never authorizes access. The retired
+  `api/chessRating.js` returns 410, and old key-hash records are claimed into an
+  account through `api/chessProfile.js` (see `docs/public-accounts.md`).
 
 ## Player profile & cross-device sync
 
@@ -253,8 +252,8 @@ puzzle progress lives in `chessPuzzleProgress`, managed by
 `chessMistakes` library.
 
 `engine/profileSync.js` syncs all four as one profile -- rating, history,
-puzzles, mistakes -- against `api/chessProfile.js`, under the same opaque
-key-hash id as rated-mode sync. On load it fetches the remote profile,
+puzzles, mistakes -- against `api/chessProfile.js`, authenticated by the
+signed-in account's `u` and `auth` fields. On load it fetches the remote profile,
 merges it with the local one, and writes the merged result back both
 locally and remotely; pushes also happen at game end, on a puzzle result,
 and after a rated result. Merges are pure and conflict-free: rating reuses
@@ -267,20 +266,17 @@ rescheduled the puzzle more recently; mistakes union by position
 (`fenBefore`), keeping whichever entry has more attempts or is due further
 out, then re-applying the 200-entry cap.
 
-Like rated-mode sync, this is entirely optional: without a configured Vercel
-KV store the endpoint replies `{configured: false}` and every helper no-ops
-back to local-only, and without a BYO API key there's no id to sync under at
-all -- everything just works from localStorage as it always has. Signed into
-an account (see "Accounts" below), the profile id is the account's
-password-derived id instead of the key hash.
+Sync is optional for the player: without an account, everything works from
+localStorage as it always has. The server side needs a Redis REST store
+(`KV_REST_API_URL`/`KV_REST_API_TOKEN` or the `UPSTASH_REDIS_REST_*` aliases); when
+the store is missing or unreachable the endpoints return 503 and the client stays
+local-only.
 
 ## Accounts (username + password)
 
-On top of the key-hash sync above, Chess also offers a lightweight
-username+password account, so a player can sign in once per machine instead
-of re-pasting an Anthropic API key everywhere. It's the same profile sync
-underneath -- an account just gives it a memorable id and lets it carry the
-API key too.
+Chess offers a lightweight username+password account, so a player can sign
+in once per machine instead of re-pasting an Anthropic API key everywhere. The
+account authorizes the profile sync above and carries the API key too.
 
 Every secret is derived client-side from the password
 (`engine/account.js#deriveCredentials`: PBKDF2-SHA256, 310k iterations, salt

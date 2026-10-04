@@ -306,4 +306,4 @@ node scripts/self-play.mjs --games 10 --sims 100
 | `App.jsx` | All routes still work, build succeeds |
 | `LandingPage.jsx` | Visual check in browser |
 | `index.css` | Both games still render correctly |
-| `api/aiMove.js` | CORS origins (TWO lists -- main handler and error handler) |
+| `api/aiMove.js` | CORS origins (`ALLOWED_ORIGINS`; each endpoint keeps its own list) |

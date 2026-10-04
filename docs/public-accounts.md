@@ -1,5 +1,12 @@
 # Public account boundary (PR4)
 
+> Caveat (2026-10-04): This record predates hosting. The ungated `play` project
+> (`play.ramia.us`) serves the integrated build on a new Upstash store restored from
+> backup; the gated `gipf` project (`gipf.vercel.app`, `ramia.us/gipf`) still serves the
+> pre-integration build. Its project environment has no `KV_*` variables, while that
+> existing deployment keeps build-time bindings to the original store, which the provider
+> deleted. The gates and checklists below are as originally written and are not evidence of hosted state.
+
 This change keeps the outer gate, routes, deployment prefix, engines, and models
 unchanged. Do not open public access until the integration and deployment checks
 below pass. Related to https://github.com/nbramia/ramia/issues/22.
