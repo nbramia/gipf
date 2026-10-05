@@ -19,7 +19,7 @@ const FORBIDDEN = [
   [/\b(deriveCredentials|createAccount|loginAccount|saveSession|clearSession|pushEncryptedKey)\b/, 'an account write'],
   [/\bsetApiKey\s*\(\s*[^)]/, 'a key write'],
   [/\bsetLichessToken\s*\(/, 'a Lichess token write'],
-  [/Manage it on the home page|Synced to your API key/, 'stale account copy'],
+  [/Manage it on the home page|Synced to your API key|key in (the )?(Settings|Negotiation panel)|paste it under Settings/, 'stale account copy'],
 ];
 
 test.each(FORBIDDEN)('no game UI source contains %s (%s)', (pattern) => {
