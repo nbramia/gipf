@@ -253,12 +253,13 @@ test('real iteration returns coordinate moves and full removal rows (bounded sim
   }
 });
 
-test('OPTIONS, unsupported methods, and CORS allowlist remain unchanged', async () => {
+test('OPTIONS, unsupported methods, and CORS allowlist; no credentialed CORS', async () => {
   const handler = await freshHandler();
   const options = await request(handler, null, 'OPTIONS');
   assert.equal(options.code, 200); assert.equal(options.ended, true);
   assert.equal(options.headers['Access-Control-Allow-Origin'], 'https://gipf.vercel.app');
-  assert.equal(options.headers['Access-Control-Allow-Credentials'], true);
+  // The Yinsh proxy is stateless, so cross-origin callers never get to send cookies.
+  assert.equal(options.headers['Access-Control-Allow-Credentials'], undefined);
   for (const method of ['GET', 'PUT', 'PATCH', 'DELETE']) {
     const res = await request(handler, null, method, 'https://untrusted.example');
     assert.equal(res.code, 405);

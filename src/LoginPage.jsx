@@ -22,7 +22,9 @@ import { games } from './games-registry.js';
 import { safeReturn } from './loginReturn.js';
 import './landing.css';
 
-export const MIN_NEW_PASSWORD = 6;
+// New accounts only: the server never sees a password, so this is enforced here, and
+// existing accounts with shorter passwords keep signing in.
+export const MIN_NEW_PASSWORD = 10;
 
 // The retired gated hosts never carried accounts of their own; sign-in lives on play.ramia.us.
 const LEGACY_HOSTS = ['gipf.vercel.app', 'ramia.us', 'www.ramia.us'];

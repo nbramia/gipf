@@ -216,3 +216,28 @@ test('an ended session explains itself once', () => {
   expect(screen.getByRole('status')).toHaveTextContent('Your session ended.');
   expect(sessionStorage.getItem('gipf:session-expired')).toBeNull();
 });
+
+test('new accounts need at least 10 characters; existing short passwords still sign in', async () => {
+  mount();
+  fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'Synthetic player' } });
+  fireEvent.change(screen.getByLabelText('Password'), { target: { value: '123456789' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create account', exact: true }));
+  fireEvent.change(screen.getByLabelText('Confirm password'), { target: { value: '123456789' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create account', exact: true }));
+  expect(screen.getByRole('alert')).toHaveTextContent('Password must be at least 10 characters.');
+  expect(account.deriveCredentials).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText('Password'), { target: { value: '1234567890' } });
+  fireEvent.change(screen.getByLabelText('Confirm password'), { target: { value: '1234567890' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Create account', exact: true }));
+  await waitFor(() => expect(account.createAccount).toHaveBeenCalledTimes(1));
+  expect(account.deriveCredentials).toHaveBeenCalledWith('Synthetic player', '1234567890');
+});
+
+test('an existing account with a short password still signs in', async () => {
+  mount();
+  fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'Synthetic player' } });
+  fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'short' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Sign in', exact: true }));
+  await waitFor(() => expect(account.startServerSession).toHaveBeenCalledWith(creds));
+  expect(account.deriveCredentials).toHaveBeenCalledWith('Synthetic player', 'short');
+});
