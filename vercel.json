@@ -2,7 +2,7 @@
   "rewrites": [
     { "source": "/api/auth/:action", "destination": "/api/auth?action=:action" },
     { "source": "/api/:path*", "destination": "/api/:path*" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "functions": {
     "api/chessAccount.js": {
