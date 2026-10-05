@@ -17,7 +17,7 @@ self.onmessage = async function(e) {
       const board = YinshBoard.fromSerializedState(data.boardState);
 
       const evaluationMode = data.evaluationMode || 'heuristic';
-      const modelPath = data.modelPath || `${process.env.PUBLIC_URL || ''}/models/yinsh-value-v1.onnx`;
+      const modelPath = data.modelPath || '/models/yinsh-value-v1.onnx';
       let valueNetwork = null;
 
       // Load value network on first NN-mode request (cached per model path)

@@ -31,19 +31,16 @@ test('value-only legacy models still load without policy output', async () => {
   expect(await network.load()).toBe(true);
   expect(network.hasPolicy).toBe(false);
 });
-test.each(['', '/gipf'])('loads and runs the model under PUBLIC_URL=%s', async prefix => {
-  const previous = process.env.PUBLIC_URL;
-  process.env.PUBLIC_URL = prefix;
+test('loads and runs the model from the root models path', async () => {
   const network = new ValueNetwork();
   expect(await network.load()).toBe(true);
-  expect(ort.InferenceSession.create).toHaveBeenCalledWith(`${prefix}/models/yinsh-value-v1.onnx`, { executionProviders: ['wasm'] });
+  expect(ort.InferenceSession.create).toHaveBeenCalledWith(`/models/yinsh-value-v1.onnx`, { executionProviders: ['wasm'] });
   expect(ort.env.wasm.numThreads).toBe(1);
   expect(await network.evaluatePosition(new Board())).toBe(0.25);
   expect(await network.evaluatePositionWithPolicy(new Board())).toEqual({ value: 0.25, policy: [0.1, 0.9] });
   const feeds = session.run.mock.calls[1][0];
   expect(feeds.board_planes.dims).toEqual([1, 4, 11, 11]);
   expect(feeds.meta.dims).toEqual([1, 5]);
-  process.env.PUBLIC_URL = previous;
 });
 test('failed fetch is retryable and never marks a network loaded', async () => {
   ort.InferenceSession.create.mockRejectedValueOnce(new Error('404'));

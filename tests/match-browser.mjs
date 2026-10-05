@@ -7,7 +7,7 @@ import ChessBoard from '../src/games/chess/ChessBoard.js';
 import YinshBoard from '../src/games/yinsh/YinshBoard.js';
 import ZertzBoard from '../src/games/zertz/ZertzBoard.js';
 import CatanBoard from '../src/games/catan/CatanBoard.js';
-const origin = 'http://127.0.0.1:3189';
+const origin = `http://127.0.0.1:${process.env.GIPF_TEST_PORT || 3189}`;
 const boards = { chess: new ChessBoard(), yinsh: new YinshBoard(), zertz: new ZertzBoard(), catan: new CatanBoard({ seed: 1234 }) };
 boards.chess.move('e2','e4'); boards.chess.move('e7','e5');
 boards.yinsh.handleClick(0,0);
@@ -26,15 +26,15 @@ async function device() {
   await context.route('https://**/*', route => route.abort());
   const page = await context.newPage();
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto(`${origin}/gipf/`);
+  await page.goto(`${origin}/`);
   return page;
 }
 // Sign `page` in as identity `label` with data id `u`, through the real /login completion.
 async function signIn(page, label, u, { importGuest = false, returnTo = '/' } = {}) {
   await page.context().addCookies([{ name: 'fixture-identity', value: `${label}:${u}`, url: origin }]);
   if (importGuest) await page.evaluate(() => sessionStorage.setItem('gipf:import-guest', '1'));
-  await page.goto(`${origin}/gipf/api/auth/login?return=${encodeURIComponent(returnTo)}`);
-  await page.waitForFunction(id => JSON.parse(localStorage.getItem('gipfAccount') || 'null')?.usernameId === id && location.pathname !== '/gipf/login', u);
+  await page.goto(`${origin}/api/auth/login?return=${encodeURIComponent(returnTo)}`);
+  await page.waitForFunction(id => JSON.parse(localStorage.getItem('gipfAccount') || 'null')?.usernameId === id && location.pathname !== '/login', u);
 }
 // Playwright's request client does not send a Secure cookie over plain http, so the
 // session cookie is passed explicitly.
@@ -55,7 +55,7 @@ try {
       localStorage.setItem(`${game}Match:v1`,JSON.stringify(snapshot));
       if(game==='chess') localStorage.setItem('chessGameLog',JSON.stringify([{playedAt:1,result:'win',color:'w',rated:false,opponentKey:'synthetic',accuracy:90,counts:{blunder:0,mistake:1,inaccuracy:2},opening:null,eco:null,leftBookAtPly:null,moves:20}]));
     }, {game,snapshot});
-    await a.goto(`${origin}/gipf/${game}`);
+    await a.goto(`${origin}/${game}`);
     await a.locator(`.game-${game}`).waitFor();
     await a.reload(); await a.locator(`.game-${game}`).waitFor();
     assert.deepEqual((await getSnapshot(a,game)).state,JSON.parse(JSON.stringify(snapshot.state)));
@@ -70,7 +70,7 @@ try {
       assert.ok(expectedLog);
       let synced=false;
       for(let attempt=0;attempt<20;attempt++) {
-        const response=await a.request.post(`${origin}/gipf/api/chessProfile`,{data:{scope:'settings',action:'read'},headers:await apiHeaders(a)});
+        const response=await a.request.post(`${origin}/api/chessProfile`,{data:{scope:'settings',action:'read'},headers:await apiHeaders(a)});
         const data=await response.json();
         if(data.profile?.preferences?.chessGameLog===expectedLog) { synced=true; break; }
         await new Promise(resolve=>setTimeout(resolve,1000));
@@ -117,7 +117,7 @@ try {
   // Unsupported snapshots are preserved until an explicit recovery action.
   const invalid = await device();
   await invalid.evaluate(() => localStorage.setItem('yinshMatch:v1','{"v":99,"future":true}'));
-  await invalid.goto(`${origin}/gipf/yinsh`);
+  await invalid.goto(`${origin}/yinsh`);
   await invalid.getByText('Keep backup and start new game',{exact:true}).waitFor();
   assert.equal(await invalid.evaluate(()=>localStorage.getItem('yinshMatch:v1')),'{"v":99,"future":true}');
   await invalid.getByText('Keep backup and start new game',{exact:true}).click();
@@ -131,7 +131,7 @@ try {
     const original=Storage.prototype.setItem;
     Storage.prototype.setItem=function(key,value) { if(key==='zertzMatch:v1') throw new DOMException('Synthetic quota','QuotaExceededError'); return original.call(this,key,value); };
   });
-  await quota.goto(`${origin}/gipf/zertz`);
+  await quota.goto(`${origin}/zertz`);
   await quota.getByText('Save failed on this device. Keep this page open and free storage before retrying.',{exact:true}).waitFor();
   await quota.locator('.game-zertz').waitFor();
   console.log('PASS quota failure: visible error and local play stays mounted');
@@ -140,9 +140,9 @@ try {
   // Two tabs on one device: a session change invalidates the old game before
   // any delayed callback can treat the replacement identity as its owner.
   const tabs = await device();
-  await tabs.goto(`${origin}/gipf/yinsh`); await tabs.locator('.game-yinsh').waitFor();
+  await tabs.goto(`${origin}/yinsh`); await tabs.locator('.game-yinsh').waitFor();
   const secondTab = await tabs.context().newPage();
-  await secondTab.goto(`${origin}/gipf/`);
+  await secondTab.goto(`${origin}/`);
   await secondTab.evaluate(() => {
     localStorage.setItem('gipf:account-transition',JSON.stringify({id:'synthetic-switch',until:Date.now()+60000}));
   });
@@ -159,7 +159,7 @@ try {
   await shared.locator('.game-yinsh').waitFor();
   await shared.getByText('Saved to your account.',{exact:true}).waitFor({timeout:20000});
   const originalId=(await getSnapshot(shared,'yinsh')).id;
-  const login=await shared.context().newPage(); await login.goto(`${origin}/gipf/login`);
+  const login=await shared.context().newPage(); await login.goto(`${origin}/login`);
   await login.getByRole('button',{name:'Sign out',exact:true}).click();
   await login.getByRole('button',{name:'Sign out',exact:true}).click();
   await login.getByText('Signed out of Games.').waitFor();

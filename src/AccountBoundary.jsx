@@ -1,6 +1,6 @@
 import { captureFence } from './accountFence.js';
 import React, { useEffect, useState, useCallback } from 'react';
-import { loadSession, retainProgress, REQUEST_HEADERS, credentialFields } from './account.js';
+import { loadSession, retainProgress, REQUEST_HEADERS } from './account.js';
 
 // Preferences plus existing Yinsh scores and Chess finished-game statistics.
 export const SETTING_KEYS = ['chessGameLog','chessTimeControl','chessPuzzleShowTheme','yinshDifficulty','yinshTwoPlayer','zertzDifficulty','zertzTwoPlayer','chessDarkMode','chessShowMoves','chessDifficulty','chessLearningGoal','chessShowEvalBar','chessSound','chessRated','yinshDarkMode','yinshShowMoves','yinshRandomSetup','yinshKeepScore','yinshWins','yinshShowMoveHistory','yinshEvaluationMode','zertzDarkMode','zertzShowMoves','catanDarkMode','catanShowMoves','catanDifficulty','catanRulesetId','catanPlayerCount','catanScenarioId'];
@@ -41,9 +41,9 @@ export default function AccountBoundary({ children }) {
     const request = async (action, extra = {}) => {
       assertStatsOwner();
       if (loadSession()?.sid !== session.sid) throw new Error('account_changed');
-      const response = await fetch(`${process.env.PUBLIC_URL || ''}/api/chessProfile`, {
+      const response = await fetch('/api/chessProfile', {
         method: 'POST', headers: REQUEST_HEADERS,
-        body: JSON.stringify({ u: session.usernameId, ...credentialFields(session), scope: 'settings', action, ...extra }),
+        body: JSON.stringify({ u: session.usernameId, scope: 'settings', action, ...extra }),
         signal: AbortSignal.timeout(10000),
       });
       const data = await response.json();

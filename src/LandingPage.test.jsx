@@ -10,9 +10,9 @@ import LandingPage from './LandingPage';
 import AccountBoundary from './AccountBoundary';
 import { games } from './games-registry';
 
-function renderLanding({ basename } = {}) {
+function renderLanding() {
   return render(
-    <MemoryRouter basename={basename} initialEntries={[basename ? `${basename}/` : '/']}>
+    <MemoryRouter initialEntries={['/']}>
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<p>Login page</p>} />
@@ -23,9 +23,9 @@ function renderLanding({ basename } = {}) {
 
 beforeEach(() => localStorage.clear());
 
-test('renders every registry game under the base path, before the optional account link', () => {
-  renderLanding({ basename: '/gipf' });
-  for (const game of games) expect(screen.getByRole('link', { name: `Play ${game.name}` })).toHaveAttribute('href', `/gipf${game.path}`);
+test('renders every registry game at its root route, before the optional account link', () => {
+  renderLanding();
+  for (const game of games) expect(screen.getByRole('link', { name: `Play ${game.name}` })).toHaveAttribute('href', game.path);
   const catalogue = screen.getByRole('navigation', { name: 'Choose a game' });
   const optional = screen.getByRole('region', { name: 'Your account' });
   expect(catalogue.compareDocumentPosition(optional) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -41,7 +41,7 @@ test('signed out, offers a single Sign in link to /login and no credential input
 
 test('signed in, names the account and links to account and keys', () => {
   localStorage.setItem('gipfAccount', JSON.stringify({
-    v: 1, username: 'Synthetic', usernameId: 'a'.repeat(64), authToken: 'b'.repeat(64), aesKey: 'x', profileId: 'c'.repeat(64),
+    v: 3, username: 'Synthetic', usernameId: 'a'.repeat(64), sid: 'b'.repeat(32),
   }));
   renderLanding();
   expect(screen.getByText('Signed in as Synthetic')).toBeInTheDocument();
@@ -93,7 +93,7 @@ describe('automatic sign-in from the ramia.us session', () => {
     unmount();
     localStorage.removeItem('gipf:silent-sign-in-off');
     localStorage.setItem('gipfAccount', JSON.stringify({
-      v: 1, username: 'Synthetic', usernameId: 'a'.repeat(64), authToken: 'b'.repeat(64), aesKey: 'x', profileId: 'c'.repeat(64),
+      v: 3, username: 'Synthetic', usernameId: 'a'.repeat(64), sid: 'b'.repeat(32),
     }));
     renderLanding();
     expect(screen.getByText('Signed in as Synthetic')).toBeInTheDocument();

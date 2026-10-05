@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { guardRequest, authenticate, verifyLegacyAccount, networkIdentity, hash, AUTH_FAILURES } from '../server/publicSecurity.js';
+import { guardRequest, authenticate, networkIdentity } from '../server/publicSecurity.js';
 
 const response = () => ({ statusCode: 200, headers: {}, setHeader(k,v) { this.headers[k]=v; }, status(n) { this.statusCode=n; return this; }, json(v) { this.body=v; return this; }, end() {} });
 const req = (body={}) => ({method:'POST', headers:{'content-type':'application/json'}, socket:{remoteAddress:'192.0.2.1'}, body});
@@ -29,13 +29,8 @@ test('oversized and malformed input fails before storage', async()=>{
 test('only a session cookie authenticates: body credentials and public IDs are refused', async()=>{
   globalThis.fetch=()=>{throw new Error('must not fetch');};
   for(const body of [{u:'a'.repeat(64)},{u:'a'.repeat(64),auth:'b'.repeat(64)}]) {
-    const res=response(); assert.equal(await authenticate(body,res,'192.0.2.1',req(body)),null); assert.equal(res.statusCode,401);
+    const res=response(); assert.equal(await authenticate(body,res,req(body)),null); assert.equal(res.statusCode,401);
   }
-});
-test('the legacy-account verifier denies a public ID and a wrong password', async()=>{
-  const res=response(); fakeStore(); assert.equal(await verifyLegacyAccount('a'.repeat(64),undefined,res,'192.0.2.1'),null); assert.equal(res.statusCode,401);
-  fakeStore().set(`chess:account:${'a'.repeat(64)}`,JSON.stringify({authHash:'c'.repeat(64)}));
-  const denied=response(); assert.equal(await verifyLegacyAccount('a'.repeat(64),'b'.repeat(64),denied,'192.0.2.1'),null); assert.equal(denied.statusCode,401);
 });
 test('storage failures fail closed and redact detail', async()=>{
   globalThis.fetch=async()=>{throw new Error('synthetic-private-value');};
@@ -75,22 +70,14 @@ test('IPv6 addresses are limited per /64, IPv4 per address', async()=>{
   assert.equal(await second.guardRequest(v6('2001:db8:1:2:aaaa::9'),res,{bucket:'v6',limit:3}),false);
   assert.equal(res.statusCode,429);
 });
-test('failed verifications share one network budget, then even the right password is refused', async()=>{
-  const data=fakeStore(); const u='a'.repeat(64), auth='b'.repeat(64);
-  data.set(`chess:account:${u}`,JSON.stringify({authHash:hash(auth)}));
-  for(let i=0;i<AUTH_FAILURES;i++) { const r=response(); assert.equal(await verifyLegacyAccount(u,'f'.repeat(64),r,'192.0.2.1'),null); assert.equal(r.statusCode,401); }
-  const locked=response(); assert.equal(await verifyLegacyAccount(u,auth,locked,'192.0.2.1'),null); assert.equal(locked.statusCode,429);
-  assert.ok(await verifyLegacyAccount(u,auth,response(),'192.0.2.2'));
-});
-test('username/password creation, sign-in and client-encrypted key writes are retired', async()=>{
+test('the account endpoint accepts only setKeys; retired actions never reach the store', async()=>{
   const data=fakeStore();
   const { default: account }=await import('../api/chessAccount.js');
-  const enc={iv:'AAAAAAAAAAAAAAAA',ct:'AAAAAAAAAAAAAAAAAAAAAA=='};
-  for(const action of ['create','login','setKey']) {
-    const res=response(); await account(req({action,u:'e'.repeat(64),auth:'b'.repeat(64),enc}),res);
-    assert.deepEqual([res.statusCode,res.body],[410,{error:'retired'}]);
+  for(const action of ['create','login','setKey','link','link-verify']) {
+    const res=response(); await account(req({action,u:'e'.repeat(64),auth:'b'.repeat(64)}),res);
+    assert.deepEqual([res.statusCode,res.body],[400,{error:'bad_request'}]);
   }
-  assert.equal([...data.keys()].some(k=>k.startsWith('chess:account:')),false);
+  assert.deepEqual([...data.keys()].filter(k=>!k.startsWith('gipf:limit:')),[]);
 });
 test('direct Chess match writes bound PGN before replay', async()=>{
   const { validMatch }=await import('../server/matchValidation.js');

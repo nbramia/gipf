@@ -2,7 +2,7 @@
 // rule area, plus a seeded self-play invariant soak. Companion to
 // CatanBoard.test.js (which covers the core mechanics these build on).
 
-import CatanBoard, { COSTS, RESOURCES, resourceTotal } from './CatanBoard.js';
+import CatanBoard, { COSTS, RESOURCES } from './CatanBoard.js';
 import { MCTS } from './engine/mcts.js';
 
 function giveResources(board, playerId, resources) {

@@ -1,14 +1,9 @@
 import YinshBoard from '../src/games/yinsh/YinshBoard.js';
 import { guardRequest } from '../server/publicSecurity.js';
+import { applyCors } from '../server/cors.js';
 import { calculateYinshMove } from '../server/yinshCalculation.js';
 export const config = { api: { bodyParser: { sizeLimit: '32kb' } } };
 const CACHE_SIZE_LIMIT = 15000;
-const ALLOWED_ORIGINS = [
-  'http://localhost:3000',
-  'https://gipf.vercel.app',
-  'https://yinsh.vercel.app',
-  'https://yinsh-nathan-ramias-projects.vercel.app',
-];
 
 const SNAPSHOT_FIELDS = Object.keys(new YinshBoard().serializeState());
 const CORE_FIELDS = ['boardState', 'gamePhase', 'currentPlayer'];
@@ -116,11 +111,7 @@ export function createHandler(calculate = calculateYinshMove) {
 const stateCache = new Map();
 return async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
-  if (ALLOWED_ORIGINS.includes(req.headers?.origin)) {
-    res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
-  }
-  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version');
+  applyCors(req, res);
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (!await guardRequest(req, res, { bucket: 'ai', limit: 30, maxBytes: 32768 })) return;

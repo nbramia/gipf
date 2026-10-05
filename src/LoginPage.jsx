@@ -40,9 +40,6 @@ const SIGN_IN_ERRORS = {
   device: 'Unable to finish signing in on this device. Check browser storage and try again.',
 };
 
-// The retired gated hosts never carried accounts of their own; sign-in lives on play.ramia.us.
-const LEGACY_HOSTS = ['gipf.vercel.app', 'ramia.us', 'www.ramia.us'];
-
 function anthropicWarning(value) {
   const v = value.trim();
   if (!v) return '';
@@ -132,7 +129,7 @@ export default function LoginPage() {
   // Not signed in to Games: try the ramia.us session first, without a click (once; see
   // silentSignIn.js). A refused attempt returns with ?silent=failed to the Sign in button.
   const [trying] = useState(() => !arriving && !account && !params.get('error') && !params.get('silent') &&
-    !LEGACY_HOSTS.includes(window.location.hostname) && claimSilentAttempt('login'));
+    claimSilentAttempt('login'));
   const [keys, setKeys] = useState(() => accountKeys());
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const [importGuest, setImportGuest] = useState(false);
@@ -143,8 +140,8 @@ export default function LoginPage() {
 
   // A full load resets every game's in-memory state for the new identity (and the
   // account boundary, which stops at any identity change made under it).
-  const leave = () => window.location.assign(`${process.env.PUBLIC_URL || ''}${returnTo}`);
-  const reloadLogin = query => window.location.replace(`${process.env.PUBLIC_URL || ''}/login?${query}&return=${encodeURIComponent(returnTo)}`);
+  const leave = () => window.location.assign(returnTo);
+  const reloadLogin = query => window.location.replace(`/login?${query}&return=${encodeURIComponent(returnTo)}`);
 
   useEffect(() => {
     if (trying) window.location.replace(signInUrl(returnTo, { silent: 'login' }));
@@ -199,16 +196,6 @@ export default function LoginPage() {
     </Link>
   );
 
-  if (LEGACY_HOSTS.includes(window.location.hostname)) {
-    return (
-      <main className="landing-page"><div className="landing-shell login-shell">
-        {back}
-        <h1 className="login-title">Sign in</h1>
-        <p className="landing-help">Accounts and keys are managed at <a href="https://play.ramia.us/login">play.ramia.us</a>. Use play.ramia.us to sign in.</p>
-      </div></main>
-    );
-  }
-
   if (completing || trying) {
     return (
       <main className="landing-page"><div className="landing-shell login-shell">
@@ -256,7 +243,6 @@ export default function LoginPage() {
           </section>
         ) : (
           <section className="login-section" aria-label="Sign in">
-            {ended === 'auth0' && <p role="status" className="landing-warning">Games now signs in with your ramia.us account. Sign in to carry your keys and progress between devices.</p>}
             {ended === 'expired' && <p role="status" className="landing-warning">Your session ended. Sign in again to pick up where you left off.</p>}
             {signedOut && <p role="status" className="landing-help">Signed out of Games. You are still signed in to ramia.us, so signing in again will not ask for a password; to use another account, choose “Use a different account”.</p>}
             {signInError && <p role="alert" className="landing-error">{signInError}</p>}

@@ -19,16 +19,21 @@ test('missing durable store fails closed', async () => {
   const response = res(); await handler(req({ action: 'setKeys', anthropic: null }), response);
   expect(response.statusCode).toBe(503);
 });
-test.each(['create', 'login', 'setKey'])('the retired password action %s returns 410', async action => {
+test.each(['create', 'login', 'setKey', 'link', 'link-verify'])('the removed action %s is a bad request', async action => {
   global.fetch = store();
   const response = res(); await handler(req({ action, u, auth, enc: null }), response);
-  expect(response.statusCode).toBe(410);
-  expect(response.body).toEqual({ error: 'retired' });
+  expect(response.statusCode).toBe(400);
+  expect(response.body).toEqual({ error: 'bad_request' });
 });
-test.each([{ action: 'setKeys', anthropic: 'sk-ant-synthetic' }, { action: 'link-verify', u, auth }])('%p without a session cookie is 401', async body => {
+test('setKeys without a session cookie is 401', async () => {
   global.fetch = store();
-  const response = res(); await handler(req(body), response);
+  const response = res(); await handler(req({ action: 'setKeys', anthropic: 'sk-ant-synthetic' }), response);
   expect(response.statusCode).toBe(401);
+});
+test('setKeys that changes nothing is refused before authentication', async () => {
+  global.fetch = store();
+  const response = res(); await handler(req({ action: 'setKeys' }), response);
+  expect(response.statusCode).toBe(400);
 });
 test('unknown actions and malformed keys are refused', async () => {
   global.fetch = store();

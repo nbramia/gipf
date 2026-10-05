@@ -15,7 +15,7 @@ test('old tab cannot overwrite newer device state or write after identity change
   const stale = createMatchStore('yinsh');
   first.save(snapshot());
   expect(() => stale.save(snapshot('yinsh', 2))).toThrow('local_conflict');
-  localStorage.setItem('gipfAccount', JSON.stringify({ usernameId: 'B', authToken: 'B' }));
+  localStorage.setItem('gipfAccount', JSON.stringify({ v: 3, username: 'B', usernameId: 'B', sid: 'B' }));
   expect(() => first.save(snapshot())).toThrow('account_changed');
 });
 test('transition marker blocks delayed local writes even before account changes', () => {
@@ -98,7 +98,7 @@ test('restaging an old alternative in a full ring cannot evict either current ch
 });
 
 test.each([[400, 'sync_rejected'], [413, 'sync_rejected'], [502, 'sync_unavailable'], [429, 'sync_unavailable'], [409, 'cloud_conflict']])('HTTP %s classified without parsing an HTML error page', async (status, error) => {
-  localStorage.setItem('gipfAccount', JSON.stringify({ usernameId: 'A', authToken: 'synthetic' }));
+  localStorage.setItem('gipfAccount', JSON.stringify({ v: 3, username: 'A', usernameId: 'A', sid: 'synthetic' }));
   const json = jest.fn().mockRejectedValue(new Error('HTML'));
   global.fetch = jest.fn().mockResolvedValue({ ok: false, status, json });
   await expect(createMatchStore('yinsh').request('write')).rejects.toThrow(error);

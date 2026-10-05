@@ -9,7 +9,7 @@ import * as yinsh from './games/yinsh/matchSnapshot.js';
 import * as zertz from './games/zertz/matchSnapshot.js';
 import * as catan from './games/catan/matchSnapshot.js';
 import { exportProgress, validateFile, previewImport, stageImport, readStages, captureIdentity, MAX_BYTES } from './migration.js';
-import { encryptApiKey } from './account.js';
+import { encryptApiKey, storeAccountKey } from './account.js';
 import { canonical } from './migrationSchema.js';
 import DiplomacyBoard from './games/diplomacy/DiplomacyBoard.js';
 import { saveGame } from './games/diplomacy/diplomacyPersistence.js';
@@ -154,7 +154,9 @@ test('Diplomacy actual save round-trips board, negotiation and local order-entry
   expect((await exportProgress(origin)).issues).toHaveLength(1);
 });
 
-const account = n => ({v:1,username:`Synthetic ${n}`,usernameId:String(n).repeat(64),authToken:String(n+1).repeat(64),aesKey:'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',profileId:String(n+2).repeat(64)});
+const account = n => ({v:3,username:`Synthetic ${n}`,usernameId:String(n).repeat(64),sid:String(n+1).repeat(64),aesKey:'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='});
+// The seal key a v3 session reads from storage, seeded for each fixture account.
+beforeAll(async () => { for (const n of [1,2,3,4,5,6,7,8,9]) await storeAccountKey(String(n).repeat(64),'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='); });
 test('active and encrypted alternatives are progress-only, deduplicated, recoverable and scoped', async () => {
   const session = account(1);
   localStorage.setItem('gipfAccount',JSON.stringify(session));

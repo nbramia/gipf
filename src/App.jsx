@@ -12,10 +12,6 @@ const SplendorGame = lazy(() => import('./games/splendor/SplendorGame.jsx'));
 const DiplomacyGame = lazy(() => import('./games/diplomacy/DiplomacyGame.jsx'));
 const GamesMigration = lazy(() => import('./GamesMigration.jsx'));
 
-// The app is served from a subdirectory (`ramia.us/gipf`) as well as from its own domain
-// root. `PUBLIC_URL` carries whichever prefix the build was made for — the `homepage` field
-// when there is one, an empty string when there is not — so a single build works in both
-// places and neither has the prefix written into it.
 function App() {
   useEffect(() => {
     const changed = event => {
@@ -25,7 +21,7 @@ function App() {
     return () => window.removeEventListener('storage', changed);
   }, []);
   return (
-    <BrowserRouter basename={process.env.PUBLIC_URL}>
+    <BrowserRouter>
       <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-neutral-900 text-neutral-400 font-body">Loading...</div>}>
         <Routes>
           <Route path="/migration" element={<GamesMigration />} />

@@ -2,7 +2,6 @@
 // Position regression tests — runs MCTS on curated positions and verifies AI picks great/good moves.
 
 import MCTS from './mcts.js';
-import YinshBoard from '../YinshBoard.js';
 import testPositions from './testPositions.js';
 import { createBoardWithSetup, placeMarkers } from '../testHelpers.js';
 

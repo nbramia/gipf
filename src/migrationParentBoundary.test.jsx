@@ -4,15 +4,16 @@ import { render, act, screen, fireEvent } from '@testing-library/react';
 import { webcrypto } from 'crypto';
 import { TextEncoder, TextDecoder } from 'util';
 import AccountBoundary from './AccountBoundary.jsx';
-import { retainProgress } from './account.js';
+import { retainProgress, storeAccountKey } from './account.js';
 
-const session = {v:1,username:'Synthetic fixture',usernameId:'1'.repeat(64),authToken:'2'.repeat(64),aesKey:'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',profileId:'3'.repeat(64)};
-beforeEach(() => {
+const session = {v:3,username:'Synthetic fixture',usernameId:'1'.repeat(64),sid:'2'.repeat(64),aesKey:'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='};
+beforeEach(async () => {
   localStorage.clear();
   Object.defineProperty(globalThis,'crypto',{value:webcrypto,configurable:true});
   globalThis.TextEncoder = TextEncoder; globalThis.TextDecoder = TextDecoder;
   AbortSignal.timeout = () => new AbortController().signal;
   globalThis.fetch = jest.fn();
+  await storeAccountKey(session.usernameId,session.aesKey);
   localStorage.setItem('gipfAccount',JSON.stringify(session));
 });
 afterEach(() => jest.restoreAllMocks());

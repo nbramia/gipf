@@ -1,7 +1,7 @@
 // Local end-to-end Auth0 sign-in in a real browser, against a synthetic OpenID provider.
 //
 // Auth0 accepts only the exact production callback, so preview deployments cannot sign
-// in. This drives the built app (PUBLIC_URL=/) as https://play.ramia.us in Chromium,
+// in. This drives the built app as https://play.ramia.us in Chromium,
 // with every request to that origin and to the synthetic issuer answered by this
 // process: the real API handlers, a disposable gipf-test-* Redis, and a provider that
 // signs ID tokens with a throwaway key. Nothing reaches Auth0, Anthropic, Lichess or a
@@ -12,7 +12,7 @@
 // suppressing the automatic attempt, the clicked silent sign-in, and prompt=login.
 //
 //   docker run --rm -d --name gipf-test-auth-browser redis:7-alpine
-//   PUBLIC_URL=/ npm run build
+//   npm run build
 //   GIPF_TEST_REDIS_CONTAINER=gipf-test-auth-browser PLAYWRIGHT_MODULE=/path/to/playwright node tests/auth-browser.mjs
 import http from 'node:http';
 import { createRequire } from 'node:module';

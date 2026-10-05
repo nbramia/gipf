@@ -19,9 +19,8 @@ src/games/chess/
     difficulty.js        # Named tiers -> UCI_Elo + per-move time; Rated ladder
     uci.test.js
     rating.js            # Pure Elo math + matchmaking for Rated mode
-    ratingSync.js        # Cross-device rating sync client (keyed by key hash)
-    profileSync.js       # Cross-device profile sync -- supersedes ratingSync (rating + history + puzzles + mistakes)
-    account.js           # Re-export of src/account.js (Auth0 sign-in completion, account keys, old-account linking)
+    profileSync.js       # Cross-device profile sync (rating + history + puzzles + mistakes)
+    account.js           # Re-export of src/account.js (Auth0 sign-in completion, account keys)
     playerHistory.js     # localStorage: per-opponent W/L/D history (chessOppHistory)
   hooks/
     useStockfish.js      # Engine lifecycle; getMove() + analyze(); serialized
@@ -47,7 +46,7 @@ src/games/chess/
     sound.js             # WebAudio move cues (#21)
 api/chessCoach.js        # Vercel serverless coach endpoint
 api/chessProfile.js      # Vercel serverless profile sync endpoint (rating + history + puzzles + mistakes)
-api/chessAccount.js      # Account keys (server-encrypted) and the one-time link of a pre-Auth0 account
+api/chessAccount.js      # Account keys (server-encrypted)
 ```
 
 ## Engine (Stockfish)
@@ -235,9 +234,8 @@ tier:
 - **Cross-device sync (account-only):** rating is one of four domains synced by
   `engine/profileSync.js` -- see "Player profile & cross-device sync" below.
   Reads and writes are authenticated with a signed-in account (Auth0); a
-  key-hash or other public identifier never authorizes access. The retired
-  `api/chessRating.js` returns 410, and old key-hash records are claimed into an
-  account through `api/chessProfile.js` (see `docs/public-accounts.md`).
+  key-hash or other public identifier never authorizes access (see
+  `docs/public-accounts.md`).
 
 ## Player profile & cross-device sync
 
@@ -279,21 +277,16 @@ Chess offers an optional account, signed in at `/login` with the ramia.us sign-i
 re-pasting an Anthropic API key everywhere. The account authorizes the profile sync
 above and carries the API key and Lichess token, which are stored encrypted on the
 server and added to coach and explorer requests there, so they never reach the browser;
-there is no maintainer-funded fallback. A username/password account from before Auth0
-links once to a sign-in by proving its password (`src/account.js#deriveCredentials`,
-the original PBKDF2 derivation) and keeps its progress in place.
+there is no maintainer-funded fallback.
 
 Profile reads and writes require proven account ownership: the session cookie
-issued at sign-in (see [public account operations](public-accounts.md#sessions)). A public username hash or legacy profile ID cannot read
-or write progress. Shared Redis rate counters bound sign-up, linking, sync, and model
+issued at sign-in (see [public account operations](public-accounts.md#sessions)). No
+public identifier can read or write progress. Shared Redis rate counters bound sign-up, sync, and model
 requests across instances. Missing
 storage or limiter configuration returns 503; guest play remains local.
 
-Old profile and API-key-derived IDs are bearer capabilities, accepted only by
-an authenticated, one-owner claim during a configured window of at most 90 days.
-Claims preserve source records and retain overlapping domains as authenticated
-alternatives. The existing monotonic Chess merge rules reconcile those copies
-without adding the same statistics twice. The old rating endpoint returns 410.
+A profile that claimed pre-Auth0 data keeps those copies in `legacyProfiles`; the
+monotonic Chess merge rules reconcile them without adding the same statistics twice.
 See [public account operations](public-accounts.md) for exact contracts and setup.
 
 Sign-in asks whether to import this device's guest progress. Signing out clears

@@ -145,8 +145,7 @@ function ChessGame() {
     return saved ? JSON.parse(saved) : 0;
   });
   const [ratedDelta, setRatedDelta] = useState(null); // {delta, opp} for the just-finished rated game
-  // Cross-device rating sync (opt-in, keyed by a hash of the Anthropic key, or
-  // by an account's password-derived profileId when signed in).
+  // Cross-device profile sync: the signed-in account's session, or null for a guest.
   const [syncId, setSyncId] = useState(null);
   const [syncStatus, setSyncStatus] = useState('off'); // off | local | syncing | synced | error
 
@@ -338,8 +337,7 @@ function ChessGame() {
   // Merge a remote profile snapshot into local storage/state for every domain
   // (rating, opponent history, puzzle progress, mistake library), returning
   // the subset that moved past what the server had (for the caller to push
-  // back, if it wants to). Shared by the sync-pull effect below and the
-  // one-time legacy-key merge on account sign-in/creation.
+  // back, if it wants to). Used by the sync-pull effect below.
   const mergeRemoteProfileIntoLocal = useCallback((remote) => {
     const push = {};
 

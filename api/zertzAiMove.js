@@ -1,9 +1,9 @@
 import { Worker } from 'node:worker_threads';
 import { guardRequest } from '../server/publicSecurity.js';
+import { applyCors } from '../server/cors.js';
 export const config = { api: { bodyParser: { sizeLimit: '32kb' } } };
 // Serverless API endpoint for Zertz AI move computation
 // Heuristic-only (no NN in serverless environment)
-
 
 function calculate(boardState, simulations) {
   return new Promise((resolve, reject) => {
@@ -15,29 +15,9 @@ function calculate(boardState, simulations) {
   });
 }
 
-const ALLOWED_ORIGINS = [
-  'https://gipf.vercel.app',
-  'http://localhost:3000',
-  'http://localhost:5173',
-];
-
-function getCorsHeaders(origin) {
-  const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0];
-  return {
-    'Access-Control-Allow-Origin': allowed,
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-  };
-}
 
 export default async function handler(req, res) {
-  const origin = req.headers.origin || '';
-  const cors = getCorsHeaders(origin);
-
-  // Set CORS headers
-  for (const [key, value] of Object.entries(cors)) {
-    res.setHeader(key, value);
-  }
+  applyCors(req, res);
 
   // Handle preflight
   if (req.method === 'OPTIONS') {

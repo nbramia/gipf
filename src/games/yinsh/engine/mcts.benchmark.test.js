@@ -2,7 +2,6 @@
 // Speed benchmark tests for MCTS engine. Catches catastrophic regressions.
 
 import MCTS from './mcts.js';
-import YinshBoard from '../YinshBoard.js';
 import testPositions from './testPositions.js';
 import { createBoardWithSetup, placeMarkers } from '../testHelpers.js';
 

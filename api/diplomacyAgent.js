@@ -1,5 +1,6 @@
 import { guardRequest } from '../server/publicSecurity.js';
 import { requestKey } from '../server/accountKeys.js';
+import { applyCors } from '../server/cors.js';
 export const config = { api: { bodyParser: { sizeLimit: '32kb' } } };
 // Serverless Diplomacy agent — gives one AI power a conversational voice so the
 // human can negotiate with (threaten, lie to, ally with) it. The endpoint builds
@@ -13,7 +14,6 @@ export const config = { api: { bodyParser: { sizeLimit: '32kb' } } };
 // (server/accountKeys.js). Either way it is used for exactly one upstream call and
 // is NEVER logged or read from server env. There is no server-side fallback key.
 
-const ALLOWED_ORIGINS = ['https://gipf.vercel.app', 'http://localhost:3000'];
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 // Default matches catanRules.js. body.model may override; 'claude-opus-4-8' is a
 // documented opt-in for stronger strategic/negotiation play, at higher
@@ -33,16 +33,6 @@ const POWER_NAMES = {
 };
 
 const STANCES = ['ally', 'friendly', 'neutral', 'rival', 'enemy'];
-
-function applyCors(req, res) {
-  const origin = req.headers.origin;
-  if (ALLOWED_ORIGINS.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-}
 
 // Build a strong per-power system prompt: identity, board summary, Diplomacy
 // strategy, a persona/temperament knob, and hard rules about staying in

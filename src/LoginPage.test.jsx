@@ -15,10 +15,10 @@ jest.mock('./account', () => ({
   SESSION_EXPIRED_KEY: 'gipf:session-expired',
 }));
 const signedIn = { v: 3, username: 'player@synthetic.example', usernameId: 'f'.repeat(64), sid: 'a'.repeat(32) };
-const status = (over = {}) => ({ signedIn: true, u: signedIn.usernameId, name: signedIn.username, linked: false, keys: { anthropic: false, lichess: false }, ...over });
+const status = (over = {}) => ({ signedIn: true, u: signedIn.usernameId, name: signedIn.username, keys: { anthropic: false, lichess: false }, ...over });
 const originalLocation = window.location;
 function mount(search = '') {
-  render(<MemoryRouter basename="/gipf" initialEntries={[`/gipf/login${search}`]}><LoginPage /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={[`/login${search}`]}><LoginPage /></MemoryRouter>);
 }
 beforeEach(() => {
   jest.resetAllMocks();
@@ -50,7 +50,7 @@ describe('return allowlist', () => {
 
 test('signed out: Auth0 sign-in with the allowlisted return; no username/password account UI', () => {
   mount('?return=/chess');
-  expect(screen.getByRole('link', { name: '← Back to chess' })).toHaveAttribute('href', '/gipf/chess');
+  expect(screen.getByRole('link', { name: '← Back to chess' })).toHaveAttribute('href', '/chess');
   expect(screen.queryByRole('button', { name: /Create account/ })).toBeNull();
   expect(screen.queryByLabelText('Confirm password')).toBeNull();
   expect(screen.queryByLabelText('Username')).toBeNull();
@@ -78,7 +78,7 @@ test('import consent survives the redirect; "Use a different account" asks Auth0
 
 test('back from Auth0: completes sign-in with the stored consent and leaves to the game', async () => {
   sessionStorage.setItem('gipf:import-guest', '1');
-  account.completeSignIn.mockResolvedValue({ offerLink: false, keys: { anthropic: true, lichess: false }, keysMoved: true });
+  account.completeSignIn.mockResolvedValue({ keys: { anthropic: true, lichess: false }, keysMoved: true });
   mount('?signedin=1&return=/splendor');
   expect(screen.getByRole('heading', { name: 'Signing in…' })).toBeInTheDocument();
   await waitFor(() => expect(window.location.assign).toHaveBeenCalledWith('/splendor'));
@@ -86,15 +86,15 @@ test('back from Auth0: completes sign-in with the stored consent and leaves to t
   expect(sessionStorage.getItem('gipf:import-guest')).toBeNull();
 });
 
-test('a first sign-in goes straight to the game: no link offer', async () => {
-  account.completeSignIn.mockResolvedValue({ offerLink: true, keys: { anthropic: false, lichess: false }, keysMoved: true });
+test('a sign-in goes straight to the game', async () => {
+  account.completeSignIn.mockResolvedValue({ keys: { anthropic: false, lichess: false }, keysMoved: true });
   mount('?signedin=1&return=/catan');
   await waitFor(() => expect(window.location.assign).toHaveBeenCalledWith('/catan'));
   expect(window.location.replace).not.toHaveBeenCalled();
 });
 
 test('keys that could not move are reported after the reload', async () => {
-  account.completeSignIn.mockResolvedValue({ offerLink: true, keys: { anthropic: false, lichess: false }, keysMoved: false });
+  account.completeSignIn.mockResolvedValue({ keys: { anthropic: false, lichess: false }, keysMoved: false });
   mount('?signedin=1&return=/chess');
   await waitFor(() => expect(window.location.replace).toHaveBeenCalledWith('/login?keys=unmoved&return=%2Fchess'));
 });
@@ -145,15 +145,6 @@ test('signed in: key status comes from the server; saves and removals go to the 
   expect(account.setSharedLichessToken).not.toHaveBeenCalled();
 });
 
-test('no page offers to link an old games account', async () => {
-  account.loadSession.mockReturnValue(signedIn);
-  mount('?link=1&return=/catan');
-  await screen.findByText('Signed in as player@synthetic.example');
-  await waitFor(() => expect(account.checkServerSession).toHaveBeenCalled());
-  expect(screen.queryByRole('heading', { name: /Link your existing/ })).toBeNull();
-  expect(screen.queryByLabelText(/Old username|Old password/)).toBeNull();
-});
-
 test('a failed account save is reported', async () => {
   account.loadSession.mockReturnValue(signedIn);
   account.saveAccountKeys.mockResolvedValue({ error: 'network' });
@@ -194,18 +185,11 @@ test('after sign-out the page says the ramia.us sign-in is still open', () => {
   expect(sessionStorage.getItem('gipf:signed-out')).toBeNull();
 });
 
-test.each([['expired', 'Your session ended.'], ['auth0', 'Games now signs in with your ramia.us account.']])('an ended (%s) session explains itself once', (reason, message) => {
+test.each([['expired', 'Your session ended.']])('an ended (%s) session explains itself once', (reason, message) => {
   sessionStorage.setItem('gipf:session-expired', reason);
   mount();
   expect(screen.getByRole('status')).toHaveTextContent(message);
   expect(sessionStorage.getItem('gipf:session-expired')).toBeNull();
-});
-
-test('the retired gated host points to play.ramia.us instead of offering sign-in', () => {
-  window.location.hostname = 'gipf.vercel.app';
-  mount('?return=/chess');
-  expect(screen.getByRole('link', { name: 'play.ramia.us' })).toHaveAttribute('href', 'https://play.ramia.us/login');
-  expect(screen.queryByRole('button', { name: 'Sign in', exact: true })).toBeNull();
 });
 
 describe('automatic sign-in from the ramia.us session', () => {
@@ -267,7 +251,7 @@ describe('automatic sign-in from the ramia.us session', () => {
     ['an error to show', () => {}, '?error=signin'],
     ['returning from Auth0', () => account.completeSignIn.mockReturnValue(new Promise(() => {})), '?signedin=1'],
     ['off play.ramia.us', () => { window.location.hostname = 'gipf-preview.vercel.app'; }, ''],
-    ['on a retired host', () => { window.location.hostname = 'ramia.us'; }, ''],
+    ['on the ramia.us apex', () => { window.location.hostname = 'ramia.us'; }, ''],
   ])('no attempt when %s', (_, arrange, search) => {
     arrange();
     mount(search);

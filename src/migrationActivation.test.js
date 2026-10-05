@@ -3,12 +3,13 @@ import { TextEncoder, TextDecoder } from 'util';
 import { exportProgress, captureIdentity } from './migration.js';
 import { previewActivation, activateImport, activationRecovery, defaultSelection } from './migrationActivation.js';
 import { createMatchStore } from './matchStore.js';
-const session={v:1,username:'Synthetic',usernameId:'1'.repeat(64),authToken:'2'.repeat(64),aesKey:'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',profileId:'3'.repeat(64)};
+import { storeAccountKey } from './account.js';
+const session={v:3,username:'Synthetic',usernameId:'1'.repeat(64),sid:'2'.repeat(64),aesKey:'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='};
 let bundle, selected, activated;
 beforeEach(async()=>{
  localStorage.clear();Object.defineProperty(globalThis,'crypto',{value:webcrypto,configurable:true});globalThis.TextEncoder=TextEncoder;globalThis.TextDecoder=TextDecoder;
  Object.defineProperty(navigator,'locks',{value:{request:async(_key,fn)=>fn()},configurable:true});AbortSignal.timeout=()=>new AbortController().signal;
- localStorage.setItem('gipfAccount',JSON.stringify(session));localStorage.setItem('chessDarkMode','true');
+ await storeAccountKey(session.usernameId,session.aesKey);localStorage.setItem('gipfAccount',JSON.stringify(session));localStorage.setItem('chessDarkMode','true');
  bundle=(await exportProgress('https://synthetic.example.test')).bundles[0];selected=defaultSelection(bundle);localStorage.setItem('chessDarkMode','false');activated=false;
  globalThis.fetch=jest.fn(async(_url,options)=>{
    const body=JSON.parse(options.body);

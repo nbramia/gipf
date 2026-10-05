@@ -18,7 +18,7 @@ export class ValueNetwork {
     this.lastError = null;
   }
 
-  async load(modelPath = `${process.env.PUBLIC_URL || ''}/models/zertz-value-v1.onnx`) {
+  async load(modelPath = '/models/zertz-value-v1.onnx') {
     if (this.session) return true;
     if (this.loading) {
       while (this.loading) {
@@ -119,7 +119,7 @@ export class ValueNetwork {
 // Backward-compatible module-level API (delegates to a default instance)
 const _default = new ValueNetwork();
 
-export async function loadValueNetwork(modelPath = `${process.env.PUBLIC_URL || ''}/models/zertz-value-v1.onnx`) {
+export async function loadValueNetwork(modelPath = '/models/zertz-value-v1.onnx') {
   if (_default.isLoaded()) return true;
   return _default.load(modelPath);
 }

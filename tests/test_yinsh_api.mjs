@@ -29,7 +29,7 @@ function response() {
     end() { this.ended = true; return this; },
   };
 }
-async function request(handler, body, method = 'POST', origin = 'https://gipf.vercel.app') {
+async function request(handler, body, method = 'POST', origin = 'http://localhost:3000') {
   const res = response();
   await handler({ method, headers: { origin, 'content-type':'application/json' }, body }, res);
   return res;
@@ -257,7 +257,7 @@ test('OPTIONS, unsupported methods, and CORS allowlist; no credentialed CORS', a
   const handler = await freshHandler();
   const options = await request(handler, null, 'OPTIONS');
   assert.equal(options.code, 200); assert.equal(options.ended, true);
-  assert.equal(options.headers['Access-Control-Allow-Origin'], 'https://gipf.vercel.app');
+  assert.equal(options.headers['Access-Control-Allow-Origin'], 'http://localhost:3000');
   // The Yinsh proxy is stateless, so cross-origin callers never get to send cookies.
   assert.equal(options.headers['Access-Control-Allow-Credentials'], undefined);
   for (const method of ['GET', 'PUT', 'PATCH', 'DELETE']) {

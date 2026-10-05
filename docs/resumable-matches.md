@@ -1,9 +1,7 @@
-# Four-game resumable matches (PR5)
+# Four-game resumable matches
 
-Part of nbramia/ramia#22. This branch stacks account commit
-`8ef678f5b61138ed6c57a5c91319c23622401894` and the frozen game-repair handoff
-`86b6698b0d9cb159c775b941426bc40ff7b766eb`. It does not open the public gate,
-change deployment origins, promote models, or certify either parent PR's review.
+Chess, Yinsh, Zertz and Catan save the current match on the device and, for a
+signed-in account, in the cloud. Part of nbramia/ramia#22.
 
 ## User behavior
 
@@ -141,7 +139,7 @@ conflict choices. Recheck the captured identity and transition lease before
 reading and after any await. Never export the raw containers or their metadata.
 
 If the active account has an encrypted device recovery copy, the migration UI
-can use the existing local `decryptApiKey(session.aesKey, sealed)` function on
+can use the local `decryptApiKey(await accountKey(session), sealed)` functions on
 `gipf:recovery:<that same usernameId>` after the user has authenticated that
 account. From the decoded progress object, allowlist only the four portable
 match values, `chessGameLog`, and validated progress extracted from the recovery
@@ -165,7 +163,7 @@ legacy data is retained rather than replaced with a new empty game silently.
 
 ## Authenticated server contract
 
-`POST ${PUBLIC_URL}/api/chessProfile`:
+`POST /api/chessProfile`:
 
 ```json
 {
@@ -185,15 +183,14 @@ for a new record. `write` accepts only the `match` domain; null explicitly clear
 a match. It returns the new revision. Wrong ownership returns 401, unsupported
 schema/game or invalid engine state 400, stale revision 409, oversized request
 413, rate limit 429, unavailable storage 503. No public-ID/bearer shortcut exists.
-`claim` remains unsupported in match scope.
 
 Redis keys are `gipf:match:v1:<usernameId>:<game>`. Each account/game has its own
 atomic CAS revision. The match Lua operation stores validated JSON opaquely:
 Redis `cjson` otherwise turns empty arrays into objects. Profile and settings
-records likewise store JS-serialized JSON opaquely; their writes and profile
-claims use exact snapshots (see
-[public accounts](public-accounts.md#json-preservation-and-legacy-damage));
-their keys and legacy sources remain unchanged. Match keys and revisions are
+records likewise store JS-serialized JSON opaquely, and their writes use exact
+snapshots (see
+[public accounts](public-accounts.md#json-preservation-and-damaged-records)).
+Match keys and revisions are
 independent of them. Existing 300,000-byte request and durable account/network
 rate limits still apply.
 
@@ -235,27 +232,22 @@ rankings, multiplayer, or new Zertz/Catan statistics.
 Focused tests cover engine snapshots, Chess repetition/custom-start restoration,
 worker cancellation, local/conflict recovery, expired ownership, offline queues,
 quota errors, account switches, repeat guest import and actual Redis CAS across
-four account/game scopes. The browser fixture runs the built `/gipf` app with
-real handlers and a disposable PR5 Redis container; external requests are blocked.
+four account/game scopes. The browser fixture runs the built app at the root with
+real handlers and a disposable Redis container; external requests are blocked.
 See `tests/match-browser.mjs` and `tests/match-redis.test.mjs`.
 
 ```sh
-# Dedicated fixture only, never shared/production Redis.
-docker run --rm -d --name gipf-pr5-synthetic-redis redis:7-alpine
+# Dedicated gipf-test-* container only, never shared/production Redis; the tests flush it.
+export GIPF_TEST_REDIS_CONTAINER=gipf-test-matches
+docker run --rm -d --name "$GIPF_TEST_REDIS_CONTAINER" redis:7-alpine
 node --test tests/match-redis.test.mjs
 npm run build
-# The browser fixture server needs its own gipf-test-* container; match-browser flushes it.
-docker run --rm -d --name gipf-test-pr5 redis:7-alpine
-export GIPF_TEST_REDIS_CONTAINER=gipf-test-pr5
 GIPF_TEST_PORT=3189 node tests/serve-public-security.mjs &
 # With Playwright available, or PLAYWRIGHT_MODULE pointing to its installed index.mjs:
 node tests/match-browser.mjs
-docker exec gipf-test-pr5 redis-cli FLUSHDB   # each network may create five accounts a day
+docker exec "$GIPF_TEST_REDIS_CONTAINER" redis-cli FLUSHDB   # each network may create five accounts a day
 node tests/match-import-browser.mjs
 ```
 
-The coordinator owns full-suite verification, independent review, PR publication,
-account-security acceptance and hosted checks. Existing legacy profile empty-array
-corruption was reproduced separately and is tracked in **nbramia/gipf#62**; this
-match implementation does not silently rewrite that parent-owned path. No main
-merge, deployment, public-gate removal, or model promotion is performed here.
+Profile empty-array corruption from before the opaque-JSON writes is tracked in
+**nbramia/gipf#62**; match storage does not rewrite profile records.

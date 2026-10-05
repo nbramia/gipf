@@ -11,7 +11,7 @@ import { seedSession } from './session-fixture.mjs';
 import { canonical } from '../src/migrationSchema.js';
 import { fromLegacy } from '../src/games/chess/matchSnapshot.js';
 const { chromium }=await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const build=path.resolve(process.env.MIGRATION_BUILD || 'build'),prefix=process.env.MIGRATION_PREFIX ?? '/gipf';
+const build=path.resolve(process.env.MIGRATION_BUILD || 'build');
 const origin='https://activation.example.test';
 const container=process.env.GIPF_TEST_REDIS_CONTAINER;
 if(!/^gipf-test-[a-z0-9-]+$/.test(container||''))throw new Error('Set GIPF_TEST_REDIS_CONTAINER to a disposable gipf-test-* container');
@@ -39,7 +39,7 @@ try {
  await context.route('**/*',async route=>{
    const req=route.request(),url=new URL(req.url());
    if(url.origin!==origin)return route.abort();
-   if(url.pathname===`${prefix}/api/chessProfile`){
+   if(url.pathname==='/api/chessProfile'){
      const body=JSON.parse(req.postData());
      const res={statusCode:200,setHeader(){},status(n){this.statusCode=n;return this;},json(v){this.body=v;return this;}};
      // The browser's own CSRF header and session cookie reach the handler. Its Origin is
@@ -52,12 +52,12 @@ try {
      return route.fulfill({status:res.statusCode,contentType:'application/json',body:JSON.stringify(res.body)});
    }
    if(url.pathname.includes('/api/'))return route.abort();
-   const relative=url.pathname.slice(prefix.length+1);
-   if(url.pathname===`${prefix}/migration`||url.pathname===`${prefix}/splendor`)return route.fulfill({contentType:'text/html',body:await readFile(path.join(build,'index.html'))});
-   if(!url.pathname.startsWith(`${prefix}/`)||!relative.startsWith('static/')||relative.includes('..'))return route.abort();
+   const relative=url.pathname.slice(1);
+   if(url.pathname==='/migration'||url.pathname==='/splendor')return route.fulfill({contentType:'text/html',body:await readFile(path.join(build,'index.html'))});
+   if(!relative.startsWith('static/')||relative.includes('..'))return route.abort();
    try {return route.fulfill({contentType:relative.endsWith('.js')?'application/javascript':'text/css',body:await readFile(path.join(build,relative))});}catch(_){return route.abort();}
  });
- const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));await page.goto(`${origin}${prefix}/migration`);
+ const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));await page.goto(`${origin}/migration`);
  await context.addCookies([{name:'__Host-games_session',value:token,url:origin,secure:true,httpOnly:true,sameSite:'Lax'}]);
  for(const usernameId of [session.usernameId,'d'.repeat(64)])await page.evaluate(storeSealKey,{usernameId,sealKey});
  await page.evaluate(s=>{localStorage.setItem('gipfAccount',JSON.stringify(s));localStorage.setItem('chessDarkMode','false');localStorage.setItem('gipfApiKey','SYNTHETIC_EXCLUDED');},session);await page.reload();
@@ -66,20 +66,20 @@ try {
  const oversized={...bundle,records:[record('preference','chessLearningGoal','x'.repeat(600000))]};
  const longGoal={...bundle,records:[record('preference','chessLearningGoal','x'.repeat(2049))]};
  const largeExtra={...bundle,records:[record('chess-repertoire','chessRepertoire',{version:1,white:['x'.repeat(256*1024)],black:[]})]};
- const statuses=await page.evaluate(async({session,prefix,bundles})=>{
+ const statuses=await page.evaluate(async({session,bundles})=>{
    const result=[];
-   for(const bundle of bundles){const response=await fetch(`${prefix}/api/chessProfile`,{method:'POST',headers:{'Content-Type':'application/json','X-Games-Request':'1'},body:JSON.stringify({u:session.usernameId,action:'migration-preview',bundle,selected:bundle.records.map(r=>`${r.kind}/${r.id}`)})});result.push(response.status);}
+   for(const bundle of bundles){const response=await fetch('/api/chessProfile',{method:'POST',headers:{'Content-Type':'application/json','X-Games-Request':'1'},body:JSON.stringify({u:session.usernameId,action:'migration-preview',bundle,selected:bundle.records.map(r=>`${r.kind}/${r.id}`)})});result.push(response.status);}
    return result;
- },{session,prefix,bundles:[oversized,longGoal,largeExtra]});
+ },{session,bundles:[oversized,longGoal,largeExtra]});
  assert.deepEqual(statuses,[413,400,409]);
  assert.equal(redis('GET',`gipf:migration-count:v1:${session.usernameId}`),null);
  assert.equal(redis('GET',`gipf:migration-bytes:v1:${session.usernameId}`),null);
  assert.equal(await page.evaluate(()=>localStorage.getItem('chessDarkMode')),'false');
- console.log('PASS browser HTTP input/writer/extras bounds with unchanged local progress and no claim/budget');
+ console.log('PASS browser HTTP input/writer/extras bounds with unchanged local progress and no migration budget spent');
  // Hydration reads old cloud and pauses before the browser gets the response.
  redis('SET',`gipf:settings:v2:${session.usernameId}`,JSON.stringify({revision:2,profile:{preferences:{chessDarkMode:'false'}}}));
  const reached=new Promise(resolve=>{readReached=resolve;});pauseRead=true;
- const stale=await context.newPage();stale.on('pageerror',e=>errors.push(e.message));await stale.goto(`${origin}${prefix}/splendor`);await reached;
+ const stale=await context.newPage();stale.on('pageerror',e=>errors.push(e.message));await stale.goto(`${origin}/splendor`);await reached;
  await page.getByLabel('Migration file').setInputFiles({name:'synthetic.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(bundle))});
  await page.getByRole('button',{name:'Preview account activation'}).click();await page.getByText(/Cloud conflicts:/).waitFor();
  assert.equal(await page.getByRole('button',{name:'Activate selected progress'}).isDisabled(),true);

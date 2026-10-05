@@ -1,7 +1,7 @@
 import { webcrypto } from 'crypto';
 import { TextEncoder, TextDecoder } from 'util';
 import { exportProgress, validateFile, stageImport, readStages, inspectStages, rawStageRecovery, captureIdentity, MAX_BYTES } from './migration.js';
-import { encryptApiKey, decryptApiKey } from './account.js';
+import { encryptApiKey, decryptApiKey, storeAccountKey } from './account.js';
 import { recordPuzzleResult, saveProgress } from './games/chess/coach/puzzleProgress.js';
 import DiplomacyBoard from './games/diplomacy/DiplomacyBoard.js';
 import { saveGame } from './games/diplomacy/diplomacyPersistence.js';
@@ -17,9 +17,9 @@ beforeAll(() => {
   globalThis.TextEncoder = TextEncoder; globalThis.TextDecoder = TextDecoder;
   Object.defineProperty(navigator,'locks',{value:{request:async (_,fn) => fn()},configurable:true});
 });
-beforeEach(() => localStorage.clear());
+beforeEach(async () => { localStorage.clear(); await storeAccountKey(account.usernameId, account.aesKey); });
 const origin = 'https://synthetic.example.test';
-const account = {v:1,username:'Synthetic',usernameId:'1'.repeat(64),authToken:'2'.repeat(64),aesKey:'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',profileId:'3'.repeat(64)};
+const account = {v:3,username:'Synthetic',usernameId:'1'.repeat(64),sid:'2'.repeat(64),aesKey:'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='};
 
 test('real Diplomacy adjudication survives winters, multi-year history and writer soft-cap overflow', async () => {
   const board = new DiplomacyBoard({maxYears:1950});

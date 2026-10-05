@@ -10,7 +10,7 @@
 export function withHeaders(pgnBody, { white = 'Human', black = 'Stockfish', date } = {}) {
   const headers = [
     '[Event "GIPF Chess"]',
-    '[Site "gipf.vercel.app/chess"]',
+    '[Site "play.ramia.us/chess"]',
     date ? `[Date "${date}"]` : null,
     `[White "${white}"]`,
     `[Black "${black}"]`,
