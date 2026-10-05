@@ -806,7 +806,7 @@ describe('Diplomacy AI legality', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Split coasts (STP / SPA / BUL) -- issue #24
+// Split coasts (STP / SPA / BUL)
 // ---------------------------------------------------------------------------
 
 describe('Diplomacy split-coast helpers and data', () => {

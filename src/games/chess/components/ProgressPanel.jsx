@@ -1,10 +1,9 @@
-// ProgressPanel.jsx — the cross-game view the app never had.
+// ProgressPanel.jsx — the cross-game progress view.
 //
-// The coach already computes rich per-game data (accuracy, blunder counts, the
-// opening played, how deep the player stayed in book) and used to discard all
-// of it at game end, so a learner had no way to tell whether they were
-// improving. This renders the aggregation from coach/gameHistory.js: an
-// accuracy trend and an opening report card.
+// The coach computes rich per-game data (accuracy, blunder counts, the opening
+// played, how deep the player stayed in book); this renders its aggregation
+// from coach/gameHistory.js — an accuracy trend and an opening report card — so
+// a learner can tell whether they are improving.
 //
 // Everything degrades honestly on sparse data — with two games played the panel
 // says so rather than drawing a confident trend line through noise.

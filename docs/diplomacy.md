@@ -128,15 +128,17 @@ The AI powers can hold a real conversation only when you supply your own **Anthr
 key**. The model mirrors the Catan rules assistant (`api/catanRules.js`) and chess coach
 exactly:
 
-- The key arrives **only in the request body** to `api/diplomacyAgent.js` — never from server
-  environment variables. `git grep -n "process.env" api/diplomacyAgent.js` returns nothing.
+- A guest's key arrives **only in the request body** to `api/diplomacyAgent.js`; a signed-in
+  player's key is held encrypted on the account and decrypted server-side for the call
+  (`server/accountKeys.js`). It never comes from server environment variables.
 - It is used for **exactly one upstream call** to the Anthropic API, then discarded. It is
-  **never logged, never persisted server-side, and never returned** in the response. The
-  error handler deliberately omits the request body so the key can't leak through an error.
-- There is **no server-side fallback key** — no key in the body means no reply.
-- The key is stored **client-side** in `localStorage` under the shared **`gipfApiKey`** slot,
-  the same slot the chess coach and the Catan/Splendor rules chats use. It is entered only at
-  `/login`; without a key the chat panel links to `/login?return=/diplomacy`.
+  **never logged and never returned** in the response. The error handler deliberately omits
+  the request body so the key can't leak through an error.
+- There is **no server-side fallback key** — with no key in the body and none on the
+  account, there is no reply.
+- A guest's key is stored **client-side** in `localStorage` under the shared **`gipfApiKey`**
+  slot, the same slot the chess coach and the Catan/Splendor rules chats use. Keys are entered
+  only at `/login`; without a key the chat panel links to `/login?return=/diplomacy`.
 - The endpoint only works on a **deployed site** (same-origin `/api`, e.g. `play.ramia.us`) or under
   `vercel dev`. Plain `npm start` does not serve `/api/*`, so without a backend you can play
   the full game but the AI powers won't chat or negotiate.
@@ -165,9 +167,8 @@ human-visible conversation store.
 
 The app calls its own origin, so production needs no CORS. `api/diplomacyAgent.js` applies
 the shared `applyCors` helper (`server/cors.js`, local development origins only) in both the
-main handler and the error path. `vercel.json` already routes
-`/api/:path*` to the serverless functions, so no rewrite change is needed to expose the
-endpoint.
+main handler and the error path. `vercel.json` routes
+`/api/:path*` to the serverless functions.
 
 ## Personas, negotiation, and betrayal
 

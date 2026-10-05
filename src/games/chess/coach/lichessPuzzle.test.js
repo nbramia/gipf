@@ -1,4 +1,4 @@
-// lichessPuzzle.test.js — parsing the Lichess daily-puzzle payload (#24):
+// lichessPuzzle.test.js — parsing the Lichess daily-puzzle payload:
 // fen-carrying and pgn-derived variants, solution legality vetting, theme
 // labeling, and graceful nulls on malformed data.
 

@@ -26,7 +26,7 @@ Always verify your area's tests pass before and after changes.
 
 ## Conversational LLM Layer
 
-Several games now have a bring-your-own-Anthropic-key chat layer, each a Vercel serverless
+Several games have a bring-your-own-Anthropic-key chat layer, each a Vercel serverless
 function plus a client wrapper: the chess coach (`api/chessCoach.js` / `src/games/chess/coach/coachClient.js`),
 the Catan and Splendor rules-help chats (`api/catanRules.js`, `api/splendorRules.js` +
 `coach/rulesClient.js` in each game), and the Diplomacy negotiation agents (`api/diplomacyAgent.js`
@@ -224,7 +224,7 @@ node scripts/self-play.mjs --games 10 --sims 100
 4. Add wrapper class to root div: `className={`game-<name> min-h-screen ...`}`
 5. Add `import './<name>.css'` to game component
 6. Add lazy route in `src/App.jsx`
-7. Add card in `src/LandingPage.jsx`
+7. Add an entry to `src/games-registry.js` (the landing page and `tiles.json` read it)
 8. Use `<name>` prefix for all localStorage keys
 9. Run `CI=true npm test && npm run build` to verify
 
@@ -304,6 +304,6 @@ node scripts/self-play.mjs --games 10 --sims 100
 | `valueNetwork.js` | Mirror changes to `valueNetworkNode.js` |
 | `<game>.css` | Both light and dark mode rendering |
 | `App.jsx` | All routes still work, build succeeds |
-| `LandingPage.jsx` | Visual check in browser |
+| `LandingPage.jsx`, `games-registry.js` | Visual check in browser; `tiles.json` regenerates on build |
 | `index.css` | Both games still render correctly |
-| `api/aiMove.js` | CORS origins (`ALLOWED_ORIGINS`; each endpoint keeps its own list) |
+| `api/*.js` | Shared CORS helper `server/cors.js` (local development origins only) |

@@ -1,4 +1,4 @@
-// Deterministic delayed-writer regressions for nbramia/gipf#66.
+// Deterministic delayed-writer regressions for the /migration account boundary.
 import React from 'react';
 import { render, act, screen, fireEvent } from '@testing-library/react';
 import { webcrypto } from 'crypto';

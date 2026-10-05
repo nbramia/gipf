@@ -9,7 +9,7 @@
 // state can live in React state / be serialized alongside the board without the
 // usual clone-or-bust footguns.
 //
-// Schema (version 1 — load-bearing contract, see issue #28):
+// Schema (version 1 — load-bearing contract):
 //   {
 //     version: 1,
 //     humanPower: 'england',
@@ -21,7 +21,7 @@
 //     summaries:   { 'austria~france': '...' }       // one-line per-channel memory
 //   }
 //
-// `scratchpads` and `summaries` (issue #44) carry the conversational layer's
+// `scratchpads` and `summaries` carry the conversational layer's
 // memory forward across negotiation phases without an extra LLM call: an agent's
 // own scratchpad (from api/diplomacyAgent.js) and a brief self-emitted channel
 // summary are persisted here and re-injected into the next phase's prompts.

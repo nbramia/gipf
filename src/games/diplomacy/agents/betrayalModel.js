@@ -14,7 +14,7 @@
 // Reputation is the cost of stabbing (it discounts the break payoff), not a tax
 // on honouring — a clean record makes the first stab expensive, as below.
 //
-// effectiveTrust (#44) blends the mechanical ledger trust with the LLM
+// effectiveTrust blends the mechanical ledger trust with the LLM
 // scratchpad's self-reported trust, LEDGER-DOMINANT (W_LEDGER > W_SCRATCH), so the
 // model's private "thinking" steers the decision but can't override a verifiable
 // betrayal. The scratchpad also adds deal-less hostile powers to `targets`.
@@ -40,7 +40,7 @@ export const W_REP = 0.7;     // weight on reputational cost of betrayal (discou
 export const W_PAYOFF = 1.0;  // weight on the tactical gain from breaking
 export const MARGIN = 0.15;   // breaking must clear honoring by this much
 
-// Trust-blend weights (#44): the verifiable kept/broken-promise LEDGER dominates;
+// Trust-blend weights: the verifiable kept/broken-promise LEDGER dominates;
 // the LLM scratchpad's self-reported trust is a bounded secondary adjustment, so
 // a hallucinated "I trust you" can never override a partner who actually stabbed.
 // W_LEDGER > W_SCRATCH by construction; they sum to 1 so the blend stays in [-1,1].
@@ -105,7 +105,7 @@ export function reputationCost(state, power, partner) {
   return base * reliability;
 }
 
-// Deal-specific betrayal payoff (#44): how much THIS power gains by breaking THIS
+// Deal-specific betrayal payoff: how much THIS power gains by breaking THIS
 // specific agreement, rather than one global number applied to all deals.
 //
 // Generate candidate plans, then partition them: the FREE best is the top plan
@@ -237,7 +237,7 @@ export function decideStrategicIntent({ board, state, power, payoff } = {}) {
   const payoffOf = (agreement) => {
     if (typeof payoff === 'number') return payoff;
     if (typeof payoff === 'function') return payoff(board, power, agreement);
-    // Per-agreement gain-from-breaking (#44), not one global number.
+    // Per-agreement gain-from-breaking, not one global number.
     return payoffOfBreaking(board, power, agreement);
   };
 
@@ -251,7 +251,7 @@ export function decideStrategicIntent({ board, state, power, payoff } = {}) {
     if (!partner) continue;
     partnersWithDeal.add(partner);
 
-    // Ledger-dominant blend (#44): mechanical trust adjusted by the scratchpad.
+    // Ledger-dominant blend: mechanical trust adjusted by the scratchpad.
     const trust = state ? effectiveTrust(state, power, partner) : 0;
     const rep = state ? reputationCost(state, power, partner) : 0;
     const gain = payoffOf(agreement);
@@ -316,7 +316,7 @@ export function decideStrategicIntent({ board, state, power, payoff } = {}) {
   // Honoring a non-aggression / DMZ keeps the partner OUT of targets.
   for (const p of honoredPartners) targets.delete(p);
 
-  // Thinking → pipeline (#44): the persisted scratchpad steers targets even with
+  // Thinking → pipeline: the persisted scratchpad steers targets even with
   // NO standing deal. A hostile stance (enemy, or rival with a hostile intent)
   // toward a deal-less power presses them; a friendly/ally stance keeps them out
   // of targets — unless the ledger contradicts it (ledger dominates).

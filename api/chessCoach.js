@@ -5,7 +5,7 @@ export const config = { api: { bodyParser: { sizeLimit: '32kb' } } };
 // /api/chessCoach.js — Vercel serverless endpoint that turns structured
 // Stockfish analysis into natural-language coaching prose via the Claude API.
 //
-// SECURITY MODEL (issue #6): the Anthropic API key is BRING-YOUR-OWN. A guest's key
+// SECURITY MODEL: the Anthropic API key is BRING-YOUR-OWN. A guest's key
 // arrives in the request body from that device; a signed-in player's is decrypted
 // from their account on the server (server/accountKeys.js) and never reaches the
 // browser. Either way it is used for exactly one upstream call and is NEVER logged
@@ -59,7 +59,7 @@ function buildPrompt(body) {
     });
   }
   if (opening) lines.push(`Opening: ${opening}${leftBook ? ' (this move leaves known theory)' : ''}`);
-  // Puzzle coaching (#24): the model only ever receives what it may reveal.
+  // Puzzle coaching: the model only ever receives what it may reveal.
   if (theme && (kind === 'puzzle-hint' || kind === 'puzzle-fail')) {
     lines.push(`Puzzle theme: ${theme}`);
   }

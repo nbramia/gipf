@@ -37,23 +37,23 @@ Resolution requires a ring belonging to the current player; `remove-row` also re
 
 The endpoint restores state through `fromSerializedState`, preserving the supplied scores, ring counts, row context, deferred turn, selections, and winner. Search receives its own clone. Cache keys include every canonical field and ignore object-key insertion order; positions with different scores or deferred next players cannot share a cached answer.
 
-## Legacy compatibility
+## Minimal requests
 
-An old request containing only the three canonical core fields—`boardState`, `gamePhase`, and `currentPlayer`—is accepted only when its omitted state is unambiguous:
+A request containing only the three canonical core fields—`boardState`, `gamePhase`, and `currentPlayer`—is accepted only when its omitted state is unambiguous:
 
 - **Setup:** rings only, fewer than ten placed, no player has more than five, and counts match alternating placements starting with player 1.
 - **Play:** exactly five rings per player and no completed marker rows. Positions with fewer rings require a full snapshot because scores are missing.
 
 These requests default to zero scores, ring counts inferred from pieces, empty move/row/queue arrays, `null` selections/winner/next player, and `pendingRowsAfterRingRemoval: false`.
 
-Minimal resolution/game-over requests and partially supplied canonical state are rejected. For example, adding `scores` to a three-field legacy request is insufficient: send the complete canonical snapshot instead. No missing scoring context is invented.
+Minimal resolution/game-over requests and partially supplied canonical state are rejected. For example, adding `scores` to a three-field request is insufficient: send the complete canonical snapshot instead. No missing scoring context is invented.
 
 ## Responses and errors
 
-Success returns the existing resolved move object or `null` when no move exists. Moves contain coordinate-pair-or-null `move` and `destination`, numeric `confidence`, and, where supplied by search, `type` and a full five-marker `row`. Both search iterations and fallback results are awaited; early-confidence exits and caching operate on completed results, never Promises.
+Success returns the resolved move object or `null` when no move exists. Moves contain coordinate-pair-or-null `move` and `destination`, numeric `confidence`, and, where supplied by search, `type` and a full five-marker `row`. Both search iterations and fallback results are awaited; early-confidence exits and caching operate on completed results, never Promises.
 
-Malformed/incomplete requests return HTTP 400 with `{ error: 'Invalid board snapshot' }`. Search failures return HTTP 500 with `{ error: 'Unable to calculate move' }`; exception details are never reflected. `OPTIONS` retains HTTP 200 and unsupported methods retain HTTP 405. Allowed origins are unchanged. The durable shared AI limit, 32 KiB request bound, no-store header, and terminating 3-second worker also apply.
+Malformed/incomplete requests return HTTP 400 with `{ error: 'Invalid board snapshot' }`. Search failures return HTTP 500 with `{ error: 'Unable to calculate move' }`; exception details are never reflected. `OPTIONS` returns HTTP 200 and unsupported methods return HTTP 405. The durable shared AI limit, 32 KiB request bound, no-store header, and terminating 3-second worker also apply.
 
 ## Regression tests
 
-Run `node --test tests/test_yinsh_api.mjs`. Tests stub the Redis transport while retaining the real guard, invoke both the injectable search and production worker, drive delayed search Promises and cache separation, round-trip real Board snapshots, exercise real iteration/coordinate/row responses with bounded simulation, and cover legacy requests, validation failures, methods, and CORS.
+Run `node --test tests/test_yinsh_api.mjs`. Tests stub the Redis transport while retaining the real guard, invoke both the injectable search and production worker, drive delayed search Promises and cache separation, round-trip real Board snapshots, exercise real iteration/coordinate/row responses with bounded simulation, and cover minimal requests, validation failures, methods, and CORS.

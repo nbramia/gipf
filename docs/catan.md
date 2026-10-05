@@ -47,7 +47,7 @@ Every ruleset × scenario × player-count combination is exercised by `scripts/c
 
 ### Trade discipline
 
-The AI's `propose-trade` prior carries diminishing returns within a turn (`mcts.js`): the first offer is scored normally, each further one is penalized, so the AI makes its best deals and moves on instead of spamming the per-turn cap — fewer trade modals for the human, slightly shorter games. The penalty is deliberately gentle (it still lets clearly-beneficial repeat trades through), and is tuned to be strength-neutral: head-to-head against the prior champion it scores 52.5% over 40 games (a clean tie). A harder penalty would shorten games further but costs a few points of AI-vs-AI strength, so it's kept conservative. The human's own 4-proposals-per-turn cap is unaffected.
+The AI's `propose-trade` prior carries diminishing returns within a turn (`mcts.js`): the first offer is scored normally, each further one is penalized, so the AI makes its best deals and moves on instead of spamming the per-turn cap — fewer trade modals for the human, slightly shorter games. The penalty is deliberately gentle so clearly beneficial repeat trades still go through and AI-vs-AI strength is unchanged; a harder penalty shortens games further but costs strength. The human's own 4-proposals-per-turn cap is unaffected.
 
 ### Rules assistant (bring-your-own key)
 
@@ -91,9 +91,9 @@ The deployed opponents use a PUCT game-tree MCTS in a Web Worker. Catan is multi
 
 **Fair play (no X-ray vision):** each search runs on a *determinized* clone — every opponent's hand is re-sampled to the same public card count but unknown contents (types drawn from their visible production), and the unseen dev deck is reshuffled. The AI plans on a believable guess and the real board resolves the move with the truth, exactly like a human. It never reads opponents' actual cards or the next dev card.
 
-**How it's improved (the A/B ratchet):** every engine change plays the frozen reigning champion head-to-head, seat-balanced (`scripts/catan/compare-evals.mjs` vs `engine/_mcts_champion.js`), and ships only if it wins. Proven wins so far: softmax rollouts (+60% over greedy), endgame-closing + leader-targeting eval, and much deeper search (Strong/Expert/Brutal = 1500/3000/6000 sims, ~2.4s/move on Brutal).
+**How it's improved (the A/B ratchet):** every engine change plays the frozen reigning champion head-to-head, seat-balanced (`scripts/catan/compare-evals.mjs` vs `engine/_mcts_champion.js`), and ships only if it wins. The current engine combines softmax rollouts, an endgame-closing and leader-targeting evaluation, and deep search (see the difficulty presets below).
 
-**Neural-network status (closed on a single machine, pipeline kept):** a full pipeline exists (`training/catan/`, `scripts/catan/train-loop.mjs`) but the NN cannot beat the heuristic here. Three value targets were tested: heuristic distillation learns it cleanly (val_mse ~0.004) but can only *match* it (~16.7% win); the game-outcome label is far too noisy (5%); and the *search-backed* value — the correct AlphaZero target — has a ~0.12 label-noise floor (from the fair determinization + rollouts + finite sims) that more capacity can't beat (200k→1.5M→2.7M params: 0.128→0.123→0.138, the largest overfitting). Cracking it would need averaging many high-sim searches per position across millions of positions — a GPU-cluster project, not a local one. The deployed strength is therefore the heuristic PUCT rollout-leaf tree with deep search.
+**Why the heuristic ships, not a network:** a full NN pipeline exists (`training/catan/`, `scripts/catan/train-loop.mjs`), but on a single machine it does not beat the heuristic. Heuristic distillation can only match the heuristic, the game-outcome label is too noisy, and the search-backed value target has a label-noise floor (from fair determinization, rollouts and finite simulations) that more model capacity does not overcome. Beating it would need many high-simulation searches per position across millions of positions. The deployed opponent is therefore the heuristic PUCT rollout-leaf tree with deep search.
 
 The heuristic values:
 

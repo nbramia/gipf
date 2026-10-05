@@ -1,5 +1,5 @@
 // MistakeReviewPanel.jsx — post-game review of the mistakes captured this game
-// (#23). Each row is a replayable drill: Retry loads the position the mistake
+//. Each row is a replayable drill: Retry loads the position the mistake
 // was played from. Solved entries return later on the store's spaced schedule.
 
 import React from 'react';

@@ -1,5 +1,5 @@
 // motifs.js — cheap, synchronous motif detection for the free (no-API-key)
-// commentary path (docs/chess-ux-review.md #3.1).
+// commentary path.
 //
 // Pure chess.js, no engine calls. Given the FEN BEFORE a move and its SAN, this
 // replays the move and inspects the resulting position for concrete, nameable

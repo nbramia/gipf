@@ -1,4 +1,4 @@
-// puzzleCoach.js — coaching wired into puzzles (#24): staged hints on request
+// puzzleCoach.js — coaching wired into puzzles: staged hints on request
 // and an explanation after a failed attempt.
 //
 // Truthfulness + no-spoiler rules:

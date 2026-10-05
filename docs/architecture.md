@@ -8,7 +8,7 @@ GIPF Project is a multi-game React application. Each game is self-contained in `
 src/
   App.jsx              # BrowserRouter + React.lazy routes
   LandingPage.jsx      # Game catalogue + link to /login
-  LoginPage.jsx        # /login: Auth0 sign in/out, old-account link, Anthropic key and Lichess token
+  LoginPage.jsx        # /login: Auth0 sign in/out, Anthropic key and Lichess token
   landing.css          # Scoped catalogue and optional account styles
   index.css            # Tailwind directives + shared keyframes
   index.js             # React DOM entry point
@@ -40,7 +40,7 @@ const DiplomacyGame = lazy(() => import('./games/diplomacy/DiplomacyGame.jsx'));
 
 Visiting `/zertz` does not load the Yinsh MCTS engine. Zertz loads its own inference code and ONNX runtime when NN evaluation is requested. `LandingPage` is eagerly loaded since it's the entry point.
 
-The app is deployed by the `play` Vercel project from `main`, served from the domain root at `play.ramia.us` with no access gate. `vercel.json` routes API calls to serverless functions and every other path to `index.html` for client-side routing. The fallback excludes `/api/`, so a path with no function behind it is a 404 rather than the app shell:
+Vercel builds production from `main` and serves the app from the domain root at `play.ramia.us`, ungated. `vercel.json` routes API calls to serverless functions and every other path to `index.html` for client-side routing. The fallback excludes `/api/`, so a path with no function behind it is a 404 rather than the app shell:
 ```json
 { "source": "/api/:path*", "destination": "/api/:path*" },
 { "source": "/((?!api/).*)", "destination": "/index.html" }

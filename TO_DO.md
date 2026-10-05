@@ -6,9 +6,9 @@
 
 ## Medium Priority
 
-- Game timer / time controls
-- Tutorial / help system for new players
-- Sound effects and move animations
+- Game timer / time controls outside Chess
+- Tutorial / help system for Yinsh and Zertz
+- Sound effects outside Chess
 - Import Yinsh games from notation strings
 - Add more GIPF Project games (DVONN, TZAAR, PUNCT, TAMSK)
 
@@ -16,7 +16,7 @@
 
 - Online multiplayer (WebSocket)
 - Game replay system
-- Statistics dashboard
+- Statistics dashboard outside Chess
 - Board themes and customization
 - Accessibility improvements
 - Yinsh AI analysis mode (show evaluation during play)

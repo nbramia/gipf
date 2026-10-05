@@ -1,4 +1,4 @@
-// mistakeStore.test.js — the persistent mistake library (#23): capture/dedupe,
+// mistakeStore.test.js — the persistent mistake library: capture/dedupe,
 // the 200-entry cap with solved-first eviction, the 1d/3d/7d review scheduler,
 // drill correctness, the weakness profile, and localStorage round-tripping.
 

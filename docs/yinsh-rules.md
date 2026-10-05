@@ -1,12 +1,12 @@
 # YINSH rules and resolution
 
-Primary source: [Kris Burm / Project GIPF official YINSH rules](https://www.gipf.com/yinsh/rules/rules.html), sections E–H (verified September 20, 2026).
+Primary source: [Kris Burm / Project GIPF official YINSH rules](https://www.gipf.com/yinsh/rules/rules.html), sections E–H.
 
 Players alternate placing five rings each. During play, leave a marker inside a ring and move that ring along a straight line to an empty intersection. Rings block movement. A ring may cross empty intersections before jumping consecutive markers, but must land immediately after those markers. Flip every jumped marker.
 
 Five adjacent, collinear markers of one color score a row. Remove those five markers, then one ring of that color. Repeat for surviving disjoint rows. For longer lines, choose any consecutive five; intersecting rows cease to qualify when their shared markers disappear. Resolve the mover's rows before the opponent's rows. The opponent then takes the next ordinary turn.
 
-The third removed ring ends the game immediately, including when both players could otherwise score their third ring on the same move. The official rules also specify a marker-exhaustion ending; this repair does not add that separate rule.
+The third removed ring ends the game immediately, including when both players could otherwise score their third ring on the same move. The official rules also specify a marker-exhaustion ending; the engine does not implement that separate rule.
 
 ## Engine contract
 

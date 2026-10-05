@@ -1,4 +1,4 @@
-// puzzleCoach.test.js — staged hints and fail coaching for puzzles (#24):
+// puzzleCoach.test.js — staged hints and fail coaching for puzzles:
 // no-spoiler escalation, refutation-grounded fail text, payload shapes, and
 // the keyless template routing through requestCommentary.
 

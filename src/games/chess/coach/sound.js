@@ -1,4 +1,4 @@
-// sound.js — tiny WebAudio move/capture/check/end cues (#21).
+// sound.js — tiny WebAudio move/capture/check/end cues.
 //
 // Synthesised with an oscillator so there are no audio asset files to ship. All
 // calls are no-ops when sound is disabled or WebAudio is unavailable. Kept out

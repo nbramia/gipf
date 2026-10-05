@@ -45,7 +45,7 @@ describe('templates — opening "book" handling', () => {
   });
 });
 
-describe('templates — motif-driven commentary (docs/chess-ux-review.md #3.1)', () => {
+describe('templates — motif-driven commentary', () => {
   function hangingQueenFen() {
     const g = new Chess();
     ['e4', 'e5', 'Qh5', 'Nc6', 'Bc4', 'g6'].forEach((m) => g.move(m));
@@ -127,7 +127,7 @@ describe('templates — motif-driven commentary (docs/chess-ux-review.md #3.1)',
   });
 });
 
-describe('describeAiMove — never asserts something the engine did not find (docs/chess-adversarial-review.md §2)', () => {
+describe('describeAiMove — never asserts something the engine did not find', () => {
   const candidates = [
     { san: 'Nf3', eval: '+0.4', pv: ['Nf3', 'd5'] },
     { san: 'e4', eval: '+0.3', pv: ['e4', 'e5'] },

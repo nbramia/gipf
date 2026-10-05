@@ -1,4 +1,4 @@
-// lichessPuzzle.js — the Lichess daily puzzle as fresh training content (#24).
+// lichessPuzzle.js — the Lichess daily puzzle as fresh training content.
 //
 // https://lichess.org/api/puzzle/daily is public (no auth) and CORS-open, and
 // the puzzle database it draws from is CC0. The response carries a rated,

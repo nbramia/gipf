@@ -5,7 +5,7 @@
 // predict(Float32Array[216]) -> { value: Float32Array[4], policy: Float32Array[POLICY_SIZE] }
 // (raw logits; the NNEvaluator applies softmax + legal-move masking).
 //
-// Scaffold: no model is trained/deployed yet (see docs/splendor.md). The
+// No Splendor model is deployed (see docs/splendor.md). The
 // heuristic PUCT tree is the live engine; this exists for the training pipeline.
 
 import * as ort from 'onnxruntime-node';

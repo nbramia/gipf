@@ -1,4 +1,4 @@
-// accuracy.js — post-game accuracy summary (issue #17).
+// accuracy.js — post-game accuracy summary.
 //
 // Converts per-move centipawn loss into an accuracy percentage and aggregates a
 // game into a per-side report. The move-accuracy curve is the widely-used

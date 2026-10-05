@@ -358,7 +358,7 @@ describe('runNegotiationPhase — bilateral deals (endpoint schema)', () => {
   });
 });
 
-describe('runNegotiationPhase — carried memory (#44)', () => {
+describe('runNegotiationPhase — carried memory', () => {
   test('a scratchpad returned in phase N is present in the state used for phase N+1', async () => {
     const { board, state, humanPower } = freshGame();
     const opts = { maxRounds: 1, maxPairsPerRound: 4, humanPower, seed: 5 };

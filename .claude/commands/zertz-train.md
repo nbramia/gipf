@@ -14,7 +14,7 @@ Estimate iteration times:
 - **Parallel self-play** (50 games, 200 sims, 6 workers): ~10 minutes
 - **Training** (with augmentation): ~5-10 minutes
 - **ONNX export**: ~30 seconds
-- **SPRT Tournament** (up to 40 games, 50 sims): ~10 minutes avg
+- **Tournament** (20 games, 100 sims, candidate vs deployed model): ~10 minutes avg
 - **Total per iteration**: ~26-31 minutes
 
 If "overnight" or open-ended: use `--max-iterations 20` (~9-11 hours).
@@ -27,8 +27,8 @@ Stop with 10 minutes remaining to ensure clean state.
 
 2. Check state files and determine starting point:
 ```bash
-cat .current-version 2>/dev/null || echo "not set"
-cat .deployed-checkpoint 2>/dev/null || echo "not set"
+cat training/zertz/.current-version 2>/dev/null || echo "not set"
+cat training/zertz/.deployed-checkpoint 2>/dev/null || echo "not set"
 ls training/zertz/checkpoints/v*.pt 2>/dev/null | sort -V | tail -3
 ```
 
@@ -54,7 +54,7 @@ PYTHONPATH=training training/.venv/bin/python3 training/zertz/export_onnx.py \
 
 ## Running the Training Loop
 
-Use `scripts/zertz/continuous-train.sh` which handles: parallel self-play, data combining, training, ONNX export, SPRT tournament, auto-promotion, git commit/push, and state persistence.
+Use `scripts/zertz/continuous-train.sh` which handles: parallel self-play, data combining, training, ONNX export, incumbent tournament, auto-promotion, git commit/push, and state persistence.
 
 ### Start the loop:
 ```bash
@@ -69,17 +69,17 @@ tail -f training/zertz/continuous.log
 ```
 
 ### What continuous-train.sh does each iteration:
-1. Parallel self-play (6 workers) -> `data/zertz/vN_selfplay.ndjson`
-2. Combines with last 5 data files -> `data/zertz/combined_vN.ndjson`
+1. Parallel self-play (6 workers) -> `$DATA_DIR/vN_selfplay.ndjson` (`DATA_DIR` defaults to `data/zertz/feature-v2`)
+2. Combines with recent data files -> `$DATA_DIR/combined_vN.ndjson`
 3. Trains with augmentation (LR 1e-4, patience 12) -> `training/zertz/checkpoints/vN.pt`
 4. Exports to ONNX -> `public/models/zertz-value-vN.onnx`
-5. SPRT tournament vs deployed model
+5. Tournament vs the deployed model (the candidate must win more than half of the games)
 6. If win: promotes, commits, pushes. If loss: moves to next version
 7. Backs up checkpoints every 5 versions
 
 State survives Ctrl+C and restart:
-- `.current-version` -- next version to try
-- `.deployed-checkpoint` -- best checkpoint path
+- `training/zertz/.current-version` -- next version to try
+- `training/zertz/.deployed-checkpoint` -- best checkpoint path
 
 ### If the script needs manual intervention:
 - APFS I/O timeout: The script retries after 20s sleep. If persistent, `Ctrl+C` and restart.
@@ -95,8 +95,8 @@ grep -E "WINS|did not win|Promoted" training/zertz/continuous.log
 
 2. **Verify final state**:
 ```bash
-cat .current-version
-cat .deployed-checkpoint
+cat training/zertz/.current-version
+cat training/zertz/.deployed-checkpoint
 file public/models/zertz-value-v1.onnx
 ```
 
@@ -115,14 +115,14 @@ If `continuous-train.sh` isn't working, run a single iteration manually:
 ```bash
 # 1. Self-play
 node scripts/zertz/parallel-selfplay.mjs --games 50 --sims 200 \
-  --output data/zertz/vN_selfplay.ndjson --workers 6
+  --output data/zertz/feature-v2/vN_selfplay.ndjson --workers 6
 
 # 2. Combine data
-cat data/zertz/vN_selfplay.ndjson data/zertz/vA_selfplay.ndjson > data/zertz/combined_vN.ndjson
+cat data/zertz/feature-v2/vN_selfplay.ndjson data/zertz/feature-v2/vA_selfplay.ndjson > data/zertz/feature-v2/combined_vN.ndjson
 
 # 3. Train
 PYTHONPATH=training training/.venv/bin/python3 training/zertz/train.py \
-  --data data/zertz/combined_vN.ndjson \
+  --data data/zertz/feature-v2/combined_vN.ndjson --feature-version 2 \
   --checkpoint training/zertz/checkpoints/vBEST.pt \
   --model-type policy-value --augment --lr 1e-4 --epochs 40 --patience 12 \
   --output-dir training/zertz/checkpoints
@@ -132,9 +132,10 @@ PYTHONPATH=training training/.venv/bin/python3 training/zertz/export_onnx.py \
   --checkpoint training/zertz/checkpoints/vN.pt \
   --output public/models/zertz-value-vN.onnx
 
-# 5. Tournament
-node scripts/zertz/tournament.mjs --games 10 --sims 50 \
-  --model public/models/zertz-value-vN.onnx
+# 5. Tournament (exit code 0 only when the candidate wins more than half the games)
+node scripts/zertz/tournament.mjs --games 20 --sims 100 --mode nn-vs-nn \
+  --model1 public/models/zertz-value-vN.onnx \
+  --model2 public/models/zertz-value-v1.onnx
 
 # 6. Deploy if it wins
 cp public/models/zertz-value-vN.onnx public/models/zertz-value-v1.onnx

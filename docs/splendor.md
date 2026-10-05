@@ -1,8 +1,7 @@
 # Splendor
 
 The Splendor implementation lives at `/splendor`. The human plays as Player 1 (red)
-against 1–3 local MCTS opponents, racing to 15 prestige. See
-[splendor-plan.md](splendor-plan.md) for the original build plan.
+against 1–3 local MCTS opponents, racing to 15 prestige.
 
 ## Rules Coverage
 
@@ -22,7 +21,7 @@ Faithful **base-game Splendor, 2–4 players**. Implemented:
   condition with the **fewest-cards** tiebreak.
 - Undo/redo via the same board-state snapshot pattern as the other games.
 
-**Intentionally omitted (v1):** the Cities of Splendor expansions (Cities, Strongholds,
+**Intentionally omitted:** the Cities of Splendor expansions (Cities, Strongholds,
 Trading Posts, The Orient) and the two-player Splendor Duel (a separate game). The
 rules-help chat will explain these on request but makes clear the app doesn't simulate them.
 
@@ -92,14 +91,11 @@ ships only if it wins — then copy `mcts.js` → `_mcts_champion.js`.
 Difficulty presets (search depth is the reliable strength lever; Splendor's small branching
 keeps even deep search cheap, ~0.4 ms/sim):
 
-Leaf-rollout depth was swept with `scripts/splendor/ladder.mjs --rollout-set` (28 ranks best;
-shallower loses accuracy, deeper adds cost/variance without gain), so the presets use 28.
-
-A demand-memoization speedup (computing per-colour token demand once per scoring pass instead
-of per candidate move — it was the #1 profiler hot spot) roughly **2.5×'d search throughput**
-(~1950 → ~5000 sims/sec; `scripts/splendor/bench.mjs`). The presets were raised ~2.5× to spend
-that on more search at the **same move latency** — a free strength gain: the strong preset's
-1200→3000 jump is **+190 Elo** (h-3000 beat h-1200 18–6, 75%, Wilson CI [55%, 88%], significant):
+Leaf-rollout depth is 28 (30 on Brutal): `scripts/splendor/ladder.mjs --rollout-set` sweeps it,
+and shallower rollouts lose accuracy while deeper ones add cost and variance without gain.
+Per-colour token demand is computed once per scoring pass rather than per candidate move
+(`scripts/splendor/bench.mjs` measures throughput), which keeps these simulation counts at a
+comfortable move latency:
 
 | Level | Simulations | Max root children | Rollout depth |
 |-------|-------------|-------------------|---------------|
@@ -109,43 +105,32 @@ that on more search at the **same move latency** — a free strength gain: the s
 
 ## Verification rig (how strength is proven)
 
-Strength is measured, not asserted (`docs/splendor-ai-plan.md`):
+Strength is measured, not asserted:
 
-- `scripts/splendor/ladder.mjs` — Bradley-Terry **ELO** gauntlet across engines. Confirms the
-  engine scales with search: 40 / 150 / 500 sims ≈ **1212 / 1563 / 1724 Elo**.
+- `scripts/splendor/ladder.mjs` — Bradley-Terry **ELO** gauntlet across engines, including
+  strength-vs-simulations curves.
 - `engine/positions.test.js` — tactical benchmarks (winning buy, noble-for-the-win,
   prefer-buy-over-take, keep-the-gold). Competence proof + regression guard.
 - `scripts/splendor/compare-evals.mjs` and `tournament.mjs` — head-to-head with a **Wilson 95%
   CI** and a significance verdict; the flywheel/ratchet promote only when the lower bound clears
   50%, never on noise. Output also reports self-play health (plies/game, cap-hits, prestige).
 
-## Neural network (trained, did NOT beat the heuristic — heuristic stays)
+## Neural network (not deployed)
 
 A full AlphaZero-style flywheel exists (`scripts/splendor/selfplay-parallel.mjs`,
-`train-loop.mjs`, `training/splendor/`) behind the `Evaluator` seam. It was run for real
-(13 generations, 2-player, ~3,900 self-play games, gated vs the heuristic). **The NN never
-significantly beat the heuristic rollout-leaf and is not deployed** — the live engine remains
-the heuristic PUCT rollout-leaf tree.
+`train-loop.mjs`, `training/splendor/`) behind the `Evaluator` seam. Trained networks have not
+significantly beaten the heuristic in gated play, so the live engine is the heuristic PUCT
+rollout-leaf tree. Two causes compound:
 
-Results (gate = NN vs heuristic, 60 games/gen):
-- Win-rate climbed 1.7% → ~15% across generations, then **plateaued ~15%** at 2× sims.
-- Even at **10× sims (≈ equal wall-clock**, since an NN leaf is one forward pass vs a 28-step
-  rollout), the best generation reached only **23.3%** (95% CI [11.8%, 40.9%] — significantly
-  worse). Its value scales with search but can't close the gap.
-
-This reproduces Catan's finding (their distillation maxed ~16.7%). Two compounding causes:
-1. **Cold start.** The gate requires beating the heuristic before NN-guided self-play kicks in,
-   but the net can't clear that bar from heuristic-outcome data alone — so self-play never
-   improved past heuristic quality (a chicken-and-egg the flywheel can't bootstrap here).
+1. **Cold start.** The gate requires beating the heuristic before NN-guided self-play takes
+   over, and a net trained on heuristic-outcome data alone does not clear that bar.
 2. **Value vs lookahead.** A 1-ply NN value replaces a 28-step rollout; to win it must be a far
    better positional evaluator than the hand heuristic, and a small MLP on noisy 2-player
    outcome labels isn't.
 
-What would actually be needed (a real project, not a CPU afternoon): train the value head on
-**search-backed targets** (the AlphaZero target, averaged over determinizations to fight label
-noise), a **larger network**, and **orders of magnitude more self-play** — ideally on a GPU.
-The pipeline and rig are in place to attempt that later. Meanwhile the reliable lever remains
-search depth, and the deployed presets already run it deep.
+Beating the heuristic would need search-backed value targets (averaged over determinizations),
+a larger network, and orders of magnitude more self-play. Until then the reliable lever is
+search depth.
 
 Feature encoding (`features.js`): `players` (4×14, perspective-relative) + `market` (12×12)
 + `meta` (16) = 216 input floats; policy = 230 move slots; value = 4 seat logits (softmax

@@ -1,6 +1,6 @@
 // puzzleProgress.js — per-puzzle training progress + a player puzzle rating.
 //
-// The puzzle overhaul's memory (#24): every puzzle attempt updates (a) a
+// The puzzle overhaul's memory: every puzzle attempt updates (a) a
 // per-puzzle record driving spaced repetition (same 1d/3d/7d ladder as the
 // mistake library — solved puzzles come back before they fade), and (b) a
 // single player puzzle Elo, treated as a rated game against the puzzle's
