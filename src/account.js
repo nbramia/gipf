@@ -354,6 +354,9 @@ export async function retainProgress(session) {
 }
 async function saveSessionProgress(s, { importGuest = false, apiKey = '', lichessToken = '' } = {}) {
   const previous = loadSession();
+  // TODO(2026-11-04): retire the API-key-hash claim — 30 days after the unified login
+  // shipped on 2026-10-05. Remove this guest-key claim and the doc note in
+  // docs/public-accounts.md ("Bounded legacy claims"); the password-derived claim stays.
   const guestLegacyKey = !previous && importGuest ? getSharedApiKey() : '';
   const ids = [s.profileId];
   if (guestLegacyKey) {

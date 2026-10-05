@@ -189,9 +189,9 @@ Before modifying game logic for either game:
 |------|---------|
 | `src/App.jsx` | React Router with lazy-loaded game routes |
 | `src/LandingPage.jsx` | Landing page linking to each game + a single "Sign in" / account link to `/login` |
-| `src/LoginPage.jsx` | `/login`: the only place to sign in, create an account, sign out, and enter the Anthropic key and Lichess token (synced encrypted when signed in, device-only for guests) |
+| `src/LoginPage.jsx` | `/login`: the only place to sign in, create an account (passwords of 10+ characters for new accounts), sign out (here or everywhere), and enter the Anthropic key and Lichess token (synced encrypted when signed in, device-only for guests) |
 | `api/session.js`, `server/session.js` | Sign-in sessions: opaque cookie, 30-day idle / 90-day absolute expiry, logout and sign-out everywhere, CSRF checks |
-| `src/loginReturn.js` | `/login?return=` allowlist (exact `games-registry.js` paths, else `/`) and the `loginHref()` games link with |
+| `src/loginReturn.js` | `/login?return=` allowlist (exact `games-registry.js` paths, else `/`) and `loginHref()`, which games use for their "Sign in / add key" link |
 | `src/landing.css` | Scoped catalogue and optional account presentation styles |
 | `scripts/landing-fixture/` | Synthetic account browser checks and production guest-launch check; prerequisites and limits in `docs/public-games-design.md` |
 | `src/account.js` | The one account module: credential derivation, key encryption, session, sign-in/out with key decrypt into `gipfApiKey` (chess's `engine/account.js` re-exports it) |
@@ -212,7 +212,8 @@ Before modifying game logic for either game:
 
 App-owned match boundary and snapshot-validation modules are imported directly by
 the game UIs and adapters; game engines remain self-contained with no imports
-between game directories. The account module retains its per-consumer copies.
+between game directories. The same holds for the account module: one app-level
+`src/account.js`, which Chess re-exports, and `src/loginReturn.js` for the games' `/login` links.
 
 ### Yinsh (`src/games/yinsh/`)
 

@@ -1,15 +1,8 @@
-# Public account boundary (PR4)
+# Games accounts
 
-> Caveat (2026-10-04): This record predates hosting. The ungated `play` project
-> (`play.ramia.us`) serves the integrated build on a new Upstash store restored from
-> backup; the gated `gipf` project (`gipf.vercel.app`, `ramia.us/gipf`) still serves the
-> pre-integration build. Its project environment has no `KV_*` variables, while that
-> existing deployment keeps build-time bindings to the original store, which the provider
-> deleted. The gates and checklists below are as originally written and are not evidence of hosted state.
-
-This change keeps the outer gate, routes, deployment prefix, engines, and models
-unchanged. Do not open public access until the integration and deployment checks
-below pass. Related to https://github.com/nbramia/ramia/issues/22.
+How accounts, sessions, keys and progress work on play.ramia.us, the one Games site
+(the `play` Vercel project, store `gipf-public`). Accounts are optional: every game
+plays as a guest. Related to https://github.com/nbramia/ramia/issues/22.
 
 ## Sign-in surface
 
@@ -21,6 +14,10 @@ device. The landing page links to `/login`, and each game that uses a key links 
 otherwise sign-in returns to `/` (`src/loginReturn.js`). Games contain no credential
 or key inputs, enforced by `src/gamesLoginBoundary.test.js`. On the retired gated
 hosts (`gipf.vercel.app`, `ramia.us/gipf`) the page points to play.ramia.us instead.
+
+New accounts need a password of at least 10 characters. The server never sees the
+password, so `/login` enforces this when creating; accounts created under the earlier
+6-character rule keep signing in unchanged. There is no password reset.
 
 ## Sessions
 
@@ -172,8 +169,15 @@ Payload evidence and limitations are recorded in
 
 Set both `GIPF_LEGACY_CLAIM_FROM` and `GIPF_LEGACY_CLAIM_UNTIL` to fixed ISO UTC
 instants. The interval must be at most 90 days. Missing, future, expired, or
-oversized windows fail closed. Operator setup is required; this PR sets no live
-configuration. Preserve backups before configuring the window.
+oversized windows fail closed (410). The window is project configuration, not code:
+check the `play` project's environment for whether it is open. Preserve backups before
+configuring it.
+
+> Retirement (dated 2026-10-05): the unified login shipped on 2026-10-05. The claim of
+> an API-key-derived ID (explicit guest import of the key on the device) is kept for 30
+> days and retires on 2026-11-04: remove it from `saveSessionProgress` in
+> `src/account.js` (marked with a dated TODO) and delete this note. The window above
+> should cover the same 30 days. The password-derived profile claim is unaffected.
 
 The authenticated account must also present the old secret capability. Redis
 atomically binds that capability to one account permanently; another account
@@ -212,18 +216,17 @@ callbacks. Other tabs reload on the session storage event. Deferred profile writ
 capture the old identity and reject if the active account changed; read
 responses perform the same check. Recovery copies are not ordinary exports.
 
-Existing Splendor/Diplomacy local behavior is retained within the active account;
-their data is protected during switching, without new cloud persistence features.
-PR5 extended the progress allowlist and authenticated contract for versioned
-match snapshots and engine-safe restoration; see [resumable matches](resumable-matches.md).
-The requirements against public-ID access and merging a pending save into the next
-account remain unchanged.
+Splendor and Diplomacy progress stays local within the active account and is
+protected during switching; neither has cloud persistence. The progress allowlist
+and authenticated contract cover versioned match snapshots and engine-safe
+restoration; see [resumable matches](resumable-matches.md). Public IDs never grant
+access, and a pending save is never merged into the next account.
 
 ## Durable limits and execution bounds
 
 `server/publicSecurity.js` uses existing `KV_REST_API_URL` / `KV_REST_API_TOKEN`
 (or Upstash aliases) and Redis EVAL with atomic INCR plus expiry. Every instance
-uses the same counters. Account traffic is 20/minute per network identity before authentication and
+uses the same counters. Account traffic (including `POST /api/session`) is 20/minute per network identity before authentication and
 20/minute per authenticated account after credential verification; sync is 120/minute per network identity and account; AI is 30/minute
 per network identity shared across proxies, including Yinsh. Counters store hashed identities.
 Knowing a username cannot charge its authenticated account budget: incorrect
@@ -306,11 +309,17 @@ Use two synthetic users and separate browser contexts for credentials, explicit
 import, encrypted recovery, conflict handling, and second-device settings reads.
 The repository's pre-existing CRA/source-map warnings may remain in the build.
 
-Before opening the gate: retain the independent security review and regression evidence;
-land the PR65 empty-array preservation fix with or before this PR; verify Vercel
-worker bundling and platform request/deadline behavior, configure durable Redis
-and the bounded claim window, and test the production-like HTTPS origins without
-logging secrets. In particular, confirm `x-vercel-forwarded-for` is the end-user
-identity through both `gipf.vercel.app` and the `ramia.us/gipf` external rewrite; a
-missing/proxy-only header shares a single bucket and is a release blocker. Production cutover, hostname changes, origin migration, and new
-match restoration are later PRs. No deployment/DNS/provider writes are in this PR.
+### Hosted verification
+
+Preview and production deployments of `play` share the `gipf-public` store, so hosted
+checks use synthetic accounts only and delete them afterwards (every key containing
+the account's usernameId, its `chess:account:` record and its sessions), returning
+the creation budget they spent. Preview deployments sit behind Vercel Authentication;
+use the project's automation bypass, never a disabled protection. A login change is
+verified in a real browser against the deployment: `/chess` to `/login` and back; a
+key added at `/login` reaching Catan, Splendor and Diplomacy with no prompt; sign-out
+clearing every tab; a second browser context unlocking both keys; the session cookie's
+flags and a secret-free `gipfAccount`; an account created by the original client (and
+its cached v1 session) still signing in with decrypting keys; all six game routes and
+refreshes as a guest; and `/login` itself. `x-vercel-forwarded-for` must remain the
+end-user identity, or every visitor shares one rate-limit bucket.

@@ -116,7 +116,6 @@ export function createHandler(calculate = calculateYinshMove) {
 const stateCache = new Map();
 return async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('Access-Control-Allow-Credentials', true);
   if (ALLOWED_ORIGINS.includes(req.headers?.origin)) {
     res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
   }
