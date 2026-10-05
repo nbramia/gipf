@@ -93,9 +93,9 @@ test('production and preview origins are accepted exactly', async () => {
   const token = await signIn();
   const prod = { 'x-games-request': '1', origin: 'https://play.ramia.us', host: 'play.ramia.us' };
   assert.equal((await call(profile, { action: 'read' }, { headers: prod, cookie: token })).statusCode, 200);
-  const preview = { 'x-games-request': '1', origin: 'https://play-abc123-nathan-ramias-projects.vercel.app', host: 'play-abc123-nathan-ramias-projects.vercel.app' };
+  const preview = { 'x-games-request': '1', origin: 'https://play-abc123-example-team.vercel.app', host: 'play-abc123-example-team.vercel.app' };
   assert.equal((await call(profile, { action: 'read' }, { headers: preview, cookie: token })).statusCode, 403);
-  process.env.VERCEL_ENV = 'preview'; process.env.VERCEL_URL = 'play-abc123-nathan-ramias-projects.vercel.app';
+  process.env.VERCEL_ENV = 'preview'; process.env.VERCEL_URL = 'play-abc123-example-team.vercel.app';
   assert.equal((await call(profile, { action: 'read' }, { headers: preview, cookie: token })).statusCode, 200);
   process.env.VERCEL_ENV = 'production';
   assert.equal((await call(profile, { action: 'read' }, { headers: preview, cookie: token })).statusCode, 403);

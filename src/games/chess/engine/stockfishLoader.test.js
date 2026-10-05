@@ -58,7 +58,7 @@ describe('stockfishLoader — describeEngineError', () => {
 
 // jsdom (jest's default test environment here) doesn't implement Worker, so a
 // minimal stand-in is needed to exercise createEngine's plumbing — real
-// browsers are covered by manual testing per CLAUDE.md.
+// browsers are covered by manual testing per AGENTS.md.
 class MockWorker {
   constructor(url) {
     this.url = url;

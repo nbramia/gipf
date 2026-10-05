@@ -1,6 +1,6 @@
 // Browser ONNX inference for the Splendor policy/value network (onnxruntime-web).
 // Mirror of valueNetworkNode.js (onnxruntime-node) — keep both in sync
-// (CLAUDE.md mistake #8). Lazy-imports onnxruntime-web so the deployed bundle
+// (AGENTS.md mistake #8). Lazy-imports onnxruntime-web so the deployed bundle
 // (heuristic engine) never pulls the runtime unless an NN is actually used.
 //
 // predict(Float32Array[216]) -> { value: Float32Array[4], policy: Float32Array[POLICY_SIZE] }

@@ -2,7 +2,6 @@
 
 ## High Priority
 
-- Zertz AI opponent (MCTS, no NN needed initially)
 - Pinch-to-zoom for board viewing on mobile
 
 ## Medium Priority

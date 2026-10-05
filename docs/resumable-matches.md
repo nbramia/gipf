@@ -1,7 +1,7 @@
 # Four-game resumable matches
 
 Chess, Yinsh, Zertz and Catan save the current match on the device and, for a
-signed-in account, in the cloud. Part of nbramia/ramia#22.
+signed-in account, in the cloud.
 
 ## User behavior
 

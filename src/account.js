@@ -296,7 +296,7 @@ async function clearSessionProgress({ everywhere = false, server = true } = {}) 
 // ---- shared API key slot ----------------------------------------------------
 //
 // 'gipfApiKey' is a guest's one BYO Anthropic key, shared by Chess, Catan,
-// Splendor and Diplomacy on this device (see CLAUDE.md). /login is the only place
+// Splendor and Diplomacy on this device (see AGENTS.md). /login is the only place
 // it is written; each game reads it through its own storage helper (which also
 // migrates legacy per-game keys, a step this module deliberately does not
 // replicate). A signed-in device holds no key here.

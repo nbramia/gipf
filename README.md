@@ -2,7 +2,7 @@
 
 Browser-based implementations of abstract strategy and classic board games, each with its own computer opponent. Play against the AI or another person, with full rule enforcement, undo/redo, and dark mode.
 
-**[Play Now](https://play.ramia.us)**
+**[Play Now](https://play.ramia.us)** -- the author's hosted instance. This repository is the complete source; you can run it locally or deploy your own copy.
 
 ## Games
 
@@ -61,9 +61,9 @@ npm install
 npm start
 ```
 
-Opens at `http://localhost:3000` with a landing page. Navigate to `/yinsh`, `/zertz`, `/chess`, `/catan`, `/splendor`, or `/diplomacy`.
+Opens at `http://localhost:3000` with a landing page. Navigate to `/yinsh`, `/zertz`, `/chess`, `/catan`, `/splendor`, or `/diplomacy`. Every game plays fully in the browser with no configuration and no account.
 
-The bring-your-own-key features (the chess coach, the Catan and Splendor rules chat, and Diplomacy negotiation) call Anthropic through Vercel serverless functions, so they only work on the deployed site or under `vercel dev`, not plain `npm start`. An optional account (username + password, no email) syncs your API key across devices from a widget on the landing page.
+The bring-your-own-key features (the chess coach, the Catan and Splendor rules chat, and Diplomacy negotiation) call Anthropic through Vercel serverless functions, so they only work on a deployment or under `vercel dev`, not plain `npm start`. As a guest your key stays on your device. An optional account (sign-in at `/login`) stores the key encrypted on the server and syncs progress across devices.
 
 ## Development
 
@@ -82,11 +82,19 @@ npm run train-iteration -- 14 50 200    # Example: candidate v14, 50 games, 200 
 ./scripts/continuous-train.sh           # Autonomous loop with gated auto-promotion
 ```
 
-**Deployment:** Vercel auto-deploys on push to `main`. There is no CI gate -- tests must pass locally before pushing.
+## Deploying your own copy
 
-`main` is the release branch. The `play` Vercel project builds it and serves the public
-catalogue from the root of `play.ramia.us`. Accounts are optional (Auth0 sign-in at
-`/login`); every game plays as a guest. See [accounts](docs/public-accounts.md).
+The app is a Create React App build plus Vercel serverless functions in `api/` (`vercel.json` holds the routing). Import the repository into Vercel, or run `vercel dev` locally, and it serves every game with no further setup.
+
+Accounts are optional and need three things, all configured through environment variables (nothing deployment-specific is committed):
+
+- **An OpenID Connect provider (Auth0).** Create a Regular Web Application whose only allowed callback is `https://<your host>/api/auth/callback`, and set `AUTH0_ISSUER_BASE_URL`, `AUTH0_CLIENT_ID` and `AUTH0_CLIENT_SECRET`.
+- **A Redis REST store** (Upstash or Vercel KV): `KV_REST_API_URL` and `KV_REST_API_TOKEN` (or `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`).
+- **Two generated secrets:** `GAMES_SESSION_SECRET` (32+ characters) and `GAMES_KEY_ENCRYPTION_KEY` (base64 of 32 random bytes; `GAMES_KEY_ENCRYPTION_KEY_VERSION` and `scripts/rotate-games-keys.mjs` handle rotation).
+
+Then set the production origin in two constants, `PRODUCTION_ORIGIN` in `server/session.js` and `SILENT_HOST` in `src/silentSignIn.js`, to your host. Each missing piece fails closed: sign-in reports itself unavailable or the account endpoints return 503, and guest play keeps working. See [AGENTS.md](AGENTS.md#deployment-and-ramiaus) for the full contract and [accounts](docs/public-accounts.md) for how sessions, key custody and sync work.
+
+For the author's instance, `main` is the release branch: merging to `main` deploys play.ramia.us. There is no CI gate, so the full test suite and build must pass before merging.
 
 ## Project Structure
 
@@ -117,9 +125,7 @@ React + React Router (code-split), Tailwind CSS, SVG rendering. The AI spans thr
 
 ## Documentation
 
-Deeper writeups live in [`docs/`](docs/): [architecture](docs/architecture.md), the [AI engine](docs/ai-engine.md), and per-game notes for [chess](docs/chess.md), [Catan](docs/catan.md), [Splendor](docs/splendor.md), and [Diplomacy](docs/diplomacy.md).
-
-The [YINSH/ZÈRTZ audit and repair record](docs/yinsh-zertz-audit-2026-09-20.md) separates baseline training results from engine, browser, and pipeline validation, including feature-v2 migration requirements.
+Deeper writeups live in [`docs/`](docs/): [architecture](docs/architecture.md), the [AI engine](docs/ai-engine.md), [accounts](docs/public-accounts.md), and per-game notes for [chess](docs/chess.md), [Catan](docs/catan.md), [Splendor](docs/splendor.md), and [Diplomacy](docs/diplomacy.md). Instructions for AI coding agents working in this repo are in [AGENTS.md](AGENTS.md).
 
 Current matches in Chess, Yinsh, Zertz, and Catan resume locally after refresh.
 Signing in also enables cloud matches, preferences and existing statistics, with

@@ -161,7 +161,7 @@ Worker receives evaluationMode='nn'
 
 Both games bundle `onnxruntime-web` and use single-threaded WASM, loading models from the site root. Workers cache only successfully loaded models; failed loads remain retryable. They report requested and actual evaluation modes, and the UI displays “Neural model unavailable — using heuristic AI” when an NN request falls back. A later successful load clears the notice.
 
-Request IDs, worker identity, and board versions reject stale or duplicate results and errors. Reset, undo/redo, position changes, and AI settings changes cancel pending work; cancellation terminates that worker and discards its model cache. Main-thread fallback searches a clone and checks the same board version before applying a result. See the [browser repair report](yinsh-zertz-browser-repairs-2026-09-20.md) for the scoped Chromium production-build smoke evidence and its limitations.
+Request IDs, worker identity, and board versions reject stale or duplicate results and errors. Reset, undo/redo, position changes, and AI settings changes cancel pending work; cancellation terminates that worker and discards its model cache. Main-thread fallback searches a clone and checks the same board version before applying a result.
 
 ### Node.js Inference (`src/games/yinsh/engine/valueNetworkNode.js`)
 
