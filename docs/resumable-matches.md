@@ -25,6 +25,15 @@ presents **Keep this match** / **Use cloud match** (or **Use other tab match**).
 A cloud keep-local choice makes an explicit CAS write; a second conflict requires
 another decision. Both alternatives are staged in local recovery before either
 is replaced. **Match recovery** exposes the last eight distinct retained alternatives.
+
+Saving is quiet: while saves and syncs succeed, the match chrome shows no status
+line and no recovery control. A notice appears in a polite live region, with
+**Match recovery** beside it, only when the player may need to act: a local save
+failed, the cloud is unavailable or rejected the match (it retries automatically
+where it can), a conflict choice was just made, or recovery holds a copy newer
+than both the current and the account match. Older retained copies are the
+history of a match the player moved on from and are not mentioned. A conflict
+or damaged save carries its own **Match recovery** control.
 Storage failure cancels destructive replacement and displays an error.
 Malformed recovery containers are preserved byte-for-byte as an unreadable
 alternative in the same account-owned recovery key before that container is
