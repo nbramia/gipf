@@ -67,15 +67,6 @@ export function hasApiKey() {
   return !!getApiKey();
 }
 
-// Per-game copy of the app-shared session read (see src/account.js) — just the
-// signed-in username, so the key UI can explain why a key is already present.
-export function getAccountUsername() {
-  try {
-    const s = JSON.parse(localStorage.getItem('gipfAccount'));
-    return s && s.v === 1 && typeof s.username === 'string' ? s.username : null;
-  } catch (_) { return null; }
-}
-
 // Subscribe to key changes from anywhere: this tab (our KEY_EVENT, e.g. saving a
 // key in the Diplomacy chat) OR another tab / another GIPF game (the native
 // `storage` event on the shared slot). Returns an unsubscribe fn.
@@ -128,7 +119,7 @@ export async function sendMessage({ power, history, context, addressee, model, s
 
   if (!res.ok) {
     const message = res.status === 401
-      ? 'Your API key was rejected. Check it in Settings.'
+      ? 'Your API key was rejected. Check it under Sign in / add key.'
       : 'That power could not be reached right now. Try again.';
     return { error: 'upstream', message };
   }

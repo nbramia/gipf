@@ -44,15 +44,6 @@ export function hasApiKey() {
   return !!getApiKey();
 }
 
-// Per-game copy of the app-shared session read (see src/account.js) — just the
-// signed-in username, so the key UI can explain why a key is already present.
-export function getAccountUsername() {
-  try {
-    const s = JSON.parse(localStorage.getItem('gipfAccount'));
-    return s && s.v === 1 && typeof s.username === 'string' ? s.username : null;
-  } catch (_) { return null; }
-}
-
 // messages: [{ role: 'user' | 'assistant', content: string }] — the full thread,
 // including the latest user question. Returns { answer } or { error, message }.
 export async function askRules({ context, messages }) {
@@ -72,7 +63,7 @@ export async function askRules({ context, messages }) {
   }
   if (!res.ok) {
     const message = res.status === 401
-      ? 'Your API key was rejected. Check it in Settings.'
+      ? 'Your API key was rejected. Check it under Sign in / add key.'
       : 'The rules assistant had trouble responding. Try again.';
     return { error: 'upstream', message };
   }

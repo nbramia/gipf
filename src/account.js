@@ -1,14 +1,11 @@
 import { captureFence, withAccountTransition } from './accountFence.js';
-// account.js — app-level username+password accounts.
+// account.js — username+password accounts for every game.
 //
-// This repo's convention is to duplicate shared behavior per consumer rather
-// than import across game directories (see CLAUDE.md: "no imports between
-// game directories"). This module is an INTENTIONAL identical copy of
-// src/games/chess/engine/account.js — that file is the sibling copy. Both
-// must stay behavior-identical (same namespace 'gipf-chess-account:v1:',
-// same /api/chessAccount endpoint, same PBKDF2 derivation, same gipfAccount
-// session shape) so existing production chess accounts keep working when
-// signed in from the app-level widget on the landing page.
+// The one implementation: the /login page signs in and out here, and each game
+// reads the session through it (Chess via the re-export at
+// src/games/chess/engine/account.js). The namespace 'gipf-chess-account:v1:',
+// the /api/chessAccount endpoint, the PBKDF2 derivation and the gipfAccount
+// session shape are fixed so accounts created by any earlier client keep working.
 //
 // No email, no recovery: a forgotten password means a new account. Every
 // secret is derived client-side from the password via PBKDF2 — the server
@@ -309,11 +306,10 @@ async function clearSessionProgress() {
 
 // ---- shared API key slot ----------------------------------------------------
 //
-// 'gipfApiKey' is the one BYO Anthropic key shared by chess, Catan, and
-// Splendor (see CLAUDE.md). These two helpers let the landing page's account
-// widget read/write it after sign-in/out without pulling in any game's
-// per-game storage helper (each game keeps its own identical copy, including
-// legacy-key migration, which this module deliberately does not replicate).
+// 'gipfApiKey' is the one BYO Anthropic key shared by Chess, Catan, Splendor
+// and Diplomacy (see CLAUDE.md). /login is the only place it is written; each
+// game reads it through its own storage helper (which also migrates legacy
+// per-game keys, a step this module deliberately does not replicate).
 
 export function getSharedApiKey() {
   try {
@@ -338,10 +334,8 @@ export function setSharedApiKey(key) {
 // ---- shared Lichess token slot ----------------------------------------------
 //
 // 'chessLichessToken' is chess's BYO Lichess explorer token (see
-// coach/openingCoach.js — it's the key that module's own getLichessToken/
-// setLichessToken read and write). These two helpers let the landing page's
-// account widget read/write it after sign-in/out, mirroring
-// getSharedApiKey/setSharedApiKey above, without importing chess's module.
+// coach/openingCoach.js reads it). /login writes it through these helpers,
+// mirroring getSharedApiKey/setSharedApiKey above, without importing chess's module.
 
 export function getSharedLichessToken() {
   try {

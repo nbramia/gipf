@@ -44,17 +44,8 @@ import {
 import { DIFFICULTY_TIERS, DEFAULT_TIER_KEY, RATING_LADDER, TIME_CONTROLS, getTimeControl } from './engine/difficulty.js';
 import { DEFAULT_RATING, nearestRung, updateRating, scoreFor, isProvisional, mergeRating } from './engine/rating.js';
 import { fetchRemoteProfile, putRemoteProfile, mergeHistory, mergePuzzles, mergeMistakes } from './engine/profileSync.js';
-import {
-  deriveCredentials,
-  encryptApiKey,
-  decryptApiKey,
-  createAccount,
-  loginAccount,
-  pushEncryptedKey,
-  loadSession,
-  saveSession,
-  clearSession,
-} from './engine/account.js';
+import { loadSession } from './engine/account.js';
+import { loginHref } from '../../loginReturn.js';
 import {
   loadOppHistory,
   saveOppHistory,
@@ -67,8 +58,6 @@ import {
   fetchOpeningStats,
   summarizeBookMove,
   OPENING_MAX_PLY,
-  getLichessToken,
-  setLichessToken,
   hasLichessToken,
 } from './coach/openingCoach.js';
 import { withHeaders, downloadPgn, readPgnFile, looksLikePgn, parsePlayerHeaders } from './coach/pgn.js';
@@ -87,7 +76,7 @@ import { capturedPieces, materialBalance } from './coach/material.js';
 import { playSound, moveSoundKind } from './coach/sound.js';
 import { formatEval, CLASSIFICATION_LEGEND } from './coach/classify.js';
 import { describeEngineError } from './engine/stockfishLoader.js';
-import { requestCommentary, runThreadTurn, setApiKey, hasApiKey, getApiKey } from './coach/coachClient.js';
+import { requestCommentary, runThreadTurn, hasApiKey } from './coach/coachClient.js';
 import './chess.css';
 
 const PIECE_GLYPH = { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛', k: '♚' };
@@ -161,19 +150,8 @@ function ChessGame() {
   const [syncId, setSyncId] = useState(null);
   const [syncStatus, setSyncStatus] = useState('off'); // off | local | syncing | synced | error
 
-  // Username+password account (engine/account.js): unlocks the API key +
-  // profile on any device via a password-derived id, no email/recovery.
-  const [importGuest, setImportGuest] = useState(false);
-  const [account, setAccount] = useState(() => loadSession());
-  const [accountUsername, setAccountUsername] = useState('');
-  const [accountPassword, setAccountPassword] = useState('');
-  const [accountPassword2, setAccountPassword2] = useState('');
-  const [creatingAccount, setCreatingAccount] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [accountBusy, setAccountBusy] = useState(false);
-  const [accountError, setAccountError] = useState('');
-  // null = not probed yet, false = this deployment has no KV store wired.
-  const [accountsConfigured, setAccountsConfigured] = useState(null);
+  // The signed-in account (read-only here): sign-in, sign-out and keys live at /login.
+  const [account] = useState(() => loadSession());
   const [history, setHistory] = useState(() => loadOppHistory()); // per-opponent W/L/D record
   const [gameLog, setGameLog] = useState(() => loadGameLog()); // finished games, for the progress view
   const [repertoire, setRepertoire] = useState(() => loadRepertoire()); // openings the player intends to play
@@ -200,9 +178,7 @@ function ChessGame() {
   const [moveStats, setMoveStats] = useState(() => (restored && restored.moveStats) || []); // [{ply, moverColor, cpLoss, classification}] for accuracy (#17)
   const [coaching, setCoaching] = useState(false);
   const [learningGoal, setLearningGoal] = useState(() => localStorage.getItem('chessLearningGoal') || '');
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [keySet, setKeySet] = useState(() => hasApiKey());
-  const [showKeyField, setShowKeyField] = useState(false);
+  const [keySet] = useState(() => hasApiKey());
   const [showLegend, setShowLegend] = useState(false);
   const [drillOpeningFilter, setDrillOpeningFilter] = useState(null); // null = all openings
   const [puzzleThemeFilter, setPuzzleThemeFilter] = useState([]); // [] = adaptive default
@@ -214,10 +190,8 @@ function ChessGame() {
   // path — i.e. the Claude call failed and we degraded silently.
   const [coachKeyFailing, setCoachKeyFailing] = useState(false);
 
-  // BYO Lichess token for master opening stats (the explorer is now auth-gated).
-  const [lichessInput, setLichessInput] = useState('');
-  const [lichessSet, setLichessSet] = useState(() => hasLichessToken());
-  const [showLichessField, setShowLichessField] = useState(false);
+  // BYO Lichess token for master opening stats (the explorer is auth-gated); set at /login.
+  const [lichessSet] = useState(() => hasLichessToken());
 
   // Polish (#21): eval bar, sounds.
   const [showEvalBar, setShowEvalBar] = useState(() => {
@@ -436,18 +410,6 @@ function ChessGame() {
       .catch(() => { if (!cancelled) setSyncStatus('error'); });
     return () => { cancelled = true; };
   }, [syncId, mergeRemoteProfileIntoLocal]);
-
-  // Cheap one-shot probe so the Account block can say "not available on this
-  // deployment" before the user invests a username and password in it.
-  useEffect(() => {
-    let cancelled = false;
-    fetchRemoteProfile('probe')
-      .then((res) => {
-        if (!cancelled) setAccountsConfigured(!(res && res.configured === false));
-      })
-      .catch(() => { if (!cancelled) setAccountsConfigured(null); }); // unknown, stay quiet
-    return () => { cancelled = true; };
-  }, []);
 
   // Auto-scroll the transcript to the newest entry (now rendered at the top).
   useEffect(() => {
@@ -1451,219 +1413,6 @@ function ChessGame() {
     setBoard(board.clone());
   };
 
-  // A mistyped key used to fail silently forever — the coach just quietly
-  // stayed on templates. Catch the obvious shape errors at entry.
-  const keyFormatWarning = (() => {
-    const v = apiKeyInput.trim();
-    if (!v) return '';
-    if (!v.startsWith('sk-ant-')) return 'Anthropic keys start with “sk-ant-”. Double-check what you pasted.';
-    if (v.length < 40) return 'That looks too short to be a complete key.';
-    return '';
-  })();
-
-  const saveKey = () => {
-    const trimmed = apiKeyInput.trim();
-    setCoachKeyFailing(false);
-    setApiKey(trimmed);
-    setKeySet(hasApiKey());
-    setApiKeyInput('');
-    setShowKeyField(false);
-    // Signed in + key changed: push the freshly-encrypted key to the account
-    // so other devices pick it up. Fire-and-forget — never blocks the UI.
-    if (account && trimmed) {
-      encryptApiKey(account.aesKey, trimmed).then((enc) =>
-        pushEncryptedKey({ usernameId: account.usernameId, authToken: account.authToken, enc }),
-      );
-    }
-  };
-  const removeKey = () =>
-    askConfirm({
-      title: 'Remove your Anthropic key?',
-      body: "It's deleted from this browser. You'll need to paste it again (or sign in) to get Claude coaching back.",
-      confirmLabel: 'Remove key',
-      onConfirm: () => {
-        setApiKey('');
-        if (account) pushEncryptedKey({ ...account, enc: null });
-        setKeySet(false);
-        setShowKeyField(false);
-      },
-    });
-
-  const handleCreateAccount = async () => {
-    const username = accountUsername.trim();
-    if (!username || accountPassword.length < 6) {
-      setAccountError(!username ? 'Enter a username.' : 'Password must be at least 6 characters.');
-      return;
-    }
-    if (accountPassword !== accountPassword2) {
-      setAccountError("Those passwords don't match.");
-      return;
-    }
-    setAccountBusy(true);
-    setAccountError('');
-    try {
-      const creds = await deriveCredentials(username, accountPassword);
-      if (!creds) {
-        setAccountError("Your browser doesn't support the required crypto.");
-        return;
-      }
-      const currentKey = getApiKey();
-      const enc = currentKey ? await encryptApiKey(creds.aesKey, currentKey) : null;
-      const token = getLichessToken();
-      const encLichess = token ? await encryptApiKey(creds.aesKey, token) : null;
-      let res;
-      try {
-        res = await createAccount({ usernameId: creds.usernameId, authToken: creds.authToken, enc, encLichess });
-      } catch (_) {
-        setAccountError('Network error — try again.');
-        return;
-      }
-      if (res.configured === false) {
-        setAccountError("Accounts aren't configured on the server.");
-        return;
-      }
-      if (res.error === 'taken') {
-        // Keep the password fields — a taken username is a very common first
-        // attempt and retyping a password you can't recover is punishing.
-        setAccountError('That username is taken — try another. Your password is still filled in.');
-        return;
-      }
-      if (res.error) {
-        setAccountError(res.message || 'Something went wrong.');
-        return;
-      }
-      await saveSession(creds, { importGuest, apiKey: currentKey, lichessToken: token });
-      window.location.reload();
-      setAccount(creds);
-      setAccountUsername('');
-      setAccountPassword('');
-      setAccountPassword2('');
-      setCreatingAccount(false);
-    } catch (_) {
-      setAccountError('Unable to switch accounts safely. Check browser storage and try again.');
-    } finally {
-      setAccountBusy(false);
-    }
-  };
-
-  const handleSignIn = async () => {
-    const username = accountUsername.trim();
-    if (!username || !accountPassword) {
-      setAccountError('Enter a username and password.');
-      return;
-    }
-    setAccountBusy(true);
-    setAccountError('');
-    try {
-      const creds = await deriveCredentials(username, accountPassword);
-      if (!creds) {
-        setAccountError("Your browser doesn't support the required crypto.");
-        return;
-      }
-      let res;
-      try {
-        res = await loginAccount({ usernameId: creds.usernameId, authToken: creds.authToken });
-      } catch (_) {
-        setAccountError('Network error — try again.');
-        return;
-      }
-      if (res.configured === false) {
-        setAccountError("Accounts aren't configured on the server.");
-        return;
-      }
-      if (res.error === 'no_account') {
-        setAccountError('No account with that username.');
-        return;
-      }
-      if (res.error === 'bad_credentials') {
-        setAccountError('Wrong username or password.');
-        return;
-      }
-      if (res.error) {
-        setAccountError(res.message || 'Something went wrong.');
-        return;
-      }
-      let restoredKey = '';
-      let restoredLichess = '';
-      if (res.enc) {
-        let key;
-        try {
-          key = await decryptApiKey(creds.aesKey, res.enc);
-        } catch (_) {
-          setAccountError('Wrong username or password.');
-          return;
-        }
-        if (key) {
-          restoredKey = key;
-          setKeySet(hasApiKey());
-        }
-      }
-      if (res.encLichess) {
-        try {
-          const token = await decryptApiKey(creds.aesKey, res.encLichess);
-          if (token) {
-            restoredLichess = token;
-            setLichessSet(hasLichessToken());
-          }
-        } catch (_) {
-          setAccountError('Could not unlock the saved Lichess token.'); return;
-        }
-      }
-      await saveSession(creds, { importGuest, apiKey: restoredKey, lichessToken: restoredLichess });
-      window.location.reload();
-      setAccount(creds);
-      setAccountUsername('');
-      setAccountPassword('');
-      setAccountPassword2('');
-      setCreatingAccount(false);
-    } catch (_) {
-      setAccountError('Unable to switch accounts safely. Check browser storage and try again.');
-    } finally {
-      setAccountBusy(false);
-    }
-  };
-
-  const handleSignOut = () =>
-    askConfirm({
-      title: 'Sign out?',
-      body:
-        'Signing out clears credentials and visible progress. Unsynced progress is kept encrypted for this account; sign in again to recover it.',
-      confirmLabel: 'Sign out',
-      onConfirm: async () => {
-        await clearSession();
-        window.location.reload();
-        setAccount(null);
-      },
-    });
-
-  const saveLichess = () => {
-    const trimmed = lichessInput.trim();
-    setLichessToken(trimmed);
-    setLichessSet(hasLichessToken());
-    setLichessInput('');
-    setShowLichessField(false);
-    // Signed in + token changed: push the freshly-encrypted token to the
-    // account so other devices pick it up. Fire-and-forget — never blocks
-    // the UI. Mirrors saveKey's pattern.
-    if (account && trimmed) {
-      encryptApiKey(account.aesKey, trimmed).then((encLichess) =>
-        pushEncryptedKey({ usernameId: account.usernameId, authToken: account.authToken, encLichess }),
-      );
-    }
-  };
-  const removeLichess = () =>
-    askConfirm({
-      title: 'Remove your Lichess token?',
-      body: "It's deleted from this browser. Book moves keep working — you just lose the master-game statistics.",
-      confirmLabel: 'Remove token',
-      onConfirm: () => {
-        setLichessToken('');
-        if (account) pushEncryptedKey({ ...account, encLichess: null });
-        setLichessSet(false);
-        setShowLichessField(false);
-      },
-    });
-
   // --- Move-thread Q&A (tool-use) ---
   const threadEntry = dialogue.find((e) => e.id === threadEntryId) || null;
 
@@ -2499,16 +2248,9 @@ function ChessGame() {
                       ) : null;
                     })()}
                     {!lichessSet && currentOpening.inBook && (
-                      <button
-                        onClick={() => {
-                          setSettingsPanelOpen(true);
-                          setShowLichessField(true);
-                        }}
-                        className="mt-1 tap-target"
-                        style={{ color: 'var(--color-accent)' }}
-                      >
+                      <Link to={loginHref('/chess')} className="mt-1 tap-target inline-block" style={{ color: 'var(--color-accent)' }}>
                         Add a free Lichess token for real master statistics →
-                      </button>
+                      </Link>
                     )}
                   </div>
                 )}
@@ -2543,7 +2285,8 @@ function ChessGame() {
                       >
                         Get a key
                       </a>
-                      {', then paste it under Settings below.'}
+                      {', then '}
+                      <Link to={loginHref('/chess')} style={{ color: 'var(--color-accent)' }}>sign in / add key</Link>.
                     </span>
                     <button
                       onClick={() => setKeyNudgeDismissed(true)}
@@ -2617,7 +2360,7 @@ function ChessGame() {
                           <button
                             onClick={() => setThreadEntryId(e.id)}
                             disabled={!keySet}
-                            title={keySet ? undefined : 'Needs an Anthropic API key — add one in Settings'}
+                            title={keySet ? undefined : 'Needs an Anthropic API key — add one under Sign in / add key'}
                             className="mt-1 px-2 py-1 -ml-2 rounded text-xs font-body tap-target disabled:opacity-40"
                             style={{ color: 'var(--color-accent)' }}
                           >
@@ -2680,13 +2423,11 @@ function ChessGame() {
                       className="font-body text-xs mt-2"
                       style={{ color: syncStatus === 'synced' ? 'var(--color-accent)' : 'var(--color-text-muted)' }}
                     >
-                      {syncStatus === 'synced' && (account
-                        ? '☁ Synced to your account — your progress follows you across devices.'
-                        : '☁ Synced to your API key — your rating follows you across devices.')}
+                      {syncStatus === 'synced' && '☁ Synced to your account — your progress follows you across devices.'}
                       {syncStatus === 'syncing' && '☁ Syncing…'}
                       {syncStatus === 'error' && '⚠ Sync conflict or unavailable store. Local progress is retained; sign out and back in to reconcile.'}
                       {syncStatus === 'local' && 'Saved on this device. (Rating sync isn’t configured on the server.)'}
-                      {syncStatus === 'off' && 'Create an account or add an Anthropic API key in Settings to sync your rating across devices.'}
+                      {syncStatus === 'off' && 'Sign in to sync your rating across devices.'}
                     </p>
                   </div>
                 ) : (
@@ -2946,214 +2687,23 @@ function ChessGame() {
                   </p>
                 </div>
 
+                <h3 className="settings-section">Account &amp; keys</h3>
                 <div>
-                  <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
-                    Anthropic API key (for richer coaching)
-                  </label>
-                  {keySet && !showKeyField ? (
-                    <div className="flex items-center gap-2">
-                      <span className="font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-                        Key saved ✓
-                      </span>
-                      <button onClick={() => setShowKeyField(true)} className="px-2 py-1 rounded font-body text-xs panel tap-target">
-                        Change
-                      </button>
-                      <button onClick={removeKey} className="px-2 py-1 rounded font-body text-xs panel tap-target">
-                        Remove
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex gap-2">
-                      <input
-                        type="password"
-                        value={apiKeyInput}
-                        onChange={(e) => setApiKeyInput(e.target.value)}
-                        placeholder="sk-ant-…"
-                        className="flex-1 min-w-0 px-3 py-2 rounded-lg font-body text-sm panel"
-                        style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
-                      />
-                      <button onClick={saveKey} disabled={!apiKeyInput.trim()} className="px-3 py-2 rounded-lg font-body text-sm panel disabled:opacity-40 tap-target">
-                        Save
-                      </button>
-                    </div>
-                  )}
-                  {keyFormatWarning && (
-                    <p className="mt-1 font-body text-xs tone-warn">{keyFormatWarning}</p>
-                  )}
-                  <p className="mt-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                    Stored only in your browser. Never sent anywhere but Anthropic. Coaching works without it using
-                    built-in analysis. Costs roughly a few cents per game.{' '}
-                    <a
-                      href="https://console.anthropic.com/settings/keys"
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ color: 'var(--color-accent)' }}
-                    >
-                      Create a key
-                    </a>{' '}
-                    (needs an Anthropic developer account with credit — separate from a claude.ai subscription).
+                  <p className="font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                    {account ? `Signed in as ${account.username}` : 'Playing as a guest'}
+                    {' · '}Anthropic key {keySet ? 'saved ✓' : 'not set'}
+                    {' · '}Lichess token {lichessSet ? 'saved ✓' : 'not set'}
                   </p>
-                </div>
-
-                <h3 className="settings-section">Account &amp; sync</h3>
-                <div>
-                  <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
-                    Account
-                  </label>
-                  {/* Say up front when this deployment has no store wired,
-                      rather than after the user has typed a whole credential
-                      pair and clicked Create. */}
-                  {accountsConfigured === false && !account && (
-                    <p className="mb-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                      Accounts aren’t available on this deployment — no sync store is configured. Everything still
-                      works and saves on this device.
-                    </p>
-                  )}
-                  {account ? (
-                    <>
-                      <div className="flex items-center gap-2">
-                        <span className="font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-                          Signed in as {account.username}
-                        </span>
-                        <button onClick={handleSignOut} className="px-2 py-1 rounded font-body text-xs panel tap-target">
-                          Sign out
-                        </button>
-                      </div>
-                      <p className="mt-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                        Your API key and profile sync through this account.
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <div className="flex flex-col gap-2">
-                        <label><input type="checkbox" checked={importGuest} onChange={e => setImportGuest(e.target.checked)} /> Import this device's guest progress</label>
-                        <input
-                          type="text"
-                          value={accountUsername}
-                          onChange={(e) => setAccountUsername(e.target.value)}
-                          placeholder="Username"
-                          className="w-full px-3 py-2 rounded-lg font-body text-sm panel"
-                          style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
-                        />
-                        <div className="flex gap-2">
-                          <input
-                            type={showPassword ? 'text' : 'password'}
-                            value={accountPassword}
-                            onChange={(e) => setAccountPassword(e.target.value)}
-                            placeholder="Password"
-                            className="flex-1 min-w-0 px-3 py-2 rounded-lg font-body text-sm panel"
-                            style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
-                          />
-                          <button
-                            onClick={() => setShowPassword((v) => !v)}
-                            aria-label={showPassword ? 'Hide password' : 'Show password'}
-                            className="px-3 py-2 rounded-lg font-body text-xs panel tap-target"
-                          >
-                            {showPassword ? 'Hide' : 'Show'}
-                          </button>
-                        </div>
-                        {/* There is no password reset, so a typo at creation is
-                            an unrecoverable account. Confirm it. */}
-                        {creatingAccount && (
-                          <input
-                            type={showPassword ? 'text' : 'password'}
-                            value={accountPassword2}
-                            onChange={(e) => setAccountPassword2(e.target.value)}
-                            placeholder="Confirm password"
-                            className="w-full px-3 py-2 rounded-lg font-body text-sm panel"
-                            style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
-                          />
-                        )}
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => {
-                              setCreatingAccount(false);
-                              handleSignIn();
-                            }}
-                            disabled={accountBusy || !accountUsername.trim() || !accountPassword}
-                            className="flex-1 px-3 py-2 rounded-lg font-body text-sm panel disabled:opacity-40 tap-target"
-                          >
-                            {accountBusy ? 'Working…' : 'Sign in'}
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (!creatingAccount) {
-                                setCreatingAccount(true);
-                                setAccountError('');
-                                return;
-                              }
-                              handleCreateAccount();
-                            }}
-                            disabled={accountBusy || !accountUsername.trim() || !accountPassword}
-                            className="flex-1 px-3 py-2 rounded-lg font-body text-sm panel disabled:opacity-40 tap-target"
-                          >
-                            {accountBusy ? 'Working…' : 'Create account'}
-                          </button>
-                        </div>
-                      </div>
-                      {accountError && (
-                        <p className="mt-1 font-body text-xs tone-bad">{accountError}</p>
-                      )}
-                      {creatingAccount && (
-                        <p className="mt-2 rounded-lg px-3 py-2 font-body text-xs tone-warn" style={{ backgroundColor: 'var(--color-accent-soft)' }}>
-                          There is no password reset and no email on file. If you forget this password, the account —
-                          and the rating, puzzle progress and mistake library in it — is gone for good. Save it somewhere.
-                        </p>
-                      )}
-                      <p className="mt-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                        One password unlocks your coach key, your Lichess token and your progress on any device — and
-                        the same key powers the AI chat in Catan, Splendor and Diplomacy. Your password never leaves
-                        this device: the account service only ever stores an unreadable hash, and your keys only as ciphertext
-                        it cannot decrypt. Model assistance sends your own API key through our server to the provider. Usernames aren’t case-sensitive.
-                      </p>
-                    </>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
-                    Lichess token (for master opening stats)
-                  </label>
-                  {lichessSet && !showLichessField ? (
-                    <div className="flex items-center gap-2">
-                      <span className="font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-                        Token saved ✓
-                      </span>
-                      <button onClick={() => setShowLichessField(true)} className="px-2 py-1 rounded font-body text-xs panel tap-target">
-                        Change
-                      </button>
-                      <button onClick={removeLichess} className="px-2 py-1 rounded font-body text-xs panel tap-target">
-                        Remove
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex gap-2">
-                      <input
-                        type="password"
-                        value={lichessInput}
-                        onChange={(e) => setLichessInput(e.target.value)}
-                        placeholder="lip_…"
-                        className="flex-1 min-w-0 px-3 py-2 rounded-lg font-body text-sm panel"
-                        style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
-                      />
-                      <button onClick={saveLichess} disabled={!lichessInput.trim()} className="px-3 py-2 rounded-lg font-body text-sm panel disabled:opacity-40 tap-target">
-                        Save
-                      </button>
-                    </div>
-                  )}
+                  <Link
+                    to={loginHref('/chess')}
+                    className="mt-1 inline-block px-3 py-2 rounded-lg font-body text-sm panel tap-target"
+                    style={{ color: 'var(--color-text-primary)' }}
+                  >
+                    {account ? 'Manage account & keys' : 'Sign in / add key'}
+                  </Link>
                   <p className="mt-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                    Optional. Stored only in your browser, sent only to Lichess. Adds “masters play X% here” to opening
-                    moves; without it you still get the “Book” label.{' '}
-                    <a
-                      href="https://lichess.org/account/oauth/token"
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ color: 'var(--color-accent)' }}
-                    >
-                      Create a free token
-                    </a>{' '}
-                    — read-only, it can’t play moves or post on your behalf. (Lichess put the explorer behind auth
-                    after repeated DDoS attacks.)
+                    An Anthropic key adds Claude coaching (built-in analysis works without one); a free Lichess token
+                    adds master opening statistics. Keys are added once and every game uses them.
                   </p>
                 </div>
 
@@ -3163,14 +2713,11 @@ function ChessGame() {
                   className="font-body text-xs"
                   style={{ color: syncStatus === 'synced' ? 'var(--color-accent)' : 'var(--color-text-muted)' }}
                 >
-                  {syncStatus === 'synced' &&
-                    (account
-                      ? '☁ Synced — rating, opponent history, puzzles and mistakes follow your account across devices.'
-                      : '☁ Synced to your API key — rating, history, puzzles and mistakes follow you across devices.')}
+                  {syncStatus === 'synced' && '☁ Synced — rating, opponent history, puzzles and mistakes follow your account across devices.'}
                   {syncStatus === 'syncing' && '☁ Syncing…'}
                   {syncStatus === 'error' && '⚠ Sync conflict or unavailable store. Local progress is retained; sign out and back in to reconcile.'}
                   {syncStatus === 'local' && 'Saved on this device. (Sync isn’t configured on this deployment.)'}
-                  {syncStatus === 'off' && 'Not syncing. Create an account (or add an API key) to carry your progress between devices.'}
+                  {syncStatus === 'off' && 'Not syncing. Sign in to carry your progress between devices.'}
                 </p>
                 </div>
               </details>
@@ -3447,7 +2994,8 @@ function ChessGame() {
                 </div>
               ) : (
                 <p className="font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                  Add your Anthropic API key in Settings to ask questions about moves.
+                  Asking about moves uses your Anthropic API key.{' '}
+                  <Link to={loginHref('/chess')} style={{ color: 'var(--color-accent)' }}>Sign in / add key</Link>
                 </p>
               )}
             </div>

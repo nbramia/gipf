@@ -2,6 +2,7 @@ import React, { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Outlet } from 'react-router-dom';
 import AccountBoundary from './AccountBoundary.jsx';
 import LandingPage from './LandingPage.jsx';
+import LoginPage from './LoginPage.jsx';
 
 const YinshGame = lazy(() => import('./games/yinsh/YinshGame.jsx'));
 const ZertzGame = lazy(() => import('./games/zertz/ZertzGame.jsx'));
@@ -30,6 +31,7 @@ function App() {
           <Route path="/migration" element={<GamesMigration />} />
           <Route element={<AccountBoundary><Outlet /></AccountBoundary>}>
             <Route path="/" element={<LandingPage />} />
+            <Route path="/login" element={<LoginPage />} />
             <Route path="/yinsh" element={<YinshGame />} />
             <Route path="/zertz" element={<ZertzGame />} />
             <Route path="/chess" element={<ChessGame />} />

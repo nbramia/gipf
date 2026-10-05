@@ -2,52 +2,55 @@ import '@testing-library/jest-dom';
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import LandingPage from './LandingPage';
-import AccountBoundary from './AccountBoundary';
+import LoginPage from './LoginPage';
+import { safeReturn, loginHref } from './loginReturn';
 import { games } from './games-registry';
 import * as account from './account';
 
 jest.mock('./account', () => ({
   loadSession: jest.fn(), clearSession: jest.fn(), saveSession: jest.fn(),
   deriveCredentials: jest.fn(), encryptApiKey: jest.fn(), decryptApiKey: jest.fn(),
-  createAccount: jest.fn(), loginAccount: jest.fn(),
-  getSharedApiKey: jest.fn(), getSharedLichessToken: jest.fn(),
+  createAccount: jest.fn(), loginAccount: jest.fn(), pushEncryptedKey: jest.fn(),
+  getSharedApiKey: jest.fn(), setSharedApiKey: jest.fn(),
+  getSharedLichessToken: jest.fn(), setSharedLichessToken: jest.fn(),
 }));
 const creds = { username: 'Synthetic player', usernameId: 'synthetic-id', authToken: 'synthetic-token', aesKey: 'synthetic-key' };
-function mount() {
-  render(<MemoryRouter basename="/gipf" initialEntries={['/gipf/']}><LandingPage /></MemoryRouter>);
+const originalLocation = window.location;
+function mount(search = '') {
+  render(<MemoryRouter basename="/gipf" initialEntries={[`/gipf/login${search}`]}><LoginPage /></MemoryRouter>);
 }
 function fill() {
-  fireEvent.click(screen.getByRole('button', { name: 'Sign in / Create account' }));
   fireEvent.change(screen.getByLabelText('Username'), { target: { value: 'Synthetic player' } });
   fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'synthetic-password' } });
 }
 beforeEach(() => {
   jest.resetAllMocks();
+  delete window.location;
+  window.location = { ...originalLocation, hostname: 'play.ramia.us', assign: jest.fn(), reload: jest.fn() };
   account.deriveCredentials.mockResolvedValue(creds);
   account.loginAccount.mockResolvedValue({});
   account.createAccount.mockResolvedValue({});
+  account.getSharedApiKey.mockReturnValue('');
+  account.getSharedLichessToken.mockReturnValue('');
+  account.pushEncryptedKey.mockResolvedValue(true);
 });
-test('guest catalogue precedes optional account and keeps every registry link under the base path', () => {
-  mount();
-  const catalogue = screen.getByRole('navigation', { name: 'Choose a game' });
-  const optional = screen.getByRole('region', { name: 'Your account' });
-  expect(catalogue.compareDocumentPosition(optional) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  for (const game of games) expect(screen.getByRole('link', { name: `Play ${game.name}` })).toHaveAttribute('href', `/gipf${game.path}`);
-  expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+afterAll(() => { window.location = originalLocation; });
+
+describe('return allowlist', () => {
+  test.each(games.map(g => g.path))('accepts the registry route %s exactly', path => expect(safeReturn(path)).toBe(path));
+  test.each([null, '', '/', '/login', '/chess/', '/chess/x', '/CHESS', 'chess', '//evil.example', 'https://evil.example/chess',
+    '/%2Fevil.example', '/chess?x=1', ' /chess', 'javascript:alert(1)'])('falls back to / for %p', raw => expect(safeReturn(raw)).toBe('/'));
+  test('game links carry an allowlisted return', () => {
+    expect(loginHref('/catan')).toBe('/login?return=/catan');
+    expect(loginHref('https://evil.example')).toBe('/login?return=/');
+  });
 });
-test('integrated guest catalogue is first in keyboard order and statistics recovery remains usable', () => {
-  render(<AccountBoundary><MemoryRouter><LandingPage /></MemoryRouter></AccountBoundary>);
-  const controls = document.querySelectorAll('a[href], button, input');
-  expect(controls[0]).toHaveAccessibleName('Play YINSH');
-  fireEvent.click(screen.getByRole('button', { name: 'Statistics recovery' }));
-  expect(screen.getByRole('dialog', { name: 'Statistics recovery' })).toHaveTextContent('No statistics alternatives saved.');
-  fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }));
-  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-});
-test('labelled controls, password visibility, consent and login errors remain usable', async () => {
+
+test('signed out: form first, username focused, consent unchecked, password visibility and login errors', async () => {
   account.loginAccount.mockResolvedValue({ error: 'bad_credentials' });
-  mount(); fill();
+  mount();
+  expect(screen.getByLabelText('Username')).toHaveFocus();
+  fill();
   expect(screen.getByRole('checkbox')).not.toBeChecked();
   fireEvent.click(screen.getByRole('button', { name: 'Show password' }));
   expect(screen.getByLabelText('Password')).toHaveAttribute('type', 'text');
@@ -55,20 +58,33 @@ test('labelled controls, password visibility, consent and login errors remain us
   fireEvent.click(screen.getByRole('button', { name: 'Sign in', exact: true }));
   expect(await screen.findByRole('alert')).toHaveTextContent('Wrong username or password.');
   expect(account.saveSession).not.toHaveBeenCalled();
+  expect(window.location.assign).not.toHaveBeenCalled();
 });
-test.each([false, true])('login forwards explicit import consent %s and decrypted credentials', async consent => {
+
+test.each([false, true])('login forwards import consent %s and decrypted keys, then returns to the game', async consent => {
   account.loginAccount.mockResolvedValue({ enc: 'sealed-api', encLichess: 'sealed-lichess' });
   account.decryptApiKey.mockResolvedValueOnce('synthetic-api').mockResolvedValueOnce('synthetic-lichess');
-  mount(); fill();
+  mount('?return=/chess');
+  expect(screen.getByRole('link', { name: '← Back to chess' })).toHaveAttribute('href', '/gipf/chess');
+  fill();
   if (consent) fireEvent.click(screen.getByRole('checkbox'));
   fireEvent.click(screen.getByRole('button', { name: 'Sign in', exact: true }));
   await waitFor(() => expect(account.saveSession).toHaveBeenCalledWith(creds, { importGuest: consent, apiKey: 'synthetic-api', lichessToken: 'synthetic-lichess' }));
+  await waitFor(() => expect(window.location.assign).toHaveBeenCalledWith('/chess'));
 });
+
+test.each(['?return=https://evil.example', '?return=//evil.example', '?return=/chess/../../x', ''])('login with %p returns to the catalogue', async search => {
+  mount(search);
+  fill();
+  fireEvent.click(screen.getByRole('button', { name: 'Sign in', exact: true }));
+  await waitFor(() => expect(window.location.assign).toHaveBeenCalledWith('/'));
+});
+
 test('creation keeps confirmation, recovery warning, validation and encryption boundary', async () => {
   account.getSharedApiKey.mockReturnValue('synthetic-api');
   account.getSharedLichessToken.mockReturnValue('synthetic-lichess');
   account.encryptApiKey.mockResolvedValueOnce('sealed-api').mockResolvedValueOnce('sealed-lichess');
-  mount(); fill();
+  mount('?return=/splendor'); fill();
   fireEvent.click(screen.getByRole('button', { name: 'Create account', exact: true }));
   expect(screen.getByText(/There is no password reset/)).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Create account', exact: true }));
@@ -78,28 +94,9 @@ test('creation keeps confirmation, recovery warning, validation and encryption b
   fireEvent.click(screen.getByRole('button', { name: 'Create account', exact: true }));
   await waitFor(() => expect(account.createAccount).toHaveBeenCalledWith({ usernameId: creds.usernameId, authToken: creds.authToken, enc: 'sealed-api', encLichess: 'sealed-lichess' }));
   expect(account.saveSession).toHaveBeenCalledWith(creds, { importGuest: false, apiKey: 'synthetic-api', lichessToken: 'synthetic-lichess' });
+  await waitFor(() => expect(window.location.assign).toHaveBeenCalledWith('/splendor'));
 });
-test('signout cancel preserves account; confirmation calls existing boundary', async () => {
-  account.loadSession.mockReturnValue(creds);
-  mount();
-  fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
-  expect(screen.getByText(/Unsynced progress stays encrypted/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-  expect(account.clearSession).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
-  await waitFor(() => expect(account.clearSession).toHaveBeenCalledTimes(1));
-});
-test('opening focuses username and Cancel returns focus without stealing initial guest focus', () => {
-  mount();
-  expect(document.activeElement).toBe(document.body);
-  const launcher = screen.getByRole('button', { name: 'Sign in / Create account' });
-  expect(launcher).not.toHaveAttribute('aria-expanded');
-  fireEvent.click(launcher);
-  expect(screen.getByLabelText('Username')).toHaveFocus();
-  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-  expect(screen.getByRole('button', { name: 'Sign in / Create account' })).toHaveFocus();
-});
+
 test.each([false, true])('native submit selects displayed create mode %s and blocks duplicate busy submissions', async creating => {
   let release;
   account.deriveCredentials.mockImplementation(() => new Promise(resolve => { release = resolve; }));
@@ -125,6 +122,7 @@ test.each([false, true])('native submit selects displayed create mode %s and blo
   expect(creating ? account.createAccount : account.loginAccount).toHaveBeenCalledTimes(1);
   expect(creating ? account.loginAccount : account.createAccount).not.toHaveBeenCalled();
 });
+
 test('native submission preserves empty-field and creation length validation', () => {
   mount(); fill();
   const form = screen.getByLabelText('Password').closest('form');
@@ -139,6 +137,54 @@ test('native submission preserves empty-field and creation length validation', (
   fireEvent.click(screen.getByRole('button', { name: 'Create account', exact: true }));
   fireEvent.change(screen.getByLabelText('Confirm password'), { target: { value: 'short' } });
   fireEvent.submit(form);
-  expect(screen.getByRole('alert')).toHaveTextContent('Password must be at least 6 characters.');
+  expect(screen.getByRole('alert')).toHaveTextContent(/Password must be at least \d+ characters\./);
   expect(account.deriveCredentials).not.toHaveBeenCalled();
+});
+
+test('guest keys are device-only: saved locally, never encrypted or pushed', async () => {
+  mount();
+  expect(screen.getByRole('heading', { name: 'Keys on this device' })).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Anthropic API key'), { target: { value: 'sk-ant-synthetic-guest-key-0000000000000000' } });
+  fireEvent.click(screen.getAllByRole('button', { name: 'Save' })[0]);
+  expect(account.setSharedApiKey).toHaveBeenCalledWith('sk-ant-synthetic-guest-key-0000000000000000');
+  expect(await screen.findByText('Saved on this device.')).toBeInTheDocument();
+  expect(account.encryptApiKey).not.toHaveBeenCalled();
+  expect(account.pushEncryptedKey).not.toHaveBeenCalled();
+});
+
+test('signed in: keys are encrypted with the account key and synced; removal clears the synced copy', async () => {
+  account.loadSession.mockReturnValue(creds);
+  account.getSharedLichessToken.mockReturnValue('synthetic-lichess');
+  account.encryptApiKey.mockResolvedValue('sealed-api');
+  mount();
+  expect(screen.getByText('Signed in as Synthetic player')).toBeInTheDocument();
+  expect(screen.queryByLabelText('Username')).toBeNull();
+  fireEvent.change(screen.getByLabelText('Anthropic API key'), { target: { value: 'sk-ant-synthetic-account-key-00000000000000' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() => expect(account.pushEncryptedKey).toHaveBeenCalledWith({ usernameId: creds.usernameId, authToken: creds.authToken, enc: 'sealed-api' }));
+  expect(account.encryptApiKey).toHaveBeenCalledWith(creds.aesKey, 'sk-ant-synthetic-account-key-00000000000000');
+  expect(await screen.findByText('Saved and synced to your account.')).toBeInTheDocument();
+  fireEvent.click(screen.getAllByRole('button', { name: 'Remove' })[1]);
+  expect(account.setSharedLichessToken).toHaveBeenCalledWith('');
+  await waitFor(() => expect(account.pushEncryptedKey).toHaveBeenCalledWith({ usernameId: creds.usernameId, authToken: creds.authToken, encLichess: null }));
+});
+
+test('sign-out cancel preserves the account; confirmation clears the session', async () => {
+  account.loadSession.mockReturnValue(creds);
+  mount();
+  fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+  expect(screen.getByText(/Unsynced progress stays encrypted/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+  expect(account.clearSession).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+  await waitFor(() => expect(account.clearSession).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(window.location.reload).toHaveBeenCalled());
+});
+
+test('the retired gated host points to play.ramia.us instead of offering sign-in', () => {
+  window.location.hostname = 'gipf.vercel.app';
+  mount('?return=/chess');
+  expect(screen.getByRole('link', { name: 'play.ramia.us' })).toHaveAttribute('href', 'https://play.ramia.us/login');
+  expect(screen.queryByLabelText('Username')).toBeNull();
 });

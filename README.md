@@ -95,7 +95,8 @@ owns the URL root. See CLAUDE.md for what that constrains.
 ```
 src/
   App.jsx                  # Router: lazy-loads each game
-  LandingPage.jsx          # Game catalogue + optional account widget
+  LandingPage.jsx          # Game catalogue + link to /login
+  LoginPage.jsx            # /login: sign in/out, account, Anthropic key and Lichess token
   landing.css              # Scoped catalogue and optional account styles
   index.css                # Shared Tailwind directives
   games/

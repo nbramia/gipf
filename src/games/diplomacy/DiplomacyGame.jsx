@@ -23,6 +23,7 @@ import DiplomacyBoard, {
   formatUnitType,
 } from './DiplomacyBoard.js';
 import ChatPanel from './agents/ChatPanel.jsx';
+import { loginHref } from '../../loginReturn.js';
 import { createMemory } from './agents/memory.js';
 import { createDiplomaticState, setScratchpad, recordAgreement } from './agents/diplomaticState.js';
 import { PERSONAS } from './agents/personas.js';
@@ -620,7 +621,7 @@ export default function DiplomacyGame() {
             <div className="dip-keyprompt p-4">
               <div className="dip-keyprompt-text">
                 Playing without an Anthropic API key: the AI powers still make tactical moves, but
-                won't negotiate or chat. Add a key in the Negotiation panel to enable diplomacy.
+                won't negotiate or chat. <Link to={loginHref('/diplomacy')}>Sign in / add key</Link> to enable diplomacy.
               </div>
               <button className="dip-keyprompt-dismiss" onClick={() => setKeyPromptDismissed(true)}>Dismiss</button>
             </div>

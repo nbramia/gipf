@@ -174,7 +174,8 @@ node scripts/splendor/tournament.mjs --games 20 --a-mode nn --a-model public/mod
 A "Rules Help" chat (mirroring the chess coach and Catan rules chat) answers questions about
 Splendor, grounded in the live game context. `api/splendorRules.js` calls the Anthropic API
 with a key supplied in the request body (used once, never logged or persisted; no server-side
-fallback). `coach/rulesClient.js` stores the key in `localStorage` under the shared
-`gipfApiKey` slot — a key saved in chess or Catan is reused here and vice versa. Like the
+fallback). `coach/rulesClient.js` reads the key from the shared `gipfApiKey` slot in
+`localStorage`; it is entered only at `/login` (Settings links to `/login?return=/splendor`)
+and every game uses it. Like the
 other assistants, it only works on the deployed site (or `vercel dev`); `npm start` alone
 doesn't serve `/api/*`.

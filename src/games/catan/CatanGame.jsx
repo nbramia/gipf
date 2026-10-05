@@ -9,7 +9,8 @@ import { CATAN_RULESETS, RULESET_GROUPS, getDefaultScenario, getRuleset, normali
 import useAIWorker from './hooks/useAIWorker.js';
 import { MCTS } from './engine/mcts.js';
 import { applyAIMove } from './engine/aiPlayer.js';
-import { askRules, setApiKey as setRulesKey, hasApiKey as hasRulesKey, getAccountUsername } from './coach/rulesClient.js';
+import { askRules, hasApiKey as hasRulesKey } from './coach/rulesClient.js';
+import { loginHref } from '../../loginReturn.js';
 import './catan.css';
 
 const HUMAN_PLAYER = 1;
@@ -310,9 +311,7 @@ function CatanGame() {
   const [rulesInput, setRulesInput] = useState('');
   const [rulesBusy, setRulesBusy] = useState(false);
   const [rulesError, setRulesError] = useState('');
-  const [rulesKeySet, setRulesKeySet] = useState(() => hasRulesKey());
-  const [rulesKeyInput, setRulesKeyInput] = useState('');
-  const [accountUsername] = useState(() => getAccountUsername());
+  const [rulesKeySet] = useState(() => hasRulesKey());
   const aiTimerRef = useRef(null);
   const lastLoggedActionRef = useRef(null);
   const logEndRef = useRef(null);
@@ -402,19 +401,6 @@ function CatanGame() {
     }
     setRulesBusy(false);
   }, [rulesInput, rulesBusy, rulesMessages, rulesContext]);
-
-  const saveRulesKey = useCallback(() => {
-    const key = rulesKeyInput.trim();
-    if (!key) return;
-    setRulesKey(key);
-    setRulesKeySet(true);
-    setRulesKeyInput('');
-  }, [rulesKeyInput]);
-
-  const removeRulesKey = useCallback(() => {
-    setRulesKey('');
-    setRulesKeySet(false);
-  }, []);
 
   const playerIds = board.getPlayerIds();
   const boardLayout = useMemo(() => {
@@ -1748,11 +1734,6 @@ function CatanGame() {
                   {rulesBusy && <div className="catan-rules-msg is-bot catan-rules-thinking">Thinking…</div>}
                 </div>
                 {rulesError && <p className="catan-rules-error">{rulesError}</p>}
-                {accountUsername && (
-                  <p className="catan-rules-keynote">
-                    Signed in as {accountUsername} — your API key is synced from your account. Manage it on the home page.
-                  </p>
-                )}
                 {rulesKeySet ? (
                   <>
                     <div className="catan-rules-inputrow">
@@ -1779,32 +1760,12 @@ function CatanGame() {
                         Ask
                       </button>
                     </div>
-                    <button type="button" className="catan-rules-keylink" onClick={removeRulesKey}>
-                      Remove API key
-                    </button>
+                    <Link to={loginHref('/catan')} className="catan-rules-keylink">Manage key</Link>
                   </>
                 ) : (
                   <div className="catan-rules-keyblock">
-                    <div className="catan-rules-inputrow">
-                      <input
-                        type="password"
-                        value={rulesKeyInput}
-                        onChange={event => setRulesKeyInput(event.target.value)}
-                        onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); saveRulesKey(); } }}
-                        placeholder="sk-ant-…"
-                        className="catan-rules-field"
-                      />
-                      <button
-                        type="button"
-                        className="catan-tool-btn px-3"
-                        onClick={saveRulesKey}
-                        disabled={!rulesKeyInput.trim()}
-                      >
-                        Save
-                      </button>
-                    </div>
                     <p className="catan-rules-keynote">
-                      Add your Anthropic API key to chat about the rules. Stored only in your browser; sent only to Anthropic when you ask a question.
+                      Rules chat uses your Anthropic API key. <Link to={loginHref('/catan')} className="catan-rules-keylink">Sign in / add key</Link>
                     </p>
                   </div>
                 )}

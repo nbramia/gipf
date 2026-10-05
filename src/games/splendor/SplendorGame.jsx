@@ -16,7 +16,8 @@ import {
 import useAIWorker from './hooks/useAIWorker.js';
 import { MCTS } from './engine/mcts.js';
 import { applyAIMove } from './engine/aiPlayer.js';
-import { askRules, setApiKey as setRulesKey, hasApiKey as hasRulesKey, getAccountUsername } from './coach/rulesClient.js';
+import { askRules, hasApiKey as hasRulesKey } from './coach/rulesClient.js';
+import { loginHref } from '../../loginReturn.js';
 import './splendor.css';
 
 const HUMAN_PLAYER = 1;
@@ -246,9 +247,7 @@ export default function SplendorGame() {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
   const [chatBusy, setChatBusy] = useState(false);
-  const [keyInput, setKeyInput] = useState('');
-  const [hasKey, setHasKey] = useState(hasRulesKey());
-  const [accountUsername] = useState(() => getAccountUsername());
+  const [hasKey] = useState(hasRulesKey());
 
   const { computeMove, isSupported: workerSupported } = useAIWorker();
   const aiTimerRef = useRef(null);
@@ -385,11 +384,6 @@ export default function SplendorGame() {
     setChatMessages([...next, { role: 'assistant', content: res.answer || res.message || 'No answer.' }]);
   }, [chatInput, chatBusy, chatMessages, chatContext]);
 
-  const saveKey = useCallback(() => {
-    setRulesKey(keyInput.trim());
-    setHasKey(hasRulesKey());
-    setKeyInput('');
-  }, [keyInput]);
 
   // ---- render --------------------------------------------------------------
 
@@ -446,22 +440,10 @@ export default function SplendorGame() {
             </div>
             <div className="spl-setting spl-setting-key">
               <label>Anthropic API key (for Rules Help)</label>
-              {hasKey ? (
-                <div className="spl-key-row">
-                  <span className="spl-key-ok">Key saved ✓</span>
-                  <button type="button" className="spl-btn" onClick={() => { setRulesKey(''); setHasKey(false); }}>Remove</button>
-                </div>
-              ) : (
-                <div className="spl-key-row">
-                  <input type="password" value={keyInput} onChange={e => setKeyInput(e.target.value)} placeholder="sk-ant-..." />
-                  <button type="button" className="spl-btn" onClick={saveKey}>Save</button>
-                </div>
-              )}
-              {accountUsername && (
-                <p className="spl-chat-hint">
-                  Signed in as {accountUsername} — your API key is synced from your account. Manage it on the home page.
-                </p>
-              )}
+              <div className="spl-key-row">
+                {hasKey && <span className="spl-key-ok">Key saved ✓</span>}
+                <Link to={loginHref('/splendor')} className="spl-btn">{hasKey ? 'Manage key' : 'Sign in / add key'}</Link>
+              </div>
             </div>
           </div>
         )}
@@ -594,7 +576,7 @@ export default function SplendorGame() {
               <button type="button" className="spl-btn" onClick={() => setChatOpen(false)}>×</button>
             </div>
             <div className="spl-chat-body">
-              {!hasKey && <p className="spl-chat-hint">Add your Anthropic API key in Settings to ask about the rules.</p>}
+              {!hasKey && <p className="spl-chat-hint">Rules chat uses your Anthropic API key. <Link to={loginHref('/splendor')}>Sign in / add key</Link></p>}
               {chatMessages.map((m, i) => (
                 <div key={i} className={`spl-chat-msg ${m.role}`}>{m.content}</div>
               ))}
