@@ -84,14 +84,11 @@ npm run train-iteration -- 14 50 200    # Example: candidate v14, 50 games, 200 
 
 **Deployment:** Vercel auto-deploys on push to `main`. There is no CI gate -- tests must pass locally before pushing.
 
-It is built by two Vercel projects. The original project serves
-[gipf.vercel.app](https://gipf.vercel.app) and, through a rewrite from the
-[ramia](https://github.com/nbramia/ramia) shell, the `ramia.us/gipf` subpath, behind a
-shared-password gate (`middleware.js`). A second, ungated project serves the public
-catalogue at `play.ramia.us` from a bare root. The
-app therefore cannot assume it owns the URL root -- the deploy prefix comes from `homepage`
-in `package.json`, and `PUBLIC_URL` carries it into the router and into every serverless
-call. See CLAUDE.md for what that constrains.
+`main` is the release branch. The `play` Vercel project builds it and serves the ungated
+public catalogue at `play.ramia.us` from a bare root (`PUBLIC_URL=/`). The app still supports
+a deploy prefix -- it comes from `homepage` in `package.json` unless `PUBLIC_URL` overrides
+it, and is carried into the router and every serverless call -- so code must not assume it
+owns the URL root. See CLAUDE.md for what that constrains.
 
 ## Project Structure
 

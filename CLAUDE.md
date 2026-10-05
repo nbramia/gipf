@@ -48,29 +48,22 @@ GIPF Project is a multi-game React application hosting browser-based implementat
 The cross-repo picture (hosts, stores, gates, migration and rollback) is the canonical
 [ramia system map](https://github.com/nbramia/ramia/blob/main/docs/system-map.md).
 
-The `gipf` Vercel project serves two places from one build: its own alias `gipf.vercel.app`, and
-`ramia.us/gipf` — a subpath of a shared domain, reached by a rewrite from the
-[`nbramia/ramia`](https://github.com/nbramia/ramia) shell. The rewrite targets this
-project's production alias, so a push here goes live in both without touching that repo.
+There is one Games site: `play.ramia.us`, served by the `play` Vercel project, which
+deploys production from `main`. **`main` is the release branch** — open PRs against `main`;
+`integration/ramia-22` is no longer a merge target. A push to `main` goes live on
+`play.ramia.us`. `play` builds the repository for the URL root (`PUBLIC_URL=/` is a project
+setting) and is ungated: it has no `SITE_PASSWORD`, so `middleware.js` falls through. Never
+add `SITE_PASSWORD` to `play` without deciding that out loud. No `ramia.us` path routes
+here, and there is no other deployment.
 
-A second Vercel project, `play`, builds the same repository for the URL root (its
-`PUBLIC_URL` comes from a project setting this repo cannot show) and serves the ungated public catalogue at `play.ramia.us`.
-It has no `SITE_PASSWORD`, so `middleware.js` falls through and that origin is open. The
-`gipf` project keeps `SITE_PASSWORD` and is the gated origin (and the migration/export
-source for existing browser data). Never add `SITE_PASSWORD` to `play` or remove it from
-`gipf` without deciding that out loud.
-
-The projects do not share a store. `play` reads the Upstash Redis REST store named by its
-`KV_REST_API_URL`/`KV_REST_API_TOKEN` variables (the `UPSTASH_REDIS_REST_*` aliases also
-work; see `server/publicSecurity.js`); `gipf` needs its own such variables for accounts to
-function and otherwise returns 503 from the account/profile endpoints. Accounts are
-therefore per-store, not per-origin. Which branch each project deploys is a project
-setting, not something this repo encodes: check the Vercel dashboard before assuming a
-push to `main` reaches `play`.
+`play` reads the Upstash Redis REST store `gipf-public`, named by its
+`KV_REST_API_URL`/`KV_REST_API_TOKEN` variables (bound for Production and Preview; the
+`UPSTASH_REDIS_REST_*` aliases also work; see `server/publicSecurity.js`). Without them the
+account/profile endpoints return 503.
 
 `public/tiles.json` takes its href prefix the way CRA takes the router basename: a
 `PUBLIC_URL` build variable wins, otherwise `homepage`. `play` sets `PUBLIC_URL=/`, so its
-manifest lists `/chess`, `/yinsh` and the rest; `gipf` sets none and lists `/gipf/<game>`. Home
+manifest lists `/chess`, `/yinsh` and the rest; a build without it lists `/gipf/<game>`. Home
 (`nbramia/ramia` `apps/home/src/registry.js`) reads `https://play.ramia.us/tiles.json` and
 resolves each href against that origin, so the two must agree — a prefixed href there becomes
 `play.ramia.us/gipf/<game>`, which no route matches (`src/App.jsx` has no catch-all).
@@ -550,7 +543,7 @@ Vercel auto-deploys on push to `main`. There is no CI gate -- **you are the gate
 git push origin main          # Deploy (only after all checks pass)
 ```
 
-Production URLs: https://gipf.vercel.app (gated, `/gipf` prefix) and https://play.ramia.us (ungated, root).
+Production URL: https://play.ramia.us (ungated, root), from `main`.
 
 Each serverless endpoint keeps its own `ALLOWED_ORIGINS` list (`api/aiMove.js`, `zertzAiMove.js`, `chessCoach.js`, `catanRules.js`, `splendorRules.js`, `diplomacyAgent.js`); update the relevant file when adding a cross-origin caller. The browser only needs a CORS entry for cross-origin calls; same-origin calls (`play.ramia.us` to its own `/api`) work without one, and no `ALLOWED_ORIGINS` list includes `play.ramia.us`.
 
