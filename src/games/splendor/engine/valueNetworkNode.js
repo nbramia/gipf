@@ -1,6 +1,6 @@
 // Node ONNX inference for the Splendor policy/value network (onnxruntime-node).
 // Used by self-play generation and tournament gating. Mirror of valueNetwork.js
-// (onnxruntime-web) for the browser — keep both in sync (CLAUDE.md mistake #8).
+// (onnxruntime-web) for the browser — keep both in sync (AGENTS.md mistake #8).
 //
 // predict(Float32Array[216]) -> { value: Float32Array[4], policy: Float32Array[POLICY_SIZE] }
 // (raw logits; the NNEvaluator applies softmax + legal-move masking).

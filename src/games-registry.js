@@ -1,10 +1,10 @@
 /**
  * The games this project offers, and the single place they are enumerated.
  *
- * Both the landing page and the build-time tile manifest read from here. The manifest is
- * what `ramia.us` fetches to list the games on its own front page, so a game added below
- * appears there on the next deploy with no change to that repo — which only holds as long
- * as this stays the one list.
+ * Both the landing page and the build-time tile manifest read from here. The manifest
+ * (`/tiles.json`) is what portals such as home.ramia.us fetch to list these games, so a
+ * game added below appears there on the next deploy with no change elsewhere — which only
+ * holds as long as this stays the one list.
  */
 export const games = [
   {

@@ -236,7 +236,7 @@ test('sign-in fails closed without configuration, off the production host, or wi
   assert.equal(res.headers.location, '/login?error=unavailable&return=%2F');
   process.env.GAMES_SESSION_SECRET = 'synthetic-session-secret-0123456789abcdef';
   process.env.VERCEL = '1';
-  res = await call(auth, { method: 'GET', query: { action: 'login' }, headers: { host: 'play-git-branch-nathan-ramias-projects.vercel.app' } });
+  res = await call(auth, { method: 'GET', query: { action: 'login' }, headers: { host: 'play-git-branch-example-team.vercel.app' } });
   assert.equal(res.headers.location, '/login?error=unavailable&return=%2F');
   delete process.env.VERCEL;
   provider.fail = true;
@@ -309,7 +309,7 @@ test('silent sign-in that cannot start (unconfigured, off-host, provider down) f
   assert.equal(res.headers.location, '/login?silent=failed&return=%2Fchess');
   process.env.AUTH0_CLIENT_SECRET = CLIENT_SECRET;
   process.env.VERCEL = '1';
-  res = await call(auth, { method: 'GET', query: { action: 'login', silent: 'home' }, headers: { host: 'play-git-branch-nathan-ramias-projects.vercel.app' } });
+  res = await call(auth, { method: 'GET', query: { action: 'login', silent: 'home' }, headers: { host: 'play-git-branch-example-team.vercel.app' } });
   assert.equal(res.headers.location, '/');
   delete process.env.VERCEL;
   provider.fail = true;

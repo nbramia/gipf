@@ -1,8 +1,8 @@
 # Games accounts
 
 How accounts, sessions, keys and progress work on play.ramia.us, the one Games site
-(the `play` Vercel project, store `gipf-public`). Accounts are optional: every game
-plays as a guest. Related to https://github.com/nbramia/ramia/issues/22.
+(one Vercel project and one Redis REST store; configuration is listed in AGENTS.md,
+"Deployment and ramia.us"). Accounts are optional: every game plays as a guest.
 
 ## Sign-in surface
 
@@ -17,8 +17,8 @@ sign-in redirect is never open. Games contain no credential or key inputs, enfor
 Signing in uses the ramia.us Auth0 tenant — the same one home.ramia.us uses, with the
 same Google and email/password connections — through `play`'s own Regular Web
 Application. An Auth0 session already open from Home completes the redirect without a
-prompt, and Games uses it without a click (below). Anyone may sign up; that grants nothing on Home, which admits only identities
-with an enabled membership row (ramia `docs/private-portal-contracts.md`). "Use a
+prompt, and Games uses it without a click (below). Anyone may sign up; that grants
+nothing in the author's other apps, which keep their own access control. "Use a
 different account" asks Auth0 for credentials even when its session would sign in
 silently.
 
@@ -152,7 +152,7 @@ Rotation: put the new KEK in `GAMES_KEY_ENCRYPTION_KEY`, raise
 Deploy, run `node scripts/rotate-games-keys.mjs` with the same variables and the store
 credentials (it rewraps every identity and prints counts only), then remove the old KEK.
 New envelopes always use the current version. Losing the KEK makes every account key
-and seal key unreadable; its backup is `~/Code/Sync/envs/gipf/.env`.
+and seal key unreadable, so keep an offline backup of it outside the hosting provider.
 
 ## Authorization
 
@@ -329,7 +329,7 @@ The repository's pre-existing CRA/source-map warnings may remain in the build.
 
 ### Hosted verification
 
-Preview and production deployments of `play` share the `gipf-public` store, so hosted
+Preview and production deployments share one store, so hosted
 checks use synthetic data only and delete it afterwards. Auth0 accepts only the
 production callback, so previews cannot sign in, and production sign-in needs a real
 identity: hosted checks are anonymous. After each production deploy, verify that
@@ -342,5 +342,5 @@ work as a guest, and `/login` itself; that a fresh anonymous `/login` makes exac
 `prompt=none` round trip and settles on `/login?silent=failed` with the Sign in button,
 and a second visit within 10 minutes makes none; and that no API answers 503 (health:
 `GET /api/session` is 401 signed out, not 503). The full sign-in — including
-automatic sign-in from home.ramia.us, adding keys, AI in Catan and signing out — is checked by Nathan with a real identity. `x-vercel-forwarded-for` must
+automatic sign-in from home.ramia.us, adding keys, AI in Catan and signing out — is checked by the maintainer with a real identity. `x-vercel-forwarded-for` must
 remain the end-user identity, or every visitor shares one rate-limit bucket.

@@ -1,6 +1,6 @@
 # Development Guide for AI Agents
 
-Practical guide for working on any part of the GIPF Project codebase. CLAUDE.md is the primary reference for rules and architecture -- this document covers **how** to work in each area.
+Practical guide for working on any part of the GIPF Project codebase. AGENTS.md is the primary reference for rules and architecture -- this document covers **how** to work in each area.
 
 ---
 
@@ -288,7 +288,7 @@ node scripts/self-play.mjs --games 10 --sims 100
 1. `CI=true npm test` -- full suite passes
 2. `npm run build` -- no errors
 3. Manual play-through if game logic changed
-4. `git push origin main` -- Vercel auto-deploys
+4. Open a PR against `main`; merging it deploys production (see AGENTS.md, "Deployment and ramia.us")
 
 ---
 
