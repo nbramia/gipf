@@ -1,30 +1,30 @@
 import { captureFence, withAccountTransition } from './accountFence.js';
-// account.js — username+password accounts for every game.
+import { accountKeys, setAccountKeys } from './accountKeys.js';
+// account.js — Games accounts, signed in with Auth0 (the ramia.us sign-in).
 //
-// The one implementation: the /login page signs in and out here, and each game
-// reads the session through it (Chess via the re-export at
-// src/games/chess/engine/account.js). The namespace 'gipf-chess-account:v1:',
-// the /api/chessAccount endpoint, the PBKDF2 derivation and the gipfAccount
-// session shape are fixed so accounts created by any earlier client keep working.
+// The one implementation: /login signs in and out here, and each game reads the
+// session through it (Chess via the re-export at src/games/chess/engine/account.js).
 //
-// Signing in proves the password once: POST /api/session verifies the derived
-// auth token and sets the HttpOnly `__Host-games_session` cookie, which
-// authorizes every later request. The derived AES key is kept as a
-// non-extractable CryptoKey in IndexedDB, so the cached `gipfAccount` session
-// (v2) holds no secret: only the username, its id, and a random per-sign-in
-// marker (`sid`) the identity fences compare. A device still holding a v1
-// session (auth token and AES key in localStorage) is upgraded silently at
-// startup by `prepareSession`; until that succeeds its requests carry the auth
-// token in the body, which the server still accepts.
+// Signing in is a redirect: /api/auth/login sends the browser to Auth0 and the
+// callback sets the HttpOnly `__Host-games_session` cookie, which authorizes every
+// later request. Back on /login, `completeSignIn` asks the server for the account's
+// data id and its device seal key — the AES key that seals this device's recovery
+// copies, kept as a non-extractable CryptoKey in IndexedDB — and switches the
+// device to that account. The cached `gipfAccount` session (v3) holds no secret:
+// the account name, its data id, and a random per-sign-in marker (`sid`) the
+// identity fences compare.
 //
-// No email, no recovery: a forgotten password means a new account. Every
-// secret is derived client-side from the password via PBKDF2 — the server
-// (api/chessAccount.js) never sees the password, and stores only a hash of
-// an auth token plus AES-GCM ciphertexts of the user's two BYO secrets: the
-// Anthropic API key (`enc`) and the Lichess explorer token (`encLichess`).
-// The AES key that decrypts those ciphertexts never leaves the client. The
-// profileId remains a legacy bearer capability used only for bounded claims.
-// Normal persistence proves ownership with the session cookie.
+// The Anthropic key and the Lichess token are held on the server, encrypted there,
+// and never returned: /login sends a new key once over TLS, and the proxies add it
+// to each request (src/accountKeys.js says which keys exist). Guests keep
+// device-only keys in localStorage.
+//
+// Username/password accounts no longer sign in. Their PBKDF2 derivation is kept
+// for one purpose: `linkOldAccount` proves the old password once, opens the old
+// client-encrypted keys here, and links the old account's progress to the signed-in
+// identity. A device still holding a password-era session (v1 or v2) is signed out
+// at startup by `retireLegacySession`, sealing its progress under the old key,
+// which linking makes the new account's seal key.
 
 const NAMESPACE = 'gipf-chess-account:v1:';
 const PBKDF2_ITERATIONS = 310_000;
@@ -86,16 +86,13 @@ export async function deriveCredentials(username, password) {
 
 // ---- API key encryption ---------------------------------------------------
 //
-// encryptApiKey/decryptApiKey are generic string encryptors despite the
-// name — they serve both BYO secrets carried on the account (the Anthropic
-// API key and the Lichess explorer token), each independently, under the
-// same password-derived AES key.
+// encryptApiKey/decryptApiKey are generic string encryptors despite the name: they
+// seal recovery copies and migration journals under the account's seal key, and
+// open a pre-Auth0 account's keys under its password-derived AES key when linking.
 
-// Encrypt a secret string (the Anthropic API key or the Lichess token) under
-// the password-derived AES key. Returns { iv, ct } as base64 strings — both are safe to
-// send to the server, since only the client holds the AES key.
-// `aesKey` is either the base64 key from deriveCredentials or the stored
-// CryptoKey from accountKey().
+// Encrypt a string under an AES key. Returns { iv, ct } as base64 strings.
+// `aesKey` is either a base64 key (from deriveCredentials or the server's seal
+// key) or the stored CryptoKey from accountKey().
 async function aesKeyFor(aesKey, usage) {
   if (typeof aesKey !== 'string') return aesKey;
   return globalThis.crypto.subtle.importKey('raw', base64ToBytes(aesKey), { name: 'AES-GCM' }, false, [usage]);
@@ -123,121 +120,67 @@ export async function decryptApiKey(aesKey, enc) {
 
 // ---- server client ---------------------------------------------------------
 //
-// api/chessAccount.js speaks one endpoint, three actions. Response contract
-// (mirrors fetchRemoteProfile/putRemoteProfile's style):
-//   → { configured: false }        when the server has no store provisioned
-//   → parsed body                  on HTTP success (e.g. {created:true}, {enc})
-//   → { error, message }           on HTTP error status — NOT thrown
-// Throws only on network/transport failure (fetch rejection propagates),
-// matching fetchRemoteProfile's semantics.
+// Every request is JSON with the custom header the server's CSRF check requires,
+// and the session cookie is the only authorization. Responses resolve to the parsed
+// body on success, `{ error }` on an HTTP error, and throw only on network failure.
 
-// The deploy prefix is included because the app is also served from a subdirectory
-// (ramia.us/gipf); a root-absolute path would resolve against that host's root,
-// which is a different deployment. PUBLIC_URL is empty on a bare-root deploy.
-const ENDPOINT = `${process.env.PUBLIC_URL || ''}/api/chessAccount`;
+const ACCOUNT_ENDPOINT = `${process.env.PUBLIC_URL || ''}/api/chessAccount`;
 const SESSION_ENDPOINT = `${process.env.PUBLIC_URL || ''}/api/session`;
+const AUTH_ENDPOINT = `${process.env.PUBLIC_URL || ''}/api/auth`;
 
-// Every account request is JSON with the custom header the server's CSRF check requires.
 export const REQUEST_HEADERS = { 'Content-Type': 'application/json', 'X-Games-Request': '1' };
-// A v1 session not yet upgraded still proves itself in the body; a v2 session uses the cookie.
-export function credentialFields(session) {
-  return session?.authToken ? { auth: session.authToken } : {};
+// Body credentials authorize nothing: the session cookie alone does.
+export function credentialFields() {
+  return {};
 }
 
-async function postAccount(payload) {
-  const r = await fetch(ENDPOINT, {
-    method: 'POST',
-    headers: REQUEST_HEADERS,
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(10000),
-  });
-  const data = await r.json();
-  if (data.configured === false) return { configured: false };
-  if (r.ok) return data;
-  return { error: data.error || 'error', message: data.message };
-}
-
-// Register a brand-new account. `enc` (optional, from encryptApiKey) is the
-// initial encrypted API key, and `encLichess` (optional, same shape) is the
-// initial encrypted Lichess token — either or both may be null to create the
-// account without that secret yet.
-export async function createAccount({ usernameId, authToken, enc, encLichess }) {
-  return postAccount({
-    action: 'create',
-    u: usernameId,
-    auth: authToken,
-    enc: enc || null,
-    encLichess: encLichess || null,
-  });
-}
-
-// Authenticate an existing account. On success the response carries the
-// stored `enc` and `encLichess` records (if any) for the caller to decrypt
-// with the password-derived AES key.
-export async function loginAccount({ usernameId, authToken }) {
-  return postAccount({ action: 'login', u: usernameId, auth: authToken });
-}
-
-// Push a (re-)encrypted secret to an already-authenticated account — `enc`
-// (API key) and/or `encLichess` (Lichess token), whichever the caller has a
-// fresh ciphertext for. Only the provided field(s) are updated server-side;
-// the other secret is preserved untouched. Never throws — sync failures must
-// not interrupt play — resolves true/false, matching putRemoteProfile's
-// style.
-export async function pushEncryptedKey({ usernameId, authToken, enc, encLichess }) {
-  try {
-    const r = await fetch(ENDPOINT, {
-      method: 'POST',
-      headers: REQUEST_HEADERS,
-      body: JSON.stringify({ action: 'setKey', u: usernameId, ...credentialFields({ authToken }), enc, encLichess }),
-    });
-    if (!r.ok) return false;
-    const data = await r.json();
-    return data.configured !== false;
-  } catch (_) {
-    return false;
-  }
-}
-
-// ---- server session ----------------------------------------------------------
-
-async function postSession(body) {
-  const r = await fetch(SESSION_ENDPOINT, {
+async function post(url, body, timeout = 10000) {
+  const r = await fetch(url, {
     method: 'POST', headers: REQUEST_HEADERS, credentials: 'same-origin',
-    body: JSON.stringify(body), signal: AbortSignal.timeout(10000),
+    body: JSON.stringify(body), signal: AbortSignal.timeout(timeout),
   });
   const data = await r.json().catch(() => ({}));
-  if (data.configured === false) return { configured: false };
   if (r.ok) return data;
-  return { error: data.error || 'error', message: data.message };
+  return { error: data.error || 'error', status: r.status };
 }
 
-// Verify the password-derived token once and receive the session cookie plus
-// the account's encrypted key envelopes. Throws only on network failure.
-export async function startServerSession({ usernameId, authToken }) {
-  return postSession({ action: 'create', u: usernameId, auth: authToken });
+// Start Auth0 sign-in. `reauthenticate` asks Auth0 for credentials even when its own
+// session (for example from home.ramia.us) would sign in silently.
+export function signInUrl(returnTo = '/', { reauthenticate = false } = {}) {
+  return `${AUTH_ENDPOINT}/login?return=${encodeURIComponent(returnTo)}${reauthenticate ? '&reauthenticate=1' : ''}`;
+}
+
+// Store the account's keys: a string sets, null clears, undefined keeps. The key
+// goes to the server once and is never read back. Resolves the key status or { error }.
+export async function saveAccountKeys(changes) {
+  try {
+    const res = await post(ACCOUNT_ENDPOINT, { action: 'setKeys', ...changes });
+    if (res.keys) setAccountKeys(res.keys);
+    return res;
+  } catch (_) { return { error: 'network' }; }
 }
 
 // Revoke this device's session (or, with everywhere, every session of the account).
 // Never throws: local sign-out proceeds even when the server is unreachable.
 export async function endServerSession({ everywhere = false } = {}) {
-  try { return await postSession({ action: everywhere ? 'logout-all' : 'logout' }); }
+  try { return await post(`${AUTH_ENDPOINT}/logout`, { everywhere }); }
   catch (_) { return { error: 'network' }; }
 }
 
-// 'live', 'signed_out' (the server rejected the cookie), or 'unknown' (unreachable).
+// The server's view of this browser's session: the status body when live,
+// 'signed_out' when the cookie is rejected, or 'unknown' when unreachable.
 export async function checkServerSession() {
   try {
     const r = await fetch(SESSION_ENDPOINT, { headers: { 'X-Games-Request': '1' }, credentials: 'same-origin', signal: AbortSignal.timeout(5000) });
-    if (r.ok) return 'live';
+    if (r.ok) return await r.json();
     return r.status === 401 ? 'signed_out' : 'unknown';
   } catch (_) { return 'unknown'; }
 }
 
 // ---- account key storage -------------------------------------------------------
 //
-// The AES key lives in IndexedDB as a non-extractable CryptoKey, keyed by
-// usernameId: page script can use it to encrypt and decrypt, never read it out.
+// The seal key lives in IndexedDB as a non-extractable CryptoKey, keyed by the
+// account's data id: page script can use it to encrypt and decrypt, never read it out.
 
 const KEY_DB = 'gipf-account';
 const KEY_STORE = 'keys';
@@ -259,18 +202,16 @@ function keyStore(mode, operation) {
   });
 }
 
-// Import and persist the account key. Resolves false when IndexedDB is unavailable.
+// Import and persist the account's seal key. Without IndexedDB it is kept for this
+// page only; a later sign-out then cannot seal progress (see clearSession).
 export async function storeAccountKey(usernameId, aesKeyB64) {
-  if (!globalThis.indexedDB) return false;
   const key = await globalThis.crypto.subtle.importKey('raw', base64ToBytes(aesKeyB64), { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
-  try {
-    await keyStore('readwrite', store => store.put(key, usernameId));
-    keyCache.set(usernameId, key);
-    return true;
-  } catch (_) { return false; }
+  keyCache.set(usernameId, key);
+  try { await keyStore('readwrite', store => store.put(key, usernameId)); } catch (_) { /* this page only */ }
 }
 
-// The key that encrypts this account's keys and recovery copies.
+// The key that seals this account's recovery copies and migration journals. A
+// retired v1 session still carries its password-derived key inline.
 export async function accountKey(session) {
   if (!session?.usernameId) throw new Error('account_required');
   if (session.aesKey) return session.aesKey;
@@ -288,13 +229,13 @@ async function forgetAccountKey(usernameId) {
 
 // ---- session persistence ---------------------------------------------------
 
-// The identity marker fences compare: sid for v2, the auth token for a v1 session.
+// The identity marker fences compare: sid, or the auth token of a retired v1 session.
 const mark = s => s?.sid || s?.authToken;
 const randomMarker = () => bytesToHex(globalThis.crypto.getRandomValues(new Uint8Array(16)));
 
 function isValidSession(s) {
   if (!s || typeof s.username !== 'string' || typeof s.usernameId !== 'string') return false;
-  if (s.v === 2) return typeof s.sid === 'string';
+  if (s.v === 3 || s.v === 2) return typeof s.sid === 'string';
   return s.v === 1 && typeof s.authToken === 'string' && typeof s.aesKey === 'string' && typeof s.profileId === 'string';
 }
 
@@ -312,13 +253,12 @@ export function loadSession() {
 }
 
 // The session record written after sign-in: no secret, only identity.
-async function sessionRecord(creds) {
-  if (!await storeAccountKey(creds.usernameId, creds.aesKey)) {
-    // Without IndexedDB the key cannot be held non-extractably; keep the v1 shape.
-    return { v: 1, username: creds.username, usernameId: creds.usernameId, authToken: creds.authToken, aesKey: creds.aesKey, profileId: creds.profileId };
-  }
-  return { v: 2, username: creds.username, usernameId: creds.usernameId, sid: randomMarker() };
+async function sessionRecord(account) {
+  await storeAccountKey(account.usernameId, account.aesKey);
+  return { v: 3, username: account.username, usernameId: account.usernameId, sid: randomMarker() };
 }
+// A session from the username/password era, which no longer signs in.
+const passwordEra = s => s?.v === 1 || s?.v === 2;
 
 // Allowlist of progress only: raw credentials and unrelated apps never enter recovery.
 export const PROGRESS_KEYS = [
@@ -335,8 +275,10 @@ export const PROGRESS_KEYS = [
   'diplomacyDarkMode', 'diplomacyShowOrders', 'diplomacyShowLastMoves', 'diplomacySettings', 'diplomacyGameState',
 ];
 const SECRET_KEYS = ['gipfApiKey', 'chessApiKey', 'catanApiKey', 'chessLichessToken'];
+// Device keys and the account-key marker: neither belongs on a signed-in device's next identity.
 export function clearDeviceSecrets() {
   SECRET_KEYS.forEach(k => localStorage.removeItem(k));
+  setAccountKeys(null);
 }
 export async function retainProgress(session) {
   const check = captureFence({ allowTransition: true });
@@ -352,13 +294,14 @@ export async function retainProgress(session) {
   if (snapshot() !== progress || localStorage.getItem(key) !== previous) throw new Error('progress_changed');
   localStorage.setItem(key, value);
 }
-async function saveSessionProgress(s, { importGuest = false, apiKey = '', lichessToken = '' } = {}) {
+async function saveSessionProgress(s, { importGuest = false, keys = null } = {}) {
   const previous = loadSession();
   // TODO(2026-11-04): retire the API-key-hash claim — 30 days after the unified login
   // shipped on 2026-10-05. Remove this guest-key claim and the doc note in
   // docs/public-accounts.md ("Bounded legacy claims"); the password-derived claim stays.
   const guestLegacyKey = !previous && importGuest ? getSharedApiKey() : '';
-  const ids = [s.profileId];
+  // A linked account's password-derived profile id is its bounded legacy claim.
+  const ids = s.profileId ? [s.profileId] : [];
   if (guestLegacyKey) {
     const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('gipf-chess-rating:v1:' + guestLegacyKey));
     ids.push(bytesToHex(new Uint8Array(bytes)));
@@ -397,8 +340,9 @@ async function saveSessionProgress(s, { importGuest = false, apiKey = '', liches
       }
     }
     localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(record));
-    setSharedApiKey(apiKey);
-    setSharedLichessToken(lichessToken);
+    // Signed in, keys live on the account; none stay on the device.
+    clearDeviceSecrets();
+    setAccountKeys(keys);
   } catch (error) {
     if (committing) {
       // A partial localStorage restore must never leave the old identity on
@@ -427,10 +371,11 @@ async function clearSessionProgress({ everywhere = false, server = true } = {}) 
 
 // ---- shared API key slot ----------------------------------------------------
 //
-// 'gipfApiKey' is the one BYO Anthropic key shared by Chess, Catan, Splendor
-// and Diplomacy (see CLAUDE.md). /login is the only place it is written; each
-// game reads it through its own storage helper (which also migrates legacy
-// per-game keys, a step this module deliberately does not replicate).
+// 'gipfApiKey' is a guest's one BYO Anthropic key, shared by Chess, Catan,
+// Splendor and Diplomacy on this device (see CLAUDE.md). /login is the only place
+// it is written; each game reads it through its own storage helper (which also
+// migrates legacy per-game keys, a step this module deliberately does not
+// replicate). A signed-in device holds no key here.
 
 export function getSharedApiKey() {
   try {
@@ -454,7 +399,7 @@ export function setSharedApiKey(key) {
 
 // ---- shared Lichess token slot ----------------------------------------------
 //
-// 'chessLichessToken' is chess's BYO Lichess explorer token (see
+// 'chessLichessToken' is a guest's BYO Lichess explorer token (chess's
 // coach/openingCoach.js reads it). /login writes it through these helpers,
 // mirroring getSharedApiKey/setSharedApiKey above, without importing chess's module.
 
@@ -506,30 +451,85 @@ export async function clearSession(options = {}) {
   }
 }
 
-// Startup, before the app renders. A v1 session swaps its auth token for a session
-// cookie and its AES key for a stored CryptoKey, then drops both from localStorage.
-// Network failure leaves it as is for the next load.
-export async function upgradeLegacySession({ canCommit = () => true } = {}) {
-  const raw = localStorage.getItem(ACCOUNT_STORAGE_KEY);
-  const s = loadSession();
-  if (s?.v !== 1) return false;
-  const res = await startServerSession(s).catch(() => null);
-  if (!res?.signedIn) return false;
-  const record = await sessionRecord(s);
-  if (record.v !== 2 || !canCommit() || localStorage.getItem(ACCOUNT_STORAGE_KEY) !== raw) return false;
-  localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(record));
+export const SESSION_EXPIRED_KEY = 'gipf:session-expired';
+function noteSessionEnded(reason) {
+  try { sessionStorage.setItem(SESSION_EXPIRED_KEY, reason); } catch (_) { /* optional notice */ }
+}
+
+// Startup, before the app renders. A password-era session (v1 or v2) no longer
+// signs in: sign it out like any sign-out, sealing its progress under the old key
+// for linking to recover, then revoke its server session without waiting on the
+// network (the server refuses that session regardless). Resolves true when it did.
+export async function retireLegacySession() {
+  if (!passwordEra(loadSession())) return false;
+  await clearSession({ server: false });
+  noteSessionEnded('auth0');
+  endServerSession();
   return true;
 }
 
-export const SESSION_EXPIRED_KEY = 'gipf:session-expired';
-// After render: a v2 session whose cookie the server rejects (idle or absolute
+// After render: a v3 session whose cookie the server rejects (idle or absolute
 // expiry, or signed out everywhere) is signed out locally, like a normal sign-out.
-// Resolves true when the caller should reload.
+// A live one refreshes which keys the account holds. Resolves true when the caller
+// should reload.
 export async function expireRejectedSession() {
   const s = loadSession();
-  if (s?.v !== 2 || await checkServerSession() !== 'signed_out') return false;
+  if (s?.v !== 3) return false;
+  const status = await checkServerSession();
+  if (status === 'unknown') return false;
   if (mark(loadSession()) !== mark(s)) return false;
+  if (status !== 'signed_out') {
+    // A live session for another account is a sign-in still finishing at /login.
+    if (status.u !== s.usernameId) return false;
+    const keys = accountKeys();
+    if (keys.anthropic !== status.keys?.anthropic || keys.lichess !== status.keys?.lichess) setAccountKeys(status.keys);
+    return false;
+  }
   await clearSession({ server: false });
-  try { sessionStorage.setItem(SESSION_EXPIRED_KEY, '1'); } catch (_) { /* optional notice */ }
+  noteSessionEnded('expired');
   return true;
+}
+
+// ---- Auth0 sign-in, finished on the device -------------------------------------
+
+// The server session is set by the Auth0 callback; switch this device to it. Keys
+// already on this device as a guest move to the account when it has none of its own,
+// and leave the device either way. Resolves { offerLink, keys, keysMoved } or throws.
+export async function completeSignIn({ importGuest = false } = {}) {
+  const res = await post(SESSION_ENDPOINT, { action: 'establish' });
+  if (!res.signedIn) throw new Error(res.error || 'signed_out');
+  const device = { anthropic: getSharedApiKey(), lichess: getSharedLichessToken() };
+  const moving = Object.fromEntries(Object.entries(device).filter(([slot, value]) => value && !res.keys[slot]));
+  let keys = res.keys, keysMoved = true;
+  if (Object.keys(moving).length) {
+    const saved = await post(ACCOUNT_ENDPOINT, { action: 'setKeys', ...moving }).catch(() => ({ error: 'network' }));
+    if (saved.keys) keys = saved.keys; else keysMoved = false;
+  }
+  await saveSession({ username: res.name, usernameId: res.u, aesKey: res.sealKey }, { importGuest, keys });
+  return { offerLink: res.offerLink, keys, keysMoved };
+}
+
+// Link a pre-Auth0 username/password account to the signed-in identity, once. The
+// password is checked by the server against the old verifier; the old keys are
+// opened here and sent once over TLS to be stored server-encrypted; the device then
+// switches to the old account's progress. Resolves { linked:true } or { error }.
+export async function linkOldAccount(username, password) {
+  const current = loadSession();
+  if (current?.v !== 3) return { error: 'signed_out' };
+  const creds = await deriveCredentials(username, password);
+  if (!creds) return { error: 'crypto_unavailable' };
+  const proof = { u: creds.usernameId, auth: creds.authToken };
+  let verified;
+  try { verified = await post(ACCOUNT_ENDPOINT, { action: 'link-verify', ...proof }); } catch (_) { return { error: 'network' }; }
+  if (verified.error) return verified;
+  const keys = {};
+  try {
+    if (verified.enc) keys.anthropic = await decryptApiKey(creds.aesKey, verified.enc);
+    if (verified.encLichess) keys.lichess = await decryptApiKey(creds.aesKey, verified.encLichess);
+  } catch (_) { return { error: 'bad_credentials' }; }
+  let linked;
+  try { linked = await post(ACCOUNT_ENDPOINT, { action: 'link', ...proof, sealKey: creds.aesKey, ...keys }); } catch (_) { return { error: 'network' }; }
+  if (!linked.linked) return linked;
+  await saveSession({ username: current.username, usernameId: linked.u, aesKey: creds.aesKey, profileId: creds.profileId }, { keys: linked.keys });
+  return { linked: true };
 }

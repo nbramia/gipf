@@ -1,12 +1,13 @@
 import { guardRequest } from '../server/publicSecurity.js';
+import { requestKey } from '../server/accountKeys.js';
 export const config = { api: { bodyParser: { sizeLimit: '32kb' } } };
 // Serverless Splendor rules assistant — answers a player's questions about the
 // game, grounded in the live game context.
 //
-// Bring-your-own-key: the Anthropic API key arrives in the request body, is used
-// for exactly one upstream call, and is never logged, persisted, or read from
-// server env. There is no server-side fallback key. This mirrors the chess coach
-// (api/chessCoach.js) and the Catan rules assistant (api/catanRules.js).
+// Bring-your-own-key: a guest's Anthropic key arrives in the request body; a
+// signed-in player's is decrypted from their account on the server
+// (server/accountKeys.js). Either way it is used for exactly one upstream call and
+// is never logged or read from server env. There is no server-side fallback key.
 
 const ALLOWED_ORIGINS = ['https://gipf.vercel.app', 'http://localhost:3000'];
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
@@ -55,13 +56,11 @@ export default async function handler(req, res) {
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
-    const apiKey = body.apiKey;
+    // A guest's key is in the body; a signed-in player's is read from the account.
+    const apiKey = await requestKey(req, res, body, 'anthropic', 'apiKey');
+    if (!apiKey) return;
     const messages = Array.isArray(body.messages) ? body.messages : null;
 
-    if (!apiKey || typeof apiKey !== 'string') {
-      res.status(401).json({ error: 'missing_api_key', message: 'No API key provided.' });
-      return;
-    }
     if (!messages || messages.length === 0) {
       res.status(400).json({ error: 'bad_request', message: 'Missing messages.' });
       return;

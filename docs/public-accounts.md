@@ -6,91 +6,169 @@ plays as a guest. Related to https://github.com/nbramia/ramia/issues/22.
 
 ## Sign-in surface
 
-`/login` (`src/LoginPage.jsx`) is the only place to sign in, create an account, sign
-out, or enter the Anthropic key and Lichess token. Signed in, saved keys are encrypted
-under the account's AES key and stored with `setKey`; as a guest they stay on the
-device. The landing page links to `/login`, and each game that uses a key links to
-`/login?return=/<game>`. `return` must exactly equal a `games-registry.js` path,
-otherwise sign-in returns to `/` (`src/loginReturn.js`). Games contain no credential
-or key inputs, enforced by `src/gamesLoginBoundary.test.js`. On the retired gated
-hosts (`gipf.vercel.app`, `ramia.us/gipf`) the page points to play.ramia.us instead.
+`/login` (`src/LoginPage.jsx`) is the only place to sign in, sign out, link an old
+games account, or enter the Anthropic key and Lichess token. The landing page links to
+`/login`, and each game that uses a key links to `/login?return=/<game>`. `return` must
+exactly equal a `games-registry.js` path, otherwise sign-in returns to `/` — checked in
+the browser (`src/loginReturn.js`) and again by the server (`server/auth0.js`), so the
+sign-in redirect is never open. Games contain no credential or key inputs, enforced by
+`src/gamesLoginBoundary.test.js`. On the retired gated hosts (`gipf.vercel.app`,
+`ramia.us/gipf`) the page points to play.ramia.us instead.
 
-New accounts need a password of at least 10 characters. The server never sees the
-password, so `/login` enforces this when creating; accounts created under the earlier
-6-character rule keep signing in unchanged. There is no password reset.
+Signing in uses the ramia.us Auth0 tenant — the same one home.ramia.us uses, with the
+same Google and email/password connections — through `play`'s own Regular Web
+Application. An Auth0 session already open from Home completes the redirect without a
+prompt. Anyone may sign up; that grants nothing on Home, which admits only identities
+with an enabled membership row (ramia `docs/private-portal-contracts.md`). "Use a
+different account" asks Auth0 for credentials even when its session would sign in
+silently. There are no username/password sign-ins or new password accounts.
+
+## Auth0 flow
+
+`api/auth/[action].js` with `server/auth0.js` (openid-client):
+
+- `GET /api/auth/login?return=` builds an authorization-code request with PKCE (S256),
+  `state` and `nonce`, `scope=openid email profile`, and the one registered callback
+  `https://play.ramia.us/api/auth/callback`. Those values ride in
+  `__Host-games_auth` (HttpOnly, Secure, SameSite=Lax, 10 minutes), AES-GCM-sealed under
+  a key derived from `GAMES_SESSION_SECRET`. Off `play.ramia.us`, or with any
+  configuration missing, it returns to `/login?error=unavailable` instead.
+- `GET /api/auth/callback` needs that cookie, exchanges the code with
+  `client_secret_post`, and validates the ID token: issuer, audience, expiry, nonce,
+  state, and its RS256 signature against the tenant's JWKS. It then requires
+  `email_verified === true` (Google identities are verified). Any failure returns to
+  `/login?error=…` with no provider detail and no session.
+- The identity is `sha256("gipf-games-identity:v1|<issuer>|<sub>")`; Redis never holds
+  the subject. A first sign-in creates `gipf:identity:v1:<identityId>` and spends the
+  creation budgets that bound the store (5 per network and 50 overall per 24 hours;
+  over budget returns `error=busy`). The callback then revokes any session the browser
+  presented, issues a new one, and returns to `/login?signedin=1&return=…`, where
+  `completeSignIn` finishes on the device.
+- `POST /api/auth/logout {everywhere?}` revokes this session (or every session of the
+  identity) and clears the cookie. **It does not end the Auth0 session**, so Home stays
+  signed in and signing in to Games again is one click with no password. Signing out is
+  still meaningful on Games: the session is revoked server-side, the device's identity,
+  keys and progress are cleared and sealed, and nothing signs in again until the player
+  chooses Sign in. A player on a shared computer signs out of Home (or Google) to end
+  the provider session too.
 
 ## Sessions
 
 `api/session.js` and `server/session.js`:
 
-- `POST /api/session {action:'create', u, auth}` verifies the token (failures share
-  the per-network authentication budget), then sets
-  `__Host-games_session=<token>; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=7776000`
-  — host-only, never readable by page script. The token is 32 random bytes; Redis
-  stores only `gipf:session:v1:<sha256(token)>` → `{u, created, seen}`, plus the set
-  `gipf:sessions:v1:<usernameId>` of that account's session hashes. The response
-  carries the encrypted key envelopes, so sign-in is one request.
+- The cookie is `__Host-games_session=<token>; Path=/; HttpOnly; Secure; SameSite=Lax;
+  Max-Age=7776000` — host-only, never readable by page script. The token is 32 random
+  bytes; Redis stores only `gipf:session:v1:<sha256(token)>` →
+  `{i, u, name, fresh, created, seen}` (identity, data id, verified email shown as the
+  account name, whether this sign-in created the identity), plus the set
+  `gipf:sessions:v1:<identityId>` of that identity's session hashes.
 - Lifetime: 30 days idle (the record's TTL, refreshed at most hourly by use) and
-  90 days absolute from creation. `GET /api/session` reports `{signedIn, u}` or 401.
-- `{action:'logout'}` revokes this session and clears the cookie; `{action:'logout-all'}`
-  revokes every session in the account's index ("Sign out everywhere" at `/login`).
-- CSRF: `guardRequest` rejects any POST whose `Content-Type` is not
-  `application/json` (415), so no cross-site form or no-cors fetch reaches a handler.
-  Every cookie-authenticated request and every session change also needs
+  90 days absolute from creation.
+- `GET /api/session` reports `{signedIn, u, name, linked, keys}` or 401. `keys` says only
+  whether each key is held. `POST {action:'establish'}` adds `sealKey` (below) and
+  `offerLink`, true on the sign-in that created the identity.
+- A session record without an identity predates Auth0: it is refused and deleted on
+  sight. The browser retires a password-era `gipfAccount` (v1 or v2) at startup
+  (`retireLegacySession`): it signs out locally, sealing progress under the old key,
+  revokes the old session without waiting, and `/login` explains that Games now signs in
+  with the ramia.us account and offers the link.
+- CSRF: `guardRequest` rejects any POST whose `Content-Type` is not `application/json`
+  (415), so no cross-site form or no-cors fetch reaches a handler. Every
+  cookie-authenticated request and every session change also needs
   `X-Games-Request: 1` and either `Origin` exactly `https://play.ramia.us` (or, on a
   preview deployment, that deployment's own URL) or `Sec-Fetch-Site: same-origin`
-  with no conflicting `Origin`; otherwise 403.
+  with no conflicting `Origin`; otherwise 403. The Auth0 login and callback are top-level
+  GET navigations protected by `state`, `nonce` and PKCE instead.
 
-The browser keeps no secret in `localStorage`. `gipfAccount` (v2) is
-`{v:2, username, usernameId, sid}`, where `sid` is a random per-sign-in marker the
-identity fences compare. The AES key is imported as a non-extractable `CryptoKey`
-and stored in IndexedDB (`gipf-account` / `keys`, keyed by usernameId); key sync,
-recovery sealing and migration journals use it from there. Sign-out deletes it.
+`gipfAccount` (v3) is `{v:3, username, usernameId, sid}`: the account name, the data id
+its progress is stored under, and a random per-sign-in marker the identity fences
+compare. It holds no secret. The device seal key — the AES key that seals this
+device's recovery copies and migration journals — is imported as a non-extractable
+`CryptoKey` into IndexedDB (`gipf-account` / `keys`, keyed by data id); without
+IndexedDB it is kept for the page only. Sign-out deletes it; the next sign-in fetches it
+again with `establish`.
 
-A device still holding a v1 session (`authToken`, `aesKey` and `profileId` in
-`gipfAccount`) is upgraded at startup, before the app mounts: `src/index.js` posts the
-cached token to `/api/session`, stores the key, and rewrites `gipfAccount` as v2.
-Until that succeeds (offline, or no IndexedDB) the device keeps v1 and sends `u` and
-`auth` in request bodies, which the server still accepts. `/migration` skips this
-startup work, as it makes no request until asked.
+After startup, a v3 session whose cookie the server rejects (expired or revoked) is
+signed out locally exactly like a normal sign-out, and `/login` says the session ended;
+a live one refreshes which keys the account holds. If the stored key is gone (site data
+cleared), sign-out still clears credentials and keys but cannot seal progress, which
+stays on the device.
 
-After startup, a v2 session whose cookie the server rejects (expired or revoked) is
-signed out locally exactly like a normal sign-out, and `/login` says the session
-ended. If the stored key is gone (site data cleared), sign-out still clears
-credentials and keys but cannot seal progress, which stays on the device.
+## Key custody
 
-Decrypted keys (`gipfApiKey`, `chessLichessToken`) remain in `localStorage` while
-signed in, because every game reads them synchronously; they are the user's own keys
-and are cleared on sign-out in every tab. The AI proxies stay stateless and receive
-the key in the request body.
+The Anthropic key and the Lichess token are entered at `/login`, sent once over TLS to
+`POST /api/chessAccount {action:'setKeys', anthropic?, lichess?}` (a string sets, null
+clears, omitted keeps), and stored in the identity record as AES-256-GCM envelopes
+`{kv, iv, ct, tag}` under the key-encryption key (KEK) `GAMES_KEY_ENCRYPTION_KEY`
+(`server/keyCustody.js`). The additional authenticated data is
+`gipf-games-key:v1|<identityId>|<slot>|<kv>`, so an envelope copied to another identity
+or slot, or relabelled with another key version, fails to decrypt. The seal key is a
+third slot, random 32 bytes for a new identity. No response ever returns the Anthropic
+key or Lichess token; there is no second password.
+
+The model proxies (`chessCoach`, `catanRules`, `splendorRules`, `diplomacyAgent`) take a
+guest's key from the request body. With no body key, `server/accountKeys.js` resolves
+the session cookie (same-origin checks included) and decrypts the account's key for
+that one upstream call. The Lichess masters explorer is proxied the same way
+(`api/chessCoach.js`, `mode:'explorer'`), so the token never reaches the browser; guests
+still query Lichess directly with their device token. Yinsh and Zertz API play uses no
+key. Proxies never log request bodies or keys, never use an environment key as a
+fallback, and never echo provider error details. A missing or unreadable account key is
+401 `missing_api_key`; an unavailable store or KEK is 503.
+
+Signed in, no key is kept in `localStorage`: `gipfAccountKeys` holds only
+`{anthropic, lichess}` booleans (`src/accountKeys.js`), which each game's key client
+reads to enable its AI features, sending `X-Games-Request: 1` so the server may use the
+cookie. Keys already on a device as a guest move to the account at sign-in when the
+account lacks them, and are removed from the device either way. Guests keep
+device-only `gipfApiKey` and `chessLichessToken`.
+
+Rotation: put the new KEK in `GAMES_KEY_ENCRYPTION_KEY`, raise
+`GAMES_KEY_ENCRYPTION_KEY_VERSION`, and keep the previous KEK readable as
+`GAMES_KEY_ENCRYPTION_KEY_V<old>` (Production and Preview, since both share the store).
+Deploy, run `node scripts/rotate-games-keys.mjs` with the same variables and the store
+credentials (it rewraps every identity and prints counts only), then remove the old KEK.
+New envelopes always use the current version. Losing the KEK makes every account key
+and seal key unreadable; its backup is `~/Code/Sync/envs/gipf/.env`.
+
+## Linking a pre-Auth0 games account
+
+Accounts created before Auth0 (`chess:account:<usernameId>`, PBKDF2 credentials derived
+in the browser) no longer sign in. After a first Auth0 sign-in, `/login` offers "Link
+your existing games account"; while unlinked, the account page keeps offering it.
+
+1. The browser derives `authToken` and `aesKey` from the old username and password with
+   the original derivation (namespace, 310,000 PBKDF2-SHA256 iterations, 768-bit split).
+2. `link-verify {u, auth}` checks the token against the stored verifier (failures share
+   the per-network authentication budget; a missing account and a wrong password give
+   the same 401) and returns the old client-encrypted `enc` / `encLichess`.
+3. The browser decrypts them and sends the plaintext once over TLS with
+   `link {u, auth, sealKey: aesKey, anthropic?, lichess?}`. The server verifies the token
+   again and, atomically, sets `gipf:identity-link:v1:<usernameId>` and the identity's
+   `data` and `linked` to that usernameId. Old keys fill only the slots this sign-in has
+   not set, encrypted server-side. The old `aesKey` becomes the seal key, so recovery
+   copies sealed before Auth0 still open.
+4. The server revokes every session of the identity and reissues this one on the old
+   data id; the device switches to it, restoring its sealed recovery copy, and claims
+   the old password-derived profile id while the bounded claim window is open.
+
+Linking is by reference: settings, profile, matches, migration receipts and recovery
+records stay under the old usernameId and are read in place; nothing is copied or moved.
+Each old account links to one identity and each identity links one old account (409
+`account_linked` / `identity_linked`); linking is never automatic or guessed. Progress
+saved under the new sign-in before linking stays stored but is no longer shown. The old
+`chess:account:` record is kept only for this verification; there is no password reset.
 
 ## Compatibility and authorization
 
-The account module (`src/account.js`) preserves the original username normalization,
-namespace, 310,000 PBKDF2-SHA256 iterations, 768-bit split, and AES-GCM `{iv, ct}`
-envelopes. `authToken` is presented once per sign-in to `POST /api/session`, which
-checks it against the SHA-256 verifier in the original `chess:account:<usernameId>`
-record and issues a session cookie; that cookie authorizes every later request.
-`aesKey` never leaves the client. Username
-hashes are public identifiers, not authorization. The old password-derived
-`profileId` and API-key-derived profile ID are secret bearer capabilities.
+The session cookie is the only authorization for account, profile and key requests;
+`u` and `auth` in a body authorize nothing (a body `u`, if present, must name the
+session's own data id). `POST /api/chessAccount` `create`, `login` and `setKey` return
+410. Username hashes are public identifiers, not authorization. The old
+password-derived `profileId` and API-key-derived profile ID are secret bearer
+capabilities used only for bounded claims.
 
-The model proxies transiently receive the user's own Anthropic key for the
-upstream request. They never use an environment key as a fallback, log request
-bodies, or echo provider error details. The account service stores ciphertext
-only. The Lichess token remains independently encrypted under the same AES key.
-
-`POST /api/chessAccount` retains `create`, `login`, and `setKey` with fields
-`u`, `auth`, `enc`, and `encLichess`. `create` always carries `u` and `auth`; `login`
-and `setKey` are authorized by the session cookie (or, for a device not yet upgraded,
-by `u` and `auth`). `setKey` accepts null to clear a stored
-credential; omitted envelopes stay unchanged. Atomic registration prevents an
-existing username from being replaced. Bad credentials return the same 401 for
-missing accounts and incorrect passwords.
-
-`POST /api/chessProfile` is authorized by the session cookie on every action (a body
-`u`, if present, must name the session's own account; `u` and `auth` in the body are
-still accepted from devices not yet upgraded):
+`POST /api/chessProfile` is authorized by the session cookie on every action:
 
 - `read`: returns `{configured:true, revision, profile, legacyProfiles?}`.
 - `write`: takes `revision` and `domains`; returns the next revision. A stale
@@ -106,7 +184,7 @@ still accepted from devices not yet upgraded):
   (including credentials) are rejected. Startup conflicts offer explicit choices;
   changes are checked every five seconds. Network failures leave local play usable.
 - `scope:"match"`: `read`/`write` for `game:"chess"|"yinsh"|"zertz"|"catan"`,
-  stored at `gipf:match:v1:<usernameId>:<game>` with a separate account/game CAS
+  stored at `gipf:match:v1:<dataId>:<game>` with a separate account/game CAS
   revision. Writes use `domains.match` (a validated snapshot or null to clear);
   stale revisions return 409. `claim` is rejected for this scope. See
   [resumable matches](resumable-matches.md) for schema, restore, and recovery details.
@@ -114,8 +192,8 @@ still accepted from devices not yet upgraded):
   the authenticated owner. There is no unauthenticated legacy read or write.
 
 Legacy `GET /api/chessProfile?id=...` returns 405 and `/api/chessRating` returns
-410. Existing clients must upgrade; old data remains in Redis. API secrets must
-never be placed in URLs, analytics, logs, test traces, or ordinary exports.
+410. Old data remains in Redis. API secrets must never be placed in URLs, analytics,
+logs, test traces, or ordinary exports.
 
 ## JSON preservation and legacy damage
 
@@ -192,9 +270,9 @@ Chess reads merge those alternatives using the existing monotonic merge rules.
 The source record stays untouched. No public username identifier substitutes for
 the old capability, and no new profile is stored in the old namespace.
 
-Sign-in claims the password-derived legacy profile. Explicit guest import also
-claims the legacy hash of the API key already on that device. Chess mounts only read/sync; they do not issue migration claims. Users with cached
-older sessions must sign out and back in during the window to attempt migration. A closed/unavailable window
+Linking an old account claims its password-derived legacy profile. Explicit guest
+import at sign-in also claims the legacy hash of the API key already on that device.
+Chess mounts only read/sync; they do not issue migration claims. A closed/unavailable window
 does not delete source data; operators must complete recovery during a documented
 window. Forgotten passwords or lost old capabilities cannot be recovered by a
 public-ID lookup.
@@ -202,15 +280,15 @@ public-ID lookup.
 ## Device isolation and recovery
 
 On switching, the outgoing
-allowlisted progress is encrypted with its account AES key and stored under
-`gipf:recovery:<usernameId>`. Only that account's password can decrypt it. Secrets,
+allowlisted progress is encrypted with its account's seal key and stored under
+`gipf:recovery:<dataId>`. Only a sign-in to that account can decrypt it. Secrets,
 active sessions, and unrelated app data are excluded. Device quota/encryption
 failure aborts a switch instead of deleting the only recovery copy.
 
 Guest progress is retained separately in `gipf:guest:recovery`. Import requires the
 unchecked-by-default checkbox; it never imports an outgoing account into another.
-Logout revokes the server session and removes the cached session, the stored AES key,
-the shared and legacy Anthropic slots, and the Lichess slot,
+Logout revokes the server session and removes the cached session, the stored seal key,
+the shared and legacy Anthropic slots, the Lichess slot and the account-key marker,
 and clears visible game progress. Reloading drops component memory and old AI
 callbacks. Other tabs reload on the session storage event. Deferred profile writes
 capture the old identity and reject if the active account changed; read
@@ -226,28 +304,25 @@ access, and a pending save is never merged into the next account.
 
 `server/publicSecurity.js` uses existing `KV_REST_API_URL` / `KV_REST_API_TOKEN`
 (or Upstash aliases) and Redis EVAL with atomic INCR plus expiry. Every instance
-uses the same counters. Account traffic (including `POST /api/session`) is 20/minute per network identity before authentication and
-20/minute per authenticated account after credential verification; sync is 120/minute per network identity and account; AI is 30/minute
-per network identity shared across proxies, including Yinsh. Counters store hashed identities.
-Knowing a username cannot charge its authenticated account budget: incorrect
-credentials return the same generic 401 for absent and existing accounts. Registration
-uses the network budget and atomic SET NX, never a public-username counter. The
-network limit bounds guessing and storage work across usernames on one network; it
-is intentionally not a global per-username password lockout. A distributed botnet
-can still multiply attempts across networks. Shared-network saturation can throttle
-legitimate users behind the same NAT until its 60-second window expires; passwords
-do not bypass that resource limit.
-Failed credential checks from every endpoint share one 20/minute per-network budget;
+uses the same counters. Account traffic (session `establish`, keys, link, logout) is
+20/minute per network identity and 20/minute per signed-in identity; the Auth0 login
+and callback are 30/minute per network; sync is 120/minute per network identity and
+account; AI is 30/minute per network identity shared across proxies, including Yinsh;
+the Lichess explorer proxy is 60/minute per network. Counters store hashed identities.
+Failed old-account password checks (linking) share one 20/minute per-network budget;
 once spent, even a correct password gets 429 from that network until the window
-expires, so the higher sync limit is not a faster password oracle.
-Registration is additionally capped at 5 accounts per network and 50 accounts across
-all networks per fixed 24-hour window (it starts at the window's first registration);
-an attempt on a taken username spends neither. Each account can hold several megabytes (settings,
-profile, four matches, migration receipts), so account creation is the store's growth
-bound. The global cap means a flood can pause new registrations for a day; existing
-accounts are unaffected. It bounds, rather than eliminates, aggregate storage abuse on
-the free Upstash store: keep eviction disabled so a full store refuses writes instead
-of dropping real accounts, and watch its memory and command usage.
+expires. A missing account and a wrong password return the same generic 401, and
+guesses against an old username never spend the owner's identity budget. A distributed
+botnet can still multiply attempts across networks; Auth0's own attack protection
+covers the sign-in itself.
+New identities are capped at 5 per network and 50 across all networks per fixed
+24-hour window (it starts at the window's first creation); returning sign-ins spend
+neither. Each account can hold several megabytes (settings, profile, four matches,
+migration receipts), so identity creation is the store's growth bound. The global cap
+means a flood can pause new sign-ups for a day; existing accounts are unaffected. It
+bounds, rather than eliminates, aggregate storage abuse on the free Upstash store: keep
+eviction disabled so a full store refuses writes instead of dropping real accounts, and
+watch its memory and command usage.
 Vercel's overwritten `x-vercel-forwarded-for` is the deployed network identity;
 local fixtures use the socket address, never caller `x-forwarded-for`. IPv6 addresses
 are grouped by /64, since one subscriber controls the whole prefix; IPv4 stays per
@@ -282,44 +357,57 @@ both-hostname response-header coverage required.
 ## Focused verification and remaining release checks
 
 ```sh
-CI=true npm test -- --watchAll=false --runInBand --runTestsByPath src/games/chess/engine/account.test.js src/games/chess/engine/chessAccountEndpoint.test.js src/games/chess/engine/profileSync.test.js src/LandingPage.test.jsx src/LoginPage.test.jsx src/gamesLoginBoundary.test.js src/accountSession.test.js src/games/chess/ChessGame.test.js
+CI=true npm test -- --watchAll=false --runInBand --runTestsByPath src/games/chess/engine/account.test.js src/games/chess/engine/chessAccountEndpoint.test.js src/games/chess/engine/profileSync.test.js src/LandingPage.test.jsx src/LoginPage.test.jsx src/gamesLoginBoundary.test.js src/accountSession.test.js src/accountKeys.test.js src/games/chess/ChessGame.test.js
 node --test tests/public-security.test.mjs tests/ai-security.test.mjs
-# Explicit disposable Redis only; the contract test FLUSHDBs this container.
+# Explicit disposable Redis only; these tests FLUSHDB the container, so run them one file at a time.
 export GIPF_TEST_REDIS_CONTAINER=gipf-test-public-accounts
 docker run --rm -d --name "$GIPF_TEST_REDIS_CONTAINER" redis:7-alpine
-node --test tests/account-redis.test.mjs tests/session-redis.test.mjs
-# Dedicated issue-62 fixture; never point this test at a shared/production store.
-docker run --rm -d --name gipf-r22-address-synthetic-redis redis:7-alpine
-node --test tests/profile-arrays-redis.test.mjs
-docker stop gipf-r22-address-synthetic-redis
+node --test --test-concurrency=1 tests/auth-oidc-redis.test.mjs tests/account-redis.test.mjs tests/session-redis.test.mjs tests/match-redis.test.mjs tests/profile-arrays-redis.test.mjs tests/migration-activation-redis.test.mjs
+# Real sign-in in Chromium against the synthetic provider, served as https://play.ramia.us.
+PUBLIC_URL=/ npm run build
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright node tests/auth-browser.mjs
 npm run build
 node tests/serve-public-security.mjs
 # Browser fixture is http://127.0.0.1:3187/gipf; stop it before container cleanup.
 docker stop "$GIPF_TEST_REDIS_CONTAINER"
 ```
 
-The fixture uses only synthetic local Redis and refuses real provider calls.
+`tests/auth-oidc-redis.test.mjs` runs the Auth0 flow against a synthetic OpenID
+provider (discovery, JWKS, token endpoint, throwaway RS256 key): redirect parameters,
+state/nonce/PKCE and signature failures, verified email, the return allowlist, session
+and CSRF rules, key custody (ciphertext only at rest, AAD binding, rotation), the proxies
+using account keys, and linking (happy path, wrong password, double link).
+`tests/auth-browser.mjs` drives the built app in Chromium through sign-in, the link
+offer, linking, a model request, sign-out and a silent second sign-in.
+
+The fixtures use only synthetic local Redis and refuse real provider calls.
 `GIPF_TEST_REDIS_CONTAINER` must explicitly name a `gipf-test-*` disposable
 container; there is no shared-container default. `GIPF_TEST_PORT` can select a
 nonconflicting loopback port. Before the browser smoke, seed its synthetic late
 migration with `node tests/seed-browser-security.mjs`; this deliberately flushes
 only that disposable container. Navigate Playwright to that fixture URL before
 running `tests/browser-account-smoke.js`.
-Use two synthetic users and separate browser contexts for credentials, explicit
-import, encrypted recovery, conflict handling, and second-device settings reads.
+In that fixture `GET /gipf/api/auth/login` is a synthetic sign-in: it seeds a session for
+the identity named by a `fixture-identity` cookie and returns to `/login?signedin=1`, so
+the real device-side sign-in runs. The match fixtures (`tests/match-browser.mjs`,
+`tests/match-import-browser.mjs`) expect `GIPF_TEST_PORT=3189`, and the ESM fixtures need
+`PLAYWRIGHT_MODULE` to name Playwright's `index.mjs`. `scripts/landing-fixture` still
+targets the pre-`/login` landing form and does not run.
 The repository's pre-existing CRA/source-map warnings may remain in the build.
 
 ### Hosted verification
 
 Preview and production deployments of `play` share the `gipf-public` store, so hosted
-checks use synthetic accounts only and delete them afterwards (every key containing
-the account's usernameId, its `chess:account:` record and its sessions), returning
-the creation budget they spent. Preview deployments sit behind Vercel Authentication;
-use the project's automation bypass, never a disabled protection. A login change is
-verified in a real browser against the deployment: `/chess` to `/login` and back; a
-key added at `/login` reaching Catan, Splendor and Diplomacy with no prompt; sign-out
-clearing every tab; a second browser context unlocking both keys; the session cookie's
-flags and a secret-free `gipfAccount`; an account created by the original client (and
-its cached v1 session) still signing in with decrypting keys; all six game routes and
-refreshes as a guest; and `/login` itself. `x-vercel-forwarded-for` must remain the
-end-user identity, or every visitor shares one rate-limit bucket.
+checks use synthetic data only and delete it afterwards. Auth0 accepts only the
+production callback, so previews cannot sign in, and production sign-in needs a real
+identity: hosted checks are anonymous. After each production deploy, verify that
+`/api/auth/login?return=/catan` redirects to the tenant's `/authorize` with `play`'s
+client id, `redirect_uri=https://play.ramia.us/api/auth/callback`, `response_type=code`,
+`code_challenge_method=S256`, `state` and `nonce`, and sets a host-only
+`__Host-games_auth` cookie (HttpOnly, Secure, SameSite=Lax, no `Domain`); that a
+non-registry `return` falls back to `/`; that all six game routes and their refreshes
+work as a guest, and `/login` itself; and that no API answers 503 (health:
+`GET /api/session` is 401 signed out, not 503). The full sign-in — including
+silent SSO from home.ramia.us, adding keys, AI in Catan, linking an old account and
+signing out — is checked by Nathan with a real identity. `x-vercel-forwarded-for` must
+remain the end-user identity, or every visitor shares one rate-limit bucket.

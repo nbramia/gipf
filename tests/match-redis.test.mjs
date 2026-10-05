@@ -1,21 +1,24 @@
 // Real Redis Lua/CAS contract tests. Use only the disposable synthetic container.
 import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import account from '../api/chessAccount.js';
 import profile from '../api/chessProfile.js';
 import rating from '../api/chessRating.js';
 import { hash } from '../server/publicSecurity.js';
-const redisContainer = process.env.GIPF_SYNTHETIC_REDIS || 'gipf-pr5-synthetic-redis';
-if (!/^gipf-[a-z0-9-]+synthetic-redis$/.test(redisContainer)) throw new Error('Synthetic container required');
-const redis = (...args) => JSON.parse(execFileSync('docker', ['exec', redisContainer, 'redis-cli', '--json', ...args.map(String)], {encoding:'utf8'}));
+import { redis } from './redis-fixture.mjs';
+import { signInAs, cookieHeaders } from './session-fixture.mjs';
 const u='a'.repeat(64), auth='b'.repeat(64), other='c'.repeat(64), legacy='d'.repeat(64);
 const enc={iv:'AAAAAAAAAAAAAAAA',ct:'AAAAAAAAAAAAAAAAAAAAAA=='};
 const response = () => ({statusCode:200,setHeader(){},status(n){this.statusCode=n;return this;},json(body){this.body=body;return this;}});
+// Each account's credential stands for its signed-in device: the body's auth picks that
+// device's session cookie (a wrong credential is a signed-out request).
+let tokens={};
+const otherAuth='e'.repeat(64);
+const sessionHeaders=body=>cookieHeaders(body.auth===auth?tokens[u]:body.auth===otherAuth?tokens[other]:null);
 async function call(handler, body, method='POST') {
-  const res=response(); await handler({method,headers:{'content-type':'application/json'},socket:{remoteAddress:'192.0.2.1'},body},res);return res;
+  const res=response(); await handler({method,headers:{'content-type':'application/json',...sessionHeaders(body)},socket:{remoteAddress:'192.0.2.1'},body},res);return res;
 }
-beforeEach(()=>{
+beforeEach(async()=>{
   redis('FLUSHDB');
   process.env.KV_REST_API_URL='https://synthetic.invalid';process.env.KV_REST_API_TOKEN='synthetic';
   process.env.GIPF_LEGACY_CLAIM_FROM = new Date(Date.now()-1000).toISOString();
@@ -23,6 +26,7 @@ beforeEach(()=>{
   globalThis.fetch=async (_url,options)=>({ok:true,json:async()=>({result:redis(...JSON.parse(options.body))})});
   redis('SET',`chess:account:${u}`,JSON.stringify({authHash:hash(auth),enc,encLichess:enc}));
   redis('SET',`chess:account:${other}`,JSON.stringify({authHash:hash('e'.repeat(64))}));
+  tokens={[u]:await signInAs('owner',u),[other]:await signInAs('other',other)};
 });
 // PR5: match records have their own account/game CAS, leaving legacy profile intact.
 test('four match scopes authenticate and isolate concurrent devices without changing legacy domains', async () => {

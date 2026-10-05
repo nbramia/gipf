@@ -1,6 +1,7 @@
 // coachClient.js — browser-side coaching client.
 //
-// Owns the BRING-YOUR-OWN Anthropic key (localStorage only) and turns engine
+// Owns the BRING-YOUR-OWN Anthropic key (a guest's in localStorage; a signed-in
+// account's held on the server, see src/accountKeys.js) and turns engine
 // analysis into commentary by calling /api/chessCoach. On any failure — no key,
 // network error, upstream error — it falls back to deterministic, engine-
 // grounded templates so the dialogue never breaks and never fabricates lines.
@@ -9,6 +10,7 @@ import { describeAiMove, describePlayerMove } from './templates.js';
 import { describePuzzleFail, hintLeaksSolution } from './puzzleCoach.js';
 import { runTool } from './analysisTools.js';
 import { getLichessToken } from './openingCoach.js';
+import { accountKeys, ACCOUNT_REQUEST_HEADERS } from '../../../accountKeys.js';
 
 // One Anthropic key is shared across the whole app (this coach + the Catan rules
 // chat), so a key saved in either game is reused by the other. Legacy per-game
@@ -51,8 +53,10 @@ export function clearApiKey() {
   setApiKey('');
 }
 
+// A key on this device (guests), or one held on the signed-in account, which the
+// server adds to each request so it never reaches the browser.
 export function hasApiKey() {
-  return !!getApiKey();
+  return !!getApiKey() || accountKeys().anthropic;
 }
 
 // Request commentary for a move.
@@ -76,13 +80,13 @@ export async function requestCommentary(payload) {
   });
 
   const apiKey = getApiKey();
-  if (!apiKey) return fallback();
+  if (!apiKey && !accountKeys().anthropic) return fallback();
 
   try {
     const res = await fetch(`${process.env.PUBLIC_URL || ''}/api/chessCoach`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...wirePayload, apiKey }),
+      headers: ACCOUNT_REQUEST_HEADERS,
+      body: JSON.stringify({ ...wirePayload, ...(apiKey ? { apiKey } : {}) }),
     });
     if (!res.ok) return fallback();
     const data = await res.json();
@@ -120,7 +124,7 @@ const MAX_TOOL_ROUNDS = 6;
 
 export async function runThreadTurn({ context, history, question, analyze, onToolCall }) {
   const apiKey = getApiKey();
-  if (!apiKey) {
+  if (!apiKey && !accountKeys().anthropic) {
     return { error: 'no_key', text: 'Add your Anthropic API key to ask questions about this move.' };
   }
 
@@ -132,8 +136,8 @@ export async function runThreadTurn({ context, history, question, analyze, onToo
     try {
       res = await fetch(`${process.env.PUBLIC_URL || ''}/api/chessCoach`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'thread', context, messages, apiKey }),
+        headers: ACCOUNT_REQUEST_HEADERS,
+        body: JSON.stringify({ mode: 'thread', context, messages, ...(apiKey ? { apiKey } : {}) }),
       });
     } catch (_) {
       return { error: 'network', text: 'Could not reach the coach. Check your connection.', messages };

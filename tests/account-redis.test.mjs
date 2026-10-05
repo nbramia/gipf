@@ -6,13 +6,20 @@ import account from '../api/chessAccount.js';
 import profile from '../api/chessProfile.js';
 import rating from '../api/chessRating.js';
 import { hash } from '../server/publicSecurity.js';
-const u='a'.repeat(64), auth='b'.repeat(64), other='c'.repeat(64), legacy='d'.repeat(64);
+import { identityKey, linkKey } from '../server/identity.js';
+import { signInAs, identityFor, cookieHeaders } from './session-fixture.mjs';
+const u='a'.repeat(64), auth='b'.repeat(64), other='c'.repeat(64), legacy='d'.repeat(64), otherAuth='e'.repeat(64);
 const enc={iv:'AAAAAAAAAAAAAAAA',ct:'AAAAAAAAAAAAAAAAAAAAAA=='};
-const response = () => ({statusCode:200,setHeader(){},status(n){this.statusCode=n;return this;},json(body){this.body=body;return this;}});
-async function call(handler, body, method='POST', ip='192.0.2.1') {
-  const res=response(); await handler({method,headers:{'content-type':'application/json'},socket:{remoteAddress:ip},body},res);return res;
+const sealKey=Buffer.alloc(32,9).toString('base64');
+const response = () => ({statusCode:200,headers:{},setHeader(k,v){this.headers[k.toLowerCase()]=v;},status(n){this.statusCode=n;return this;},json(body){this.body=body;return this;}});
+// Profile requests: the body's auth picks the signed-in device of the account it belongs to
+// (a wrong credential is a signed-out request). `as` names another signed-in identity.
+let tokens={};
+const sessionHeaders=(body,as)=>cookieHeaders(as?tokens[as]:body.auth===auth?tokens[u]:body.auth===otherAuth?tokens[other]:null);
+async function call(handler, body, method='POST', ip='192.0.2.1', as) {
+  const res=response(); await handler({method,headers:{'content-type':'application/json',...sessionHeaders(body,as)},socket:{remoteAddress:ip},body},res);return res;
 }
-beforeEach(()=>{
+beforeEach(async()=>{
   redis('FLUSHDB');
   process.env.KV_REST_API_URL='https://synthetic.invalid';process.env.KV_REST_API_TOKEN='synthetic';
   process.env.GIPF_LEGACY_CLAIM_FROM = new Date(Date.now()-1000).toISOString();
@@ -20,19 +27,22 @@ beforeEach(()=>{
   globalThis.fetch=async (_url,options)=>({ok:true,json:async()=>({result:await redisAsync(...JSON.parse(options.body))})});
   redis('SET',`chess:account:${u}`,JSON.stringify({authHash:hash(auth),enc,encLichess:enc}));
   redis('SET',`chess:account:${other}`,JSON.stringify({authHash:hash('e'.repeat(64))}));
+  // owner/other are identities already linked to the two old accounts; fresh and mallory are new.
+  tokens={[u]:await signInAs('owner',u),[other]:await signInAs('other',other),fresh:await signInAs('fresh'),mallory:await signInAs('mallory')};
 });
-test('existing encrypted credential envelopes login unchanged; wrong auth cannot mutate',async()=>{
-  const login=await call(account,{action:'login',u,auth});assert.deepEqual(login.body.enc,enc);assert.deepEqual(login.body.encLichess,enc);
-  const bad=await call(account,{action:'setKey',u,auth:'f'.repeat(64),enc:null});assert.equal(bad.statusCode,401);
-  assert.deepEqual((await call(account,{action:'login',u,auth})).body.enc,enc);
-  assert.equal((await call(account,{action:'setKey',u,auth,enc:null})).statusCode,200);
-  const after=await call(account,{action:'login',u,auth});assert.equal(after.body.enc,null);assert.deepEqual(after.body.encLichess,enc);
+test('link-verify returns the old envelopes unchanged; a wrong token neither verifies nor mutates',async()=>{
+  const bad=await call(account,{action:'link-verify',u,auth:'f'.repeat(64)},'POST','192.0.2.1','fresh');assert.deepEqual([bad.statusCode,bad.body],[401,{error:'bad_credentials'}]);
+  const ok=await call(account,{action:'link-verify',u,auth},'POST','192.0.2.1','fresh');
+  assert.equal(ok.statusCode,200);assert.deepEqual(ok.body.enc,enc);assert.deepEqual(ok.body.encLichess,enc);
+  assert.deepEqual(JSON.parse(redis('GET',`chess:account:${u}`)),{authHash:hash(auth),enc,encLichess:enc});
+  assert.equal(redis('GET',linkKey(u)),null);
 });
-test('competing registrations have one winner and do not overwrite',async()=>{
-  const id='1'.repeat(64);
-  const outcomes=await Promise.all([call(account,{action:'create',u:id,auth,enc}),call(account,{action:'create',u:id,auth:'2'.repeat(64),enc:null})]);
+test('competing links of one old account to two identities have one winner',async()=>{
+  const outcomes=await Promise.all(['fresh','mallory'].map(as=>call(account,{action:'link',u,auth,sealKey},'POST','192.0.2.1',as)));
   assert.deepEqual(outcomes.map(x=>x.statusCode).sort(),[200,409]);
-  assert.equal(JSON.parse(redis('GET',`chess:account:${id}`)).authHash,hash(outcomes[0].statusCode===200?auth:'2'.repeat(64)));
+  const winner=outcomes[0].statusCode===200?'fresh':'mallory';
+  assert.equal(redis('GET',linkKey(u)),identityFor(winner));
+  assert.equal(JSON.parse(redis('GET',identityKey(identityFor(winner==='fresh'?'mallory':'fresh')))).linked,null);
 });
 test('A cannot authorize B by swapping public ID; arbitrary id field is not authorization',async()=>{
   assert.equal((await call(profile,{action:'read',u:other,auth})).statusCode,401);
@@ -62,11 +72,11 @@ test('stale revision conflicts without changing cloud data and settings revision
   assert.equal((await call(profile,{...write,scope:'settings',domains:{preferences:{yinshWins:'{"1":2,"2":1}'}}})).body.revision,1);
   assert.equal((await call(profile,{...write,scope:'settings',revision:1,domains:{preferences:{gipfApiKey:'synthetic'}}})).statusCode,400);
 });
-test('two handler instances share login limits and bounded payloads',async()=>{
+test('two handler instances share account limits and bounded payloads',async()=>{
   const second=(await import('../api/chessAccount.js?second')).default;
-  for(let i=0;i<20;i++) assert.equal((await call(i%2?second:account,{action:'login',u,auth})).statusCode,200);
-  assert.equal((await call(second,{action:'login',u,auth})).statusCode,429);
-  assert.equal((await call(account,{action:'login',u,auth,extra:'x'.repeat(13000)})).statusCode,413);
+  for(let i=0;i<20;i++) assert.equal((await call(i%2?second:account,{action:'setKeys',lichess:null},'POST','192.0.2.1','fresh')).statusCode,200);
+  assert.equal((await call(second,{action:'setKeys',lichess:null},'POST','192.0.2.1','fresh')).statusCode,429);
+  assert.equal((await call(account,{action:'setKeys',lichess:null,extra:'x'.repeat(13000)},'POST','192.0.2.9','fresh')).statusCode,413);
 });
 test('claim preserves an overlapping legacy domain as an authenticated alternative',async()=>{
   await call(profile,{action:'write',u,auth,revision:0,domains:{rating:{rating:1700,ratedGames:10}}});
@@ -76,19 +86,20 @@ test('claim preserves an overlapping legacy domain as an authenticated alternati
   assert.equal(data.profile.rating.rating,1700);
   assert.equal(Object.values(data.legacyProfiles)[0].rating.rating,1500);
 });
-test('bad-auth floods from fresh networks cannot spend the owner login or setKey budget',async()=>{
+test('bad-token link floods from fresh networks cannot spend the owner budget; guesses stay bounded per network',async()=>{
   const second=(await import('../api/chessAccount.js?flood')).default;
-  for(let i=0;i<25;i++) {
-    const denied=await call(i%2?second:account,{action:'login',u,auth:'f'.repeat(64)},'POST',`192.0.2.${i+10}`);
+  for(let i=0;i<20;i++) {
+    const denied=await call(i%2?second:account,{action:'link-verify',u,auth:'f'.repeat(64)},'POST',`192.0.2.${i+10}`,'mallory');
     assert.equal(denied.statusCode,401);assert.deepEqual(denied.body,{error:'bad_credentials'});
   }
-  assert.equal(redis('GET',`gipf:limit:account-user:${hash(u)}`),null);
-  assert.equal((await call(second,{action:'login',u,auth},'POST','198.51.100.1')).statusCode,200);
-  assert.equal((await call(account,{action:'setKey',u,auth,enc:null},'POST','198.51.100.2')).statusCode,200);
-  // Guesses remain bounded per network across usernames and handler instances.
-  for(let i=0;i<20;i++) assert.equal((await call(second,{action:'login',u,auth:'f'.repeat(64)},'POST','203.0.113.1')).statusCode,401);
-  assert.equal((await call(account,{action:'login',u:other,auth},'POST','203.0.113.1')).statusCode,429);
-  const missing=await call(account,{action:'login',u:'9'.repeat(64),auth},'POST','198.51.100.3');
+  assert.equal(redis('GET',`gipf:limit:account-user:${hash(identityFor('fresh'))}`),null);
+  assert.equal((await call(second,{action:'link-verify',u,auth},'POST','198.51.100.1','fresh')).statusCode,200);
+  assert.equal((await call(account,{action:'setKeys',lichess:null},'POST','198.51.100.2','fresh')).statusCode,200);
+  // Guesses remain bounded per network across usernames, identities and handler instances.
+  tokens.eve=await signInAs('eve');
+  for(let i=0;i<20;i++) assert.equal((await call(second,{action:'link-verify',u,auth:'f'.repeat(64)},'POST','203.0.113.1',i%2?'fresh':'eve')).statusCode,401);
+  assert.equal((await call(account,{action:'link-verify',u:other,auth:otherAuth},'POST','203.0.113.1','fresh')).statusCode,429);
+  const missing=await call(account,{action:'link-verify',u:'9'.repeat(64),auth},'POST','198.51.100.3','fresh');
   assert.deepEqual(missing.body,{error:'bad_credentials'});
 });
 test('concurrent empty claims and owner repeats do not spend daily or lifetime migration budgets',async()=>{

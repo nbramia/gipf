@@ -61,6 +61,16 @@ here, and there is no other deployment.
 `UPSTASH_REDIS_REST_*` aliases also work; see `server/publicSecurity.js`). Without them the
 account/profile endpoints return 503.
 
+Sign-in uses `play`'s own Auth0 Regular Web Application on the ramia.us tenant that
+Home uses, with one exact callback, `https://play.ramia.us/api/auth/callback`. `play`
+carries `AUTH0_ISSUER_BASE_URL`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`,
+`GAMES_SESSION_SECRET` and `GAMES_KEY_ENCRYPTION_KEY` for Production and Preview
+(the backup of the two generated secrets is `~/Code/Sync/envs/gipf/.env`; Vercel
+stores them as sensitive and cannot show them). Without the Auth0 variables sign-in
+redirects back to `/login` with an "unavailable" notice; without the KEK account keys
+return 503. Sign-in completes only on `play.ramia.us`: previews cannot sign in, so
+test sign-in with the synthetic provider (`tests/auth-oidc-redis.test.mjs`).
+
 `public/tiles.json` takes its href prefix the way CRA takes the router basename: a
 `PUBLIC_URL` build variable wins, otherwise `homepage`. `play` sets `PUBLIC_URL=/`, so its
 manifest lists `/chess`, `/yinsh` and the rest; a build without it lists `/gipf/<game>`. Home
@@ -189,12 +199,15 @@ Before modifying game logic for either game:
 |------|---------|
 | `src/App.jsx` | React Router with lazy-loaded game routes |
 | `src/LandingPage.jsx` | Landing page linking to each game + a single "Sign in" / account link to `/login` |
-| `src/LoginPage.jsx` | `/login`: the only place to sign in, create an account (passwords of 10+ characters for new accounts), sign out (here or everywhere), and enter the Anthropic key and Lichess token (synced encrypted when signed in, device-only for guests) |
-| `api/session.js`, `server/session.js` | Sign-in sessions: opaque cookie, 30-day idle / 90-day absolute expiry, logout and sign-out everywhere, CSRF checks |
+| `src/LoginPage.jsx` | `/login`: the only place to sign in (Auth0, the ramia.us sign-in), link a pre-Auth0 username/password account once, sign out (here or everywhere), and enter the Anthropic key and Lichess token (held server-encrypted on the account when signed in, device-only for guests) |
+| `api/auth/[action].js`, `server/auth0.js` | Auth0 login, callback and logout (openid-client: code + PKCE, state, nonce, RS256 signature, verified email) |
+| `api/session.js`, `server/session.js` | Sign-in sessions: opaque cookie, 30-day idle / 90-day absolute expiry, sign-out everywhere index, CSRF checks; `establish` hands the device its seal key |
+| `server/identity.js`, `server/keyCustody.js` | One identity per Auth0 subject, its data id and old-account link; AES-256-GCM key custody (AAD bound to identity, slot and key version; KEK rotation) |
+| `server/accountKeys.js`, `src/accountKeys.js` | The proxies' key lookup (body key for guests, account key for a session) and the browser's which-keys-exist marker |
 | `src/loginReturn.js` | `/login?return=` allowlist (exact `games-registry.js` paths, else `/`) and `loginHref()`, which games use for their "Sign in / add key" link |
 | `src/landing.css` | Scoped catalogue and optional account presentation styles |
 | `scripts/landing-fixture/` | Synthetic account browser checks and production guest-launch check; prerequisites and limits in `docs/public-games-design.md` |
-| `src/account.js` | The one account module: credential derivation, key encryption, session, sign-in/out with key decrypt into `gipfApiKey` (chess's `engine/account.js` re-exports it) |
+| `src/account.js` | The one account module: Auth0 sign-in completion, sign-out, account keys, old-account linking (PBKDF2 derivation kept for it), recovery sealing (chess's `engine/account.js` re-exports it) |
 | `src/MatchBoundary.jsx` | Match hydration, persistence context, conflict choices, and recovery UI |
 | `src/matchStore.js` | Account-bound local match storage, recovery alternatives, and cloud CAS requests |
 | `src/matchSchema.js` | Shared versioned match envelope and size/field validation |
@@ -213,7 +226,8 @@ Before modifying game logic for either game:
 App-owned match boundary and snapshot-validation modules are imported directly by
 the game UIs and adapters; game engines remain self-contained with no imports
 between game directories. The same holds for the account module: one app-level
-`src/account.js`, which Chess re-exports, and `src/loginReturn.js` for the games' `/login` links.
+`src/account.js`, which Chess re-exports, `src/loginReturn.js` for the games' `/login` links,
+and `src/accountKeys.js`, which the games' key clients read to know an account key exists.
 
 ### Yinsh (`src/games/yinsh/`)
 
@@ -270,7 +284,7 @@ between game directories. The same holds for the account module: one app-level
 | `api/chessCoach.js` | Vercel serverless coach (Claude API, **bring-your-own key**, no server fallback) |
 | `api/chessRating.js` | Retired legacy endpoint; returns 410. Claim old cloud data through authenticated `chessProfile` |
 | `api/chessProfile.js` | Authenticated, revisioned Chess profile and separate four-game settings scope; bounded one-owner legacy claims. See `docs/public-accounts.md` |
-| `api/chessAccount.js` | Vercel serverless account store (username+password); Redis REST store (Upstash) keyed by a SHA-256 username hash, auth token stored only as its hash, API key and Lichess explorer token stored only as client-encrypted ciphertext |
+| `api/chessAccount.js` | Signed-in account keys (`setKeys`, stored server-encrypted) and the one-time link of a pre-Auth0 username/password account (`link-verify`, `link`); creating or signing in to password accounts returns 410 |
 
 See [docs/chess.md](docs/chess.md) for the engine + coaching pipeline and the BYO-key security model.
 
@@ -280,11 +294,12 @@ are locked out while rated. Cross-device sync goes through the authenticated pro
 endpoint `api/chessProfile.js` (rating, opponent history, puzzle/mistake progress); the
 old `api/chessRating.js` returns 410. Sync needs a Redis REST store
 (`KV_REST_API_URL` + `KV_REST_API_TOKEN`, or the `UPSTASH_REDIS_REST_*` aliases);
-without it the endpoints return 503 and ratings persist in localStorage only. A
-username+password account (`api/chessAccount.js`, `src/account.js`), managed at `/login`, also carries the API key + Lichess explorer token + profile across
-devices: the password-derived auth token is verified once by `api/session.js`, which
-issues the HttpOnly session cookie that authorizes everything after. Public IDs
-never authorize persistence. See [docs/public-accounts.md](docs/public-accounts.md).
+without it the endpoints return 503 and ratings persist in localStorage only. An
+account, signed in through Auth0 at `/login`, also carries the API key + Lichess
+explorer token + profile across devices; the HttpOnly session cookie set by the
+Auth0 callback authorizes everything after. The coach reaches the Lichess explorer
+through `api/chessCoach.js` (`mode: 'explorer'`) when the token is on the account.
+Public IDs never authorize persistence. See [docs/public-accounts.md](docs/public-accounts.md).
 
 ### Catan (`src/games/catan/`)
 

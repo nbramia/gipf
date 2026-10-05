@@ -12,6 +12,8 @@
 // The fetch is the only impure part; parsing/summarizing are pure + tested.
 // Truthfulness is preserved: all numbers come straight from the masters DB.
 
+import { accountKeys, ACCOUNT_REQUEST_HEADERS } from '../../../accountKeys.js';
+
 const EXPLORER_URL = 'https://explorer.lichess.ovh/masters';
 
 // A move is "book" if masters played it in at least this many games at the
@@ -22,14 +24,20 @@ const MIN_BOOK_GAMES = 5;
 export const OPENING_MAX_PLY = 24;
 
 // The Lichess opening explorer now requires authentication (locked down after
-// DDoS attacks). The token is BRING-YOUR-OWN, stored only in the browser — never
-// hardcoded, since this is an open-source, public app. A free read-only token is
-// created at lichess.org → Preferences → API access tokens.
+// DDoS attacks). The token is BRING-YOUR-OWN — never hardcoded, since this is an
+// open-source, public app. A guest's token stays in this browser and is sent
+// straight to Lichess; a signed-in account's token is held on the server, which
+// queries the explorer for us (api/chessCoach.js, mode 'explorer'), so the token
+// never reaches the browser. A free read-only token is created at lichess.org →
+// Preferences → API access tokens.
 const LICHESS_TOKEN_KEY = 'chessLichessToken';
+
+// Stands in for the account's server-held token wherever a token is passed around.
+export const ACCOUNT_TOKEN = 'account:server-held';
 
 export function getLichessToken() {
   try {
-    return localStorage.getItem(LICHESS_TOKEN_KEY) || '';
+    return localStorage.getItem(LICHESS_TOKEN_KEY) || (accountKeys().lichess ? ACCOUNT_TOKEN : '');
   } catch (_) {
     return '';
   }
@@ -67,8 +75,14 @@ export const OPENING_FETCH_REASON = {
 export async function fetchOpeningStatsDetailed(fen, token = getLichessToken()) {
   if (!token) return { ok: false, reason: OPENING_FETCH_REASON.NO_TOKEN, status: null, data: null };
   try {
-    const url = `${EXPLORER_URL}?fen=${encodeURIComponent(fen)}&moves=12&topGames=0`;
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+    const res = token === ACCOUNT_TOKEN
+      ? await fetch(`${process.env.PUBLIC_URL || ''}/api/chessCoach`, { method: 'POST', headers: ACCOUNT_REQUEST_HEADERS, body: JSON.stringify({ mode: 'explorer', fen }) })
+      : await fetch(`${EXPLORER_URL}?fen=${encodeURIComponent(fen)}&moves=12&topGames=0`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok && token === ACCOUNT_TOKEN) {
+      // The proxy reports Lichess's own status for an upstream failure.
+      const status = await res.json().then(body => body?.status, () => undefined);
+      return { ok: false, reason: OPENING_FETCH_REASON.HTTP_ERROR, status: status || res.status, data: null };
+    }
     if (!res.ok) {
       return { ok: false, reason: OPENING_FETCH_REASON.HTTP_ERROR, status: res.status, data: null };
     }

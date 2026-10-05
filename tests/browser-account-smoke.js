@@ -1,9 +1,10 @@
-// Execute with Playwright browser_run_code_unsafe filename against the local fixture.
+// Execute with Playwright browser_run_code_unsafe filename against the local fixture
+// (tests/serve-public-security.mjs), whose /api/auth/login is a synthetic Auth0 sign-in of
+// the identity named by the `fixture-identity` cookie.
 async (page) => {
   const base = page.url().startsWith('http://127.0.0.1:') ? new URL(page.url()).origin + '/gipf' : 'http://127.0.0.1:3187/gipf';
   const suffix = Date.now();
   const a = `synthetic-a-${suffix}`, b = `synthetic-b-${suffix}`;
-  const password = 'synthetic-fixture-password';
   const check = (value, label) => { if (!value) throw new Error(label); return value; };
   const settlePreferences = async (p, ready = p.getByText(/^Signed in as /)) => {
     // Mounting Chess initializes preferences; choose them explicitly if cloud differs.
@@ -11,27 +12,25 @@ async (page) => {
     await Promise.race([ready.waitFor(), choice.waitFor()]);
     if (await choice.isVisible()) await choice.click();
   };
-  const signIn = async (p, name, create = false, importGuest = false) => {
+  // The first sign-in of an identity creates it, as a first Auth0 sign-in does.
+  const signIn = async (p, name, importGuest = false) => {
+    await p.context().addCookies([{ name: 'fixture-identity', value: name, url: new URL(base).origin }]);
     await p.goto(base + '/login');
     const consent = p.getByRole('checkbox', { name: "Import this device's guest progress when signing in" });
     check(!(await consent.isChecked()), 'guest import defaults unchecked');
     if (importGuest) await consent.check();
-    await p.getByPlaceholder('Username', { exact: true }).fill(name);
-    await p.getByPlaceholder('Password', { exact: true }).fill(password);
-    if (create) {
-      await p.getByRole('button', { name: 'Create account', exact: true }).click();
-      await p.getByPlaceholder('Confirm password').fill(password);
-    }
-    await p.getByRole('button', { name: create ? 'Create account' : 'Sign in', exact: true }).click();
+    await p.getByRole('button', { name: 'Sign in', exact: true }).click();
+    await p.waitForFunction(() => JSON.parse(localStorage.getItem('gipfAccount') || 'null')?.v === 3 && !location.pathname.endsWith('/login'));
+    await p.goto(base + '/login');
     await settlePreferences(p);
-    await p.getByText(`Signed in as ${name}`).waitFor();
+    await p.getByText(`Signed in as ${name}@synthetic.example`).waitFor();
   };
   const signOut = async p => {
     await p.goto(base + '/login');
     await settlePreferences(p, p.getByRole('button', { name: 'Sign out', exact: true }));
     await p.getByRole('button', { name: 'Sign out', exact: true }).click();
     await p.getByRole('button', { name: 'Sign out', exact: true }).click();
-    await p.getByPlaceholder('Username', { exact: true }).waitFor();
+    await p.getByText('Signed out of Games.').waitFor();
   };
   await page.goto(base);
   await page.evaluate(() => {
@@ -42,24 +41,27 @@ async (page) => {
     localStorage.setItem('yinshWins', '{"1":2,"2":0}');
   });
   await page.reload();
-  await signIn(page, a, true, true);
+  await signIn(page, a, true);
   const guestImported = check(await page.evaluate(() => localStorage.getItem('chessRating') === '1234'), 'guest import');
   await page.waitForTimeout(5500);
   const context = await page.context().browser().newContext();
   const second = await context.newPage();
   await second.goto(base);
   await signIn(second, a);
+  // The guest keys moved to the account: the second device knows they exist, never holds them.
   const secondDevice = await second.evaluate(() => ({
-    api: localStorage.getItem('gipfApiKey') === 'synthetic-anthropic-a',
-    lichess: localStorage.getItem('chessLichessToken') === 'synthetic-lichess-a',
+    keys: localStorage.getItem('gipfAccountKeys') === '{"anthropic":true,"lichess":true}',
+    noPlaintext: !localStorage.getItem('gipfApiKey') && !localStorage.getItem('chessLichessToken'),
     score: localStorage.getItem('yinshWins') === '{"1":2,"2":0}',
   }));
   check(Object.values(secondDevice).every(Boolean), 'second device');
   await context.close();
   await signOut(page);
-  const logoutCleared = check(await page.evaluate(() => ['gipfAccount', 'gipfApiKey', 'chessLichessToken', 'chessRating', 'yinshWins'].every(k => !localStorage.getItem(k))), 'logout');
-  await signIn(page, b, true);
-  const accountBIsolated = check(await page.evaluate(() => ['gipfApiKey', 'chessLichessToken', 'chessRating', 'yinshWins'].every(k => !localStorage.getItem(k))), 'account B isolation');
+  const logoutCleared = check(await page.evaluate(() => ['gipfAccount', 'gipfAccountKeys', 'gipfApiKey', 'chessLichessToken', 'chessRating', 'yinshWins'].every(k => !localStorage.getItem(k))), 'logout');
+  await signIn(page, b);
+  // Account B holds no keys: its marker says so, and no key or A's progress is on the device.
+  const accountBIsolated = check(await page.evaluate(() => localStorage.getItem('gipfAccountKeys') === '{"anthropic":false,"lichess":false}' &&
+    ['gipfApiKey', 'chessLichessToken', 'chessRating', 'yinshWins'].every(k => !localStorage.getItem(k))), 'account B isolation');
   await signOut(page);
   await signIn(page, a);
   const accountRecovery = check(await page.evaluate(() => localStorage.getItem('chessRating') === '1234'), 'account recovery');
@@ -93,7 +95,7 @@ async (page) => {
     await page.getByRole('button', { name: 'New Game', exact: true }).waitFor();
     await page.goto(base);
     await settlePreferences(page);
-    await page.getByText(`Signed in as ${a}`).waitFor();
+    await page.getByText(`Signed in as ${a}@synthetic.example`).waitFor();
   }
   page.off('request', observeClaim);
   check(mountClaims === 0, 'Chess mounts issued legacy claims');
@@ -109,7 +111,7 @@ async (page) => {
   check(emptyClaims, 'empty claims consumed budget');
   await signOut(page);
   await page.evaluate(() => localStorage.setItem('gipfApiKey', 'synthetic-late-legacy'));
-  await signIn(page, a, false, true);
+  await signIn(page, a, true);
   const lateMigration = await page.evaluate(async () => {
     const s=JSON.parse(localStorage.getItem('gipfAccount'));
     const r=await fetch('/gipf/api/chessProfile',{method:'POST',headers:{'Content-Type':'application/json','X-Games-Request':'1'},body:JSON.stringify({action:'read',u:s.usernameId})});

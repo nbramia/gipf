@@ -4,16 +4,23 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import profile from '../api/chessProfile.js';
 import { hash } from '../server/publicSecurity.js';
-const redisContainer = process.env.GIPF_SYNTHETIC_REDIS || 'gipf-r22-address-synthetic-redis';
-if (!/^gipf-[a-z0-9-]+synthetic-redis$/.test(redisContainer)) throw new Error('Synthetic container required');
+import { signInAs, cookieHeaders } from './session-fixture.mjs';
+const redisContainer = process.env.GIPF_TEST_REDIS_CONTAINER;
+if (!/^gipf-test-[a-z0-9-]+$/.test(redisContainer || '')) throw new Error('Set GIPF_TEST_REDIS_CONTAINER to a disposable gipf-test-* container');
 const redis = (...args) => JSON.parse(execFileSync('docker', ['exec', '-i', redisContainer, 'redis-cli', '--json'], {
   encoding:'utf8', input:args.map(arg=>JSON.stringify(String(arg))).join(' ')+'\n', maxBuffer:16*1024*1024,
 }));
 const u='a'.repeat(64), auth='b'.repeat(64), other='c'.repeat(64), legacy='d'.repeat(64);
 const key=`gipf:profile:v2:${u}`, claimKey=`gipf:claim:${legacy}`;
+let tokens={};
+const secretOf=id=>id===other?auth:auth;
+// The signed-in device for a request: its session cookie when the body carries that account's
+// own credential, none otherwise (a wrong or missing credential is a signed-out request).
+const sessionHeaders=body=>{const id=body.u??u;return cookieHeaders(body.auth!==undefined&&body.auth===secretOf(id)?tokens[id]:null);};
 async function call(body, handler=profile) {
   const res={statusCode:200,setHeader(){},status(n){this.statusCode=n;return this;},json(body){this.body=body;return this;}};
-  await handler({method:'POST',headers:{'content-type':'application/json'},socket:{remoteAddress:'192.0.2.62'},body:{u,auth,...body}},res);return res;
+  const full={u,auth,...body};
+  await handler({method:'POST',headers:{'content-type':'application/json',...sessionHeaders(full)},socket:{remoteAddress:'192.0.2.62'},body:full},res);return res;
 }
 const read = async(scope) => (await call({action:'read',scope})).body;
 const write = (domains,revision=0,scope) => call({action:'write',domains,revision,scope});
@@ -21,7 +28,7 @@ const domains = {
   rating:{rating:1400,ratedGames:2}, history:{v:1,casual:{easy:{w:1,l:2,d:3}},rated:{}},
   puzzles:{rating:1500,attempts:0,puzzles:{}}, mistakes:{v:1,entries:[]},
 };
-beforeEach(()=>{
+beforeEach(async()=>{
   redis('FLUSHDB');
   process.env.KV_REST_API_URL='https://synthetic.invalid';process.env.KV_REST_API_TOKEN='synthetic';
   process.env.GIPF_LEGACY_CLAIM_FROM=new Date(Date.now()-1000).toISOString();
@@ -31,6 +38,7 @@ beforeEach(()=>{
     return {ok:true,json:async()=>({result:redis(...JSON.parse(options.body))})};
   };
   for(const id of [u,other]) redis('SET',`chess:account:${id}`,JSON.stringify({authHash:hash(auth)}));
+  tokens={[u]:await signInAs('owner',u),[other]:await signInAs('other',other)};
 });
 test('all sanitized domains preserve empty arrays and maps across partial writes',async()=>{
   assert.equal((await write(domains)).statusCode,200);
@@ -219,7 +227,7 @@ test('real localhost HTTP endpoint writes, reads, rejects stale writes and claim
   });
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const send=body=>new Promise((resolve,reject)=>{
-    const req=request({hostname:'127.0.0.1',port:server.address().port,path:'/api/chessProfile',method:'POST',headers:{'Content-Type':'application/json'}},res=>{
+    const req=request({hostname:'127.0.0.1',port:server.address().port,path:'/api/chessProfile',method:'POST',headers:{'Content-Type':'application/json',...sessionHeaders({u,auth,...body})}},res=>{
       let raw='';res.on('data',chunk=>raw+=chunk);res.on('end',()=>resolve({status:res.statusCode,body:JSON.parse(raw)}));
     });req.on('error',reject);req.end(JSON.stringify({u,auth,...body}));
   });

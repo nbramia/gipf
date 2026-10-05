@@ -5,25 +5,35 @@ import { execFileSync } from 'node:child_process';
 import { createServer, request } from 'node:http';
 import profile from '../api/chessProfile.js';
 import { hash } from '../server/publicSecurity.js';
+import { signInAs, cookieHeaders } from './session-fixture.mjs';
 import { canonical } from '../src/migrationSchema.js';
 import { fromLegacy } from '../src/games/chess/matchSnapshot.js';
 import { MIGRATION_LIMITS as limits, migrationActivation } from '../server/migrationActivation.js';
-const redis = (...args) => JSON.parse(execFileSync('docker',['exec','-i','gipf-migration-activation-synthetic-redis','redis-cli','--json'],{encoding:'utf8',maxBuffer:8*1024*1024,input:args.map(v=>JSON.stringify(String(v))).join(' ')+'\n'}));
+const redisContainer = process.env.GIPF_TEST_REDIS_CONTAINER;
+if (!/^gipf-test-[a-z0-9-]+$/.test(redisContainer || '')) throw new Error('Set GIPF_TEST_REDIS_CONTAINER to a disposable gipf-test-* container');
+const redis = (...args) => JSON.parse(execFileSync('docker',['exec','-i',redisContainer,'redis-cli','--json'],{encoding:'utf8',maxBuffer:8*1024*1024,input:args.map(v=>JSON.stringify(String(v))).join(' ')+'\n'}));
 const u='a'.repeat(64), other='c'.repeat(64),auth='b'.repeat(64);
+let tokens={};
+const secretOf=id=>id===other?auth:auth;
+// The signed-in device for a request: its session cookie when the body carries that account's
+// own credential, none otherwise (a wrong or missing credential is a signed-out request).
+const sessionHeaders=body=>{const id=body.u??u;return cookieHeaders(body.auth!==undefined&&body.auth===secretOf(id)?tokens[id]:null);};
 const settings=`gipf:settings:v2:${u}`, profileKey=`gipf:profile:v2:${u}`;
 const preference=(id,data)=>({kind:'preference',id,schemaVersion:1,revision:hash(canonical(data)),data});
 const file=(records=[preference('chessDarkMode','true'),preference('chessRating','1500'),preference('splendorDifficulty','strong')])=>({format:'ramia-migration',version:1,app:'games',exportId:'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',exportedAt:'2026-09-21T00:00:00.000Z',sourceOrigin:'https://synthetic.example.test',records});
 const payload=bundle=>({bundle,selected:bundle.records.map(r=>`${r.kind}/${r.id}`)});
 async function call(body,handler=profile) {
  const res={statusCode:200,setHeader(){},status(n){this.statusCode=n;return this;},json(v){this.body=v;return this;}};
- await handler({method:'POST',headers:{'content-type':'application/json'},socket:{remoteAddress:'192.0.2.88'},body:{u,auth,...body}},res); return res;
+ const full={u,auth,...body};
+ await handler({method:'POST',headers:{'content-type':'application/json',...sessionHeaders(full)},socket:{remoteAddress:'192.0.2.88'},body:full},res); return res;
 }
 const prepare=async p=>(await call({action:'migration-preview',...p})).body.token;
 const claim=(p,token)=>call({action:'migration-activate',...p,token});
-beforeEach(()=>{
+beforeEach(async()=>{
  redis('FLUSHDB');process.env.KV_REST_API_URL='https://synthetic.invalid';process.env.KV_REST_API_TOKEN='synthetic';
  globalThis.fetch=async(url,options)=>{assert.equal(url,'https://synthetic.invalid');return {ok:true,json:async()=>({result:redis(...JSON.parse(options.body))})};};
  for(const id of [u,other]) redis('SET',`chess:account:${id}`,JSON.stringify({authHash:hash(auth)}));
+ tokens={[u]:await signInAs('owner',u),[other]:await signInAs('other',other)};
 });
 test('atomic activation updates existing writer domains, preserves old bytes, authenticates and replays durably',async()=>{
  const old=JSON.stringify({revision:3,profile:{preferences:{chessDarkMode:'false',chessGameLog:'[]'}}});redis('SET',settings,old);
@@ -68,7 +78,7 @@ test('bad schema, digest, duplicate target, changed selection and lifetime bound
 test('localhost HTTP performs preview, activation, read and rejects unauthenticated import',async()=>{
  const server=createServer(async(req,res)=>{let raw='';for await(const chunk of req)raw+=chunk;req.body=raw;res.status=n=>{res.statusCode=n;return res;};res.json=v=>res.end(JSON.stringify(v));await profile(req,res);});
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
- const send=body=>new Promise((resolve,reject)=>{const req=request({hostname:'127.0.0.1',port:server.address().port,path:'/gipf/api/chessProfile',method:'POST',headers:{'Content-Type':'application/json'}},res=>{let raw='';res.on('data',c=>raw+=c);res.on('end',()=>resolve({status:res.statusCode,body:JSON.parse(raw)}));});req.on('error',reject);req.end(JSON.stringify({u,auth,...body}));});
+ const send=body=>new Promise((resolve,reject)=>{const req=request({hostname:'127.0.0.1',port:server.address().port,path:'/gipf/api/chessProfile',method:'POST',headers:{'Content-Type':'application/json',...sessionHeaders({u,auth,...body})}},res=>{let raw='';res.on('data',c=>raw+=c);res.on('end',()=>resolve({status:res.statusCode,body:JSON.parse(raw)}));});req.on('error',reject);req.end(JSON.stringify({u,auth,...body}));});
  try {const p=payload(file()),preview=await send({action:'migration-preview',...p});assert.equal(preview.status,200);assert.equal((await send({action:'migration-activate',...p,token:preview.body.token,auth:undefined})).status,401);assert.equal((await send({action:'migration-activate',...p,token:preview.body.token})).status,200);assert.equal((await send({action:'read',scope:'settings'})).body.profile.preferences.chessDarkMode,'true');}
  finally {await new Promise(resolve=>server.close(resolve));}
 });
@@ -183,7 +193,7 @@ test('migration rate limit and exhausted command deadline fail closed without co
 test('localhost HTTP bounds multi-megabyte input and rejects storage amplification',async()=>{
  const server=createServer(async(req,res)=>{let raw='';for await(const chunk of req)raw+=chunk;req.body=raw;res.status=n=>{res.statusCode=n;return res;};res.json=v=>res.end(JSON.stringify(v));await profile(req,res);});
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
- const send=body=>new Promise((resolve,reject)=>{const req=request({hostname:'127.0.0.1',port:server.address().port,method:'POST',headers:{'Content-Type':'application/json'}},res=>{let raw='';res.on('data',c=>raw+=c);res.on('end',()=>resolve({status:res.statusCode,body:JSON.parse(raw)}));});req.on('error',reject);req.end(typeof body==='string'?body:JSON.stringify({u,auth,...body}));});
+ const send=body=>new Promise((resolve,reject)=>{const req=request({hostname:'127.0.0.1',port:server.address().port,method:'POST',headers:{'Content-Type':'application/json',...sessionHeaders(typeof body==='string'?{u,auth}:{u,auth,...body})}},res=>{let raw='';res.on('data',c=>raw+=c);res.on('end',()=>resolve({status:res.statusCode,body:JSON.parse(raw)}));});req.on('error',reject);req.end(typeof body==='string'?body:JSON.stringify({u,auth,...body}));});
  try {
    const small=JSON.stringify({u,auth,action:'migration-preview',...payload(file())});
    const padded=small+' '.repeat(limits.requestBytes-Buffer.byteLength(small));
