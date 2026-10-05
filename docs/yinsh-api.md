@@ -52,8 +52,8 @@ Minimal resolution/game-over requests and partially supplied canonical state are
 
 Success returns the existing resolved move object or `null` when no move exists. Moves contain coordinate-pair-or-null `move` and `destination`, numeric `confidence`, and, where supplied by search, `type` and a full five-marker `row`. Both search iterations and fallback results are awaited; early-confidence exits and caching operate on completed results, never Promises.
 
-Malformed/incomplete requests return HTTP 400 with `{ error: 'Invalid board snapshot', message }`. Search failures retain HTTP 500. `OPTIONS` retains HTTP 200 and unsupported methods retain HTTP 405. Allowed origins and CORS headers are unchanged.
+Malformed/incomplete requests return HTTP 400 with `{ error: 'Invalid board snapshot' }`. Search failures return HTTP 500 with `{ error: 'Unable to calculate move' }`; exception details are never reflected. `OPTIONS` retains HTTP 200 and unsupported methods retain HTTP 405. Allowed origins are unchanged. The durable shared AI limit, 32 KiB request bound, no-store header, and terminating 3-second worker also apply.
 
 ## Regression tests
 
-Run `node --test tests/test_yinsh_api.mjs`. Tests invoke the handler without network services, drive delayed search Promises and cache separation, round-trip real Board snapshots, exercise real iteration/coordinate/row responses with bounded simulation, and cover legacy requests, validation failures, methods, and CORS.
+Run `node --test tests/test_yinsh_api.mjs`. Tests stub the Redis transport while retaining the real guard, invoke both the injectable search and production worker, drive delayed search Promises and cache separation, round-trip real Board snapshots, exercise real iteration/coordinate/row responses with bounded simulation, and cover legacy requests, validation failures, methods, and CORS.

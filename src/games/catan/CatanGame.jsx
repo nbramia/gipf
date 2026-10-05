@@ -1,3 +1,5 @@
+import MatchBoundary, { useSavedMatch } from '../../MatchBoundary.jsx';
+import { encodeBoard, decodeMatch } from './matchSnapshot.js';
 // CatanGame.jsx - React UI + SVG rendering for Catan.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -273,28 +275,35 @@ function Toggle({ label, checked, onChange }) {
   );
 }
 
-export default function CatanGame() {
-  const [gameConfig, setGameConfig] = useState(loadInitialConfig);
-  const [board, setBoard] = useState(() => new CatanBoard({ seed: Date.now(), ...loadInitialConfig() }));
+function CatanGame() {
+  const savedMatch = useSavedMatch();
+  const resumed = savedMatch?.restored;
+  const savedUI = resumed?.ui || {};
+  const [gameConfig, setGameConfig] = useState(() => savedUI.gameConfig || loadInitialConfig());
+  const [board, commitBoard] = useState(() => resumed?.board || new CatanBoard({ seed: Date.now(), ...loadInitialConfig() }));
+  const { computeMove, cancelPending, isSupported: workerSupported } = useAIWorker();
+  const stateVersion = useRef(0);
+  const setBoard = useCallback(next => { stateVersion.current += 1; cancelPending(); commitBoard(next); setIsAiThinking(false); }, [cancelPending]);
+  useEffect(() => () => { stateVersion.current += 1; }, []);
   const [darkMode, setDarkMode] = useState(() => JSON.parse(localStorage.getItem('catanDarkMode') || 'false'));
   const [showPossibleMoves, setShowPossibleMoves] = useState(() => JSON.parse(localStorage.getItem('catanShowMoves') || 'true'));
   const [difficulty, setDifficulty] = useState(() => localStorage.getItem('catanDifficulty') || 'expert');
-  const [selectedAction, setSelectedAction] = useState(null);
+  const [selectedAction, setSelectedAction] = useState(() => savedUI.selectedAction ?? null);
   const [isAiThinking, setIsAiThinking] = useState(false);
-  const [showModal, setShowModal] = useState(true);
+  const [showModal, setShowModal] = useState(() => savedUI.showModal ?? true);
   const [showSettings, setShowSettings] = useState(false);
   const [showRules, setShowRules] = useState(false);
-  const [lastMove, setLastMove] = useState(null);
-  const [showTradeBuilder, setShowTradeBuilder] = useState(false);
+  const [lastMove, setLastMove] = useState(() => savedUI.lastMove ?? null);
+  const [showTradeBuilder, setShowTradeBuilder] = useState(() => savedUI.showTradeBuilder ?? false);
   const [confirmNew, setConfirmNew] = useState(false);
-  const [tradeGive, setTradeGive] = useState({ brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 });
-  const [tradeReceive, setTradeReceive] = useState({ brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 });
-  const [tradeTargets, setTradeTargets] = useState([]);
-  const [showMonopolyPicker, setShowMonopolyPicker] = useState(false);
-  const [showYopPicker, setShowYopPicker] = useState(false);
-  const [yopPick, setYopPick] = useState([]);
-  const [robberVictimPicker, setRobberVictimPicker] = useState(null);
-  const [gameLog, setGameLog] = useState([]);
+  const [tradeGive, setTradeGive] = useState(() => savedUI.tradeGive ?? { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 });
+  const [tradeReceive, setTradeReceive] = useState(() => savedUI.tradeReceive ?? { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 });
+  const [tradeTargets, setTradeTargets] = useState(() => savedUI.tradeTargets ?? []);
+  const [showMonopolyPicker, setShowMonopolyPicker] = useState(() => savedUI.showMonopolyPicker ?? false);
+  const [showYopPicker, setShowYopPicker] = useState(() => savedUI.showYopPicker ?? false);
+  const [yopPick, setYopPick] = useState(() => savedUI.yopPick ?? []);
+  const [robberVictimPicker, setRobberVictimPicker] = useState(() => savedUI.robberVictimPicker ?? null);
+  const [gameLog, setGameLog] = useState(() => savedUI.gameLog ?? []);
   // Rules-help chat (BYO Anthropic key, aware of the current ruleset).
   const [rulesOpen, setRulesOpen] = useState(true);
   const [rulesMessages, setRulesMessages] = useState([]);
@@ -307,10 +316,15 @@ export default function CatanGame() {
   const aiTimerRef = useRef(null);
   const lastLoggedActionRef = useRef(null);
   const logEndRef = useRef(null);
-  const rulesEndRef = useRef(null);
-  const { computeMove, isSupported: workerSupported } = useAIWorker();
+  useEffect(() => { savedMatch?.persist(encodeBoard(board), { showModal, gameConfig, selectedAction, lastMove, showTradeBuilder, tradeGive, tradeReceive, tradeTargets, showMonopolyPicker, showYopPicker, yopPick, robberVictimPicker, gameLog }); }, [board, showModal, gameConfig, selectedAction, lastMove, showTradeBuilder, tradeGive, tradeReceive, tradeTargets, showMonopolyPicker, showYopPicker, yopPick, robberVictimPicker, gameLog, savedMatch]);
 
-  useEffect(() => localStorage.setItem('catanDarkMode', JSON.stringify(darkMode)), [darkMode]);
+  const rulesEndRef = useRef(null);
+
+
+  useEffect(() => {
+    localStorage.setItem('catanDarkMode', JSON.stringify(darkMode));
+    savedMatch?.setTheme(darkMode);
+  }, [darkMode, savedMatch]);
   useEffect(() => localStorage.setItem('catanShowMoves', JSON.stringify(showPossibleMoves)), [showPossibleMoves]);
   useEffect(() => localStorage.setItem('catanDifficulty', difficulty), [difficulty]);
   useEffect(() => localStorage.setItem('catanRulesetId', gameConfig.rulesetId), [gameConfig.rulesetId]);
@@ -506,9 +520,12 @@ export default function CatanGame() {
 
   const computeAIMove = useCallback(() => {
     if (isAiThinking || board.phase === 'game-over') return;
+    const version = ++stateVersion.current;
+    const active = () => savedMatch?.isCurrent() && version === stateVersion.current;
     setIsAiThinking(true);
 
     const onSuccess = (move) => {
+      if (!active()) return;
       setIsAiThinking(false);
       if (!move) return;
       applyAIMove(board, move);
@@ -518,12 +535,13 @@ export default function CatanGame() {
     };
 
     const onError = (error) => {
+      if (!active()) return;
       console.warn('Catan AI error:', error);
       setIsAiThinking(false);
       const fallback = new MCTS({ maxChildren: difficultyConfig.maxChildren, rolloutSteps: difficultyConfig.rolloutSteps });
-      fallback.getBestMove(board, Math.max(60, Math.floor(difficultyConfig.simulations / 4)))
+      fallback.getBestMove(board.clone(), Math.max(60, Math.floor(difficultyConfig.simulations / 4)))
         .then((move) => {
-          if (!move) return;
+          if (!active() || !move) return;
           applyAIMove(board, move);
           setLastMove(move);
           setBoard(board.clone());
@@ -543,7 +561,7 @@ export default function CatanGame() {
       );
     } else {
       const mcts = new MCTS({ maxChildren: difficultyConfig.maxChildren, rolloutSteps: difficultyConfig.rolloutSteps });
-      mcts.getBestMove(board, difficultyConfig.simulations).then(onSuccess).catch(onError);
+      mcts.getBestMove(board.clone(), difficultyConfig.simulations).then(onSuccess).catch(onError);
     }
   }, [applyAIMove, board, computeMove, difficultyConfig.maxChildren, difficultyConfig.rolloutSteps, difficultyConfig.simulations, isAiThinking, workerSupported]);
 
@@ -642,6 +660,7 @@ export default function CatanGame() {
   };
 
   const newGame = (nextConfig = gameConfig) => {
+    savedMatch?.startNew();
     const resolvedConfig = nextConfig?.rulesetId ? nextConfig : gameConfig;
     const next = new CatanBoard({ seed: Date.now(), ...resolvedConfig });
     setBoard(next);
@@ -1797,3 +1816,5 @@ export default function CatanGame() {
     </div>
   );
 }
+
+export default function ResumableCatanGame() { return <MatchBoundary game="catan" decode={decodeMatch}><CatanGame /></MatchBoundary>; }

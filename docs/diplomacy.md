@@ -137,7 +137,7 @@ exactly:
 - The key is stored **client-side** in `localStorage` under the shared **`gipfApiKey`** slot,
   the same slot the chess coach and the Catan/Splendor rules chats use — a key saved in one
   game is reused here and vice versa.
-- The endpoint only works on the **deployed site** (`gipf.vercel.app`) or under
+- The endpoint only works on a **deployed site** (same-origin `/api`, e.g. `gipf.vercel.app` or `play.ramia.us`) or under
   `vercel dev`. Plain `npm start` does not serve `/api/*`, so without a backend you can play
   the full game but the AI powers won't chat or negotiate.
 

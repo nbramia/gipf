@@ -2,17 +2,24 @@ import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import YinshBoard from '../src/games/yinsh/YinshBoard.js';
 import MCTS from '../src/games/yinsh/engine/mcts.js';
+import { searchYinsh } from '../server/yinshSearch.js';
 
 let moduleId = 0;
 const copy = value => JSON.parse(JSON.stringify(value));
 const goodMove = { move: [-3, 0], destination: [-2, 0], confidence: 0.9 };
 beforeEach(t => {
+  process.env.KV_REST_API_URL = 'https://synthetic.invalid';
+  process.env.KV_REST_API_TOKEN = 'synthetic';
+  t.mock.method(globalThis, 'fetch', async url => {
+    assert.equal(url, 'https://synthetic.invalid');
+    return { ok: true, json: async () => ({ result: 1 }) };
+  });
   t.mock.method(console, 'log', () => {});
   t.mock.method(console, 'warn', () => {});
   t.mock.method(console, 'error', () => {});
 });
 async function freshHandler() {
-  return (await import(`../api/aiMove.js?test=${++moduleId}`)).default;
+  return (await import(`../api/aiMove.js?test=${++moduleId}`)).createHandler(searchYinsh);
 }
 function response() {
   return { code: 200, headers: {}, sent: [], ended: false,
@@ -109,7 +116,7 @@ test('async iteration is awaited before confidence exit, response, and cache sto
   const res = response();
   const body = copy(playBoard().serializeState());
   const running = handler({ method: 'POST', headers: {}, body }, res);
-  await Promise.resolve();
+  await new Promise(resolve => setImmediate(resolve));
   assert.equal(res.sent.length, 0);
   assert.equal(iteration.mock.callCount(), 1);
   resolveIteration(goodMove);
@@ -134,8 +141,7 @@ test('iteration errors retain the server-error response contract', async t => {
   t.mock.method(MCTS.prototype, 'runIteration', async () => { throw new Error('search failed'); });
   const res = await request(handler, copy(playBoard().serializeState()));
   assert.equal(res.code, 500);
-  assert.equal(res.body.error, 'Internal server error');
-  assert.equal(res.body.message, 'search failed');
+  assert.deepEqual(res.body, { error: 'Unable to calculate move' });
 });
 
 test('all essential canonical fields are required for both resolution phases', async t => {
@@ -148,7 +154,7 @@ test('all essential canonical fields are required for both resolution phases', a
       const res = await request(handler, incomplete);
       assert.equal(res.code, 400, `missing ${field} in ${body.gamePhase}`);
       assert.equal(res.body.error, 'Invalid board snapshot');
-      assert.equal(typeof res.body.message, 'string');
+      assert.deepEqual(res.body, { error: 'Invalid board snapshot' });
     }
   }
   assert.equal(iteration.mock.callCount(), 0);
@@ -259,4 +265,23 @@ test('OPTIONS, unsupported methods, and CORS allowlist remain unchanged', async 
     assert.equal(res.body.error, 'Method not allowed');
     assert.equal(res.headers['Access-Control-Allow-Origin'], undefined);
   }
+});
+
+test('production handler carries scored resolution and terminal snapshots through the real worker', async () => {
+  const handler = (await import('../api/aiMove.js?real-worker')).default;
+  const row = rowBoard();
+  const rowResult = await request(handler, copy(row.serializeState()));
+  assert.equal(rowResult.code, 200);
+  assert.equal(rowResult.body.type, 'remove-row');
+  assert.equal(row.clone().removeRow(rowResult.body.row), true);
+  const ring = ringBoard();
+  const ringResult = await request(handler, copy(ring.serializeState()));
+  assert.equal(ringResult.code, 200);
+  assert.ok(Array.isArray(ringResult.body.move));
+  const terminal = ring.clone();
+  terminal.handleClick(...ringResult.body.move);
+  assert.equal(terminal.winner, 1);
+  const terminalResult = await request(handler, copy(terminal.serializeState()));
+  assert.equal(terminalResult.code, 200);
+  assert.equal(terminalResult.body, null);
 });

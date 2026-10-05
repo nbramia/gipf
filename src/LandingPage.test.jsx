@@ -5,7 +5,7 @@
 
 import '@testing-library/jest-dom';
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 import LandingPage from './LandingPage';
@@ -75,7 +75,7 @@ describe('LandingPage', () => {
     expect(passwordInput).toHaveAttribute('type', 'text');
   });
 
-  test('with a valid session, renders signed-in state; sign out (after confirming) returns to signed-out and keeps a seeded API key', () => {
+  test('with a valid session, renders signed-in state; sign out (after confirming) returns to signed-out and clears seeded credentials', async () => {
     localStorage.setItem(
       ACCOUNT_KEY,
       JSON.stringify({
@@ -95,17 +95,17 @@ describe('LandingPage', () => {
     expect(screen.getByText('Signed in as Nathan')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
 
-    // Inline confirmation names the account and explains the keys stay put.
-    expect(screen.getByText(/stay on this device/i)).toBeInTheDocument();
+    // Inline confirmation names the account and explains credential removal.
+    expect(screen.getByText(/Credentials are removed/i)).toBeInTheDocument();
     expect(screen.getByText(/Sign out of/)).toBeInTheDocument();
 
     // The second "Sign out" is the confirm action inside the prompt.
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
 
-    expect(screen.getByRole('button', { name: 'Sign in / Create account' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in / Create account' })).toBeInTheDocument());
     expect(screen.queryByText('Signed in as Nathan')).not.toBeInTheDocument();
-    expect(localStorage.getItem(API_KEY)).toBe('sk-test-key');
-    expect(localStorage.getItem(LICHESS_KEY)).toBe('lip-test-token');
+    expect(localStorage.getItem(API_KEY)).toBeNull();
+    expect(localStorage.getItem(LICHESS_KEY)).toBeNull();
   });
 
   test('declining the sign-out confirmation keeps the session', () => {
@@ -127,7 +127,7 @@ describe('LandingPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
 
     expect(screen.getByText('Signed in as Nathan')).toBeInTheDocument();
-    expect(screen.queryByText(/stay on this device/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Credentials are removed/i)).not.toBeInTheDocument();
     expect(localStorage.getItem(ACCOUNT_KEY)).not.toBeNull();
   });
 });
