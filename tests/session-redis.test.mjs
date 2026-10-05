@@ -3,7 +3,7 @@ import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { redis, redisAsync } from './redis-fixture.mjs';
 import session from '../api/session.js';
-import auth from '../api/auth/[action].js';
+import auth from '../api/auth.js';
 import account from '../api/chessAccount.js';
 import profile from '../api/chessProfile.js';
 import { hash } from '../server/publicSecurity.js';

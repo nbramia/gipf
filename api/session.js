@@ -1,5 +1,5 @@
 // Games sign-in sessions. See server/session.js for storage and lifetimes, and
-// api/auth/[action].js for sign-in and sign-out.
+// api/auth.js for sign-in and sign-out.
 //   GET                       -> {signedIn:true, u, name, linked, keys} for a live cookie, else 401
 //   POST {action:'establish'} -> the same plus `sealKey`, the account's device seal key, and
 //                                `offerLink` on the sign-in that created the identity

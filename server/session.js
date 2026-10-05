@@ -1,6 +1,6 @@
 // Server sessions for Games accounts.
 //
-// A successful Auth0 sign-in (api/auth/[action].js) ends with an opaque random token
+// A successful Auth0 sign-in (api/auth.js) ends with an opaque random token
 // in the `__Host-games_session` cookie. Only the token's SHA-256 is stored, at
 // `gipf:session:v1:<sha256>` → {i, u, name, fresh, created, seen}: the identity
 // (server/identity.js), the data id its progress is stored under, the verified email
