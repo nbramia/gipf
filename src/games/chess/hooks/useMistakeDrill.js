@@ -1,4 +1,4 @@
-// useMistakeDrill.js — drill session state machine for the mistake library (#23).
+// useMistakeDrill.js — drill session state machine for the mistake library.
 //
 // Owns everything about a "retry your mistake" session except the board itself:
 // the queue of entries, solving/checking/correct/revealed state, the feedback

@@ -1,4 +1,4 @@
-// pgn.js — PGN import/export helpers (issue #16).
+// pgn.js — PGN import/export helpers.
 //
 // ChessBoard already produces/loads PGN via chess.js; this module adds the
 // browser glue (trigger a download, read an uploaded file) plus a light

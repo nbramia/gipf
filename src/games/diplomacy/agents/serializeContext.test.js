@@ -73,7 +73,7 @@ describe('serializeBoardContext', () => {
     });
 
     const ctx = serializeBoardContext(board, { power: 'france' });
-    // France knows its own order (the bug: agents used to deny their own moves).
+    // France knows its own order, so an agent cannot deny its own moves.
     expect(ctx.you.lastOrders.some((l) => /PAR → BUR/.test(l))).toBe(true);
     // The public move record attributes each move to the acting power.
     expect(ctx.lastMoves.some((l) => /France: PAR → BUR/.test(l))).toBe(true);

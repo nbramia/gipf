@@ -30,7 +30,7 @@ function pick(list, seed) {
   return list[((seed % list.length) + list.length) % list.length];
 }
 
-// Commentary for a move the ENGINE just played (issue #8 fallback).
+// Commentary for a move the ENGINE just played (keyless fallback).
 // analysis: { movePlayed:{san}, candidates:[{san,eval,pv}] }
 export function describeAiMove(analysis) {
   const { movePlayed, candidates = [] } = analysis;
@@ -70,7 +70,7 @@ function capitalize(text) {
   return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
 }
 
-// Commentary evaluating a move the PLAYER just made (issue #9 fallback).
+// Commentary evaluating a move the PLAYER just made (keyless fallback).
 // analysis: { classification, movePlayed:{san}, playedEval, bestMove:{san,eval,pv},
 //             fen (before the move), sideToMove, inOpening, weaknessProfile }
 export function describePlayerMove(analysis) {

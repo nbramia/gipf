@@ -11,9 +11,9 @@ import { applyAIMove } from './engine/aiPlayer.js';
 import testPositions from './engine/testPositions.js';
 
 // Difficulty presets: model path, simulations, evaluation mode
-// easy = v63 (early-lineage, deliberately weak), advanced = v140 (long-standing
-// former champion, SPRT-beaten starting at v142 — a real, evidence-based
-// mid tier), expert = v1.onnx (always the current deployed best, currently v158).
+// easy = an early-lineage model (deliberately weak), advanced = a model the
+// champion beats under SPRT (an evidence-based mid tier), expert = v1.onnx (the
+// deployed champion pointer).
 const DIFFICULTY_CONFIG = {
   easy:     { modelPath: '/models/yinsh-value-easy.onnx',     simulations: 100, evaluationMode: 'nn' },
   advanced: { modelPath: '/models/yinsh-value-advanced.onnx', simulations: 150, evaluationMode: 'nn' },
@@ -393,7 +393,7 @@ const YinshGame = () => {
     }
   };
 
-  // We'll read data from the board (just as we used to read from state)
+  // Read render data from the board, the single source of truth
   const boardState = yinshBoard.getBoardState();
   const gamePhase = yinshBoard.getGamePhase();
   const currentPlayer = yinshBoard.getCurrentPlayer();

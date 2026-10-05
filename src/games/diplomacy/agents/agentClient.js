@@ -152,8 +152,8 @@ export async function sendMessage({ power, history, context, addressee, model, s
 // keeps AI↔AI text out of the human-visible thread store.
 //   { power, counterparties, channel, boardContext, persona, messages, model,
 //     priorSummary, memory, proposedDeal }
-//   - priorSummary:  a brief carried summary of where this channel stands (#44)
-//   - memory:        the agent's own prior private note about this rival (#44)
+//   - priorSummary:  a brief carried summary of where this channel stands
+//   - memory:        the agent's own prior private note about this rival
 //   - proposedDeal:  a deal the counterparty formally proposed; the endpoint
 //                    requires an accept:true/false answer (bilateral consent)
 // Returns { reply: { message, scratchpad, summary, deal, accept } } on success,

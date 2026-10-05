@@ -3,9 +3,8 @@ import { encodeBoard, decodeMatch, fromLegacy } from './matchSnapshot.js';
 // ChessGame.jsx — React UI for the Chess game.
 //
 // Interactive react-chessboard wired to ChessBoard.js via the suite's
-// click -> Board -> clone -> setState flow, now with a Stockfish opponent
-// (CDN Web Worker) and adjustable difficulty tiers. The coaching dialogue
-// (issues #6–#10) layers on in later increments.
+// click -> Board -> clone -> setState flow, with a Stockfish opponent (CDN Web
+// Worker), adjustable difficulty tiers, and the coaching dialogue.
 
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
@@ -174,7 +173,7 @@ function ChessGame() {
 
   // Coaching state.
   const [dialogue, setDialogue] = useState(() => (restored && restored.dialogue) || []); // [{id, ply, kind, san, tone, label, text, source, pending}]
-  const [moveStats, setMoveStats] = useState(() => (restored && restored.moveStats) || []); // [{ply, moverColor, cpLoss, classification}] for accuracy (#17)
+  const [moveStats, setMoveStats] = useState(() => (restored && restored.moveStats) || []); // [{ply, moverColor, cpLoss, classification}] for accuracy
   const [coaching, setCoaching] = useState(false);
   const [learningGoal, setLearningGoal] = useState(() => localStorage.getItem('chessLearningGoal') || '');
   const [keySet] = useState(() => hasApiKey());
@@ -192,7 +191,7 @@ function ChessGame() {
   // BYO Lichess token for master opening stats (the explorer is auth-gated); set at /login.
   const [lichessSet] = useState(() => hasLichessToken());
 
-  // Polish (#21): eval bar, sounds.
+  // Polish: eval bar, sounds.
   const [showEvalBar, setShowEvalBar] = useState(() => {
     const saved = localStorage.getItem('chessShowEvalBar');
     return saved ? JSON.parse(saved) : true;
@@ -224,7 +223,7 @@ function ChessGame() {
   const [moveInput, setMoveInput] = useState('');
   const [moveInputError, setMoveInputError] = useState('');
 
-  // Puzzle mode (#18, overhauled #24). Sessions are adaptive: due reviews
+  // Puzzle mode. Sessions are adaptive: due reviews
   // first, then fresh puzzles nearest the player's puzzle rating; the Lichess
   // daily puzzle joins when reachable. Mate puzzles are solver-checked (budget
   // = remaining plies to force mate); 'solution'-kind puzzles follow a
@@ -262,7 +261,7 @@ function ChessGame() {
   // returns you to your game instead of throwing it away.
   const stashedGameRef = useRef(null);
 
-  // Mistake library (#23): the mistakes captured this game (for the post-game
+  // Mistake library: the mistakes captured this game (for the post-game
   // review panel), how many stored entries are due for drilling, and the drill
   // session itself. Capture is gated to normal play (not puzzles/drills/rated).
   const [gameMistakes, setGameMistakes] = useState(() => (restored && restored.gameMistakes) || []);
@@ -663,9 +662,9 @@ function ChessGame() {
         setCoaching(true);
       }
       try {
-        // Every move used to cost two full-strength searches (~1s each), and
-        // the engine is single-flight, so they serialized into ~2s of dead air
-        // before any commentary appeared. But the position *after* move N is
+        // Each move needs a before and an after search (~1s each at full
+        // strength), and the engine is single-flight, so uncached they would
+        // serialize into ~2s of dead air before any commentary. The position *after* move N is
         // exactly the position *before* move N+1 — so the second search is the
         // next move's first search. Cache by FEN and each move pays for one
         // new search instead of two. Both run at MultiPV 3 so a cached entry
@@ -675,7 +674,7 @@ function ChessGame() {
           cachedAnalyze(fenAfter),
         ]);
         if (!savedMatch?.isCurrent() || seq !== coachSeqRef.current) return; // superseded (new game / undo)
-        // Update the eval bar (#21) from the post-move top line (White POV).
+        // Update the eval bar from the post-move top line (White POV).
         const afterTop = !silent && analysisAfter && analysisAfter.lines && analysisAfter.lines[0];
         if (afterTop) {
           setEvalWhite(typeof afterTop.scoreCp === 'number' ? afterTop.scoreCp : 0);
@@ -691,7 +690,7 @@ function ChessGame() {
           kind,
           learningGoal,
         });
-        // Attach opening context (#15) so the coach can name it / flag leaving book.
+        // Attach opening context so the coach can name it / flag leaving book.
         if (opening.name) payload.opening = opening.name;
         if (opening.idea) payload.openingIdea = opening.idea;
         if (opening.leftBookAtPly === ply) {
@@ -701,7 +700,7 @@ function ChessGame() {
           payload.leftBookBy = kind === 'player-move' ? 'you' : 'opponent';
         }
 
-        // Attach the player's recurring-weakness profile (#23) so the coach can
+        // Attach the player's recurring-weakness profile so the coach can
         // connect this move to patterns from earlier games.
         if (kind === 'player-move') {
           const weakness = weaknessProfile(loadMistakes());
@@ -742,7 +741,7 @@ function ChessGame() {
           }
         }
 
-        // Mistake library (#23): capture the human's errors as replayable
+        // Mistake library: capture the human's errors as replayable
         // drills. Inaccuracies are included — they're the most common and most
         // improvable category for an intermediate player, and excluding them
         // made the library's scope look arbitrary from the outside. They're
@@ -770,7 +769,7 @@ function ChessGame() {
           setDueCount(dueMistakes(list).length);
         }
 
-        // Record per-move accuracy data (#17), replacing any prior entry at this ply.
+        // Record per-move accuracy data, replacing any prior entry at this ply.
         setMoveStats((s) => [
           ...s.filter((x) => x.ply !== ply),
           { ply, moverColor, cpLoss: payload.cpLoss || 0, classification: payload.classification },
@@ -935,7 +934,7 @@ function ChessGame() {
 
       if (!res.correct) {
         // Legal, but it fails the puzzle — snap back, rate it, and coach the
-        // refutation (#24). Retries stay open as practice.
+        // refutation. Retries stay open as practice.
         recordPuzzleOutcome(puzzle, false);
         setPuzzleState('wrong');
         setPuzzleFlash('wrong');
@@ -982,7 +981,7 @@ function ChessGame() {
     [board, puzzlePool, puzzleIndex, puzzleBudget, puzzleSolution, puzzleState, coachOnMove]
   );
 
-  // Attempt a drill move (#23): apply optimistically (drop callbacks must
+  // Attempt a drill move: apply optimistically (drop callbacks must
   // answer synchronously), then let the hook judge it; wrong moves roll back.
   const tryDrillMove = useCallback(
     (from, to, promotion) => {
@@ -1082,7 +1081,7 @@ function ChessGame() {
   const startGame = (color) => {
     savedMatch?.startNew();
     // Rated games randomize color; casual games keep the colour you chose
-    // rather than silently reassigning it (which used to happen on puzzle exit).
+    // rather than silently reassigning it (for example on puzzle exit).
     const c = color || (rated ? (Math.random() < 0.5 ? 'w' : 'b') : humanColor);
     // The next render replaces the current match; legacy recovery stays intact.
     coachSeqRef.current += 1; // invalidate any in-flight coaching
@@ -1137,13 +1136,13 @@ function ChessGame() {
     applyRatedToggle();
   };
 
-  // Puzzle mode (#18, overhauled #24): sessions come from the adaptive
-  // selector over the whole bank (due reviews first, then fresh puzzles
-  // nearest the player's rating); the difficulty tier no longer gates them.
+  // Puzzle mode: sessions come from the adaptive selector over the whole bank
+  // (due reviews first, then fresh puzzles nearest the player's rating); the
+  // difficulty tier does not gate them.
   const loadPuzzleFrom = (pool, index) => {
     if (!pool.length) return;
-    // Running off the end used to wrap silently back to puzzle 1, which read as
-    // a bug. Finish the session explicitly instead.
+    // Running off the end finishes the session explicitly rather than wrapping
+    // silently back to puzzle 1.
     if (index >= pool.length) {
       setPuzzleSessionDone(true);
       return;
@@ -1290,7 +1289,7 @@ function ChessGame() {
     return `Back in ${days} day${days === 1 ? '' : 's'}.`;
   };
 
-  // Coaching after a failed attempt (#24): analyze the position the wrong
+  // Coaching after a failed attempt: analyze the position the wrong
   // move creates and explain the refutation — never the solution. Works
   // keyless via the deterministic template.
   const coachPuzzleFail = (puzzle, fenBefore, from, to, promotion, playedSan) => {
@@ -1329,7 +1328,7 @@ function ChessGame() {
     setRefutationStep(shown >= refutation.pv.length ? 0 : shown);
   };
 
-  // Staged hints (#24): theme first, then the key piece + square. The piece
+  // Staged hints: theme first, then the key piece + square. The piece
   // hint spends the puzzle (counts as a miss). Claude rephrases when a key is
   // set; the deterministic text is shown either way.
   const requestPuzzleHint = () => {
@@ -1347,7 +1346,7 @@ function ChessGame() {
     });
   };
 
-  // Mistake drills (#23): load an entry's position; the drill hook owns the
+  // Mistake drills: load an entry's position; the drill hook owns the
   // session state, this glue owns the board.
   const loadDrillBoard = (entry) => {
     const next = new ChessBoard(entry.fenBefore);
@@ -1567,7 +1566,7 @@ function ChessGame() {
     movePairs.push([sanHistory[i], sanHistory[i + 1]]);
   }
 
-  // Post-game accuracy summary (#17) — computed once the game is over and we
+  // Post-game accuracy summary — computed once the game is over and we
   // have at least some analysed moves.
   const accuracyReport =
     gameOver && moveStats.length > 0 ? summarizeAccuracy(moveStats) : null;
@@ -1687,7 +1686,7 @@ function ChessGame() {
     [puzzleProgressState]
   );
 
-  // Material / captured pieces (#21).
+  // Material / captured pieces.
   const boardArray = board.board();
   const capturedByWhite = capturedPieces(boardArray, 'b'); // black pieces White took
   const capturedByBlack = capturedPieces(boardArray, 'w');
@@ -2125,7 +2124,7 @@ function ChessGame() {
             </div>
 
             <div className="flex flex-col gap-4 md:min-h-[calc(100vh-7rem)]">
-              {/* Post-game mistake review (#23) — retry this game's mistakes */}
+              {/* Post-game mistake review — retry this game's mistakes */}
               {accuracyReport && gameMistakes.length > 0 && (
                 <MistakeReviewPanel mistakes={gameMistakes} onRetry={retryMistake} />
               )}
@@ -2143,7 +2142,7 @@ function ChessGame() {
                 />
               )}
 
-              {/* Post-game accuracy summary (#17) */}
+              {/* Post-game accuracy summary */}
               {accuracyReport && (
                 <div className="panel rounded-xl p-4">
                   <h2 className="font-heading text-sm font-semibold mb-3" style={{ color: 'var(--color-text-primary)' }}>
@@ -2194,7 +2193,7 @@ function ChessGame() {
                 </div>
               )}
 
-              {/* Coaching dialogue (#8 / #10) — grows to fill remaining height.
+              {/* Coaching dialogue — grows to fill remaining height.
                   Hidden in rated mode: live coaching would leak best moves. */}
               {rated ? (
                 <div className="panel rounded-xl p-4 flex-1 min-h-0 flex items-center justify-center text-center">
@@ -2385,8 +2384,8 @@ function ChessGame() {
                 </summary>
                 <div className="space-y-3 mt-3">
                 <Toggle label="Rated mode" checked={rated} onChange={toggleRated} />
-                {/* The lockouts used to be explained only after you'd already
-                    switched (and lost your game). Say it before the click. */}
+                {/* Explain the lockouts before the click, not after switching
+                    (which would cost the current game). */}
                 {!rated && (
                   <p className="font-body text-xs -mt-2" style={{ color: 'var(--color-text-muted)' }}>
                     Plays a ladder opponent matched to your Elo. Undo, flip, the eval bar and live coaching switch off

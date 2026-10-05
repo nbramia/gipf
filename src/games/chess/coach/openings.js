@@ -1,4 +1,4 @@
-// openings.js — lightweight opening-book detection (issue #15).
+// openings.js — lightweight opening-book detection.
 //
 // A curated set of common openings/variations keyed by their leading SAN move
 // sequence. Detection walks the longest matching prefix of the game's SAN list,

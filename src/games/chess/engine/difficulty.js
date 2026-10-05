@@ -1,4 +1,4 @@
-// difficulty.js — named opponent strength tiers (issue #5).
+// difficulty.js — named opponent strength tiers.
 //
 // Each tier maps to Stockfish's UCI_Elo (used with UCI_LimitStrength) plus a
 // per-move search budget. Stockfish's Elo is calibrated roughly to CCRL; the

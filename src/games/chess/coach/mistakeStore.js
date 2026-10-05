@@ -1,4 +1,4 @@
-// mistakeStore.js — the persistent mistake library (#23).
+// mistakeStore.js — the persistent mistake library.
 //
 // Every mistake/blunder the human plays in a normal game is captured as a
 // replayable drill: the position it was played from, the move, the engine's

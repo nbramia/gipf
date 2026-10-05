@@ -43,7 +43,7 @@ describe('pgn — parsePlayerHeaders', () => {
 });
 
 describe('pgn — round-trip via ChessBoard', () => {
-  test('export then re-import reproduces the game (issue #16 AC)', () => {
+  test('export then re-import reproduces the game', () => {
     const b = new ChessBoard();
     b.move('e2', 'e4');
     b.move('c7', 'c5');

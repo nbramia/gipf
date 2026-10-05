@@ -6,7 +6,7 @@
 // or the resulting position ('after'), and optionally play a short line of moves
 // from there to explore a "what if". The executor validates every move with
 // chess.js and runs the real engine, so any eval the model cites came from an
-// actual Stockfish search — it cannot invent one (#22 truthfulness, extended to
+// actual Stockfish search — it cannot invent one (the coach's truthfulness guarantee, extended to
 // the conversational layer).
 //
 // Split into a PURE schema constant (imported by the serverless endpoint to tell

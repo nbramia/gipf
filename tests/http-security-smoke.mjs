@@ -19,7 +19,7 @@ async function call(name,body,status,cookie) {
   console.log(`${name}: ${response.status} ${data.error || (data.success ? 'move returned' : 'ok')}`);
   return data;
 }
-// Retired password and link actions are unknown actions now.
+// Password and link actions are unsupported: chessAccount treats them as unknown actions.
 for(const action of ['create','login','setKey','link-verify','link']) await call('chessAccount',{action},400,fresh);
 await call('chessAccount',{action:'setKeys',lichess:null},401);
 await call('chessProfile',{action:'read'},401);

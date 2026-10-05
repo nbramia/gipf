@@ -211,7 +211,7 @@ describe('reputationCost', () => {
   });
 });
 
-describe('payoffOfBreaking — deal-specific gain (#44)', () => {
+describe('payoffOfBreaking — deal-specific gain', () => {
   // On a fresh board France's reachable move targets are SPA, BRE, ENG, MAO.
   const REACHABLE = ['spa', 'bre', 'eng', 'mao'];
 
@@ -250,7 +250,7 @@ describe('payoffOfBreaking — deal-specific gain (#44)', () => {
   });
 });
 
-describe('decideStrategicIntent — per-deal betrayal resolves deals independently (#44)', () => {
+describe('decideStrategicIntent — per-deal betrayal resolves deals independently', () => {
   const REACHABLE = ['spa', 'bre', 'eng', 'mao'];
 
   test('two deals for the same power can resolve differently in one turn', () => {
@@ -297,7 +297,7 @@ describe('exported weights', () => {
   });
 });
 
-describe('effectiveTrust — ledger-dominant blend (#44)', () => {
+describe('effectiveTrust — ledger-dominant blend', () => {
   test('falls back to pure ledger trust with no scratchpad note', () => {
     const board = new DiplomacyBoard();
     let state = createDiplomaticState({ board, humanPower: 'england' });
@@ -324,7 +324,7 @@ describe('effectiveTrust — ledger-dominant blend (#44)', () => {
   });
 });
 
-describe('decideStrategicIntent — scratchpad steers intent (#44)', () => {
+describe('decideStrategicIntent — scratchpad steers intent', () => {
   test('a hostile scratchpad puts a deal-less rival into targets', () => {
     const board = new DiplomacyBoard();
     let state = createDiplomaticState({ board, humanPower: 'england' });

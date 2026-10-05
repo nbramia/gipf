@@ -1,4 +1,4 @@
-// material.js — captured-pieces and material-balance helpers (#21).
+// material.js — captured-pieces and material-balance helpers.
 //
 // Derives, from a chess.js board() array, which pieces each side has captured
 // and the net material score. Pure functions over the standard piece-value

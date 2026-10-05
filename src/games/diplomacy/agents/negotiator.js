@@ -245,7 +245,7 @@ function channelId(a, b) {
   return [a, b].sort().join('~');
 }
 
-// --- prior-memory injection (#44) -------------------------------------------
+// --- prior-memory injection -------------------------------------------
 
 // Render a power's persisted disposition toward one rival into a short private
 // note line (for re-injection as `memory`). Empty string when nothing is known.
@@ -296,7 +296,7 @@ const DEFAULT_OPTIONS = {
 //             priorSummary, memory, scratchpad, messages }) ->
 //             { reply: { message, scratchpad?, summary? } }. Injected so tests
 //             mock it; the app passes the reused endpoint client. The orchestrator
-//             folds reply.scratchpad/summary into the returned state (#44).
+//             folds reply.scratchpad/summary into the returned state.
 //   options:  { maxRounds, maxPairsPerRound, humanPower, seed }.
 //
 // Budget (hard): ≤ maxRounds × maxPairsPerRound × 2 AI↔AI askAgent calls (two
@@ -338,7 +338,7 @@ export async function runNegotiationPhase({ board, state, agents = {}, askAgent,
       model: opts.aiModel || undefined, // hidden AI↔AI rounds: cheaper model
       boardContext: ctx.boardContext || null,
       persona: ctx.persona || null,
-      // Carry the conversation forward (#44): the brief per-channel summary and
+      // Carry the conversation forward: the brief per-channel summary and
       // this power's own prior private note about the rival, both from the
       // persisted diplomatic state (never the human-visible store).
       priorSummary: getSummary(nextState, channel),

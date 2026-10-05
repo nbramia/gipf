@@ -183,8 +183,8 @@ function cardBuyValue(board, playerId, cardId) {
   return value;
 }
 
-// `demand` (per-colour token demand) is constant for a position but was the #1
-// hot spot when recomputed per candidate move — callers compute it once per
+// `demand` (per-colour token demand) is constant for a position and is the top
+// hot spot if recomputed per candidate move — callers compute it once per
 // scoring pass and thread it in. It's only needed for take/discard moves.
 function scoreMove(board, move, playerId, demand) {
   switch (move.type) {

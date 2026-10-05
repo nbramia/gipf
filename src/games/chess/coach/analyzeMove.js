@@ -2,7 +2,7 @@
 // payload. Pure logic (no React, no network) so it can be unit-tested; the UI
 // supplies engine results and the SAN of the move that was played.
 //
-// Key correctness property (issue #22 truthfulness): every candidate, eval, and
+// Key correctness property (truthfulness): every candidate, eval, and
 // "best move" we surface comes straight from the engine's analysis of the
 // position BEFORE the move. We never invent lines. The played move's resulting
 // eval comes from the engine's analysis of the position AFTER the move.

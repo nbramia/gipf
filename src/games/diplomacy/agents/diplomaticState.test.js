@@ -176,7 +176,7 @@ describe('getters', () => {
   });
 });
 
-describe('setScratchpad / setSummary (#44 carried memory)', () => {
+describe('setScratchpad / setSummary (carried memory)', () => {
   const board = new DiplomacyBoard();
   const base = createDiplomaticState({ board, humanPower: 'england' });
   const pad = {

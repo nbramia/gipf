@@ -1,5 +1,5 @@
 // puzzleProgress.test.js — player puzzle Elo, per-puzzle spaced repetition,
-// adaptive session selection, and localStorage round-tripping (#24).
+// adaptive session selection, and localStorage round-tripping.
 
 import { DEFAULT_RATING } from '../engine/rating.js';
 import { REVIEW_INTERVALS_MS } from './mistakeStore.js';

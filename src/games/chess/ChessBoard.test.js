@@ -155,9 +155,9 @@ describe('ChessBoard — PGN and cloning', () => {
 
 describe('pgn round-trip after clone', () => {
   test('pgn() keeps the move list once the board has been cloned', () => {
-    // Regression: pgn() used to delegate to the internal chess.js instance,
-    // which clone() rebuilds from the current FEN — so a cloned board produced
-    // a FEN-header-only PGN with no moves, breaking export and persistence.
+    // pgn() must replay the recorded move history: the internal chess.js
+    // instance is rebuilt from the current FEN by clone(), so delegating to it
+    // would yield a FEN-header-only PGN with no moves.
     let b = new ChessBoard();
     for (const [from, to] of [['e2', 'e4'], ['e7', 'e5'], ['g1', 'f3']]) {
       b.move(from, to);

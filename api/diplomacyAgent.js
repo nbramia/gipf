@@ -75,7 +75,7 @@ function buildSystemPrompt(body = {}) {
     ? `\nPENDING PROPOSAL\n${addressee} has formally proposed this deal to you: ${JSON.stringify(proposedDeal)}\nDecide in character whether your power commits to it. Your JSON reply MUST include "accept": true or false. Accepting means you publicly commit (your private scratchpad still records your true intent).\n`
     : '';
 
-  // Prior-memory injection (issue #44): a brief carried summary of where this
+  // Prior-memory injection: a brief carried summary of where this
   // channel stands and the agent's own last private note about this rival, so
   // negotiation has continuity across phases without an extra summarization call.
   const priorSummary = typeof body.priorSummary === 'string' && body.priorSummary.trim()
