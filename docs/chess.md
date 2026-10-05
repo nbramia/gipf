@@ -275,11 +275,11 @@ local-only.
 ## Accounts (username + password)
 
 Chess offers a lightweight username+password account, so a player can sign
-in once per machine instead of re-pasting an Anthropic API key everywhere. The
+in once per machine (at `/login`) instead of re-pasting an Anthropic API key everywhere. The
 account authorizes the profile sync above and carries the API key too.
 
 Every secret is derived client-side from the password
-(`engine/account.js#deriveCredentials`: PBKDF2-SHA256, 310k iterations, salt
+(`src/account.js#deriveCredentials`: PBKDF2-SHA256, 310k iterations, salt
 `'gipf-chess-account:v1:' + lowercase(username)`). The original 768-bit split
 and AES-GCM `{iv, ct}` envelopes are unchanged. The account service stores a
 SHA-256 verifier of the authentication token and separately encrypted Anthropic
@@ -308,7 +308,8 @@ copy. Switching reloads the app, and other open tabs reload on identity changes;
 pending profile responses also verify the originating account before applying.
 Cloud writes use revisions: conflicts retain local data and show a sync warning.
 
-The landing-page account copy and Chess account copy remain identical. Shared
+Sign-in, sign-out and key entry live only at `/login`; Chess shows the account
+and key status in Settings and links to `/login?return=/chess`. Shared
 preferences for Chess/Yinsh/Zertz/Catan, existing Yinsh scores, and Chess
 finished-game statistics (`chessGameLog`) use a separate revisioned settings scope.
 Chess rating/history/puzzles/mistakes keep their
@@ -324,7 +325,7 @@ chessRatedGames, chessMistakes, chessOppHistory, chessPuzzleProgress,
 chessMatch:v1, chessMatchSync:v1, chessMatchRecovery:v1, chessStatsRecovery:v1
 
 gipfApiKey  # shared app-wide (all games), not chess-prefixed
-gipfAccount # shared app-wide (landing page + chess settings block); cached account session
+gipfAccount # shared app-wide, written only by /login; cached account session
 ```
 
 ## Opening coaching (master stats)

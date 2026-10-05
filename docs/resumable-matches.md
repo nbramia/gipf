@@ -245,9 +245,13 @@ See `tests/match-browser.mjs` and `tests/match-redis.test.mjs`.
 docker run --rm -d --name gipf-pr5-synthetic-redis redis:7-alpine
 node --test tests/match-redis.test.mjs
 npm run build
-GIPF_SYNTHETIC_REDIS=gipf-pr5-synthetic-redis GIPF_TEST_PORT=3189 node tests/serve-public-security.mjs
+# The browser fixture server needs its own gipf-test-* container; match-browser flushes it.
+docker run --rm -d --name gipf-test-pr5 redis:7-alpine
+export GIPF_TEST_REDIS_CONTAINER=gipf-test-pr5
+GIPF_TEST_PORT=3189 node tests/serve-public-security.mjs &
 # With Playwright available, or PLAYWRIGHT_MODULE pointing to its installed index.mjs:
 node tests/match-browser.mjs
+docker exec gipf-test-pr5 redis-cli FLUSHDB   # each network may create five accounts a day
 node tests/match-import-browser.mjs
 ```
 

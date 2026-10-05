@@ -13,8 +13,11 @@ boards.chess.move('e2','e4'); boards.chess.move('e7','e5');
 boards.yinsh.handleClick(0,0);
 boards.zertz.selectMarbleColor('white'); boards.zertz.placeMarble(0,0);
 boards.catan.applyMove(boards.catan.getLegalMoves()[0]);
-// This named disposable fixture contains synthetic data only.
-execFileSync('docker',['exec','gipf-pr5-synthetic-redis','redis-cli','FLUSHDB']);
+// The server's disposable gipf-test-* container (synthetic data only).
+const container = process.env.GIPF_TEST_REDIS_CONTAINER;
+if (!/^gipf-test-[a-z0-9-]+$/.test(container || '')) throw new Error('Set GIPF_TEST_REDIS_CONTAINER to the fixture server container');
+const redisCli = (...args) => execFileSync('docker',['exec',container,'redis-cli',...args]);
+redisCli('FLUSHDB');
 const browser = await chromium.launch({ headless: true });
 const contexts = [];
 const errors = [];
@@ -142,6 +145,8 @@ try {
   const pass = 'synthetic-password-for-browser';
   const ownerA = await deriveCredentials('synthetic-shared-a',pass);
   const ownerB = await deriveCredentials('synthetic-shared-b',pass);
+  // Earlier sections create more accounts than one network's daily creation cap allows.
+  redisCli('EVAL',"for _,k in ipairs(redis.call('KEYS','gipf:limit:account-create*')) do redis.call('DEL',k) end return 1",'0');
   for (const owner of [ownerA,ownerB]) {
     const response=await shared.request.post(`${origin}/gipf/api/chessAccount`,{data:{action:'create',u:owner.usernameId,auth:owner.authToken,enc:null}});
     assert.equal(response.status(),200);
@@ -150,13 +155,12 @@ try {
   await shared.goto(`${origin}/gipf/yinsh`); await shared.locator('.game-yinsh').waitFor();
   await shared.getByText('Saved to your account.',{exact:true}).waitFor({timeout:20000});
   const originalId=(await getSnapshot(shared,'yinsh')).id;
-  const login=await shared.context().newPage(); await login.goto(`${origin}/gipf/`);
+  const login=await shared.context().newPage(); await login.goto(`${origin}/gipf/login`);
   await login.getByRole('button',{name:'Sign out',exact:true}).click();
   await login.getByRole('button',{name:'Sign out',exact:true}).click();
-  await login.getByText('Sign in / Create account',{exact:true}).waitFor();
+  await login.getByPlaceholder('Username',{exact:true}).waitFor();
   await shared.waitForFunction(id=>!localStorage.getItem('gipfAccount') && JSON.parse(localStorage.getItem('yinshMatch:v1')||'null')?.id!==id,originalId);
   assert.ok(await login.evaluate(id=>localStorage.getItem(`gipf:recovery:${id}`),ownerA.usernameId));
-  await login.getByText('Sign in / Create account',{exact:true}).click();
   await login.getByPlaceholder('Username',{exact:true}).fill(ownerB.username);
   await login.getByPlaceholder('Password',{exact:true}).fill(pass);
   await login.getByRole('button',{name:'Sign in',exact:true}).click();

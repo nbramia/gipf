@@ -75,3 +75,13 @@
 @media (prefers-reduced-motion: reduce) {
   .landing-page *, .landing-page *::before, .landing-page *::after { animation: none; transition: none; scroll-behavior: auto; }
 }
+.landing-account-link { display: inline-flex; align-items: center; text-decoration: none; }
+.login-shell { max-width: 640px; }
+.login-back { color: var(--landing-blue); font-weight: 600; text-decoration: underline; text-underline-offset: 4px; }
+.login-title { font-family: Georgia, serif; font-size: clamp(40px, 6vw, 56px); font-weight: 400; letter-spacing: -.03em; margin: 20px 0 12px !important; }
+.login-section { background: var(--landing-pale); border-radius: 12px; margin-top: 20px; padding: 24px 28px; display: flex; flex-direction: column; gap: 12px; }
+.login-section h2 { font-size: 20px; font-weight: 600; }
+.login-secret { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.login-secret > label { font-size: 14px; font-weight: 600; }
+.login-saved { align-self: center; font-weight: 600; color: var(--landing-pine); }
+@media (max-width: 380px) { .login-section { padding: 20px 16px; } }

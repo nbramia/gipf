@@ -1,19 +1,15 @@
 // In-game negotiation chat. The human picks an AI power and talks to it; each
-// power keeps a separate thread. When no Anthropic key is set, the panel shows a
-// BYO-key entry prompt and makes NO network call until a key is saved.
+// power keeps a separate thread. When no Anthropic key is set, the panel links to
+// /login (the one place keys are entered) and makes NO network call.
 //
 // Visible chat is plain text only — the agent's private scratchpad is persisted
 // in memory but NEVER rendered here. Scoped under .game-diplomacy.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { POWER_NAMES, POWER_SHORT_NAMES } from '../DiplomacyBoard.js';
-import {
-  getApiKey,
-  setApiKey,
-  sendMessage,
-  createMemory,
-  getAccountUsername,
-} from './agentClient.js';
+import { Link } from 'react-router-dom';
+import { sendMessage, createMemory } from './agentClient.js';
+import { loginHref } from '../../../loginReturn.js';
 import useHasApiKey from '../hooks/useApiKey.js';
 import { appendMessage, getThread } from './memory.js';
 import { serializeBoardContext } from './serializeContext.js';
@@ -42,10 +38,8 @@ export default function ChatPanel({
   const memory = memoryProp || localMemory;
   const setMemory = setMemoryProp || setLocalMemory;
   const [draft, setDraft] = useState('');
-  const [keyDraft, setKeyDraft] = useState('');
   // Reactive: reflects a key set here OR in another tab / GIPF game, live.
   const hasKey = useHasApiKey();
-  const [accountUsername] = useState(() => getAccountUsername());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   // Expand the whole panel into a centered modal overlay for more room.
@@ -75,13 +69,6 @@ export default function ChatPanel({
     const el = threadRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [selected, openCount, expanded, busy, hasKey]);
-
-  function saveKey() {
-    const trimmed = keyDraft.trim();
-    if (!trimmed) return;
-    setApiKey(trimmed); // broadcasts -> useHasApiKey updates here and elsewhere
-    setKeyDraft('');
-  }
 
   async function send() {
     const text = draft.trim();
@@ -137,29 +124,13 @@ export default function ChatPanel({
         </button>
       </div>
 
-      {accountUsername && (
-        <p className="dip-chat-keygate-hint">
-          Signed in as {accountUsername} — your API key is synced from your account. Manage it on the home page.
-        </p>
-      )}
-
       {!hasKey ? (
         <div className="dip-chat-keygate">
           <p className="dip-chat-keygate-hint">
-            Add your Anthropic API key to negotiate with the other powers. It is stored only in this
-            browser and sent only to your own Anthropic account.
+            Negotiating with the other powers uses your Anthropic API key. Sign in, or add a key for
+            this device, and every game uses it.
           </p>
-          <input
-            type="password"
-            className="dip-chat-keyinput"
-            placeholder="sk-ant-..."
-            value={keyDraft}
-            onChange={(e) => setKeyDraft(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && saveKey()}
-          />
-          <button type="button" className="dip-chat-keybtn" onClick={saveKey} disabled={!keyDraft.trim()}>
-            Save key
-          </button>
+          <Link to={loginHref('/diplomacy')} className="dip-chat-keybtn">Sign in / add key</Link>
         </div>
       ) : (
         <>

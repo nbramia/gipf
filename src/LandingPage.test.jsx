@@ -1,133 +1,60 @@
-// Smoke test for LandingPage — covers the six game cards plus the app-level
-// account widget (signed-out prompt, signed-out form reveal, signed-in state
-// and sign-out). See src/games/chess/ChessGame.test.js for the render-smoke
-// style this mirrors.
+// LandingPage: the six game cards, plus a single link to /login. Sign-in and
+// keys live only on /login; the catalogue never renders credential inputs.
 
 import '@testing-library/jest-dom';
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { render, screen, fireEvent } from '@testing-library/react';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 
 import LandingPage from './LandingPage';
+import AccountBoundary from './AccountBoundary';
+import { games } from './games-registry';
 
-const ACCOUNT_KEY = 'gipfAccount';
-const API_KEY = 'gipfApiKey';
-const LICHESS_KEY = 'chessLichessToken';
-
-function renderLanding() {
+function renderLanding({ basename } = {}) {
   return render(
-    <MemoryRouter>
-      <LandingPage />
+    <MemoryRouter basename={basename} initialEntries={[basename ? `${basename}/` : '/']}>
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/login" element={<p>Login page</p>} />
+      </Routes>
     </MemoryRouter>
   );
 }
 
-describe('LandingPage', () => {
-  beforeEach(() => {
-    localStorage.clear();
-  });
+beforeEach(() => localStorage.clear());
 
-  test('renders the six game cards and the sign-in prompt when signed out', () => {
-    renderLanding();
+test('renders every registry game under the base path, before the optional account link', () => {
+  renderLanding({ basename: '/gipf' });
+  for (const game of games) expect(screen.getByRole('link', { name: `Play ${game.name}` })).toHaveAttribute('href', `/gipf${game.path}`);
+  const catalogue = screen.getByRole('navigation', { name: 'Choose a game' });
+  const optional = screen.getByRole('region', { name: 'Your account' });
+  expect(catalogue.compareDocumentPosition(optional) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
 
-    expect(screen.getByText('YINSH')).toBeInTheDocument();
-    expect(screen.getByText('ZERTZ')).toBeInTheDocument();
-    expect(screen.getByText('CHESS')).toBeInTheDocument();
-    expect(screen.getByText('CATAN')).toBeInTheDocument();
-    expect(screen.getByText('SPLENDOR')).toBeInTheDocument();
-    expect(screen.getByText('DIPLOMACY')).toBeInTheDocument();
+test('signed out, offers a single Sign in link to /login and no credential inputs', () => {
+  renderLanding();
+  expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
+  expect(document.querySelector('input')).toBeNull();
+  fireEvent.click(screen.getByRole('link', { name: 'Sign in' }));
+  expect(screen.getByText('Login page')).toBeInTheDocument();
+});
 
-    expect(screen.getByRole('button', { name: 'Sign in / Create account' })).toBeInTheDocument();
-  });
+test('signed in, names the account and links to account and keys', () => {
+  localStorage.setItem('gipfAccount', JSON.stringify({
+    v: 1, username: 'Synthetic', usernameId: 'a'.repeat(64), authToken: 'b'.repeat(64), aesKey: 'x', profileId: 'c'.repeat(64),
+  }));
+  renderLanding();
+  expect(screen.getByText('Signed in as Synthetic')).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Account and keys' })).toHaveAttribute('href', '/login');
+  expect(screen.queryByRole('button', { name: /sign out/i })).toBeNull();
+});
 
-  test('clicking the sign-in button reveals the form and the privacy copy', () => {
-    renderLanding();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Sign in / Create account' }));
-
-    expect(screen.getByPlaceholderText('Username')).toBeInTheDocument();
-    expect(screen.getByPlaceholderText('Password')).toBeInTheDocument();
-    expect(screen.getByText(/Your password never leaves this device/)).toBeInTheDocument();
-  });
-
-  test('clicking "Create account" reveals the confirm-password field and the no-recovery warning', () => {
-    renderLanding();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Sign in / Create account' }));
-    expect(screen.queryByPlaceholderText('Confirm password')).not.toBeInTheDocument();
-
-    fireEvent.change(screen.getByPlaceholderText('Username'), { target: { value: 'newplayer' } });
-    fireEvent.change(screen.getByPlaceholderText('Password'), { target: { value: 'hunter22' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Create account' }));
-
-    expect(screen.getByPlaceholderText('Confirm password')).toBeInTheDocument();
-    expect(screen.getByText(/there is no password reset and no email on file/i)).toBeInTheDocument();
-  });
-
-  test('the show/hide toggle reveals the password field text', () => {
-    renderLanding();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Sign in / Create account' }));
-    const passwordInput = screen.getByPlaceholderText('Password');
-    expect(passwordInput).toHaveAttribute('type', 'password');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Show password' }));
-    expect(passwordInput).toHaveAttribute('type', 'text');
-  });
-
-  test('with a valid session, renders signed-in state; sign out (after confirming) returns to signed-out and clears seeded credentials', async () => {
-    localStorage.setItem(
-      ACCOUNT_KEY,
-      JSON.stringify({
-        v: 1,
-        username: 'Nathan',
-        usernameId: 'a'.repeat(64),
-        authToken: 'b'.repeat(64),
-        aesKey: 'x',
-        profileId: 'c'.repeat(64),
-      })
-    );
-    localStorage.setItem(API_KEY, 'sk-test-key');
-    localStorage.setItem(LICHESS_KEY, 'lip-test-token');
-
-    renderLanding();
-
-    expect(screen.getByText('Signed in as Nathan')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
-
-    // Inline confirmation names the account and explains credential removal.
-    expect(screen.getByText(/Credentials are removed/i)).toBeInTheDocument();
-    expect(screen.getByText(/Sign out of/)).toBeInTheDocument();
-
-    // The second "Sign out" is the confirm action inside the prompt.
-    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
-
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in / Create account' })).toBeInTheDocument());
-    expect(screen.queryByText('Signed in as Nathan')).not.toBeInTheDocument();
-    expect(localStorage.getItem(API_KEY)).toBeNull();
-    expect(localStorage.getItem(LICHESS_KEY)).toBeNull();
-  });
-
-  test('declining the sign-out confirmation keeps the session', () => {
-    localStorage.setItem(
-      ACCOUNT_KEY,
-      JSON.stringify({
-        v: 1,
-        username: 'Nathan',
-        usernameId: 'a'.repeat(64),
-        authToken: 'b'.repeat(64),
-        aesKey: 'x',
-        profileId: 'c'.repeat(64),
-      })
-    );
-
-    renderLanding();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-
-    expect(screen.getByText('Signed in as Nathan')).toBeInTheDocument();
-    expect(screen.queryByText(/Credentials are removed/i)).not.toBeInTheDocument();
-    expect(localStorage.getItem(ACCOUNT_KEY)).not.toBeNull();
-  });
+test('integrated guest catalogue is first in keyboard order and statistics recovery remains usable', () => {
+  render(<AccountBoundary><MemoryRouter><LandingPage /></MemoryRouter></AccountBoundary>);
+  const controls = document.querySelectorAll('a[href], button, input');
+  expect(controls[0]).toHaveAccessibleName('Play YINSH');
+  fireEvent.click(screen.getByRole('button', { name: 'Statistics recovery' }));
+  expect(screen.getByRole('dialog', { name: 'Statistics recovery' })).toHaveTextContent('No statistics alternatives saved.');
+  fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }));
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });

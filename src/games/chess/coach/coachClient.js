@@ -140,7 +140,7 @@ export async function runThreadTurn({ context, history, question, analyze, onToo
     }
     if (!res.ok) {
       const msg = res.status === 401
-        ? 'Your API key was rejected. Check it in Settings.'
+        ? 'Your API key was rejected. Check it under Sign in / add key.'
         : 'The coach had trouble responding. Try again.';
       return { error: 'upstream', text: msg, messages };
     }

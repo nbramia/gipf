@@ -11,6 +11,17 @@ This change keeps the outer gate, routes, deployment prefix, engines, and models
 unchanged. Do not open public access until the integration and deployment checks
 below pass. Related to https://github.com/nbramia/ramia/issues/22.
 
+## Sign-in surface
+
+`/login` (`src/LoginPage.jsx`) is the only place to sign in, create an account, sign
+out, or enter the Anthropic key and Lichess token. Signed in, saved keys are encrypted
+under the account's AES key and stored with `setKey`; as a guest they stay on the
+device. The landing page links to `/login`, and each game that uses a key links to
+`/login?return=/<game>`. `return` must exactly equal a `games-registry.js` path,
+otherwise sign-in returns to `/` (`src/loginReturn.js`). Games contain no credential
+or key inputs, enforced by `src/gamesLoginBoundary.test.js`. On the retired gated
+hosts (`gipf.vercel.app`, `ramia.us/gipf`) the page points to play.ramia.us instead.
+
 ## Compatibility and authorization
 
 Both account modules preserve the original username normalization, namespace,
@@ -216,7 +227,7 @@ both-hostname response-header coverage required.
 ## Focused verification and remaining release checks
 
 ```sh
-CI=true npm test -- --watchAll=false --runInBand --runTestsByPath src/games/chess/engine/account.test.js src/games/chess/engine/chessAccountEndpoint.test.js src/games/chess/engine/profileSync.test.js src/LandingPage.test.jsx src/games/chess/ChessGame.test.js
+CI=true npm test -- --watchAll=false --runInBand --runTestsByPath src/games/chess/engine/account.test.js src/games/chess/engine/chessAccountEndpoint.test.js src/games/chess/engine/profileSync.test.js src/LandingPage.test.jsx src/LoginPage.test.jsx src/gamesLoginBoundary.test.js src/games/chess/ChessGame.test.js
 node --test tests/public-security.test.mjs tests/ai-security.test.mjs
 # Explicit disposable Redis only; the contract test FLUSHDBs this container.
 export GIPF_TEST_REDIS_CONTAINER=gipf-test-public-accounts

@@ -19,7 +19,7 @@ try {
   const guest={v:1,game:'yinsh',id:'synthetic-guest-import',updatedAt:1,state:encodeBoard(new YinshBoard()),ui:{humanPlayer:1,twoPlayerMode:true,showModal:true}};
   await page.evaluate(s=>localStorage.setItem('yinshMatch:v1',JSON.stringify(s)),guest);
   const signIn=async importGuest=> {
-    await page.getByText('Sign in / Create account',{exact:true}).click();
+    await page.goto(`${origin}/gipf/login`);
     const checkbox=page.getByRole('checkbox',{name:"Import this device's guest progress when signing in"});
     assert.equal(await checkbox.isChecked(),false);
     if(importGuest) await checkbox.check();
@@ -27,12 +27,13 @@ try {
     await page.getByPlaceholder('Password',{exact:true}).fill(password);
     await page.getByRole('button',{name:'Sign in',exact:true}).click();
     await page.waitForFunction(id=>JSON.parse(localStorage.getItem('gipfAccount')||'null')?.usernameId===id,owner.usernameId);
-    await page.getByRole('button',{name:'Sign out',exact:true}).waitFor();
+    await page.getByText(`Signed in as ${owner.username}`).waitFor();
   };
   const signOut=async()=> {
+    await page.goto(`${origin}/gipf/login`);
     await page.getByRole('button',{name:'Sign out',exact:true}).click();
     await page.getByRole('button',{name:'Sign out',exact:true}).click();
-    await page.getByText('Sign in / Create account',{exact:true}).waitFor();
+    await page.getByPlaceholder('Username',{exact:true}).waitFor();
   };
   await signIn(false);
   assert.equal(await page.evaluate(()=>localStorage.getItem('yinshMatch:v1')),null);

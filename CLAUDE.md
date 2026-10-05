@@ -188,10 +188,12 @@ Before modifying game logic for either game:
 | File | Purpose |
 |------|---------|
 | `src/App.jsx` | React Router with lazy-loaded game routes |
-| `src/LandingPage.jsx` | Landing page linking to each game + the app-wide account widget |
+| `src/LandingPage.jsx` | Landing page linking to each game + a single "Sign in" / account link to `/login` |
+| `src/LoginPage.jsx` | `/login`: the only place to sign in, create an account, sign out, and enter the Anthropic key and Lichess token (synced encrypted when signed in, device-only for guests) |
+| `src/loginReturn.js` | `/login?return=` allowlist (exact `games-registry.js` paths, else `/`) and the `loginHref()` games link with |
 | `src/landing.css` | Scoped catalogue and optional account presentation styles |
 | `scripts/landing-fixture/` | Synthetic account browser checks and production guest-launch check; prerequisites and limits in `docs/public-games-design.md` |
-| `src/account.js` | App-level account module -- identical copy of chess's `engine/account.js` (per-consumer copy convention); landing-page sign-in/out, key decrypt into `gipfApiKey` |
+| `src/account.js` | The one account module: credential derivation, key encryption, session, sign-in/out with key decrypt into `gipfApiKey` (chess's `engine/account.js` re-exports it) |
 | `src/MatchBoundary.jsx` | Match hydration, persistence context, conflict choices, and recovery UI |
 | `src/matchStore.js` | Account-bound local match storage, recovery alternatives, and cloud CAS requests |
 | `src/matchSchema.js` | Shared versioned match envelope and size/field validation |
@@ -254,7 +256,7 @@ between game directories. The account module retains its per-consumer copies.
 | `engine/rating.js` | Pure Elo math: K-factor, expected score, `updateRating`, `nearestRung`, `mergeRating` |
 | `engine/ratingSync.js` | Cross-device rating sync client (SHA-256 of the API key -> opaque id) |
 | `engine/profileSync.js` | Cross-device profile sync client -- supersedes ratingSync (rating + opponent history + puzzles + mistakes, same key-hash id) |
-| `engine/account.js` | Username+password accounts: client-side PBKDF2 credential derivation, API-key encryption, session cache |
+| `engine/account.js` | Re-export of the app-level `src/account.js` |
 | `engine/playerHistory.js` | localStorage store: per-opponent W/L/D history (`chessOppHistory`) |
 | `coach/motifs.js` | Pure chess.js position facts (hanging piece, fork, pin, king-shelter, development) feeding the keyless commentary |
 | `coach/tacticSolver.js` | Depth-limited material search verifying non-mate tactical puzzles (mirrors `mateSolver.js`) |
@@ -277,7 +279,7 @@ endpoint `api/chessProfile.js` (rating, opponent history, puzzle/mistake progres
 old `api/chessRating.js` returns 410. Sync needs a Redis REST store
 (`KV_REST_API_URL` + `KV_REST_API_TOKEN`, or the `UPSTASH_REDIS_REST_*` aliases);
 without it the endpoints return 503 and ratings persist in localStorage only. A
-username+password account (`api/chessAccount.js`, `engine/account.js`) also carries the API key + Lichess explorer token + profile across
+username+password account (`api/chessAccount.js`, `src/account.js`), managed at `/login`, also carries the API key + Lichess explorer token + profile across
 devices using usernameId plus a verified password-derived auth token. Public IDs
 never authorize persistence. See [docs/public-accounts.md](docs/public-accounts.md).
 
@@ -363,6 +365,7 @@ See [docs/diplomacy.md](docs/diplomacy.md) for rule coverage and AI/agents detai
 
 ```
 /           -> LandingPage (always in main bundle)
+/login      -> LoginPage (sign in/out, account and keys; ?return=/<game> from the registry)
 /yinsh      -> YinshGame (lazy-loaded chunk)
 /zertz      -> ZertzGame (lazy-loaded chunk)
 /chess      -> ChessGame (lazy-loaded chunk)
@@ -503,15 +506,16 @@ diplomacyGameState    # versioned in-progress save (board snapshot + UI phase + 
 **Shared (app-wide):**
 
 ```
-gipfApiKey   # one BYO Anthropic key, used by the chess coach, the Catan rules
-             # chat, and the Splendor rules chat. Legacy chessApiKey / catanApiKey
+gipfApiKey   # one BYO Anthropic key, used by the chess coach, the Catan and
+             # Splendor rules chats, and Diplomacy negotiation. Entered only at
+             # /login (synced encrypted when signed in, device-only for guests). Legacy chessApiKey / catanApiKey
              # are migrated into it on first read. Each game keeps an identical
              # copy of the storage helper (no cross-game import).
 gipf:account-transition # Temporary account-switch lease marker {id, until}
 gipfAccount  # username+password account session (derived credentials, cached
              # locally so the client isn't re-running PBKDF2 every load).
-             # App-wide: landing-page widget + chess settings block; Catan,
-             # Splendor, and Diplomacy show signed-in awareness only. Signing
+             # Written only by /login; games read it and link to
+             # /login?return=/<game> for sign-in and keys. Signing
              # out clears credentials and visible progress; outgoing progress
              # is retained encrypted in gipf:recovery:<usernameId>.
 ```

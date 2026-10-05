@@ -33,4 +33,25 @@ describe('ChessGame — render smoke', () => {
     expect(container.textContent).toContain('New Game');
     expect(container.textContent).toContain('Coach');
   });
+
+  test('has no sign-in or key inputs, links to /login, and leaves stored keys and progress in place', () => {
+    localStorage.clear();
+    localStorage.setItem('gipfApiKey', 'sk-ant-synthetic');
+    localStorage.setItem('chessLichessToken', 'lip_synthetic');
+    localStorage.setItem('chessRating', '1400');
+    const { container, getAllByRole } = render(
+      <MemoryRouter>
+        <ChessGame />
+      </MemoryRouter>
+    );
+    expect(container.querySelector('input[type="password"]')).toBeNull();
+    expect(container.textContent).not.toMatch(/Create account|Confirm password/);
+    const links = getAllByRole('link').map(a => a.getAttribute('href'));
+    expect(links).toContain('/login?return=/chess');
+    expect(container.textContent).toContain('Anthropic key saved ✓');
+    expect(container.textContent).toContain('Lichess token saved ✓');
+    expect(localStorage.getItem('gipfApiKey')).toBe('sk-ant-synthetic');
+    expect(localStorage.getItem('chessLichessToken')).toBe('lip_synthetic');
+    expect(localStorage.getItem('chessRating')).toBe('1400');
+  });
 });

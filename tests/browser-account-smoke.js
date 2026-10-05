@@ -12,7 +12,7 @@ async (page) => {
     if (await choice.isVisible()) await choice.click();
   };
   const signIn = async (p, name, create = false, importGuest = false) => {
-    await p.getByRole('button', { name: 'Sign in / Create account' }).click();
+    await p.goto(base + '/login');
     const consent = p.getByRole('checkbox', { name: "Import this device's guest progress when signing in" });
     check(!(await consent.isChecked()), 'guest import defaults unchecked');
     if (importGuest) await consent.check();
@@ -27,9 +27,11 @@ async (page) => {
     await p.getByText(`Signed in as ${name}`).waitFor();
   };
   const signOut = async p => {
+    await p.goto(base + '/login');
+    await settlePreferences(p, p.getByRole('button', { name: 'Sign out', exact: true }));
     await p.getByRole('button', { name: 'Sign out', exact: true }).click();
     await p.getByRole('button', { name: 'Sign out', exact: true }).click();
-    await p.getByRole('button', { name: 'Sign in / Create account' }).waitFor();
+    await p.getByPlaceholder('Username', { exact: true }).waitFor();
   };
   await page.goto(base);
   await page.evaluate(() => {
