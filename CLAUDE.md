@@ -68,18 +68,18 @@ therefore per-store, not per-origin. Which branch each project deploys is a proj
 setting, not something this repo encodes: check the Vercel dashboard before assuming a
 push to `main` reaches `play`.
 
-`public/tiles.json` is generated from `homepage`, not `PUBLIC_URL`, so every build, including
-`play`'s, emits `/gipf`-prefixed hrefs. Those resolve correctly only under `ramia.us/gipf`. Home
+`public/tiles.json` takes its href prefix the way CRA takes the router basename: a
+`PUBLIC_URL` build variable wins, otherwise `homepage`. `play` sets `PUBLIC_URL=/`, so its
+manifest lists `/chess`, `/yinsh` and the rest; `gipf` sets none and lists `/gipf/<game>`. Home
 (`nbramia/ramia` `apps/home/src/registry.js`) reads `https://play.ramia.us/tiles.json` and
-resolves each href against that origin, so its Games links point at `play.ramia.us/gipf/<game>`,
-which no route matches when `play` is built for the root (`src/App.jsx` has no catch-all, so
-the page renders empty). Not yet checked in a browser.
+resolves each href against that origin, so the two must agree — a prefixed href there becomes
+`play.ramia.us/gipf/<game>`, which no route matches (`src/App.jsx` has no catch-all).
 
 **The app therefore does not own the URL root, and code must not assume it does.**
 
-- `homepage` in `package.json` sets the deploy prefix; CRA exposes it as
-  `process.env.PUBLIC_URL` and `<BrowserRouter basename>` reads it. One build works at a
-  subpath and at a bare root, because `PUBLIC_URL` is empty when there is no `homepage`.
+- `homepage` in `package.json` sets the deploy prefix unless a `PUBLIC_URL` build variable
+  overrides it; CRA exposes the result as `process.env.PUBLIC_URL` and
+  `<BrowserRouter basename>` reads it. One codebase works at a subpath and at a bare root.
 - **Serverless calls must carry the prefix:** `` `${process.env.PUBLIC_URL || ''}/api/x` ``.
   A root-absolute `/api/x` resolves against the shared host, where these functions do not
   exist, and fails quietly — the request gets someone else's 404 and the feature simply
