@@ -58,3 +58,45 @@ test('integrated guest catalogue is first in keyboard order and statistics recov
   fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }));
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });
+
+describe('automatic sign-in from the ramia.us session', () => {
+  const originalLocation = window.location;
+  beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+    delete window.location;
+    window.location = { ...originalLocation, hostname: 'play.ramia.us', replace: jest.fn() };
+  });
+  afterEach(() => { window.location = originalLocation; });
+
+  test('a signed-out visit tries once, top-level, returning to the catalogue', () => {
+    renderLanding();
+    expect(window.location.replace).toHaveBeenCalledWith('/api/auth/login?return=%2F&silent=home');
+  });
+
+  test('at most once per browser session, even after the ten-minute window', () => {
+    sessionStorage.setItem('gipf:silent-sign-in-home', '1');
+    renderLanding();
+    expect(window.location.replace).not.toHaveBeenCalled();
+  });
+
+  test('not within ten minutes of another attempt (for example from /login)', () => {
+    localStorage.setItem('gipf:silent-sign-in-at', String(Date.now()));
+    renderLanding();
+    expect(window.location.replace).not.toHaveBeenCalled();
+  });
+
+  test('not after signing out of Games, and not when already signed in', () => {
+    localStorage.setItem('gipf:silent-sign-in-off', '1');
+    const { unmount } = renderLanding();
+    expect(window.location.replace).not.toHaveBeenCalled();
+    unmount();
+    localStorage.removeItem('gipf:silent-sign-in-off');
+    localStorage.setItem('gipfAccount', JSON.stringify({
+      v: 1, username: 'Synthetic', usernameId: 'a'.repeat(64), authToken: 'b'.repeat(64), aesKey: 'x', profileId: 'c'.repeat(64),
+    }));
+    renderLanding();
+    expect(screen.getByText('Signed in as Synthetic')).toBeInTheDocument();
+    expect(window.location.replace).not.toHaveBeenCalled();
+  });
+});

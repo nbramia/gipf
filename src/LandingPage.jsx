@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { loadSession } from './account.js';
+import { loadSession, signInUrl } from './account.js';
+import { claimSilentAttempt } from './silentSignIn.js';
 
 import { games } from './games-registry.js';
 import './landing.css';
@@ -36,6 +37,11 @@ function BoardMotif({ path }) {
 
 export default function LandingPage() {
   const account = loadSession();
+  // Signed in to ramia.us but not to Games: sign in without a click, at most once per
+  // browser session. A failed attempt comes straight back here.
+  useEffect(() => {
+    if (!account && claimSilentAttempt('home')) window.location.replace(signInUrl('/', { silent: 'home' }));
+  }, []);
   return (
     <main className="landing-page">
       <div className="landing-shell">
