@@ -164,9 +164,9 @@ describe('session persistence', () => {
     profileId: 'c'.repeat(64),
   };
 
-  test('save/load round-trips via real localStorage', async () => {
+  test('without IndexedDB, save/load keeps the v1 shape; its auth token marks the identity', async () => {
     await saveSession(session);
-    expect(loadSession()).toEqual({ v: 1, ...session });
+    expect(loadSession()).toEqual({ v: 1, ...session, sid: session.authToken });
   });
 
   test('loadSession returns null when nothing is stored', () => {

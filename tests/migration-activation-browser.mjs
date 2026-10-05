@@ -28,7 +28,7 @@ try {
    if(url.pathname===`${prefix}/api/chessProfile`){
      const body=JSON.parse(req.postData());
      const res={statusCode:200,setHeader(){},status(n){this.statusCode=n;return this;},json(v){this.body=v;return this;}};
-     await profile({method:'POST',headers:{},socket:{remoteAddress:'192.0.2.89'},body},res);
+     await profile({method:'POST',headers:{'content-type':req.headers()['content-type']},socket:{remoteAddress:'192.0.2.89'},body},res);
      if(pauseRead&&body.action==='read'&&body.scope==='settings'){pauseRead=false;readReached();await new Promise(resolve=>{releaseRead=resolve;});}
      if(loseResponse&&body.action==='migration-activate'){loseResponse=false;return route.abort();}
      return route.fulfill({status:res.statusCode,contentType:'application/json',body:JSON.stringify(res.body)});

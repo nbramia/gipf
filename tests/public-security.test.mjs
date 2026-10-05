@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { guardRequest, authenticate, networkIdentity, hash, AUTH_FAILURES } from '../server/publicSecurity.js';
 
 const response = () => ({ statusCode: 200, headers: {}, setHeader(k,v) { this.headers[k]=v; }, status(n) { this.statusCode=n; return this; }, json(v) { this.body=v; return this; }, end() {} });
-const req = (body={}) => ({method:'POST', headers:{}, socket:{remoteAddress:'192.0.2.1'}, body});
+const req = (body={}) => ({method:'POST', headers:{'content-type':'application/json'}, socket:{remoteAddress:'192.0.2.1'}, body});
 process.env.KV_REST_API_URL='https://synthetic.invalid';
 process.env.KV_REST_API_TOKEN='synthetic';
 test('durable limits work across separately imported handler instances', async () => {
@@ -36,9 +36,10 @@ test('storage failures fail closed and redact detail', async()=>{
   const res=response(); assert.equal(await guardRequest(req(),res),false); assert.equal(res.statusCode,503);
   assert.ok(!JSON.stringify(res).includes('synthetic-private-value'));
 });
-test('app and Chess account copies remain identical', async()=>{
-  const { readFile }=await import('node:fs/promises');
-  assert.equal(await readFile(new URL('../src/account.js',import.meta.url),'utf8'),await readFile(new URL('../src/games/chess/engine/account.js',import.meta.url),'utf8'));
+test('Chess uses the one app account module', async()=>{
+  const app=await import('../src/account.js');
+  const chess=await import('../src/games/chess/engine/account.js');
+  for (const name of Object.keys(app)) assert.equal(chess[name],app[name],name);
 });
 // Minimal synthetic store for the commands these boundaries issue.
 function fakeStore() {
@@ -62,7 +63,7 @@ test('IPv6 addresses are limited per /64, IPv4 per address', async()=>{
   assert.notEqual(networkIdentity('192.0.2.7'),networkIdentity('192.0.2.8'));
   fakeStore();
   const second=await import('../server/publicSecurity.js?instance=v6');
-  const v6=ip=>({method:'POST',headers:{},socket:{remoteAddress:ip},body:{}});
+  const v6=ip=>({method:'POST',headers:{'content-type':'application/json'},socket:{remoteAddress:ip},body:{}});
   for(let i=0;i<3;i++) assert.equal(await guardRequest(v6(`2001:db8:1:2::${i+1}`),response(),{bucket:'v6',limit:3}),true);
   const res=response();
   assert.equal(await second.guardRequest(v6('2001:db8:1:2:aaaa::9'),res,{bucket:'v6',limit:3}),false);
@@ -79,7 +80,7 @@ test('account creation is capped per network and across all networks', async()=>
   fakeStore();
   const { default: account, CREATE_PER_NETWORK, CREATE_PER_DAY }=await import('../api/chessAccount.js');
   const enc={iv:'AAAAAAAAAAAAAAAA',ct:'AAAAAAAAAAAAAAAAAAAAAA=='};
-  const create=async (n,ip)=>{ const res=response(); await account({method:'POST',headers:{},socket:{remoteAddress:ip},body:{action:'create',u:n.toString(16).padStart(64,'0'),auth:'b'.repeat(64),enc}},res); return res.statusCode; };
+  const create=async (n,ip)=>{ const res=response(); await account({method:'POST',headers:{'content-type':'application/json'},socket:{remoteAddress:ip},body:{action:'create',u:n.toString(16).padStart(64,'0'),auth:'b'.repeat(64),enc}},res); return res.statusCode; };
   let n=0;
   for(let i=0;i<CREATE_PER_NETWORK;i++) assert.equal(await create(++n,'192.0.2.1'),200);
   assert.equal(await create(++n,'192.0.2.1'),429);
@@ -91,7 +92,7 @@ test('a taken username spends no creation budget', async()=>{
   fakeStore();
   const { default: account, CREATE_PER_NETWORK }=await import('../api/chessAccount.js');
   const enc={iv:'AAAAAAAAAAAAAAAA',ct:'AAAAAAAAAAAAAAAAAAAAAA=='};
-  const create=async u=>{ const res=response(); await account({method:'POST',headers:{},socket:{remoteAddress:'203.0.113.9'},body:{action:'create',u,auth:'b'.repeat(64),enc}},res); return res.statusCode; };
+  const create=async u=>{ const res=response(); await account({method:'POST',headers:{'content-type':'application/json'},socket:{remoteAddress:'203.0.113.9'},body:{action:'create',u,auth:'b'.repeat(64),enc}},res); return res.statusCode; };
   assert.equal(await create('e'.repeat(64)),200);
   for(let i=0;i<CREATE_PER_NETWORK*2;i++) assert.equal(await create('e'.repeat(64)),409);
   for(let i=1;i<CREATE_PER_NETWORK;i++) assert.equal(await create(i.toString(16).padStart(64,'f')),200);

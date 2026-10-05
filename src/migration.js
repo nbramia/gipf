@@ -1,5 +1,5 @@
 import { captureFence } from './accountFence.js';
-import { loadSession, decryptApiKey, encryptApiKey } from './account.js';
+import { loadSession, decryptApiKey, encryptApiKey, accountKey } from './account.js';
 import { fromLegacy } from './games/chess/matchSnapshot.js';
 import { validatePortableMatch } from './migrationMatchSchema.js';
 import { validateDiplomacy } from './migrationDiplomacySchema.js';
@@ -126,7 +126,7 @@ export async function exportProgress(sourceOrigin, guard = captureIdentity()) {
     if (sealed) {
       try {
         guard.check();
-        const decoded = await decryptApiKey(guard.session.aesKey,JSON.parse(sealed));
+        const decoded = await decryptApiKey(await accountKey(guard.session),JSON.parse(sealed));
         guard.check();
         if (bytes(decoded) > MAX_BYTES) fail();
         const recovered = JSON.parse(decoded);
@@ -233,7 +233,7 @@ async function loadStages(guard) {
   const raw = localStorage.getItem(stageKey(guard));
   if (raw === null) return {raw,decoded:'[]',stages:[],valid:[],unreadable:0};
   if (bytes(raw) > MAX_BYTES * 2) fail();
-  const decoded = guard.session ? await decryptApiKey(guard.session.aesKey,JSON.parse(raw)) : raw;
+  const decoded = guard.session ? await decryptApiKey(await accountKey(guard.session),JSON.parse(raw)) : raw;
   guard.check();
   if (bytes(decoded) > MAX_BYTES) fail();
   const stages = JSON.parse(decoded);
@@ -288,7 +288,7 @@ export async function stageImport(input, choice, guard = captureIdentity()) {
     const end = decoded.lastIndexOf(']');
     const next = decoded.slice(0,end) + (stages.length ? ',' : '') + JSON.stringify(bundle) + decoded.slice(end);
     if (stages.length >= 50 || bytes(next) > MAX_BYTES) throw new Error('stage_full');
-    const value = guard.session ? JSON.stringify(await encryptApiKey(guard.session.aesKey,next)) : next;
+    const value = guard.session ? JSON.stringify(await encryptApiKey(await accountKey(guard.session),next)) : next;
     guard.check();
     if (localStorage.getItem(stageKey(guard)) !== raw) throw new Error('stage_changed');
     // The sole mutation: atomic replacement of one account-owned stage value.

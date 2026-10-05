@@ -2,7 +2,7 @@ import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import AccountBoundary from './AccountBoundary.jsx';
 import { loadSession, retainProgress } from './account.js';
-jest.mock('./account.js', () => ({loadSession:jest.fn(),retainProgress:jest.fn()}));
+jest.mock('./account.js', () => ({loadSession:jest.fn(),retainProgress:jest.fn(),REQUEST_HEADERS:{'Content-Type':'application/json','X-Games-Request':'1'},credentialFields:()=>({})}));
 beforeEach(() => {
   localStorage.clear(); jest.useFakeTimers();
   loadSession.mockReturnValue({usernameId:'synthetic',authToken:'synthetic'});

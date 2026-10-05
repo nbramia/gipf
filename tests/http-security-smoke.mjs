@@ -53,3 +53,27 @@ const later=emptyIds[1];redis('SET',`chess:rating:${later}`,JSON.stringify({rati
 await call('chessProfile',{action:'claim',u,auth,legacyId:later},200);
 assert.equal(redis('GET',`gipf:limit:claim-user:${hash(u)}`),'2');
 console.log('PASS: HTTP bad-auth flood then correct login/setKey; empty/repeated claims then real migration');
+
+// Session cookie: created once from the derived token, then the only credential sent.
+redis('DEL',`gipf:limit:account:${hash('127.0.0.1')}`,`gipf:limit:sync:${hash('127.0.0.1')}`);
+const origin=new URL(base).origin;
+const same={'Content-Type':'application/json','X-Games-Request':'1',Origin:origin,'Sec-Fetch-Site':'same-origin'};
+const post=(name,body,headers=same,cookie)=>fetch(base+name,{method:'POST',headers:{...headers,...(cookie?{Cookie:cookie}:{})},body:typeof body==='string'?body:JSON.stringify(body)});
+const started=await post('session',{action:'create',u,auth});
+assert.equal(started.status,200);
+const setCookie=started.headers.get('set-cookie');
+assert.match(setCookie,/^__Host-games_session=[A-Za-z0-9_-]{43}; Path=\/; HttpOnly; Secure; SameSite=Lax; Max-Age=7776000$/);
+const cookie=setCookie.split(';')[0];
+assert.equal((await post('chessProfile',{action:'read'},same,cookie)).status,200);
+assert.equal((await post('chessAccount',{action:'login'},same,cookie)).status,200);
+assert.equal((await post('chessProfile',{action:'read'},{'Content-Type':'application/json',Origin:origin},cookie)).status,403);
+assert.equal((await post('chessProfile',{action:'read'},{...same,Origin:'https://evil.example'},cookie)).status,403);
+assert.equal((await post('chessProfile',JSON.stringify({action:'read'}),{...same,'Content-Type':'text/plain'},cookie)).status,415);
+assert.equal((await fetch(base+'session',{headers:{Cookie:cookie}})).status,200);
+const ended=await post('session',{action:'logout'},same,cookie);
+assert.equal(ended.status,200);
+assert.match(ended.headers.get('set-cookie'),/^__Host-games_session=; .*Max-Age=0$/);
+assert.equal((await post('chessProfile',{action:'read'},same,cookie)).status,401);
+assert.equal((await fetch(base+'session',{headers:{Cookie:cookie}})).status,401);
+console.log('PASS: session cookie flags, cookie-authenticated reads, CSRF refusals, logout revocation');
+

@@ -10,7 +10,7 @@ const u='a'.repeat(64), auth='b'.repeat(64), other='c'.repeat(64), legacy='d'.re
 const enc={iv:'AAAAAAAAAAAAAAAA',ct:'AAAAAAAAAAAAAAAAAAAAAA=='};
 const response = () => ({statusCode:200,setHeader(){},status(n){this.statusCode=n;return this;},json(body){this.body=body;return this;}});
 async function call(handler, body, method='POST', ip='192.0.2.1') {
-  const res=response(); await handler({method,headers:{},socket:{remoteAddress:ip},body},res);return res;
+  const res=response(); await handler({method,headers:{'content-type':'application/json'},socket:{remoteAddress:ip},body},res);return res;
 }
 beforeEach(()=>{
   redis('FLUSHDB');

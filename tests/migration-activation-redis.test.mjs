@@ -16,7 +16,7 @@ const file=(records=[preference('chessDarkMode','true'),preference('chessRating'
 const payload=bundle=>({bundle,selected:bundle.records.map(r=>`${r.kind}/${r.id}`)});
 async function call(body,handler=profile) {
  const res={statusCode:200,setHeader(){},status(n){this.statusCode=n;return this;},json(v){this.body=v;return this;}};
- await handler({method:'POST',headers:{},socket:{remoteAddress:'192.0.2.88'},body:{u,auth,...body}},res); return res;
+ await handler({method:'POST',headers:{'content-type':'application/json'},socket:{remoteAddress:'192.0.2.88'},body:{u,auth,...body}},res); return res;
 }
 const prepare=async p=>(await call({action:'migration-preview',...p})).body.token;
 const claim=(p,token)=>call({action:'migration-activate',...p,token});

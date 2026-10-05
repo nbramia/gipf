@@ -5,7 +5,7 @@ import catan from '../api/catanRules.js';
 import splendor from '../api/splendorRules.js';
 import diplomacy from '../api/diplomacyAgent.js';
 const handlers=[chess,catan,splendor,diplomacy];
-const req=body=>({method:'POST',headers:{},socket:{remoteAddress:'192.0.2.2'},body});
+const req=body=>({method:'POST',headers:{'content-type':'application/json'},socket:{remoteAddress:'192.0.2.2'},body});
 const res=()=>({statusCode:200,headers:{},setHeader(k,v){this.headers[k]=v;},status(n){this.statusCode=n;return this;},json(v){this.body=v;return this;}});
 process.env.KV_REST_API_URL='https://synthetic.invalid';process.env.KV_REST_API_TOKEN='synthetic';
 test('all model proxies reject oversized requests and never use an environment key',async()=>{

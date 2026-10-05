@@ -5,8 +5,10 @@ import {
   encryptApiKey,
   decryptApiKey,
   createAccount,
-  loginAccount,
+  startServerSession,
+  endServerSession,
   pushEncryptedKey,
+  accountKey,
   loadSession,
   saveSession,
   clearSession,
@@ -14,6 +16,7 @@ import {
   setSharedApiKey,
   getSharedLichessToken,
   setSharedLichessToken,
+  SESSION_EXPIRED_KEY,
 } from './account.js';
 import { games } from './games-registry.js';
 import { safeReturn } from './loginReturn.js';
@@ -76,7 +79,7 @@ function SecretField({ id, label, placeholder, help, read, write, sync, warn }) 
 function Secrets({ account }) {
   const sync = field => account ? async value => {
     try {
-      const sealed = value ? await encryptApiKey(account.aesKey, value) : null;
+      const sealed = value ? await encryptApiKey(await accountKey(account), value) : null;
       return await pushEncryptedKey({ usernameId: account.usernameId, authToken: account.authToken, [field]: sealed });
     } catch (_) { return false; }
   } : null;
@@ -112,6 +115,9 @@ export default function LoginPage() {
   const [importGuest, setImportGuest] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [expired] = useState(() => {
+    try { const flag = sessionStorage.getItem(SESSION_EXPIRED_KEY); sessionStorage.removeItem(SESSION_EXPIRED_KEY); return !!flag; } catch (_) { return false; }
+  });
   const usernameRef = useRef(null);
   useEffect(() => { if (!account) usernameRef.current?.focus(); }, [account]);
 
@@ -119,9 +125,21 @@ export default function LoginPage() {
   const leave = () => window.location.assign(`${process.env.PUBLIC_URL || ''}${returnTo}`);
 
   const confirmSignOut = async () => {
+    const everywhere = confirmingSignOut === 'everywhere';
     setConfirmingSignOut(false);
-    try { await clearSession(); } catch (_) { setError('Unable to sign out safely. Check browser storage and try again.'); return; }
+    try { await clearSession({ everywhere }); } catch (_) { setError('Unable to sign out safely. Check browser storage and try again.'); return; }
     window.location.reload();
+  };
+
+  // The cookie is set before the device switches identity; if the switch fails, end it.
+  const finishSignIn = async (creds, options) => {
+    try {
+      await saveSession(creds, options);
+    } catch (error) {
+      await endServerSession();
+      throw error;
+    }
+    leave();
   };
 
   const handleCreateAccount = async () => {
@@ -143,12 +161,12 @@ export default function LoginPage() {
       let res;
       try {
         res = await createAccount({ usernameId: creds.usernameId, authToken: creds.authToken, enc, encLichess });
+        if (!res.error && res.configured !== false) res = await startServerSession(creds);
       } catch (_) { setError('Network error — try again.'); return; }
       if (res.configured === false) { setError("Accounts aren't configured on the server."); return; }
       if (res.error === 'taken') { setError('That username is taken.'); return; }
       if (res.error) { setError(res.message || 'Something went wrong.'); return; }
-      await saveSession(creds, { importGuest, apiKey: currentKey, lichessToken: currentLichess });
-      leave();
+      await finishSignIn(creds, { importGuest, apiKey: currentKey, lichessToken: currentLichess });
     } catch (_) {
       setError('Unable to switch accounts safely. Check browser storage and try again.');
     } finally {
@@ -166,7 +184,7 @@ export default function LoginPage() {
       if (!creds) { setError("Your browser doesn't support the required crypto."); return; }
       let res;
       try {
-        res = await loginAccount({ usernameId: creds.usernameId, authToken: creds.authToken });
+        res = await startServerSession(creds);
       } catch (_) { setError('Network error — try again.'); return; }
       if (res.configured === false) { setError("Accounts aren't configured on the server."); return; }
       if (res.error === 'bad_credentials') { setError('Wrong username or password.'); return; }
@@ -179,8 +197,7 @@ export default function LoginPage() {
       if (res.encLichess) {
         try { lichessToken = await decryptApiKey(creds.aesKey, res.encLichess); } catch (_) { setError('Could not unlock the saved Lichess token.'); return; }
       }
-      await saveSession(creds, { importGuest, apiKey, lichessToken });
-      leave();
+      await finishSignIn(creds, { importGuest, apiKey, lichessToken });
     } catch (_) {
       setError('Unable to switch accounts safely. Check browser storage and try again.');
     } finally {
@@ -220,25 +237,34 @@ export default function LoginPage() {
           <section className="login-section" aria-label="Account">
             {confirmingSignOut ? (
               <div className="landing-confirm">
-                <p className="landing-confirm-title">Sign out of <span className="landing-identity">{account.username}</span>?</p>
+                <p className="landing-confirm-title">
+                  {confirmingSignOut === 'everywhere' ? 'Sign out everywhere' : 'Sign out'} of <span className="landing-identity">{account.username}</span>?
+                </p>
                 <p className="landing-help">
                   Keys and credentials are removed from this device, in every tab. Unsynced progress stays encrypted for this account; sign in again to recover it.
+                  {confirmingSignOut === 'everywhere' && ' Every other device signed in to this account is signed out too.'}
                 </p>
                 <div className="landing-actions">
                   <button type="button" onClick={() => setConfirmingSignOut(false)} className="landing-button">Cancel</button>
-                  <button type="button" onClick={confirmSignOut} className="landing-button landing-primary">Sign out</button>
+                  <button type="button" onClick={confirmSignOut} className="landing-button landing-primary">
+                    {confirmingSignOut === 'everywhere' ? 'Sign out everywhere' : 'Sign out'}
+                  </button>
                 </div>
               </div>
             ) : (
               <div className="landing-signed-in">
                 <span className="landing-identity">Signed in as {account.username}</span>
-                <button type="button" onClick={() => setConfirmingSignOut(true)} className="landing-button">Sign out</button>
+                <div className="landing-actions">
+                  <button type="button" onClick={() => setConfirmingSignOut(true)} className="landing-button">Sign out</button>
+                  <button type="button" onClick={() => setConfirmingSignOut('everywhere')} className="landing-button">Sign out everywhere</button>
+                </div>
               </div>
             )}
             {error && <p role="alert" className="landing-error">{error}</p>}
           </section>
         ) : (
           <section className="login-section" aria-label="Sign in or create an account">
+            {expired && <p role="status" className="landing-warning">Your session ended. Sign in again to pick up where you left off.</p>}
             <p className="landing-help">Optional. Every game can be played as a guest. An account carries your keys and progress between devices.</p>
             <form className="landing-form" onSubmit={submitAccount}>
               <div className="landing-fields">

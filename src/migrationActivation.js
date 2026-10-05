@@ -1,6 +1,6 @@
 import { captureIdentity, validateFile, stageImport } from './migration.js';
 import { canonical, destinationKey, bytes } from './migrationSchema.js';
-import { PROGRESS_KEYS, encryptApiKey, decryptApiKey } from './account.js';
+import { PROGRESS_KEYS, encryptApiKey, decryptApiKey, accountKey, REQUEST_HEADERS, credentialFields } from './account.js';
 import { withAccountTransition } from './accountFence.js';
 
 export const recordIdentity = record => `${record.kind}/${record.id}`;
@@ -18,8 +18,8 @@ const journalKey = session => `gamesMigrationActivation:v1:${session.usernameId}
 async function request(session, body, check) {
   check();
   const response = await fetch(`${process.env.PUBLIC_URL || ''}/api/chessProfile`, {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({u:session.usernameId,auth:session.authToken,...body}), signal:AbortSignal.timeout(20000),
+    method:'POST', headers:REQUEST_HEADERS,
+    body:JSON.stringify({u:session.usernameId,...credentialFields(session),...body}), signal:AbortSignal.timeout(20000),
   });
   check();
   const data = await response.json(); check();
@@ -41,7 +41,7 @@ export async function activationRecovery(guard = captureIdentity()) {
   const raw = localStorage.getItem(journalKey(guard.session));
   if (!raw) return null;
   if (bytes(raw) > 30 * 1024 * 1024) throw new Error('recovery_too_large');
-  const decoded = await decryptApiKey(guard.session.aesKey,JSON.parse(raw)); guard.check();
+  const decoded = await decryptApiKey(await accountKey(guard.session),JSON.parse(raw)); guard.check();
   const journal = JSON.parse(decoded);
   if (journal.v !== 1 || journal.owner !== guard.session.usernameId) throw new Error('invalid_recovery');
   return journal;
@@ -55,7 +55,7 @@ export async function activateImport(plan, guard = captureIdentity()) {
   return withAccountTransition(async check => {
     const fingerprint = canonical({bundle:plan.bundle,selected:[...plan.selected].sort()});
     const key = journalKey(session), previous = localStorage.getItem(key);
-    let journal = previous ? JSON.parse(await decryptApiKey(session.aesKey,JSON.parse(previous))) : null;
+    let journal = previous ? JSON.parse(await decryptApiKey(await accountKey(session),JSON.parse(previous))) : null;
     check();
     if (localStorage.getItem(key) !== previous) throw new Error('progress_changed');
     if (journal && journal.owner !== session.usernameId) throw new Error('invalid_recovery');
@@ -81,8 +81,8 @@ export async function activateImport(plan, guard = captureIdentity()) {
     }
     const serialized = JSON.stringify(journal);
     if (bytes(serialized) > 20 * 1024 * 1024) throw new Error('recovery_too_large');
-    const pending = JSON.stringify(await encryptApiKey(session.aesKey,serialized)); check();
-    const completed = JSON.stringify(await encryptApiKey(session.aesKey,JSON.stringify({...journal,done:true}))); check();
+    const pending = JSON.stringify(await encryptApiKey(await accountKey(session),serialized)); check();
+    const completed = JSON.stringify(await encryptApiKey(await accountKey(session),JSON.stringify({...journal,done:true}))); check();
     if (!equal(snapshot(),current) || localStorage.getItem(key) !== previous) throw new Error('progress_changed');
     localStorage.setItem(key,pending);
     const result = await request(session,{action:'migration-activate',bundle:journal.bundle,selected:journal.selected,token:journal.token},check);

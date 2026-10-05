@@ -22,7 +22,7 @@ function makeRes() {
 }
 
 function makeReq({ method = 'POST', origin = 'http://localhost:3000', body = {} } = {}) {
-  return { method, headers: { origin }, body };
+  return { method, headers: { origin, 'content-type':'application/json' }, body };
 }
 
 const VALID_SCRATCHPAD = {
