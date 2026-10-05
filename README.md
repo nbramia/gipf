@@ -119,8 +119,6 @@ React + React Router (code-split), Tailwind CSS, SVG rendering. The AI spans thr
 
 Deeper writeups live in [`docs/`](docs/): [architecture](docs/architecture.md), the [AI engine](docs/ai-engine.md), and per-game notes for [chess](docs/chess.md), [Catan](docs/catan.md), [Splendor](docs/splendor.md), and [Diplomacy](docs/diplomacy.md).
 
-The [YINSH/ZÈRTZ audit and repair record](docs/yinsh-zertz-audit-2026-09-20.md) separates baseline training results from engine, browser, and pipeline validation, including feature-v2 migration requirements.
-
 Current matches in Chess, Yinsh, Zertz, and Catan resume locally after refresh.
 Signing in also enables cloud matches, preferences and existing statistics, with
 explicit conflict choices and recoverable alternatives. See

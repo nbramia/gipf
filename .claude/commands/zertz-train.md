@@ -23,10 +23,7 @@ Stop with 10 minutes remaining to ensure clean state.
 
 ## Before Starting
 
-1. Read MEMORY.md for current state:
-```
-Read /Users/nathanramia/.claude/projects/-Users-nathanramia-Documents-Code-zertz/memory/MEMORY.md
-```
+1. Read your project memory (if your agent keeps one) for the current training state.
 
 2. Check state files and determine starting point:
 ```bash
@@ -103,7 +100,7 @@ cat .deployed-checkpoint
 file public/models/zertz-value-v1.onnx
 ```
 
-3. **Update MEMORY.md** with:
+3. **Update your project memory** (if any) with:
    - New deployed model version and lineage
    - Next version number to try
    - All tournament results from this session
