@@ -18,7 +18,11 @@ export default function MatchBoundary({ game, decode, loadLegacy, children }) {
   });
   const [ready, setReady] = useState(!store.owner);
   const [conflict, setConflict] = useState(null);
-  const [status, setStatus] = useState('');
+  // Quiet by default: a notice exists only while the player may need to act.
+  // `source` scopes clearing: a local save clears all but a cloud problem, and a
+  // cloud success clears all but a local save failure.
+  const [notice, setNotice] = useState(null);
+  const [recoveryCheck, setRecoveryCheck] = useState(0);
   const [blocked, setBlocked] = useState(false);
   const [recovery, setRecovery] = useState(null);
   const [dark, setTheme] = useState(() => localStorage.getItem(`${game}DarkMode`) === 'true');
@@ -57,14 +61,15 @@ export default function MatchBoundary({ game, decode, loadLegacy, children }) {
       store.save(value);
       nextId.current = null;
       latest.current = JSON.parse(JSON.stringify(value));
-      setStatus(store.owner ? 'Saved on this device; cloud sync pending.' : 'Saved on this device.');
+      setNotice(n => (n?.source === 'sync' ? n : null));
+      setRecoveryCheck(c => c + 1);
     } catch (e) {
       if (e.message === 'local_conflict') {
         try { showConflict({ kind: 'local', local: value, remote: store.current() }); }
         catch (_) { showConflict({ kind: 'local', local: value, remote: null, invalidRemote: true }); }
       } else if (e.message === 'account_changed') setBlocked(true);
-      else if (e.message === 'invalid_snapshot') setStatus('This match is unsupported or too large to save. Keep this page open; free storage will not fix this format or size error.');
-      else setStatus('Save failed on this device. Keep this page open and free storage before retrying.');
+      else if (e.message === 'invalid_snapshot') setNotice({ source: 'local', text: 'This match is unsupported or too large to save. Keep this page open; free storage will not fix this format or size error.' });
+      else setNotice({ source: 'local', text: 'Save failed on this device. Keep this page open and free storage before retrying.' });
     }
   }, [game, store, showConflict, isCurrent]);
 
@@ -92,6 +97,8 @@ export default function MatchBoundary({ game, decode, loadLegacy, children }) {
     let lastAttempt = -Infinity;
     let failures = 0;
     let rejected;
+    // A successful sync clears cloud and choice notices; a local save failure stays until a local save succeeds.
+    const synced = () => { setNotice(n => (n?.source === 'local' ? n : null)); setRecoveryCheck(c => c + 1); };
     const sync = async () => {
       if (disposed || running.current || conflicted.current || Date.now() < nextAt) return;
       running.current = true;
@@ -111,14 +118,14 @@ export default function MatchBoundary({ game, decode, loadLegacy, children }) {
           catch (_) {
             store.backup([local, cloud]);
             showConflict({ kind: 'cloud', local, remote: cloud, revision: remote.revision, invalidRemote: true });
-            setStatus('The cloud save is unsupported or damaged. Both versions are in recovery; keep this match to replace it explicitly.');
+            setNotice({ source: 'sync', text: 'The cloud save is unsupported or damaged. Both versions are in recovery; keep this match to replace it explicitly.' });
             return;
           }
         }
         const meta = store.metadata();
         if (equal(local, cloud)) {
           store.acknowledge(remote.revision, cloud);
-          setStatus('Saved to your account.');
+          synced();
         } else if (!local && !store.hasCurrent() && !meta) {
           // Only absent storage can hydrate; an explicit clear still requires a conflict choice.
           store.resolve(cloud);
@@ -129,7 +136,7 @@ export default function MatchBoundary({ game, decode, loadLegacy, children }) {
           const saved = await store.request('write', { revision: remote.revision, domains: { match: local } });
           if (disposed) return;
           store.acknowledge(saved.revision, local);
-          setStatus('Saved to your account.');
+          synced();
         } else {
           showConflict({ kind: 'cloud', local, remote: cloud, revision: remote.revision });
         }
@@ -140,19 +147,19 @@ export default function MatchBoundary({ game, decode, loadLegacy, children }) {
         if (e.message === 'account_changed') setBlocked(true);
         else if (e.message === 'cloud_conflict') {
           // Reread on next pass; never advance a revision and silently retry.
-          setStatus('Cloud changed while saving. Checking both versions…');
+          setNotice({ source: 'sync', text: 'Cloud changed while saving. Checking both versions…' });
           nextAt = Date.now() + 10000;
         } else if (e.message === 'sync_rejected') {
           rejected = local;
           try {
             store.backup([local, cloud]);
-            setStatus('Cloud rejected this match as unsupported or too large. It remains on this device and in recovery. Automatic retries pause until the match changes.');
+            setNotice({ source: 'sync', text: 'Cloud rejected this match as unsupported or too large. It remains on this device and in recovery. Automatic retries pause until the match changes.' });
           } catch (_) {
-            setStatus('Cloud rejected this match and recovery storage failed. Keep this page open. Automatic retries pause until the match changes.');
+            setNotice({ source: 'sync', text: 'Cloud rejected this match and recovery storage failed. Keep this page open. Automatic retries pause until the match changes.' });
           }
         } else {
           nextAt = Date.now() + Math.min(120000, 10000 * (2 ** failures++));
-          setStatus('Cloud unavailable. Your match stays on this device and will retry automatically.');
+          setNotice({ source: 'sync', text: 'Cloud unavailable. Your match stays on this device and will retry automatically.' });
         }
         setReady(true);
       } finally { running.current = false; }
@@ -185,22 +192,22 @@ export default function MatchBoundary({ game, decode, loadLegacy, children }) {
       remount(chosen);
       conflicted.current = false;
       setConflict(null);
-      setStatus('Choice saved. Both alternatives are available in recovery.');
+      setNotice({ source: 'choice', text: 'Choice saved. Both alternatives are available in recovery.' });
     } catch (e) {
       if (e.message === 'cloud_conflict') {
         try {
           const remote = await store.request('read');
           showConflict({ ...conflict, remote: remote.profile.match || null, revision: remote.revision });
-          setStatus('Cloud changed again. Review your choice before saving.');
-        } catch (_) { setStatus('Cloud unavailable. Both alternatives remain on this device.'); }
-      } else if (e.message === 'sync_rejected') setStatus('Cloud rejected this match as unsupported or too large. Both alternatives remain in recovery; choose a supported backup or start a new match.');
-      else setStatus('Could not preserve or restore this match. No alternative was discarded.');
+          setNotice({ source: 'choice', text: 'Cloud changed again. Review your choice before saving.' });
+        } catch (_) { setNotice({ source: 'choice', text: 'Cloud unavailable. Both alternatives remain on this device.' }); }
+      } else if (e.message === 'sync_rejected') setNotice({ source: 'choice', text: 'Cloud rejected this match as unsupported or too large. Both alternatives remain in recovery; choose a supported backup or start a new match.' });
+      else setNotice({ source: 'choice', text: 'Could not preserve or restore this match. No alternative was discarded.' });
     } finally { running.current = false; }
   };
 
   const openRecovery = () => {
     try { setRecovery(store.recovery()); }
-    catch (_) { setStatus('Recovery is unavailable on this device.'); }
+    catch (_) { setNotice({ source: 'choice', text: 'Recovery is unavailable on this device.' }); }
   };
   const restore = snapshot => {
     if (running.current) return;
@@ -212,16 +219,31 @@ export default function MatchBoundary({ game, decode, loadLegacy, children }) {
       setConflict(null);
       setRecovery(null);
       setReady(true);
-    } catch (_) { setStatus('That backup is unsupported or storage is full. It has been preserved.'); }
+    } catch (_) { setNotice({ source: 'choice', text: 'That backup is unsupported or storage is full. It has been preserved.' }); }
   };
+  // Offer recovery when it holds a copy newer than both the current and the account
+  // match. Older copies are the history of a match the player moved on from. Timestamps
+  // only decide whether to mention recovery, never which match wins; unreadable
+  // alternatives cannot be restored, so they are not offered.
+  const newerInRecovery = useMemo(() => {
+    if (!ready || conflict || initial.invalid) return false;
+    try {
+      const known = [store.current(), store.owner ? store.metadata()?.baseline : null].filter(Boolean);
+      const since = Math.max(-Infinity, ...known.map(snapshot => snapshot.updatedAt));
+      return store.recovery().some(alt => alt && alt.unreadable === undefined && alt.updatedAt > since);
+    } catch (_) { return false; }
+    // recoveryCheck re-reads storage after each save and sync.
+  }, [store, ready, conflict, initial.invalid, recoveryCheck]);
+  const message = notice?.text || (newerInRecovery ? 'A newer copy of this match is saved in recovery on this device.' : '');
+  const recoveryButton = <button className="m-2 underline" onClick={openRecovery}>Match recovery</button>;
   const context = useMemo(() => ({ restored: initial.decoded, persist, assertOwner: store.assertOwner, isCurrent, setTheme,
     startNew: () => { nextId.current = newId(); } }), [initial.decoded, persist, store, isCurrent]);
   if (blocked) return <p className={`match-chrome${dark ? ' dark' : ''}`} role="status">Account changed. Reload to continue safely.</p>;
   return <>
     <section className={`match-chrome${dark ? ' dark' : ''}`} aria-label="Saved match">
-    <div className="p-2 text-sm" aria-live="polite">
-      <span>{status}</span>{' '}
-      <button className="underline" onClick={openRecovery}>Match recovery</button>
+    {/* The live region stays mounted so a notice that appears later is announced. */}
+    <div className={message ? 'p-2 text-sm' : undefined} aria-live="polite">
+      {message && <><span>{message}</span>{' '}{!conflict && !initial.invalid && recoveryButton}</>}
     </div>
     {recovery && <div role="dialog" aria-label="Match recovery" className="p-3">
       <p>Saved alternatives stay on this device. Restoring one may require a cloud conflict choice.</p>
@@ -232,11 +254,13 @@ export default function MatchBoundary({ game, decode, loadLegacy, children }) {
     </div>}
     {initial.invalid && <div role="alert" className="p-3">This save is damaged or uses an unsupported version. It has not been changed.
       <button className="m-2 underline" onClick={() => restore(null)}>Keep backup and start new game</button>
+      {recoveryButton}
     </div>}
     {conflict && <div role="alert" className="p-3 match-conflict">
       This match differs from {conflict.kind === 'cloud' ? 'your cloud save' : 'another tab'}. Choose a version; both will be kept in recovery.
       <button className="m-2 underline" onClick={() => choose(true)}>Keep this match</button>
       <button className="m-2 underline" disabled={conflict.invalidRemote} onClick={() => choose(false)}>Use {conflict.kind === 'cloud' ? 'cloud' : 'other tab'} match</button>
+      {recoveryButton}
     </div>}
     {!ready && !initial.invalid && <p>Loading saved match…</p>}
     </section>

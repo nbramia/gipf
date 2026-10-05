@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import MatchBoundary, { useSavedMatch } from './MatchBoundary.jsx';
 const sample = turn => ({ v: 1, game: 'yinsh', id: 'synthetic', updatedAt: 1, state: { turn }, ui: {} });
 const decode = snapshot => ({ board: snapshot.state, ui: snapshot.ui });
@@ -12,6 +12,52 @@ const mount = () => render(<MatchBoundary game="yinsh" decode={decode}><Game /><
 beforeEach(() => { localStorage.clear(); global.fetch = jest.fn(); });
 afterEach(() => { jest.useRealTimers(); });
 const ok = data => Promise.resolve({ ok: true, json: async () => data });
+// The boundary's polite live region, mounted even while it is empty.
+const notice = () => screen.getByRole('region', { name: 'Saved match' }).querySelector('[aria-live="polite"]');
+// Quiet by default: an empty live region and no recovery control.
+const expectQuiet = () => {
+  expect(notice().textContent).toBe('');
+  expect(screen.queryByText('Match recovery')).toBeNull();
+};
+test('a normal guest save shows no status or recovery control', () => {
+  mount(); expectQuiet();
+  fireEvent.click(screen.getByText('Move'));
+  expect(JSON.parse(localStorage.getItem('yinshMatch:v1')).state.turn).toBe(9);
+  expectQuiet();
+});
+test('a normal signed-in save and sync shows no status or recovery control', async () => {
+  jest.useFakeTimers();
+  localStorage.setItem('gipfAccount', JSON.stringify(session));
+  localStorage.setItem('yinshMatch:v1', JSON.stringify(sample(1)));
+  let cloud = sample(1);
+  global.fetch.mockImplementation((_url, init) => {
+    const req = JSON.parse(init.body);
+    if (req.action === 'write') cloud = req.domains.match;
+    return ok({ revision: 2, profile: { match: cloud } });
+  });
+  mount(); await act(async () => { jest.advanceTimersByTime(0); });
+  expect(screen.getByText('Turn 1')).toBeTruthy();
+  expect(localStorage.getItem('yinshMatchSync:v1')).toBeTruthy();
+  expectQuiet();
+  fireEvent.click(screen.getByText('Move'));
+  expectQuiet();
+  await act(async () => { jest.advanceTimersByTime(10000); });
+  expect(cloud.state.turn).toBe(9);
+  expect(JSON.parse(localStorage.getItem('yinshMatchSync:v1')).baseline.state.turn).toBe(9);
+  // Every write stages older positions in recovery; that history is not offered.
+  expect(JSON.parse(localStorage.getItem('yinshMatchRecovery:v1')).alternatives).toContainEqual(sample(1));
+  expectQuiet();
+});
+test('a conflict exposes the recovery dialog alongside the choice', () => {
+  localStorage.setItem('yinshMatch:v1', JSON.stringify(sample(1)));
+  localStorage.setItem('yinshMatchRecovery:v1', JSON.stringify({ v: 1, alternatives: [sample(5)] }));
+  mount();
+  act(() => { localStorage.setItem('yinshMatch:v1', JSON.stringify(sample(2))); window.dispatchEvent(new StorageEvent('storage', { key: 'yinshMatch:v1' })); });
+  expect(screen.getByRole('alert').textContent).toMatch(/differs from another tab/);
+  fireEvent.click(screen.getByText('Match recovery'));
+  fireEvent.click(screen.getByText('Restore backup 1'));
+  expect(screen.getByText('Turn 5')).toBeTruthy();
+});
 test('guest refresh restores the newest local match and metadata is not required', () => {
   const first = mount(); fireEvent.click(screen.getByText('Move')); first.unmount();
   mount(); expect(screen.getByText('Turn 9')).toBeTruthy();
@@ -107,6 +153,9 @@ test('storage conflict pauses the game and exposes the other tab choice', async 
   expect(screen.getByText('Use other tab match')).toBeTruthy();
   fireEvent.click(screen.getByText('Use other tab match'));
   await screen.findByText('Turn 2');
+  expect(notice().textContent).toMatch(/Choice saved/);
+  fireEvent.click(screen.getByText('Move'));
+  expectQuiet();
 });
 test('offline edits retry from persisted account baseline', async () => {
   jest.useFakeTimers();
@@ -215,8 +264,12 @@ test('non-JSON 502 backs off, including edit/reconnect events, then recovers', a
   localStorage.setItem('gipfAccount', JSON.stringify(session));
   global.fetch.mockResolvedValue({ ok: false, status: 502, json: async () => { throw new Error('HTML'); } });
   mount(); await advance(0);
-  expect(screen.getByText(/retry automatically/)).toBeTruthy();
+  expect(notice().textContent).toMatch(/retry automatically/);
+  fireEvent.click(screen.getByText('Match recovery'));
+  expect(screen.getByRole('dialog', { name: 'Match recovery' })).toBeTruthy();
+  fireEvent.click(screen.getByText('Close recovery'));
   fireEvent.click(screen.getByText('Move'));
+  expect(screen.getByText(/retry automatically/)).toBeTruthy();
   await advance(10000); // second request; next retry is 20s later
   act(() => window.dispatchEvent(new Event('online')));
   await advance(19000);
@@ -224,7 +277,7 @@ test('non-JSON 502 backs off, including edit/reconnect events, then recovers', a
   global.fetch.mockImplementation((_url, init) => ok(JSON.parse(init.body).action === 'read' ? { revision: 0, profile: {} } : { revision: 1 }));
   await advance(1000);
   expect(requests('write')).toHaveLength(1);
-  expect(screen.getByText('Saved to your account.')).toBeTruthy();
+  expectQuiet();
 });
 
 test('unsupported cloud is retained, pauses automatic reads, and requires explicit replacement', async () => {
@@ -271,10 +324,11 @@ test('idle reads are 30s apart; rapid local edits use at most one read/write pai
   expect(screen.getByText('Use cloud match')).toBeTruthy();
 });
 
-test('restored recovery alternative is queued and synced with the existing account baseline', async () => {
+test('a newer recovery copy is offered, restored, queued and synced with the existing account baseline', async () => {
   localStorage.setItem('gipfAccount', JSON.stringify(session));
   localStorage.setItem('yinshMatch:v1', JSON.stringify(sample(1)));
-  localStorage.setItem('yinshMatchRecovery:v1', JSON.stringify({ v: 1, alternatives: [sample(2)] }));
+  const newer = { ...sample(2), updatedAt: 2 };
+  localStorage.setItem('yinshMatchRecovery:v1', JSON.stringify({ v: 1, alternatives: [newer] }));
   let cloud = sample(1);
   global.fetch.mockImplementation((_url, init) => {
     const req = JSON.parse(init.body);
@@ -282,10 +336,13 @@ test('restored recovery alternative is queued and synced with the existing accou
     return ok({ revision: 2, profile: { match: cloud } });
   });
   mount(); await screen.findByText('Turn 1');
+  await screen.findByText('A newer copy of this match is saved in recovery on this device.');
   fireEvent.click(screen.getByText('Match recovery'));
   fireEvent.click(screen.getByText('Restore backup 1'));
-  await screen.findByText('Saved to your account.');
-  expect(requests('write')[0].domains.match).toEqual(sample(2));
+  await waitFor(() => expect(requests('write')).toHaveLength(1));
+  expect(requests('write')[0].domains.match).toEqual(newer);
+  await screen.findByText('Turn 2');
+  expectQuiet();
 });
 
 test('corrupt recovery can be repaired by a conflict choice without losing its raw bytes', async () => {
@@ -331,7 +388,9 @@ test('invalid local envelope message distinguishes format/size from quota', () =
   }
   render(<MatchBoundary game="yinsh" decode={decode}><Oversize /></MatchBoundary>);
   fireEvent.click(screen.getByText('Oversize'));
-  expect(screen.getByText(/unsupported or too large to save/)).toBeTruthy();
+  expect(notice().textContent).toMatch(/unsupported or too large to save/);
+  fireEvent.click(screen.getByText('Match recovery'));
+  expect(screen.getByRole('dialog', { name: 'Match recovery' })).toBeTruthy();
   expect(localStorage.getItem('yinshMatch:v1')).toBeNull();
 });
 

@@ -43,6 +43,20 @@ const apiHeaders = async page => {
   return { 'x-games-request': '1', 'sec-fetch-site': 'same-origin', origin, cookie: `__Host-games_session=${session.value}` };
 };
 const getSnapshot = (page, game) => page.evaluate(g => JSON.parse(localStorage.getItem(`${g}Match:v1`)), game);
+// Saving is quiet: wait for the account baseline to equal the current match, then
+// confirm the match chrome shows no status and no recovery control.
+async function synced(page, game) {
+  await page.waitForFunction(g => {
+    const sync = JSON.parse(localStorage.getItem(`${g}MatchSync:v1`) || 'null');
+    const current = localStorage.getItem(`${g}Match:v1`);
+    return sync && current && JSON.stringify(sync.baseline) === JSON.stringify(JSON.parse(current));
+  }, game, { timeout: 20000 });
+  await quiet(page);
+}
+async function quiet(page) {
+  assert.equal((await page.locator('.match-chrome [aria-live=polite]').innerText()).trim(), '');
+  assert.equal(await page.getByText('Match recovery', { exact: true }).count(), 0);
+}
 try {
   for (const [game, board] of Object.entries(boards)) {
     const { encodeBoard } = await import(`../src/games/${game}/matchSnapshot.js`);
@@ -59,12 +73,13 @@ try {
     await a.locator(`.game-${game}`).waitFor();
     await a.reload(); await a.locator(`.game-${game}`).waitFor();
     assert.deepEqual((await getSnapshot(a,game)).state,JSON.parse(JSON.stringify(snapshot.state)));
+    await quiet(a);
     console.log(`PASS ${game}: guest reload retains canonical mid-turn state`);
     const u = String(Object.keys(boards).indexOf(game)+1).repeat(64), label = `synthetic-${game}`;
     // Signing in with explicit guest import carries this device's match into the account.
     await signIn(a, label, u, { importGuest: true, returnTo: `/${game}` });
     await a.locator(`.game-${game}`).waitFor();
-    await a.getByText('Saved to your account.',{exact:true}).waitFor({timeout:20000});
+    await synced(a,game);
     if(game==='chess') {
       const expectedLog=await a.evaluate(()=>localStorage.getItem('chessGameLog'));
       assert.ok(expectedLog);
@@ -95,7 +110,7 @@ try {
     await a.locator(`.game-${game}`).waitFor();
     assert.equal((await getSnapshot(a,game)).id,`offline-${game}`);
     await a.context().setOffline(false);
-    await a.getByText('Saved to your account.',{exact:true}).waitFor({timeout:20000});
+    await synced(a,game);
     await b.getByText('Use cloud match',{exact:true}).waitFor({timeout:20000});
     await b.getByText('Use cloud match',{exact:true}).click();
     await b.locator(`.game-${game}`).waitFor();
@@ -104,7 +119,7 @@ try {
     const competing = await getSnapshot(b,game); competing.id = `competing-${game}`;
     await b.evaluate(({game,competing}) => localStorage.setItem(`${game}Match:v1`,JSON.stringify(competing)),{game,competing});
     await b.reload(); await b.locator(`.game-${game}`).waitFor();
-    await b.getByText('Saved to your account.',{exact:true}).waitFor({timeout:20000});
+    await synced(b,game);
     await a.getByText('Keep this match',{exact:true}).waitFor({timeout:20000});
     await a.getByText('Use cloud match',{exact:true}).click();
     await a.locator(`.game-${game}`).waitFor();
@@ -157,7 +172,7 @@ try {
   const ownerB = { label: 'synthetic-shared-b', usernameId: 'f'.repeat(64) };
   await signIn(shared, ownerA.label, ownerA.usernameId, { returnTo: '/yinsh' });
   await shared.locator('.game-yinsh').waitFor();
-  await shared.getByText('Saved to your account.',{exact:true}).waitFor({timeout:20000});
+  await synced(shared,'yinsh');
   const originalId=(await getSnapshot(shared,'yinsh')).id;
   const login=await shared.context().newPage(); await login.goto(`${origin}/login`);
   await login.getByRole('button',{name:'Sign out',exact:true}).click();
