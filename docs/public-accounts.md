@@ -15,7 +15,7 @@ sign-in redirect is never open. Games contain no credential or key inputs, enfor
 `src/gamesLoginBoundary.test.js`.
 
 Signing in uses the ramia.us Auth0 tenant — the same one home.ramia.us uses, with the
-same Google and email/password connections — through `play`'s own Regular Web
+same Google and email/password connections — through this app's own Regular Web
 Application. An Auth0 session already open from Home completes the redirect without a
 prompt, and Games uses it without a click (below). Anyone may sign up; that grants
 nothing in the author's other apps, which keep their own access control. "Use a
@@ -164,11 +164,11 @@ id, so a tab still showing another account cannot write into this one.
 `POST /api/chessProfile` is authorized by the session cookie on every action:
 
 - `read`: returns `{configured:true, revision, profile, legacyProfiles?}`.
-  `legacyProfiles` appears only on profiles that claimed pre-Auth0 data; it holds those
-  copies, which normal Chess reads merge with the existing monotonic merge rules.
+  `legacyProfiles` appears only on profiles that carry source copies of imported
+  progress; normal Chess reads merge them with the monotonic merge rules.
 - `write`: takes `revision` and `domains`; returns the next revision. A stale
-  revision returns 409 without changing data. Chess domains remain `rating`,
-  `history`, `puzzles`, and `mistakes`, with existing validators.
+  revision returns 409 without changing data. Chess domains are `rating`,
+  `history`, `puzzles`, and `mistakes`, each with its own validator.
 - `scope:"settings"`: separate revision and record, with `domains.preferences`
   containing allowlisted localStorage string values. Covers the four named games'
   existing preferences, Yinsh wins, and Chess finished-game statistics
@@ -188,15 +188,15 @@ analytics, logs, test traces, or ordinary exports.
 
 ## JSON preservation and damaged records
 
-Profile and settings records keep the existing JSON object format and namespaces.
+Profile and settings records are JSON objects in fixed namespaces.
 The server sanitizes new domain values, parses and merges JSON in JavaScript, and
 passes the complete JSON string to Redis unchanged. Lua compares the exact prior
 record before committing; a race returns 409 without changing any domain. It does
 not decode/re-encode domain data. Existing valid records need no migration, and
 partial writes preserve arrays, objects, and stored `legacyProfiles` copies.
 
-The known version-1 `mistakes.entries: {}` case is compatible with historical
-cjson empty-array loss. A normal sanitized mistakes write can replace this empty
+A version-1 `mistakes.entries: {}` value (an empty array that Redis cjson stored as an
+object) is accepted. A normal sanitized mistakes write can replace this empty
 object, including the client's atomic game-end `{history, mistakes}` save. This
 is only compatibility for that field, not evidence that arbitrary objects were
 arrays. Reads keep originals; the client merges only array-valued mistake entries, so
@@ -266,24 +266,22 @@ address. See the
 
 Direct Chess match writes apply the migration PGN bound (8 KiB, 1,024 tokens)
 before replaying the PGN, so a single write cannot buy seconds of CPU.
-A legitimate game beyond that bound (roughly 340 moves) is no longer synced to the
+A legitimate game beyond that bound (roughly 340 moves) is not synced to the
 cloud; autosave gets 400 and the match stays on the device.
 Storage fetches have three-second abort deadlines. Account input is 12 KiB,
 profile input 300,000 bytes, model/AI input 32 KiB, enforced by handler checks (with parser size hints as defense in depth).
 `vercel.json` also sets explicit platform execution deadlines and includes the
-Zertz worker dependencies without changing rewrites. Provider calls abort at 12 seconds, including reading
+Zertz worker dependencies. Provider calls abort at 12 seconds, including reading
 the response. Zertz runs in a worker terminated after three seconds, caps work
 at 200 simulations, and returns generic failures. Missing or failed durable
 storage fails closed with 503 for server features; local engines remain usable.
 Sensitive responses set `Cache-Control: no-store`.
-Yinsh retains its existing heuristic engine, simulation/confidence/fallback policy,
-and cache-hit result shape; the search runs in a fresh worker terminated at
-three seconds, with generic failures and suppressed engine diagnostics. Its 2.5-second
-soft search budget remains unchanged. Warm transposition state is isolated to each
-worker and the duplicate intermediate cache is consolidated into the bounded result
-cache.
+Yinsh API search uses the heuristic engine and runs in a fresh worker terminated at
+three seconds, with generic failures and suppressed engine diagnostics, inside a
+2.5-second soft search budget. Warm transposition state is isolated to each worker,
+and results are cached in one bounded result cache.
 
-Security headers are deferred. A CSP requires an explicit inventory of Google Fonts,
+Security headers are not set. A CSP requires an explicit inventory of Google Fonts,
 Stockfish CDN/blob workers and ONNX/WASM; adding an unverified blanket policy risks
 breaking gameplay. Frame protection, `nosniff`, Referrer-Policy, and CSP remain
 hardening work, with browser response-header coverage required.
@@ -309,7 +307,7 @@ docker stop "$GIPF_TEST_REDIS_CONTAINER"
 provider (discovery, JWKS, token endpoint, throwaway RS256 key): redirect parameters,
 state/nonce/PKCE and signature failures, verified email, the return allowlist, session
 and CSRF rules, key custody (ciphertext only at rest, AAD binding, rotation), the proxies
-using account keys, refusal of retired account actions, and automatic
+using account keys, refusal of unsupported account actions, and automatic
 sign-in (`prompt=none`, the quiet fallback for each refusal, its return allowlist).
 `tests/auth-browser.mjs` drives the built app in Chromium: the catalogue's and
 `/login`'s automatic attempts falling back once with no provider session, `/login`
@@ -325,7 +323,7 @@ the identity named by a `fixture-identity` cookie and returns to `/login?signedi
 the real device-side sign-in runs. The match fixtures (`tests/match-browser.mjs`,
 `tests/match-import-browser.mjs`) expect `GIPF_TEST_PORT=3189`, and the ESM fixtures need
 `PLAYWRIGHT_MODULE` to name Playwright's `index.mjs`.
-The repository's pre-existing CRA/source-map warnings may remain in the build.
+CRA/source-map warnings may appear in the build output.
 
 ### Hosted verification
 
@@ -333,7 +331,7 @@ Preview and production deployments share one store, so hosted
 checks use synthetic data only and delete it afterwards. Auth0 accepts only the
 production callback, so previews cannot sign in, and production sign-in needs a real
 identity: hosted checks are anonymous. After each production deploy, verify that
-`/api/auth/login?return=/catan` redirects to the tenant's `/authorize` with `play`'s
+`/api/auth/login?return=/catan` redirects to the tenant's `/authorize` with this app's
 client id, `redirect_uri=https://play.ramia.us/api/auth/callback`, `response_type=code`,
 `code_challenge_method=S256`, `state` and `nonce`, and sets a host-only
 `__Host-games_auth` cookie (HttpOnly, Secure, SameSite=Lax, no `Domain`); that a

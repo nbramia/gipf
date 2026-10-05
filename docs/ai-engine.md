@@ -297,7 +297,7 @@ PYTHONPATH=training training/.venv/bin/python3 training/zertz/train.py \
   --output-dir training/zertz/candidate-v2
 ```
 
-Keep old models and datasets on their explicit legacy paths; do not combine historical v1 files into the new dataset. Export the new checkpoint to a separate candidate path and use the incumbent tournament gate before any promotion. Deployment filenames are champion pointers, not feature-version tags, and this migration does not replace shipped weights.
+Keep old models and datasets on their explicit legacy paths; do not combine historical v1 files into the new dataset. Export the new checkpoint to a separate candidate path and use the incumbent tournament gate before any promotion. Deployment filenames are champion pointers, not feature-version tags; generating v2 data never replaces shipped weights.
 
 ### ZERTZ feature-v2 bootstrap
 

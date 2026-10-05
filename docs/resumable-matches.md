@@ -8,8 +8,8 @@ signed-in account, in the cloud.
 Chess, Yinsh, Zertz and Catan save the current match after gameplay changes and
 resume it when their route is reopened or refreshed. Guests remain local.
 Signing in opts into authenticated cloud saves. New games replace the current
-match and receive a new ID. Chess puzzle/drill exercises remain transient; their
-existing progress stores remain independent. Splendor and Diplomacy are unchanged.
+match and receive a new ID. Chess puzzle/drill exercises are transient; their
+progress stores are independent. Splendor and Diplomacy have no resumable match.
 
 A new signed-in device waits for hydration before mounting its engine. An absent
 local match can hydrate automatically; an explicitly cleared match with no sync
@@ -127,15 +127,14 @@ redo branch beyond the current pointer is not saved. AI computations, animation,
 open settings/rules panels and transient provider requests are never resumed;
 engines request fresh work only for the restored live position.
 
-The migration track nests this object in its existing `ramia-migration`,
+The `/migration` page ([games migration](games-migration.md)) nests this object in its `ramia-migration`,
 `version:1`, `app:"games"` outer envelope as a record's `data`. The record `id`
 is this match ID; account ownership and server CAS revision are **not** portable
 credentials. Read the latest local match even when cloud sync is pending. Do not
 export `*MatchSync:v1`, `*MatchRecovery:v1`, the transition marker, account
 sessions, tokens, raw keys, or encrypted credential envelopes. Migration must
 validate the complete outer bundle and each game's decoder before writes,
-preserve destination edits, and make repeat imports idempotent. This PR defines
-the interface; cross-origin export/import tooling belongs to the migration PR.
+preserve destination edits, and make repeat imports idempotent.
 
 For active-account local-only **alternatives**, the migration UI may capture the
 current authenticated session identity, read each `*MatchRecovery:v1` array and
@@ -153,11 +152,10 @@ can use the local `decryptApiKey(await accountKey(session), sealed)` functions o
 account. From the decoded progress object, allowlist only the four portable
 match values, `chessGameLog`, and validated progress extracted from the recovery
 arrays above. Credentials, AES keys, ciphertext wrappers, queue baselines,
-account IDs, and other accounts' containers never become export records. This
-is a documented consumer interface, not migration tooling implemented here.
+account IDs, and other accounts' containers never become export records.
 Malformed or future-version alternatives cannot pass the current decoders;
-leave their source copies intact and report that limitation to the user rather
-than silently omitting the only copy while clearing the old origin.
+their source copies stay intact and the limitation is reported to the user rather
+than silently omitting the only copy.
 
 Legacy `chessGameState` v1 is converted non-destructively by `fromLegacy` only
 when `chessMatch:v1` is absent; the source key remains available. An explicit
@@ -200,8 +198,8 @@ records likewise store JS-serialized JSON opaquely, and their writes use exact
 snapshots (see
 [public accounts](public-accounts.md#json-preservation-and-damaged-records)).
 Match keys and revisions are
-independent of them. Existing 300,000-byte request and durable account/network
-rate limits still apply.
+independent of them. The 300,000-byte request bound and durable account/network
+rate limits apply.
 
 ## Ownership, pending writes, preferences and statistics
 
@@ -214,29 +212,28 @@ after reading the response, and before acknowledgment. It never replaces those
 credentials with the next active account's credentials. Metadata from another
 owner cannot authorize a replay. Reopening the game resumes an offline queue.
 
-Both existing account modules extend the encrypted recovery/cleanup allowlist
-with all twelve match/sync/recovery keys plus `chessStatsRecovery:v1`. Guest import still requires the explicit
+The account module's encrypted recovery/cleanup allowlist includes all twelve
+match/sync/recovery keys plus `chessStatsRecovery:v1`. Guest import still requires the explicit
 unchecked opt-in; restored account data takes priority over a repeated guest
 import. A shared, bounded account-transition lease freezes match writers before
 async claims/encryption, including writers in tabs that have not received a
 storage event yet. Account commit checks fail closed if the lease is replaced or
 expires; a crashed tab's lease expires after 60 seconds. Account transitions and
 match replacement unmount game controllers; worker IDs and component generations
-reject late AI responses. Catan now follows the same worker-generation pattern as
-the frozen Yinsh/Zertz repair handoff.
+reject late AI responses; Yinsh, Zertz and Catan share this worker-generation
+pattern.
 
-Existing four-game preferences, Yinsh win counts and Chess finished-game statistics
+Four-game preferences, Yinsh win counts and Chess finished-game statistics
 (`chessGameLog`) use the separate settings CAS record. The Chess log is a validated
-JSON string of at most 200 existing-format entries / 100,000 UTF-8 bytes, so Redis
+JSON string of at most 200 entries / 100,000 UTF-8 bytes, so Redis
 never re-encodes its arrays. Settings conflict choices preserve both Chess logs
 in the account-scoped `chessStatsRecovery:v1` key; **Statistics recovery** can
 restore an alternative without adding or duplicating counters. That internal
-recovery key is excluded from ordinary exports; `chessGameLog` remains portable. Chess's existing rating, opponent history, puzzles and
-mistakes continue through the authenticated legacy profile domains. These records
-are not atomically committed with matches. This does not introduce competitive
-rankings, multiplayer, or new Zertz/Catan statistics.
+recovery key is excluded from ordinary exports; `chessGameLog` remains portable. Chess's rating, opponent history, puzzles and
+mistakes use the authenticated profile domains. These records
+are not atomically committed with matches.
 
-## Verification and release boundary
+## Verification
 
 Focused tests cover engine snapshots, Chess repetition/custom-start restoration,
 worker cancellation, local/conflict recovery, expired ownership, offline queues,
@@ -258,5 +255,6 @@ docker exec "$GIPF_TEST_REDIS_CONTAINER" redis-cli FLUSHDB   # each network may 
 node tests/match-import-browser.mjs
 ```
 
-Profile empty-array corruption from before the opaque-JSON writes is tracked in
-**nbramia/gipf#62**; match storage does not rewrite profile records.
+Match storage does not rewrite profile records; for profile records whose empty arrays
+were stored as objects, see
+[public accounts](public-accounts.md#json-preservation-and-damaged-records).

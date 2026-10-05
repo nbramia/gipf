@@ -2,8 +2,7 @@
 
 The `/migration` page exports device-only progress from a browser's local storage into
 portable files, stages files locally, and, for a signed-in account, activates selected
-records into the cloud. It was built for
-[nbramia/gipf#66](https://github.com/nbramia/gipf/issues/66).
+records into the cloud.
 
 ## Path and integration
 
@@ -40,8 +39,8 @@ staging. Match alternatives use content-derived outer IDs and retain inner IDs.
 | `chess-puzzles` | `chessPuzzleProgress` | `{rating,attempts,puzzles}`; rating 100–4000, attempts 0–1,000,000; up to 100,000 puzzle IDs, also limited by the 5 MiB envelope, with exact `{attempts,solves,streak,nextDueAt,lastResult}`; result solved/failed; timestamp 0–4102444800000 |
 | `chess-mistakes` | `chessMistakes` | At most 200 entries: `id,fenBefore,movePlayed,bestSan,bestPv,cpLoss,classification,opening,moveNo,createdAt,attempts,streak,nextDueAt`; valid FEN, bounded strings/numbers, classification inaccuracy/mistake/blunder; nullable opening |
 | `chess-repertoire` | `chessRepertoire` | `{version:1,white,black}`; each at most 100,000 names; free text bounded by the 5 MiB envelope |
-| `chess-log` | `chessGameLog` or content-derived alternative | Existing bounded finished-game entry schema from `server/chessLogValidation.js`, at most 200 entries / 100,000 bytes; exact nested counts |
-| `diplomacy-save` | `diplomacyGameState` | Existing version-1 envelope: `version,savedAt,board,uiPhase,controllers,personas,conversations,diplomaticState,uiState`; bounded by the enclosing 5 MiB export, including its metadata; closed progress-only schemas described below |
+| `chess-log` | `chessGameLog` or content-derived alternative | The bounded finished-game entry schema from `server/chessLogValidation.js`, at most 200 entries / 100,000 bytes; exact nested counts |
+| `diplomacy-save` | `diplomacyGameState` | The version-1 envelope: `version,savedAt,board,uiPhase,controllers,personas,conversations,diplomaticState,uiState`; bounded by the enclosing 5 MiB export, including its metadata; closed progress-only schemas described below |
 | `chess-match`, `yinsh-match`, `zertz-match`, `catan-match` | Inner ID or content-derived alternative | Full version-1 snapshot, authoritative game decoder plus migration's closed nested field validation; see `resumable-matches.md` |
 
 Preference allowlist is the actual game-local inventory, excluding secrets:
@@ -65,8 +64,8 @@ Preference allowlist is the actual game-local inventory, excluding secrets:
   power one of seven countries, difficulty easy/normal/hard, spice 0–1,
   integer maxYears 1901–2000.
 
-Splendor has no persistent match in this parent. Diplomacy's permissive loader
-is supplemented by a migration-only closed validator; no game behavior changes.
+Splendor has no persistent match. Diplomacy's permissive loader
+is supplemented by a migration-only closed validator.
 Its board fields are exactly those from `DiplomacyBoard.serializeState()`.
 Winter uses the engine's `winter-build` phase, including inside undo history.
 The writer's 400,000-byte soft cap only trims conversation turns; legitimate
@@ -123,7 +122,7 @@ as retained, non-exported content, not silently erased.
 
 Active-account match recovery arrays and Chess statistics alternatives are
 decoded into separate validated progress records. Encrypted recovery is read
-only for the captured active account, using the unchanged `decryptApiKey` format;
+only for the captured active account, using the `decryptApiKey` format;
 only the documented four match keys, finished-game log and their alternatives
 are consumed from it. Other known retained progress that differs from the current
 device is reported as excluded from this recovery interface. Unknown/damaged
@@ -161,7 +160,7 @@ and that nothing was stored.
 
 Identity and the exact account-transition marker are captured and checked before
 reads and after every asynchronous step. Any active, changed, malformed or
-expired-in-flight transition invalidates the operation. A persistent account generation also fences transitions that finish between awaits. Close old-version game tabs before export and activation; older deployed code cannot observe the new generation protocol.
+expired-in-flight transition invalidates the operation. A persistent account generation also fences transitions that finish between awaits.
 
 Import validates the complete file before any write. Preview compares against
 current destination values, reports equal/different/missing records, and requires
@@ -171,7 +170,7 @@ file whose whole content is canonically identical to the retained file with that
 exportId is idempotent; reusing an export ID with different content is rejected.
 
 Staging uses one bounded atomic localStorage value per captured identity and
-Web Locks to serialize migration writers. Signed-in stages use existing AES-GCM
+Web Locks to serialize migration writers. Signed-in stages use the account's AES-GCM
 encryption; guest stages have a separate key. At most 50 files and 5 MiB of
 decrypted staged JSON are structural limits per identity, not promised capacity.
 AES-GCM ciphertext is base64 (about 4/3 overhead, plus IV/JSON), and shares the
@@ -190,7 +189,7 @@ guest, including private progress in files exported while signed in. The page
 always warns before guest staging and requires explicit consent; no identifying
 metadata is added to portable files to guess their origin account.
 
-The `gamesMigration:v1:<identity>` store remains a version-1 JSON array (AES-GCM
+The `gamesMigration:v1:<identity>` store is a version-1 JSON array (AES-GCM
 encrypted for accounts). Entries are validated independently: invalid entries
 do not block downloading valid ones or appending a new valid file. Appends retain
 the exact existing JSON text, including unreadable entries; all entries still
@@ -211,8 +210,8 @@ repair. No other identity's stage or arbitrary localStorage is downloaded.
 ## Explicit account activation and recovery
 
 1. Sign into the intended account, select a validated file (or **Preview retained file**), and choose one record per destination key. The default selects the first version; alternatives remain in the retained file. Duplicate destinations reject instead of guessing a merge.
-2. **Preview account activation** checks the authenticated cloud destination and captures local bytes. Review the cloud conflict list and local equal/different/missing list, consent, then **Activate selected progress**. **Keep destination** and **Retain imported file separately** retain their prior no-active-write behavior.
-3. Reload Games before playing. Existing mounted settings/statistics, profile requests and match stores become stale when the durable generation changes; account transitions and activation use the same Web Lock and expiring lease. Delayed responses check identity/generation after awaits. Recovery encryption also compares exact progress and prior recovery bytes before committing. Account restore rechecks progress after decryption before clearing anything.
+2. **Preview account activation** checks the authenticated cloud destination and captures local bytes. Review the cloud conflict list and local equal/different/missing list, consent, then **Activate selected progress**. **Keep destination** and **Retain imported file separately** write no active keys.
+3. Reload Games before playing. Mounted settings/statistics, profile requests and match stores become stale when the durable generation changes; account transitions and activation use the same Web Lock and expiring lease. Delayed responses check identity/generation after awaits. Recovery encryption also compares exact progress and prior recovery bytes before committing. Account restore rechecks progress after decryption before clearing anything.
 
 The server revalidates the complete file, record digests and selected destinations.
 `migration-preview` returns a token over exact Redis snapshots. `migration-activate`
@@ -245,14 +244,14 @@ nonzero activation count with a missing byte ledger blocks new activations rathe
 than treating prior storage as free. Split export files have independent IDs.
 
 Settings/statistics, Chess rating/history/puzzles/mistakes and the four matches
-activate in their existing cloud domains. Other supported preferences, repertoire
+activate in their cloud domains. Other supported preferences, repertoire
 and Diplomacy saves are durably retained in `gipf:migration-extra:v1:<account>` and
 activated in the destination browser; this does not add automatic cross-device
 sync to those games. Sign-out recovery still includes these local progress keys.
 Server activation has tighter bounds than portable export/staging (see below).
 It rejects oversized values intact; it never truncates progress to fit. Preferences
 are at most 2,048 characters, puzzles at most 500 entries, and the mistakes wrapper
-at most 262,144 UTF-8 bytes. Existing closed schemas and match decoder caps also
+at most 262,144 UTF-8 bytes. The closed schemas and match decoder caps also
 apply. Resulting settings/profile payloads are at most 280,000 bytes each, leaving
 room for ordinary writer request metadata. The resulting extras record is at most
 256 KiB. This prevents importing values that exceed ordinary writer byte/count
@@ -276,7 +275,7 @@ manual-repair backup, not a portable migration file; there is no automatic rollb
 UI. If cloud recovery is unavailable, `cloudUnavailable:true` marks the local-only
 backup. The latest local journal is retained until another activation replaces it;
 server receipts remain durable. Guest activation is disabled: guests retain the
-existing visible, consented 50-file/5-MiB plaintext stage and must sign in and select
+visible, consented 50-file/5-MiB plaintext stage and must sign in and select
 the original file for account activation. No automatic guest ownership transfer.
 
 ## Activation verification
@@ -302,7 +301,7 @@ PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node tests/migration-activation-
 docker stop "$GIPF_TEST_REDIS_CONTAINER"
 ```
 
-Portable export/staging still accepts 5 MiB per file, but every server migration action
+Portable export/staging accepts 5 MiB per file, but every server migration action
 (preview, activation and recovery) accepts at most **512 KiB for the entire JSON
 request**, 128 bundled records, and 64 selected records with distinct destinations.
 All records retain envelope/shape, depth/secret-key and digest verification; only
@@ -312,7 +311,7 @@ limited to 8,192 UTF-8 bytes and 1,024 alphanumeric tokens, conservatively count
 move numbers, comments and headers as well as moves. This bounds replay work even
 for malformed or densely packed PGN; it is not a promise to accept 1,024 plies.
 The shared IP rate limit still applies, and the three migration actions share a
-separate 30-request/hour authenticated-account bucket. Ordinary sync remains at
+separate 30-request/hour authenticated-account bucket. Ordinary sync is
 120 requests/minute. Migration reserves a full 3-second Redis timeout before each
 snapshot/commit command within a deadline 17 seconds after handler entry, leaving
 response margin under the configured 20-second function duration.
@@ -335,7 +334,7 @@ command deadlines. It retains ownership, byte-exact recovery, stale-writer and
 concurrent-activation checks. Timed local fixtures establish a regression ceiling, not
 hosted performance certification.
 
-## Portable export/staging writer-bound audit (general review round 1)
+## Portable export/staging writer bounds
 
 This table describes the portable file schema and local writers. Authenticated
 server activation additionally enforces the tighter byte/count limits above;
@@ -343,23 +342,23 @@ exportability or successful staging does not guarantee server activation.
 
 | Writer group | Evidence and migration limit |
 | --- | --- |
-| Six-game preferences | Boolean/enumeration writers match the allowlist. Chess learning goal has no writer cap and now uses the envelope budget. Numeric counters still have the documented 1,000,000 safety limit, and timestamps stop at 2100; these are migration bounds, not writer guarantees. |
-| Chess puzzles | `recordPuzzleResult` adds an entry per ID without a cap. Removed the 500-entry restriction; 100,000-entry safety ceiling plus 5 MiB budget. Regression writes 501 real results. |
-| Chess repertoire | `pinOpening` has no list/name cap. Removed 200-entry/256-character restrictions; 100,000 names per color plus envelope budget. Regression uses 201 writer-generated names. |
-| Chess history, mistakes and log | UI opponent keys come from five tiers/rating ladder (within 32 per bucket). `captureMistake` and `recordGame` cap at 200. Log's 100,000-byte limit follows the existing server boundary. Counts, FEN and string restrictions remain explicit migration validation; permissive historical loaders are not compatibility guarantees. |
-| Four match writers | Existing authoritative decoders enforce 240,000-byte snapshots and UI arrays up to 2,000. Their restrictions stay in force. Yinsh rows now require engine `fullLineLength` (5–11); seeded legal play covers row removal and recovery alternatives through game end. Chess free coaching text now allows the snapshot byte budget; threads allow 10,000 entries, still bounded by snapshot bytes. Other closed typed game geometry, resources and fields remain unchanged. |
+| Six-game preferences | Boolean/enumeration writers match the allowlist. Chess learning goal has no writer cap and uses the envelope budget. Numeric counters have the documented 1,000,000 safety limit, and timestamps stop at 2100; these are migration bounds, not writer guarantees. |
+| Chess puzzles | `recordPuzzleResult` adds an entry per ID without a cap. 100,000-entry safety ceiling plus 5 MiB budget; a regression writes 501 real results. |
+| Chess repertoire | `pinOpening` has no list/name cap. 100,000 names per color plus envelope budget; a regression uses 201 writer-generated names. |
+| Chess history, mistakes and log | UI opponent keys come from five tiers/rating ladder (within 32 per bucket). `captureMistake` and `recordGame` cap at 200. Log's 100,000-byte limit follows the server boundary. Counts, FEN and string restrictions are explicit migration validation; the permissive game loaders are not compatibility guarantees. |
+| Four match writers | The authoritative decoders enforce 240,000-byte snapshots and UI arrays up to 2,000. Yinsh rows require engine `fullLineLength` (5–11); seeded legal play covers row removal and recovery alternatives through game end. Chess free coaching text may use the snapshot byte budget; threads allow 10,000 entries, bounded by snapshot bytes. Other game geometry, resources and fields keep their closed typed schemas. |
 | Diplomacy board | 80 undo snapshots, 12 order-history entries per board; 400 KB is only a writer soft cap. Regression adjudicates 45 phases including a real winter build and saves beyond 1910 and 400 KB. No engine or persistence writer changed. |
-| Diplomacy negotiation | `appendMessage`/scratchpad storage have no text cap; text now uses the envelope budget. Messages, agreements and promises have a 100,000-entry safety ceiling; summaries retain the writer's 200-character cap. Round 2: deal locations, targets and scratchpads now follow the endpoint `validateDeal` / client `validateScratchpad` contracts (see above), covered by writer-driven fixtures through `recordAgreement`, `runNegotiationPhase` with an injected agent, `setScratchpad` and `updateScratchpad`. No live LLM/provider verification. Agreement/promise fields, power sets, ID/turn/persona bounds still apply. |
-| Recovery stores | Existing match alternatives and log recovery accept at most eight entries, using their existing decoders/bounds. Only the captured account's documented match/log encrypted recovery interface is consumed; other known content is visibly excluded. |
+| Diplomacy negotiation | `appendMessage`/scratchpad storage have no text cap; text uses the envelope budget. Messages, agreements and promises have a 100,000-entry safety ceiling; summaries keep the writer's 200-character cap. Deal locations, targets and scratchpads follow the endpoint `validateDeal` / client `validateScratchpad` contracts (see above), covered by writer-driven fixtures through `recordAgreement`, `runNegotiationPhase` with an injected agent, `setScratchpad` and `updateScratchpad`. No live LLM/provider verification. Agreement/promise fields, power sets, ID/turn/persona bounds apply. |
+| Recovery stores | Match alternatives and log recovery accept at most eight entries, using their decoders/bounds. Only the captured account's documented match/log encrypted recovery interface is consumed; other known content is visibly excluded. |
 
-Unsupported historical extensions, over-limit counters/strings/arrays, and data
+Unsupported extensions, over-limit counters/strings/arrays, and data
 outside these supported interfaces are **not** silently repaired or removed.
 They produce incomplete-export warnings and remain in source storage; retain the
-source device. This audit and its deterministic fixtures do not prove every
-historical or provider-generated shape can migrate.
+source device. The deterministic fixtures do not prove every stored or
+provider-generated shape can migrate.
 
 No originals are cleaned up, no origin/cache is cleared, no credentials are
-transferred and no redirect occurs. Keep both the old device and downloaded files until
+transferred and no redirect occurs. Keep both the source device and downloaded files until
 activation is complete.
 
 ## Focused verification
@@ -372,21 +371,18 @@ explicit staging opt-in and invalidation of prepared data on identity events.
 `src/migrationReview.test.js` adds deterministic multi-year/late-game Diplomacy,
 seeded Yinsh through row removal, actual uncapped writers, per-entry stage
 isolation and byte preservation, scoped raw recovery, generic excluded-recovery
-warnings, and explicit UTF-8 overflow with source preservation. Round 2 adds
-lower/mixed-case deal locations, free-form targets and model-shaped scratchpads
-through the real negotiation writers (with rejected out-of-contract controls), a
-real retreat phase from legal opening orders, split multi-file export of a late
-Diplomacy game with other progress, per-file replay, and the no-stage raw
-recovery message. `src/GamesMigration.test.jsx` covers the split-file listing and
-download count, and consent reset after raw download. Round 3 adds the exact
-packing boundary (two records at exactly 5 MiB stay in one file; one byte more,
-through the comma, splits them), secret-key and depth-limit scratchpad controls
-that exclude the whole save, split filenames with a part index, the
-download-started wording, and the stage-full message. Round 4 adds the same
-boundary with three records, so the running total must count each comma, and
-real-writer scratchpads nested 19–21 deep (excluded alone, other progress
-exported) and 2 and 18 deep (exported).
-`src/migrationParentBoundary.test.jsx` now asserts that delayed settings hydration, cloud-conflict recovery and expired leases cannot overwrite newer progress. It includes a same-account transition that has already finished before the delayed response.
+warnings, explicit UTF-8 overflow with source preservation, lower/mixed-case deal
+locations, free-form targets and model-shaped scratchpads through the real negotiation
+writers (with rejected out-of-contract controls), a real retreat phase from legal opening
+orders, split multi-file export of a late Diplomacy game with other progress, per-file
+replay, the no-stage raw recovery message, the exact packing boundary (records totalling
+exactly 5 MiB, commas included, stay in one file; one byte more splits them),
+secret-key and depth-limit scratchpad controls that exclude the whole save, split
+filenames with a part index, the download-started wording, the stage-full message, and
+real-writer scratchpads nested 19–21 deep (excluded alone, other progress exported) and
+2 and 18 deep (exported). `src/GamesMigration.test.jsx` also covers the split-file listing
+and download count, and consent reset after raw download.
+`src/migrationParentBoundary.test.jsx` asserts that delayed settings hydration, cloud-conflict recovery and expired leases cannot overwrite newer progress. It includes a same-account transition that has already finished before the delayed response.
 
 `tests/migration-browser.mjs` uses built assets with deny-by-default context
 routing installed before navigation and service workers blocked. Only four

@@ -1,6 +1,6 @@
 # Chess
 
-The third game in the GIPF suite: play chess against Stockfish with a running
+Play chess against Stockfish with a running
 teaching dialogue after every move. Self-contained under `src/games/chess/`,
 following the suite conventions (pure-logic Board, scoped CSS, lazy route,
 `chess`-prefixed localStorage, no cross-game imports).
@@ -24,26 +24,26 @@ src/games/chess/
     playerHistory.js     # localStorage: per-opponent W/L/D history (chessOppHistory)
   hooks/
     useStockfish.js      # Engine lifecycle; getMove() + analyze(); serialized
-    useMistakeDrill.js   # Drill session state machine for the mistake library (#23)
+    useMistakeDrill.js   # Drill session state machine for the mistake library
   components/
-    MistakeReviewPanel.jsx # Post-game mistake list with Retry (#23)
+    MistakeReviewPanel.jsx # Post-game mistake list with Retry
   coach/
     classify.js          # Eval-swing -> blunder..best; formatEval
     analyzeMove.js       # Build engine-grounded coaching payloads; pv -> SAN
     templates.js         # Deterministic fallback prose (never fabricates)
     coachClient.js       # BYO key + POST /api/chessCoach + fallback + thread loop
-    mistakeStore.js      # Persistent mistake library + spaced-repetition scheduler (#23)
+    mistakeStore.js      # Persistent mistake library + spaced-repetition scheduler
     analysisTools.js     # analyze_position tool: Claude-callable Stockfish
-    openings.js          # ECO opening detection (#15)
-    pgn.js               # PGN import/export glue (#16)
-    accuracy.js          # Post-game accuracy summary (#17)
-    puzzles.js           # Rated mate-in-1/2/3 bank + solver & scripted-line checkers (#18, #24)
-    puzzleProgress.js    # Player puzzle Elo + per-puzzle spaced repetition + session selection (#24)
-    puzzleCoach.js       # Staged no-spoiler hints + refutation-grounded fail coaching (#24)
-    lichessPuzzle.js     # Lichess daily puzzle fetch + vetted parser (#24)
+    openings.js          # ECO opening detection
+    pgn.js               # PGN import/export glue
+    accuracy.js          # Post-game accuracy summary
+    puzzles.js           # Rated mate-in-1/2/3 bank + solver & scripted-line checkers
+    puzzleProgress.js    # Player puzzle Elo + per-puzzle spaced repetition + session selection
+    puzzleCoach.js       # Staged no-spoiler hints + refutation-grounded fail coaching
+    lichessPuzzle.js     # Lichess daily puzzle fetch + vetted parser
     mateSolver.js        # Exhaustive forced-mate search (vets puzzles)
-    material.js          # Captured pieces + material balance (#21)
-    sound.js             # WebAudio move cues (#21)
+    material.js          # Captured pieces + material balance
+    sound.js             # WebAudio move cues
 api/chessCoach.js        # Vercel serverless coach endpoint
 api/chessProfile.js      # Vercel serverless profile sync endpoint (rating + history + puzzles + mistakes)
 api/chessAccount.js      # Account keys (server-encrypted)
@@ -93,17 +93,17 @@ line, and the API prompt instructs the model to use only the supplied facts.
 
 The app is open source and publicly shared, so there is **no maintainer key**:
 
-- The key is entered in the UI and stored only in the browser, under a single
-  slot shared across the whole app (`localStorage['gipfApiKey']`): a key saved
-  in Chess is also used by Catan's rules chat, and vice versa
-  (`coach/coachClient.js`). A legacy per-game key under `chessApiKey` is
-  migrated into the shared slot automatically the first time it's read.
-- It is sent per-request in the POST body to `/api/chessCoach` over HTTPS.
+- The key is entered only at `/login`. For a guest it stays in the browser,
+  under a single slot shared across the whole app (`localStorage['gipfApiKey']`,
+  read by `coach/coachClient.js`), and is sent per-request in the POST body to
+  `/api/chessCoach` over HTTPS. A per-game key under `chessApiKey` or
+  `catanApiKey` is moved into the shared slot the first time it's read. For a
+  signed-in account the key is held encrypted on the server (see Accounts below).
 - The server uses it for exactly one upstream call and **never** logs, persists,
   or reads a key from its own environment — there is no server-side fallback.
 - It is never a `REACT_APP_` variable (those are bundled into client JS).
-- CORS mirrors `api/aiMove.js` (allowlist applied in both success and error
-  paths; OPTIONS preflight handled).
+- CORS goes through the shared `server/cors.js` helper (local development
+  origins only; production is same-origin).
 
 If no key is set, the board, engine, and built-in (template) coaching all still
 work.
@@ -131,7 +131,7 @@ Because Stockfish runs in the browser but Claude runs server-side, the loop is
 analyzes the position the move was played from (or the resulting position),
 optionally after playing a short line. Every eval Claude cites therefore comes
 from a real Stockfish search it requested; it **cannot fabricate** one (the same
-#22 truthfulness guarantee, extended to the conversational layer). The system
+truthfulness guarantee as the coaching pipeline, extended to the conversational layer). The system
 prompt explicitly forbids stating an eval or line not obtained from the tool.
 
 The full Anthropic message history (including tool calls/results) is kept on each
@@ -141,19 +141,19 @@ move-context block with prompt caching so multi-round threads stay cheap.
 
 ## Learning modes
 
-- **Learning prompt (#14):** a free-text "what do you want to learn" field whose
+- **Learning prompt:** a free-text "what do you want to learn" field whose
   text is threaded into the coaching payload to steer the explanations.
-- **Opening detection (#15):** `coach/openings.js` names the opening (deepest ECO
+- **Opening detection:** `coach/openings.js` names the opening (deepest ECO
   match) and flags when play leaves book.
-- **PGN (#16):** export the current game or import one to review (`coach/pgn.js`).
-- **Accuracy summary (#17):** at game end, a per-side accuracy % plus
+- **PGN:** export the current game or import one to review (`coach/pgn.js`).
+- **Accuracy summary:** at game end, a per-side accuracy % plus
   blunder/mistake/inaccuracy counts (`coach/accuracy.js`, Lichess-style curve).
-- **Puzzles (#18, overhauled #24):** a rated, adaptive, coached trainer.
+- **Puzzles:** a rated, adaptive, coached trainer.
   See "Puzzle trainer" below.
 
 ## Puzzle trainer
 
-The puzzle system (#24) is a rated, adaptive, coached trainer rather than a
+The puzzle system is a rated, adaptive, coached trainer rather than a
 fixed tier-gated list:
 
 - **Bank:** mate-in-1/2/3 positions (`coach/puzzles.js`), each carrying a
@@ -265,7 +265,7 @@ rescheduled the puzzle more recently; mistakes union by position
 out, then re-applying the 200-entry cap.
 
 Sync is optional for the player: without an account, everything works from
-localStorage as it always has. The server side needs a Redis REST store
+localStorage. The server side needs a Redis REST store
 (`KV_REST_API_URL`/`KV_REST_API_TOKEN` or the `UPSTASH_REDIS_REST_*` aliases); when
 the store is missing or unreachable the endpoints return 503 and the client stays
 local-only.
@@ -285,7 +285,7 @@ public identifier can read or write progress. Shared Redis rate counters bound s
 requests across instances. Missing
 storage or limiter configuration returns 503; guest play remains local.
 
-A profile that claimed pre-Auth0 data keeps those copies in `legacyProfiles`; the
+A profile may carry source copies of imported progress in `legacyProfiles`; the
 monotonic Chess merge rules reconcile them without adding the same statistics twice.
 See [public account operations](public-accounts.md) for exact contracts and setup.
 
@@ -301,7 +301,7 @@ and key status in Settings and links to `/login?return=/chess`. Shared
 preferences for Chess/Yinsh/Zertz/Catan, existing Yinsh scores, and Chess
 finished-game statistics (`chessGameLog`) use a separate revisioned settings scope.
 Chess rating/history/puzzles/mistakes keep their
-existing domains. Versioned current-match snapshots now support local resume and
+existing domains. Versioned current-match snapshots support local resume and
 authenticated cloud sync; see [resumable matches](resumable-matches.md).
 
 ## localStorage keys

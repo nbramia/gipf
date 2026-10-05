@@ -56,8 +56,8 @@ personal data, or details of private infrastructure.
 project that builds production from `main` and serves the app from the domain root,
 ungated. `main` is the release branch: merging a PR to `main` deploys to production, so
 open PRs against `main` and treat the merge as the release. There is no other
-deployment; `ramia.us/gipf` is a retired path that only redirects here, and nothing in
-this repo should use it as a route or prefix.
+deployment; `ramia.us/gipf` only redirects here, and nothing in this repo should use it
+as a route or prefix.
 
 **Relationship to the rest of ramia.us.** play.ramia.us is one app on the author's
 personal domain. Routing for the wider domain (redirects such as `ramia.us/gipf`) and the
@@ -541,8 +541,8 @@ diplomacyGameState    # versioned in-progress save (board snapshot + UI phase + 
 ```
 gipfApiKey   # one BYO Anthropic key, used by the chess coach, the Catan and
              # Splendor rules chats, and Diplomacy negotiation. Entered only at
-             # /login (synced encrypted when signed in, device-only for guests). Legacy chessApiKey / catanApiKey
-             # are migrated into it on first read. Each game keeps an identical
+             # /login (synced encrypted when signed in, device-only for guests). Per-game chessApiKey /
+             # catanApiKey values are moved into it on first read. Each game keeps an identical
              # copy of the storage helper (no cross-game import).
 gipf:account-transition # Temporary account-switch lease marker {id, until}
 gipfAccount  # cached account session {v:3, username, usernameId, sid}: no
@@ -602,7 +602,7 @@ and never push directly to `main`.
 Rollback: note the current production deployment before merging (`vercel inspect
 <production host>` from a checkout linked to the Vercel project), and roll back with
 `vercel rollback <deployment-url-or-id>` or by promoting that deployment in the Vercel
-dashboard. A rollback restores the old build; it does not undo store changes.
+dashboard. A rollback restores the previous build; it does not undo store changes.
 
 CORS is one shared helper, `server/cors.js`, used by every serverless endpoint. Its
 allowlist holds only local development origins: the app calls its own origin, so
@@ -628,12 +628,12 @@ Games must be fully self-contained -- no imports between game directories.
 
 ## Training Pipeline (Yinsh)
 
-### Current State
+### Models and checkpoints
 
-**Deployed model**: v12 (`public/models/yinsh-value-v1.onnx`), 315K params
-**Best checkpoint**: `training/v12.pt`
-**Model lineage**: v1 -> v3 -> v5 -> v8 -> v10 -> v12 (each beat its predecessor)
-**NN vs Heuristic**: NN wins 80% (16-4 in 20-game tournament at 50 sims)
+**Deployed champion**: `public/models/yinsh-value-v1.onnx` (the Expert tier; Easy and Advanced load
+`yinsh-value-easy.onnx` and `yinsh-value-advanced.onnx`, see `DIFFICULTY_CONFIG` in `YinshGame.jsx`)
+**Best checkpoint**: the path in `.deployed-checkpoint` (checkpoints and data are local, not committed)
+**Automated loop**: `scripts/continuous-train.sh` (see `.claude/commands/train.md`)
 
 ### How to Continue Training
 
@@ -653,7 +653,7 @@ cat data/vA_selfplay.ndjson data/vB_selfplay.ndjson > data/combined_vNEXT.ndjson
 ```bash
 training/.venv/bin/python3 training/train.py \
   --data data/combined_vNEXT.ndjson \
-  --checkpoint training/v12.pt \
+  --checkpoint "$(cat .deployed-checkpoint)" \
   --augment --lr 2e-4 --epochs 40 --patience 12 \
   --output training/vNEXT.pt
 ```
@@ -685,7 +685,7 @@ node scripts/tournament.mjs --games 10 --sims 50 --mode nn-vs-nn \
 
 ## Data Safety -- CRITICAL
 
-APFS filesystem corruption has zeroed out training data and model checkpoints before.
+APFS filesystem corruption can zero out training data and model checkpoints.
 
 ### Mandatory Safety Protocol
 
