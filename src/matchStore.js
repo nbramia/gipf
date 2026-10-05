@@ -94,10 +94,10 @@ export function createMatchStore(game) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 10000);
       try {
-        const response = await fetch(`${process.env.PUBLIC_URL || ''}/api/chessProfile`, {
+        const response = await fetch('/api/chessProfile', {
           // The session cookie authorizes the write; a v1 session not yet upgraded proves itself in the body.
           method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Games-Request': '1' },
-          body: JSON.stringify({ u: session.usernameId, ...(session.authToken ? { auth: session.authToken } : {}), scope: 'match', game, action, ...extra }),
+          body: JSON.stringify({ u: session.usernameId, scope: 'match', game, action, ...extra }),
           signal: controller.signal,
         });
         assertOwner();

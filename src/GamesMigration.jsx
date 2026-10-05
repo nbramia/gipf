@@ -57,7 +57,7 @@ export default function GamesMigration() {
   };
   const safeDownload = (bundle, onDone, part) => run(async g => { g.check(); download(bundle,false,part); onDone?.(); });
   return <main className="games-migration">
-    <a href={`${process.env.PUBLIC_URL || ''}/`}>Back to Games</a>
+    <a href="/">Back to Games</a>
     <h1>Move your Games progress</h1>
     <p>Export from each old browser origin, then open this page on the destination and select the file. Keep your original device and files.</p>
     <div className="migration-notice"><strong>Destination activation</strong>

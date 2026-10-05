@@ -1,5 +1,5 @@
 // profileSync.test.js — pure merge functions (mergeHistory/mergePuzzles/
-// mergeMistakes) and profileIdFromKey. Style mirrors rating.test.js.
+// mergeMistakes). Style mirrors rating.test.js.
 //
 // jsdom (this project's jest test environment) doesn't implement
 // SubtleCrypto, so we polyfill globalThis.crypto with Node's built-in
@@ -8,8 +8,7 @@
 
 import { webcrypto } from 'crypto';
 import { TextEncoder, TextDecoder } from 'util';
-import { ratingIdFromKey } from './ratingSync.js';
-import { profileIdFromKey, mergeHistory, mergePuzzles, mergeMistakes } from './profileSync.js';
+import { mergeHistory, mergePuzzles, mergeMistakes } from './profileSync.js';
 import { MISTAKE_CAP } from '../coach/mistakeStore.js';
 
 if (!globalThis.crypto || !globalThis.crypto.subtle) {
@@ -19,24 +18,6 @@ if (typeof globalThis.TextEncoder === 'undefined') {
   globalThis.TextEncoder = TextEncoder;
   globalThis.TextDecoder = TextDecoder;
 }
-
-describe('profileIdFromKey', () => {
-  test('produces a 64-char hex id', async () => {
-    const id = await profileIdFromKey('sk-ant-abc123');
-    expect(id).toMatch(/^[0-9a-f]{64}$/);
-  });
-
-  test('matches ratingIdFromKey for the same key (same namespace, so ratings carry over)', async () => {
-    const key = 'sk-ant-shared-key';
-    expect(await profileIdFromKey(key)).toBe(await ratingIdFromKey(key));
-  });
-
-  test('returns null for an empty or missing key', async () => {
-    expect(await profileIdFromKey('')).toBeNull();
-    expect(await profileIdFromKey(null)).toBeNull();
-    expect(await profileIdFromKey(undefined)).toBeNull();
-  });
-});
 
 describe('mergeHistory', () => {
   test('tolerates null/undefined on either side', () => {
@@ -191,8 +172,8 @@ describe('mergeMistakes', () => {
 });
 
 describe('authenticated profile requests', () => {
-  const a = { usernameId: 'a'.repeat(64), authToken: 'b'.repeat(64) };
-  const b = { usernameId: 'c'.repeat(64), authToken: 'd'.repeat(64) };
+  const a = { v: 3, username: 'a', usernameId: 'a'.repeat(64), sid: 'b'.repeat(32) };
+  const b = { v: 3, username: 'c', usernameId: 'c'.repeat(64), sid: 'd'.repeat(32) };
   afterEach(() => { delete global.fetch; localStorage.clear(); });
   test('old component cannot assign a queued write to a new account', async () => {
     const { putRemoteProfile } = await import('./profileSync.js');
@@ -223,7 +204,7 @@ describe('legacy mistakes compatibility', () => {
   afterEach(() => { delete global.fetch; localStorage.clear(); });
   test.each([{}, { original: 'retained remotely' }])('reconciles non-array entries without mutation: %p', async entries => {
     const { fetchRemoteProfile, putRemoteProfile } = await import('./profileSync.js');
-    const session = { usernameId: 'e'.repeat(64), authToken: 'f'.repeat(64) };
+    const session = { v: 3, username: 'e', usernameId: 'e'.repeat(64), sid: 'f'.repeat(32) };
     localStorage.setItem('gipfAccount', JSON.stringify(session));
     const healthy = [{ fenBefore: 'synthetic', attempts: 0, nextDueAt: 0, createdAt: 1 }];
     const data = { revision: 1, profile: { mistakes: { v: 1, entries } }, legacyProfiles: {

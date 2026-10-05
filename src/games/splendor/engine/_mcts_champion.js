@@ -12,7 +12,7 @@
 // deployed engine uses a short softmax heuristic rollout; an NN evaluator (ONNX
 // value+policy) can drop in behind the same interface.
 
-import SplendorBoard, { GEMS, GOLD, ALL_TOKENS, VICTORY_POINTS } from '../SplendorBoard.js';
+import { GEMS, GOLD, ALL_TOKENS, VICTORY_POINTS } from '../SplendorBoard.js';
 import { CARDS_BY_ID, NOBLES_BY_ID } from '../splendorCards.js';
 import { extractFeatures, moveToPolicyIndex, POLICY_SIZE } from './features.js';
 

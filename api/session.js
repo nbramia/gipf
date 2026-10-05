@@ -1,8 +1,7 @@
 // Games sign-in sessions. See server/session.js for storage and lifetimes, and
 // api/auth.js for sign-in and sign-out.
-//   GET                       -> {signedIn:true, u, name, linked, keys} for a live cookie, else 401
-//   POST {action:'establish'} -> the same plus `sealKey`, the account's device seal key, and
-//                                `offerLink` on the sign-in that created the identity
+//   GET                       -> {signedIn:true, u, name, keys} for a live cookie, else 401
+//   POST {action:'establish'} -> the same plus `sealKey`, the account's device seal key
 // `keys` says only whether the Anthropic key and Lichess token are held on the account;
 // neither ever leaves the server.
 import { guardRequest } from '../server/publicSecurity.js';
@@ -20,8 +19,8 @@ export default async function handler(req, res) {
     const session = await resolveSession(readSessionToken(req));
     const record = session && await readIdentity(session.i);
     if (!record) return res.status(401).json({ error: 'signed_out' });
-    const status = { signedIn: true, u: session.u, name: session.name, linked: !!record.linked, keys: keyStatus(record) };
+    const status = { signedIn: true, u: session.u, name: session.name, keys: keyStatus(record) };
     if (req.method === 'GET') return res.status(200).json(status);
-    return res.status(200).json({ ...status, sealKey: openSlot(session.i, record, 'seal'), offerLink: session.fresh && !record.linked });
+    return res.status(200).json({ ...status, sealKey: openSlot(session.i, record, 'seal') });
   } catch (_) { return res.status(503).json({ error: 'store_unavailable' }); }
 }

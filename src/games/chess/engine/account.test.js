@@ -1,29 +1,34 @@
-// account.test.js — deriveCredentials, encrypt/decrypt, and session
-// persistence. Style mirrors rating.test.js; fetch client isn't tested here
-// (no fetch in jsdom, same as profileSync/ratingSync tests).
+// account.test.js — encrypt/decrypt and session persistence. Style mirrors
+// rating.test.js; fetch client isn't tested here (no fetch in jsdom, same as
+// profileSync tests).
 //
 // jsdom (this project's jest test environment) doesn't implement
 // SubtleCrypto, so we polyfill globalThis.crypto with Node's built-in
 // webcrypto for this test file only — production code (browsers) already
 // has a native Web Crypto API.
-//
-// deriveCredentials runs 310k rounds of PBKDF2 per call, so this suite
-// computes each distinct input combination exactly once in beforeAll and
-// reuses the results across assertions to stay fast.
 
-import { webcrypto } from 'crypto';
+import { webcrypto, createHash } from 'crypto';
 import { TextEncoder, TextDecoder } from 'util';
 import {
   ACCOUNT_STORAGE_KEY,
-  deriveCredentials,
   encryptApiKey,
   decryptApiKey,
   loadSession,
   saveSession,
   clearSession,
   accountKey,
+  discardUnreadableSession,
 } from './account.js';
 import { accountKeys } from '../../../accountKeys.js';
+
+// A synthetic signed-in account as completeSignIn hands it to saveSession: the
+// account name, its data id, and the server's base64 seal key.
+const digest = label => createHash('sha256').update(label).digest();
+const account = label => ({
+  username: label,
+  usernameId: digest(`id:${label}`).toString('hex'),
+  aesKey: digest(`seal:${label}`).toString('base64'),
+});
 
 if (!globalThis.crypto || !globalThis.crypto.subtle) {
   globalThis.crypto = webcrypto;
@@ -33,68 +38,8 @@ if (typeof globalThis.TextEncoder === 'undefined') {
   globalThis.TextDecoder = TextDecoder;
 }
 
-describe('deriveCredentials', () => {
-  let base, baseRepeat, caseVariant, diffPassword, diffUsername;
-
-  beforeAll(async () => {
-    base = await deriveCredentials('Alice', 'correct horse battery staple');
-    baseRepeat = await deriveCredentials('Alice', 'correct horse battery staple');
-    caseVariant = await deriveCredentials('  ALICE  ', 'correct horse battery staple');
-    diffPassword = await deriveCredentials('Alice', 'a totally different password');
-    diffUsername = await deriveCredentials('Bob', 'correct horse battery staple');
-  }, 30000);
-
-  test('is deterministic: same inputs -> identical triple', () => {
-    expect(baseRepeat.usernameId).toBe(base.usernameId);
-    expect(baseRepeat.authToken).toBe(base.authToken);
-    expect(baseRepeat.aesKey).toBe(base.aesKey);
-    expect(baseRepeat.profileId).toBe(base.profileId);
-  });
-
-  test('username is case/whitespace-insensitive for derivation, but display username is preserved trimmed', () => {
-    expect(caseVariant.usernameId).toBe(base.usernameId);
-    expect(caseVariant.authToken).toBe(base.authToken);
-    expect(caseVariant.aesKey).toBe(base.aesKey);
-    expect(caseVariant.profileId).toBe(base.profileId);
-    expect(caseVariant.username).toBe('ALICE');
-    expect(base.username).toBe('Alice');
-  });
-
-  test('a different password changes every derived secret', () => {
-    expect(diffPassword.usernameId).toBe(base.usernameId); // username-only hash is unaffected
-    expect(diffPassword.authToken).not.toBe(base.authToken);
-    expect(diffPassword.aesKey).not.toBe(base.aesKey);
-    expect(diffPassword.profileId).not.toBe(base.profileId);
-  });
-
-  test('a different username changes every derived secret', () => {
-    expect(diffUsername.usernameId).not.toBe(base.usernameId);
-    expect(diffUsername.authToken).not.toBe(base.authToken);
-    expect(diffUsername.aesKey).not.toBe(base.aesKey);
-    expect(diffUsername.profileId).not.toBe(base.profileId);
-  });
-
-  test('authToken and profileId are 64-char lowercase hex, and differ from each other', () => {
-    expect(base.authToken).toMatch(/^[0-9a-f]{64}$/);
-    expect(base.profileId).toMatch(/^[0-9a-f]{64}$/);
-    expect(base.authToken).not.toBe(base.profileId);
-  });
-
-  test('returns null for an empty username or empty password', async () => {
-    expect(await deriveCredentials('', 'somepassword')).toBeNull();
-    expect(await deriveCredentials('   ', 'somepassword')).toBeNull();
-    expect(await deriveCredentials('alice', '')).toBeNull();
-    expect(await deriveCredentials('alice', null)).toBeNull();
-    expect(await deriveCredentials('alice', undefined)).toBeNull();
-  });
-});
-
 describe('encryptApiKey / decryptApiKey', () => {
-  let aesKey;
-
-  beforeAll(async () => {
-    ({ aesKey } = await deriveCredentials('Alice', 'correct horse battery staple'));
-  }, 30000);
+  const { aesKey } = account('Alice');
 
   test('round-trips a realistic API key', async () => {
     const plaintext = 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789';
@@ -118,7 +63,7 @@ describe('encryptApiKey / decryptApiKey', () => {
   });
 
   test('decrypting with the wrong aesKey rejects', async () => {
-    const { aesKey: wrongKey } = await deriveCredentials('Bob', 'a different password entirely');
+    const { aesKey: wrongKey } = account('Bob');
     const enc = await encryptApiKey(aesKey, 'sk-ant-secret');
     await expect(decryptApiKey(wrongKey, enc)).rejects.toBeTruthy();
   });
@@ -126,14 +71,9 @@ describe('encryptApiKey / decryptApiKey', () => {
 
 describe('encryptApiKey / decryptApiKey — two independent secrets under one account', () => {
   // The account carries two BYO secrets (the Anthropic API key and the
-  // Lichess explorer token) encrypted under the same password-derived AES
-  // key. encryptApiKey/decryptApiKey are generic string encryptors, so this
+  // Lichess explorer token) sealed under the same AES key. encryptApiKey/decryptApiKey are generic string encryptors, so this
   // just confirms they don't cross-contaminate when used twice per account.
-  let aesKey;
-
-  beforeAll(async () => {
-    ({ aesKey } = await deriveCredentials('Alice', 'correct horse battery staple'));
-  }, 30000);
+  const { aesKey } = account('Alice');
 
   test('the same AES key independently encrypts/decrypts an API key and a Lichess token', async () => {
     const apiKey = 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789';
@@ -147,7 +87,7 @@ describe('encryptApiKey / decryptApiKey — two independent secrets under one ac
   });
 
   test('wrong key still rejects for the Lichess token ciphertext', async () => {
-    const { aesKey: wrongKey } = await deriveCredentials('Bob', 'a different password entirely');
+    const { aesKey: wrongKey } = account('Bob');
     const encLichess = await encryptApiKey(aesKey, 'lip_some-lichess-token');
     await expect(decryptApiKey(wrongKey, encLichess)).rejects.toBeTruthy();
   });
@@ -158,25 +98,35 @@ describe('session persistence', () => {
     await clearSession();
   });
 
-  const session = {
-    username: 'Alice',
-    usernameId: 'a'.repeat(64),
-    authToken: 'b'.repeat(64),
-    aesKey: Buffer.alloc(32, 5).toString('base64'),
-    profileId: 'c'.repeat(64),
-  };
+  const session = account('Alice');
 
   test('save/load writes a secret-free v3 session; without IndexedDB the key is held for this page', async () => {
     await saveSession(session);
     expect(loadSession()).toEqual({ v: 3, username: session.username, usernameId: session.usernameId, sid: expect.stringMatching(/^[a-f0-9]{32}$/) });
     const raw = localStorage.getItem(ACCOUNT_STORAGE_KEY);
-    for (const secret of [session.authToken, session.aesKey, session.profileId]) expect(raw).not.toContain(secret);
+    expect(raw).not.toContain(session.aesKey);
     expect((await accountKey(loadSession())).extractable).toBe(false);
   });
 
-  test('a retired v1 session still loads, marked by its auth token, so it can be signed out', () => {
-    localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify({ v: 1, ...session }));
-    expect(loadSession()).toEqual({ v: 1, ...session, sid: session.authToken });
+  test.each([
+    ['v1', { v: 1, username: 'Alice', usernameId: 'a'.repeat(64), authToken: 'b'.repeat(64), aesKey: 'x', profileId: 'c'.repeat(64) }],
+    ['v2', { v: 2, username: 'Alice', usernameId: 'a'.repeat(64), sid: 'b'.repeat(32) }],
+  ])('a %s password-era record is not a session, and startup discards it but keeps progress', (_, record) => {
+    localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(record));
+    localStorage.setItem('chessRating', '1500');
+    expect(loadSession()).toBeNull();
+    expect(discardUnreadableSession()).toBe(true);
+    expect(localStorage.getItem(ACCOUNT_STORAGE_KEY)).toBeNull();
+    expect(localStorage.getItem('chessRating')).toBe('1500');
+    localStorage.clear();
+  });
+
+  test('discardUnreadableSession leaves a valid v3 session and an empty slot alone', async () => {
+    expect(discardUnreadableSession()).toBe(false);
+    await saveSession(session);
+    const raw = localStorage.getItem(ACCOUNT_STORAGE_KEY);
+    expect(discardUnreadableSession()).toBe(false);
+    expect(localStorage.getItem(ACCOUNT_STORAGE_KEY)).toBe(raw);
   });
 
   test('loadSession returns null when nothing is stored', () => {
@@ -192,7 +142,7 @@ describe('session persistence', () => {
     localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify({ v: 1, foo: 'bar' }));
     expect(loadSession()).toBeNull();
 
-    localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify({ ...session })); // missing v:1
+    localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify({ username: 'Alice', usernameId: 'a'.repeat(64), sid: 'b'.repeat(32) })); // missing v:3
     expect(loadSession()).toBeNull();
 
     localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(['not', 'an', 'object']));
@@ -208,7 +158,7 @@ describe('session persistence', () => {
 });
 
 test('logout clears both credentials and encrypts outgoing progress for that account', async () => {
-  const a = await deriveCredentials('synthetic-a', 'synthetic-password');
+  const a = account('synthetic-a');
   await saveSession(a);
   localStorage.setItem('gipfApiKey', 'synthetic-secret');
   localStorage.setItem('chessLichessToken', 'synthetic-token');
@@ -226,8 +176,8 @@ test('logout clears both credentials and encrypts outgoing progress for that acc
 
 test('account B sees neither A progress nor A keys and A can recover unsynced progress', async () => {
   localStorage.clear();
-  const a = await deriveCredentials('synthetic-account-a', 'synthetic-password');
-  const b = await deriveCredentials('synthetic-account-b', 'synthetic-password');
+  const a = account('synthetic-account-a');
+  const b = account('synthetic-account-b');
   localStorage.setItem('gipfApiKey', 'synthetic-guest-secret');
   await saveSession(a, { keys: { anthropic: true, lichess: true } });
   // Signed in, no key stays on the device; only the account marker says one exists.
@@ -248,7 +198,7 @@ test('account B sees neither A progress nor A keys and A can recover unsynced pr
 
 test('guest progress is preserved separately and imported only by explicit choice', async () => {
   localStorage.clear();
-  const a = await deriveCredentials('synthetic-guest-test', 'synthetic-password');
+  const a = account('synthetic-guest-test');
   localStorage.setItem('chessRating', '1357');
   await saveSession(a);
   expect(localStorage.getItem('chessRating')).toBeNull();
@@ -259,22 +209,9 @@ test('guest progress is preserved separately and imported only by explicit choic
   await clearSession();
 });
 
-test('matches the original v1 PBKDF2 vector and decrypts an independently sealed legacy token', async () => {
-  const result = await deriveCredentials('Synthetic-v1', 'synthetic-password-v1');
-  expect(result).toMatchObject({
-    usernameId: '88d0ddd6878ace98f6cbaab55173e19850ae2e95286d1ce85cc5901d3bccaf0c',
-    authToken: '7492b02b08fbcb50f33b7f7d730f979c03a6932992126fc3f96667b20a4ccaf8',
-    aesKey: 'usKv3jLD6xLFUK7iujpHx+iY3Yp2U8ln2GLykWHTK2o=',
-    profileId: 'eb64857cf9c62007c36d9855adfd568aa4bfa0f02a48ccd867d428dcc94afb61',
-  });
-  expect(await decryptApiKey(result.aesKey, {
-    iv: 'AAAAAAAAAAAAAAAA', ct: 'YrOdfDi0hIrY9MY91+L4rb6aOsfP5crt65yzo05dnwPvEjonwao=',
-  })).toBe('synthetic-legacy-token');
-});
-
 test('recovery quota failure aborts logout before deleting the only copy', async () => {
   localStorage.clear();
-  const a = await deriveCredentials('synthetic-quota', 'synthetic-password');
+  const a = account('synthetic-quota');
   await saveSession(a, { keys: { anthropic: true, lichess: false } });
   localStorage.setItem('chessRating', '1492');
   const original = Storage.prototype.setItem;
@@ -292,7 +229,7 @@ test('recovery quota failure aborts logout before deleting the only copy', async
 
 test('existing Chess and Diplomacy local saves stay with the outgoing account', async () => {
   localStorage.clear();
-  const a = await deriveCredentials('synthetic-local-saves', 'synthetic-password');
+  const a = account('synthetic-local-saves');
   await saveSession(a);
   localStorage.setItem('chessGameState', '{"synthetic":"chess-a"}');
   localStorage.setItem('diplomacyGameState', '{"synthetic":"diplomacy-a"}');
@@ -307,8 +244,8 @@ test('existing Chess and Diplomacy local saves stay with the outgoing account', 
 
 test('four-game pending saves and alternatives stay encrypted with their original account', async () => {
   localStorage.clear();
-  const a = await deriveCredentials('synthetic-four-saves-a','synthetic-password');
-  const b = await deriveCredentials('synthetic-four-saves-b','synthetic-password');
+  const a = account('synthetic-four-saves-a');
+  const b = account('synthetic-four-saves-b');
   await saveSession(a);
   for (const game of ['chess','yinsh','zertz','catan']) {
     localStorage.setItem(`${game}Match:v1`, JSON.stringify({ synthetic: 'unsynced-A' }));
@@ -329,7 +266,7 @@ test('four-game pending saves and alternatives stay encrypted with their origina
 });
 test('four-game guest import remains explicit and repeat import does not replace account edits', async () => {
   localStorage.clear();
-  const a = await deriveCredentials('synthetic-four-guest','synthetic-password');
+  const a = account('synthetic-four-guest');
   localStorage.setItem('yinshMatch:v1','{"id":"guest-only"}');
   await saveSession(a);
   expect(localStorage.getItem('yinshMatch:v1')).toBeNull();

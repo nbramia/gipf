@@ -12,7 +12,7 @@ import './zertz.css';
 const DIFFICULTY_CONFIG = {
   easy: { simulations: 100, evaluationMode: 'heuristic' },
   advanced: { simulations: 200, evaluationMode: 'heuristic' },
-  expert: { simulations: 300, evaluationMode: 'nn', modelPath: `${process.env.PUBLIC_URL || ''}/models/zertz-value-v1.onnx` },
+  expert: { simulations: 300, evaluationMode: 'nn', modelPath: '/models/zertz-value-v1.onnx' },
 };
 
 // Toggle component

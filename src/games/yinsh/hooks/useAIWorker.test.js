@@ -53,11 +53,8 @@ test('current request errors settle exactly once and a later request still works
   reply(workers[0], 'result', workers[0].postMessage.mock.calls[1][0].requestId);
   expect(success).toHaveBeenCalledTimes(1);
 });
-test.each(['', '/gipf'])('default model path respects PUBLIC_URL=%s', prefix => {
-  const previous = process.env.PUBLIC_URL;
-  process.env.PUBLIC_URL = prefix;
+test('the default model path is the root models path', () => {
   const { result } = renderHook(() => useAIWorker());
   act(() => result.current.computeMove({}, 1, jest.fn(), jest.fn(), 'nn'));
-  expect(workers[0].postMessage.mock.calls[0][0].data.modelPath).toBe(`${prefix}/models/yinsh-value-v1.onnx`);
-  process.env.PUBLIC_URL = previous;
+  expect(workers[0].postMessage.mock.calls[0][0].data.modelPath).toBe(`/models/yinsh-value-v1.onnx`);
 });

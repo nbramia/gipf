@@ -17,7 +17,7 @@ import chessCoach from '../api/chessCoach.js';
 import { hash } from '../server/publicSecurity.js';
 import { COOKIE, createSession, resolveSession } from '../server/session.js';
 import { CALLBACK_URL, TRANSACTION_COOKIE, resetDiscovery, safeReturn } from '../server/auth0.js';
-import { identityId, identityKey, linkKey, readIdentity, rewrapIdentity, CREATE_PER_NETWORK } from '../server/identity.js';
+import { identityId, identityKey, readIdentity, rewrapIdentity, CREATE_PER_NETWORK } from '../server/identity.js';
 import { seal, open, keyring } from '../server/keyCustody.js';
 
 const ISSUER = 'https://synthetic-tenant.auth0.example';
@@ -101,7 +101,7 @@ const identityKeys = () => redis('KEYS', 'gipf:identity:v1:*');
 
 beforeEach(() => {
   redis('FLUSHDB');
-  for (const name of ['VERCEL', 'VERCEL_ENV', 'VERCEL_URL', 'VERCEL_BRANCH_URL', 'GIPF_LEGACY_CLAIM_FROM', 'GIPF_LEGACY_CLAIM_UNTIL']) delete process.env[name];
+  for (const name of ['VERCEL', 'VERCEL_ENV', 'VERCEL_URL', 'VERCEL_BRANCH_URL']) delete process.env[name];
   Object.assign(process.env, { KV_REST_API_URL: 'https://synthetic.invalid/', KV_REST_API_TOKEN: 'synthetic', AUTH0_ISSUER_BASE_URL: ISSUER, AUTH0_CLIENT_ID: CLIENT_ID, AUTH0_CLIENT_SECRET: CLIENT_SECRET, GAMES_SESSION_SECRET: 'synthetic-session-secret-0123456789abcdef' });
   useTestKeyCustody();
   Object.assign(provider, { claims: {}, signer: providerKeys.privateKey, authorize: null, tokenRequests: [], fail: false });
@@ -163,16 +163,15 @@ test('callback validates the code and ID token, creates the identity once, and s
   assert.equal(established.statusCode, 200);
   assert.equal(established.body.u, id);
   assert.equal(established.body.name, 'player-one@synthetic.example');
-  assert.equal(established.body.offerLink, true);
   assert.deepEqual(established.body.keys, { anthropic: false, lichess: false });
   assert.match(established.body.sealKey, /^[A-Za-z0-9+/]{43}=$/);
-  // A later sign-in reaches the same identity and no longer offers the link.
+  // A later sign-in reaches the same identity and the same seal key.
   const again = await signIn();
   assert.deepEqual(identityKeys(), [identityKey(id)]);
   const second = await call(session, { body: { action: 'establish' }, cookies: { [COOKIE]: again } });
-  assert.deepEqual([second.body.u, second.body.offerLink, second.body.sealKey], [id, false, established.body.sealKey]);
+  assert.deepEqual([second.body.u, second.body.sealKey], [id, established.body.sealKey]);
   const status = await call(session, { method: 'GET', headers: {}, cookies: { [COOKIE]: again } });
-  assert.deepEqual(status.body, { signedIn: true, u: id, name: 'player-one@synthetic.example', linked: false, keys: { anthropic: false, lichess: false } });
+  assert.deepEqual(status.body, { signedIn: true, u: id, name: 'player-one@synthetic.example', keys: { anthropic: false, lichess: false } });
 });
 
 test('a sign-in replaces the session the browser presented', async () => {
@@ -366,16 +365,17 @@ test('CSRF: establish, keys, logout and profile need JSON, the custom header and
   assert.ok(!(await readIdentity(identityId(ISSUER, 'google-oauth2|synthetic-1'))).keys.anthropic);
 });
 
-test('a pre-Auth0 password session is refused and removed; retired password actions return 410', async () => {
-  const legacyToken = 'L'.repeat(43);
-  redis('SET', `gipf:session:v1:${hash(legacyToken)}`, JSON.stringify({ u: 'a'.repeat(64), created: Date.now(), seen: Date.now() }));
-  assert.equal((await call(profile, { body: { action: 'read' }, cookies: { [COOKIE]: legacyToken } })).statusCode, 401);
-  assert.equal(redis('EXISTS', `gipf:session:v1:${hash(legacyToken)}`), 0);
-  for (const action of ['create', 'login', 'setKey']) {
-    assert.equal((await call(account, { body: { action, u: 'a'.repeat(64), auth: 'b'.repeat(64), enc: null } })).statusCode, 410);
+test('a malformed session record is refused and removed; retired account actions are refused', async () => {
+  const malformed = 'L'.repeat(43);
+  redis('SET', `gipf:session:v1:${hash(malformed)}`, JSON.stringify({ u: 'a'.repeat(64), created: Date.now(), seen: Date.now() }));
+  assert.equal((await call(profile, { body: { action: 'read' }, cookies: { [COOKIE]: malformed } })).statusCode, 401);
+  assert.equal(redis('EXISTS', `gipf:session:v1:${hash(malformed)}`), 0);
+  const token = await signIn();
+  for (const action of ['create', 'login', 'setKey', 'link', 'link-verify']) {
+    const res = await call(account, { body: { action, u: 'a'.repeat(64), auth: 'b'.repeat(64) }, cookies: { [COOKIE]: token } });
+    assert.deepEqual([res.statusCode, res.body], [400, { error: 'bad_request' }]);
   }
-  // Body credentials no longer authorize anything.
-  redis('SET', `chess:account:${'a'.repeat(64)}`, JSON.stringify({ authHash: hash('b'.repeat(64)) }));
+  // Body fields never authorize: without the cookie, a named account is a signed-out request.
   assert.equal((await call(profile, { body: { action: 'read', u: 'a'.repeat(64), auth: 'b'.repeat(64) }, headers: {} })).statusCode, 401);
 });
 
@@ -479,103 +479,6 @@ test('every model proxy and the Lichess explorer use the account key server-side
   const bare = await signIn({ sub: 'google-oauth2|synthetic-keyless', email: 'keyless@synthetic.example' });
   assert.equal((await call(splendorRules, { body: { messages: [{ role: 'user', content: 'q' }] }, cookies: { [COOKIE]: bare } })).statusCode, 401);
   assert.equal((await call(chessCoach, { body: { mode: 'explorer', fen: 'not a fen!' }, cookies: { [COOKIE]: token } })).statusCode, 400);
-});
-
-// --- linking an old games account ---------------------------------------------
-
-const OLD_U = 'd'.repeat(64), OLD_AUTH = 'e'.repeat(64), OLD_SEAL = Buffer.alloc(32, 3).toString('base64');
-const OLD_ENC = { iv: 'AAAAAAAAAAAAAAAA', ct: 'AAAAAAAAAAAAAAAAAAAAAA==' };
-function seedOldAccount(u = OLD_U, auth = OLD_AUTH) {
-  redis('SET', `chess:account:${u}`, JSON.stringify({ authHash: hash(auth), enc: OLD_ENC, encLichess: OLD_ENC, createdAt: 1 }));
-  redis('SET', `gipf:settings:v2:${u}`, JSON.stringify({ revision: 3, profile: { preferences: { chessDarkMode: 'true' } } }));
-  redis('SET', `gipf:match:v1:${u}:catan`, JSON.stringify({ revision: 1, profile: { match: { synthetic: true } } }));
-}
-
-test('linking: verify, then link in place; keys fill empty slots; sessions are reissued on the old data', async () => {
-  seedOldAccount();
-  const token = await signIn();
-  const other = await signIn();
-  const id = identityId(ISSUER, 'google-oauth2|synthetic-1');
-  await call(account, { body: { action: 'setKeys', lichess: 'lip_newerAccountToken' }, cookies: { [COOKIE]: token } });
-  const verify = await call(account, { body: { action: 'link-verify', u: OLD_U, auth: OLD_AUTH }, cookies: { [COOKIE]: token } });
-  assert.deepEqual([verify.statusCode, verify.body], [200, { verified: true, enc: OLD_ENC, encLichess: OLD_ENC }]);
-  assert.equal(redis('EXISTS', linkKey(OLD_U)), 0, 'verification alone links nothing');
-  const linked = await call(account, { body: { action: 'link', u: OLD_U, auth: OLD_AUTH, sealKey: OLD_SEAL, anthropic: ANTHROPIC, lichess: 'lip_oldAccountToken' }, cookies: { [COOKIE]: token } });
-  assert.deepEqual([linked.statusCode, linked.body], [200, { linked: true, u: OLD_U, keys: { anthropic: true, lichess: true } }]);
-  const record = await readIdentity(id);
-  assert.deepEqual([record.data, record.linked], [OLD_U, OLD_U]);
-  assert.equal(redis('GET', linkKey(OLD_U)), id);
-  assert.equal(open(id, 'anthropic', record.keys.anthropic), ANTHROPIC, 'old key fills the empty slot');
-  assert.equal(open(id, 'lichess', record.keys.lichess), 'lip_newerAccountToken', 'a key set since Auth0 is kept');
-  assert.equal(open(id, 'seal', record.keys.seal), OLD_SEAL);
-  // Every earlier session is revoked; the reissued one reads the old progress in place.
-  assert.equal(await resolveSession(token), null);
-  assert.equal(await resolveSession(other), null);
-  const fresh = cookieValue(linked, COOKIE);
-  const settings = await call(profile, { body: { action: 'read', scope: 'settings' }, cookies: { [COOKIE]: fresh } });
-  assert.deepEqual([settings.statusCode, settings.body.revision, settings.body.profile], [200, 3, { preferences: { chessDarkMode: 'true' } }]);
-  const match = await call(profile, { body: { action: 'read', scope: 'match', game: 'catan' }, cookies: { [COOKIE]: fresh } });
-  assert.deepEqual(match.body.profile, { match: { synthetic: true } });
-  const established = await call(session, { body: { action: 'establish' }, cookies: { [COOKIE]: fresh } });
-  assert.deepEqual([established.body.u, established.body.linked, established.body.sealKey, established.body.offerLink], [OLD_U, true, OLD_SEAL, false]);
-  // The old record and data are linked, not copied or moved.
-  assert.ok(redis('EXISTS', `chess:account:${OLD_U}`));
-  assert.deepEqual(redis('KEYS', `gipf:settings:v2:*`), [`gipf:settings:v2:${OLD_U}`]);
-  // A later sign-in lands on the linked data.
-  const later = await signIn();
-  assert.equal((await resolveSession(later)).u, OLD_U);
-});
-
-test('linking: a wrong password links nothing and spends the shared failure budget', async () => {
-  seedOldAccount();
-  const token = await signIn();
-  for (const action of ['link-verify', 'link']) {
-    const res = await call(account, { body: { action, u: OLD_U, auth: 'f'.repeat(64), sealKey: OLD_SEAL }, cookies: { [COOKIE]: token } });
-    assert.deepEqual([res.statusCode, res.body], [401, { error: 'bad_credentials' }]);
-  }
-  const missing = await call(account, { body: { action: 'link-verify', u: 'c'.repeat(64), auth: OLD_AUTH }, cookies: { [COOKIE]: token } });
-  assert.deepEqual([missing.statusCode, missing.body], [401, { error: 'bad_credentials' }], 'absent and wrong look the same');
-  assert.equal(redis('GET', `gipf:limit:auth-fail:${hash('192.0.2.10')}`), '3');
-  assert.equal(redis('EXISTS', linkKey(OLD_U)), 0);
-  assert.equal((await readIdentity(identityId(ISSUER, 'google-oauth2|synthetic-1'))).linked, null);
-  // Linking needs a session: credentials alone are not enough.
-  assert.equal((await call(account, { body: { action: 'link-verify', u: OLD_U, auth: OLD_AUTH } })).statusCode, 401);
-});
-
-test('linking: one old account per identity and one identity per old account', async () => {
-  seedOldAccount();
-  seedOldAccount('9'.repeat(64), '8'.repeat(64));
-  const mine = await signIn();
-  const linked = await call(account, { body: { action: 'link', u: OLD_U, auth: OLD_AUTH, sealKey: OLD_SEAL }, cookies: { [COOKIE]: mine } });
-  assert.equal(linked.statusCode, 200);
-  const relinked = cookieValue(linked, COOKIE);
-  // The same identity cannot link a second old account.
-  for (const action of ['link-verify', 'link']) {
-    const res = await call(account, { body: { action, u: '9'.repeat(64), auth: '8'.repeat(64), sealKey: OLD_SEAL }, cookies: { [COOKIE]: relinked } });
-    assert.deepEqual([res.statusCode, res.body], [409, { error: 'identity_linked' }]);
-  }
-  // Another identity cannot link the already-linked old account, even with its password.
-  const theirs = await signIn({ sub: 'google-oauth2|synthetic-2', email: 'player-two@synthetic.example' });
-  for (const action of ['link-verify', 'link']) {
-    const res = await call(account, { body: { action, u: OLD_U, auth: OLD_AUTH, sealKey: OLD_SEAL }, cookies: { [COOKIE]: theirs } });
-    assert.deepEqual([res.statusCode, res.body], [409, { error: 'account_linked' }]);
-  }
-  assert.equal(redis('GET', linkKey(OLD_U)), identityId(ISSUER, 'google-oauth2|synthetic-1'));
-  assert.equal((await readIdentity(identityId(ISSUER, 'google-oauth2|synthetic-2'))).linked, null);
-  // Concurrent links of one old account by two identities: exactly one wins.
-  seedOldAccount('7'.repeat(64), '6'.repeat(64));
-  const a = await signIn({ sub: 'google-oauth2|synthetic-3' }), b = await signIn({ sub: 'google-oauth2|synthetic-4' });
-  const results = await Promise.all([a, b].map(token => call(account, { body: { action: 'link', u: '7'.repeat(64), auth: '6'.repeat(64), sealKey: OLD_SEAL }, cookies: { [COOKIE]: token } })));
-  assert.deepEqual(results.map(r => r.statusCode).sort(), [200, 409]);
-});
-
-test('link input is validated', async () => {
-  seedOldAccount();
-  const token = await signIn();
-  for (const body of [{ u: OLD_U, auth: OLD_AUTH }, { u: OLD_U, auth: OLD_AUTH, sealKey: 'short' }, { u: OLD_U, auth: OLD_AUTH, sealKey: OLD_SEAL, anthropic: null }, { u: 'nothex', auth: OLD_AUTH, sealKey: OLD_SEAL }]) {
-    assert.equal((await call(account, { body: { action: 'link', ...body }, cookies: { [COOKIE]: token } })).statusCode, 400, JSON.stringify(body));
-  }
-  assert.equal(redis('EXISTS', linkKey(OLD_U)), 0);
 });
 
 test('createSession refuses records without an identity', async () => {

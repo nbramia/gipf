@@ -72,15 +72,15 @@ async function callback(req, res) {
   try {
     const id = identityId(config.issuer, claims.sub);
     // A first sign-in creates an identity that can hold megabytes of progress, so it
-    // spends the same creation budgets that bounded the store before Auth0.
+    // spends per-network and global creation budgets.
     if (!await readIdentity(id) &&
         (!await limit('account-create', req.network, CREATE_PER_NETWORK, 86400) || !await limit('account-create-all', 'all', CREATE_PER_DAY, 86400))) {
       return back(res, `error=busy&return=${encodeURIComponent(transaction.returnTo)}`);
     }
-    const { record, created } = await ensureIdentity(id);
+    const { record } = await ensureIdentity(id);
     const previous = readSessionToken(req);
     if (previous) await revokeSession(previous);
-    const token = await createSession({ i: id, u: record.data, name: claims.email, fresh: created });
+    const token = await createSession({ i: id, u: record.data, name: claims.email });
     return back(res, `signedin=1&return=${encodeURIComponent(transaction.returnTo)}`, [sessionCookie(token)]);
   } catch (_) { return back(res, failed); }
 }

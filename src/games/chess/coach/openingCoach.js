@@ -76,7 +76,7 @@ export async function fetchOpeningStatsDetailed(fen, token = getLichessToken()) 
   if (!token) return { ok: false, reason: OPENING_FETCH_REASON.NO_TOKEN, status: null, data: null };
   try {
     const res = token === ACCOUNT_TOKEN
-      ? await fetch(`${process.env.PUBLIC_URL || ''}/api/chessCoach`, { method: 'POST', headers: ACCOUNT_REQUEST_HEADERS, body: JSON.stringify({ mode: 'explorer', fen }) })
+      ? await fetch('/api/chessCoach', { method: 'POST', headers: ACCOUNT_REQUEST_HEADERS, body: JSON.stringify({ mode: 'explorer', fen }) })
       : await fetch(`${EXPLORER_URL}?fen=${encodeURIComponent(fen)}&moves=12&topGames=0`, { headers: { Authorization: `Bearer ${token}` } });
     if (!res.ok && token === ACCOUNT_TOKEN) {
       // The proxy reports Lichess's own status for an upstream failure.

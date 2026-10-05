@@ -1,6 +1,6 @@
 import { captureIdentity, validateFile, stageImport } from './migration.js';
 import { canonical, destinationKey, bytes } from './migrationSchema.js';
-import { PROGRESS_KEYS, encryptApiKey, decryptApiKey, accountKey, REQUEST_HEADERS, credentialFields } from './account.js';
+import { PROGRESS_KEYS, encryptApiKey, decryptApiKey, accountKey, REQUEST_HEADERS } from './account.js';
 import { withAccountTransition } from './accountFence.js';
 
 export const recordIdentity = record => `${record.kind}/${record.id}`;
@@ -17,9 +17,9 @@ const equal = (a,b) => canonical(a) === canonical(b);
 const journalKey = session => `gamesMigrationActivation:v1:${session.usernameId}`;
 async function request(session, body, check) {
   check();
-  const response = await fetch(`${process.env.PUBLIC_URL || ''}/api/chessProfile`, {
+  const response = await fetch('/api/chessProfile', {
     method:'POST', headers:REQUEST_HEADERS,
-    body:JSON.stringify({u:session.usernameId,...credentialFields(session),...body}), signal:AbortSignal.timeout(20000),
+    body:JSON.stringify({u:session.usernameId,...body}), signal:AbortSignal.timeout(20000),
   });
   check();
   const data = await response.json(); check();

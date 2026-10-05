@@ -2,7 +2,7 @@
 // (tests/serve-public-security.mjs), whose /api/auth/login is a synthetic Auth0 sign-in of
 // the identity named by the `fixture-identity` cookie.
 async (page) => {
-  const base = page.url().startsWith('http://127.0.0.1:') ? new URL(page.url()).origin + '/gipf' : 'http://127.0.0.1:3187/gipf';
+  const base = page.url().startsWith('http://127.0.0.1:') ? new URL(page.url()).origin : 'http://127.0.0.1:3187';
   const suffix = Date.now();
   const a = `synthetic-a-${suffix}`, b = `synthetic-b-${suffix}`;
   const check = (value, label) => { if (!value) throw new Error(label); return value; };
@@ -68,7 +68,7 @@ async (page) => {
   await page.evaluate(async () => {
     const s = JSON.parse(localStorage.getItem('gipfAccount'));
     const call = async body => {
-      const response = await fetch('/gipf/api/chessProfile', {
+      const response = await fetch('/api/chessProfile', {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Games-Request': '1' },
         body: JSON.stringify({ u: s.usernameId, scope: 'settings', ...body }),
       });
@@ -83,13 +83,8 @@ async (page) => {
   await page.getByRole('button', { name: 'Use cloud' }).click();
   // The choice seals a recovery copy first, so it completes asynchronously.
   const explicitCloudChoice = check(await page.waitForFunction(() => localStorage.getItem('yinshWins') === '{"1":9,"2":0}', null, { timeout: 10000 }).then(() => true, () => false), 'cloud conflict choice');
-  // Repeated real Chess mounts must not issue legacy claim requests.
-  let mountClaims = 0;
-  const observeClaim = request => {
-    if (request.url().includes('/api/chessProfile') && request.postDataJSON()?.action === 'claim') mountClaims++;
-  };
-  page.on('request', observeClaim);
-  for (let i = 0; i < 6; i++) {
+  // Repeated real Chess mounts sync through the session alone and stay signed in.
+  for (let i = 0; i < 3; i++) {
     await page.goto(base + '/chess');
     await settlePreferences(page, page.getByRole('button', { name: 'New Game', exact: true }));
     await page.getByRole('button', { name: 'New Game', exact: true }).waitFor();
@@ -97,28 +92,6 @@ async (page) => {
     await settlePreferences(page);
     await page.getByText(`Signed in as ${a}@synthetic.example`).waitFor();
   }
-  page.off('request', observeClaim);
-  check(mountClaims === 0, 'Chess mounts issued legacy claims');
-  const emptyClaims = await page.evaluate(async () => {
-    const s = JSON.parse(localStorage.getItem('gipfAccount'));
-    const outcomes = [];
-    for (let i = 100; i < 108; i++) {
-      const r = await fetch('/gipf/api/chessProfile', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Games-Request': '1' }, body: JSON.stringify({action:'claim',u:s.usernameId,legacyId:i.toString(16).padStart(64,'0')}) });
-      outcomes.push(r.status === 200 && (await r.json()).claimed === false);
-    }
-    return outcomes.every(Boolean);
-  });
-  check(emptyClaims, 'empty claims consumed budget');
   await signOut(page);
-  await page.evaluate(() => localStorage.setItem('gipfApiKey', 'synthetic-late-legacy'));
-  await signIn(page, a, true);
-  const lateMigration = await page.evaluate(async () => {
-    const s=JSON.parse(localStorage.getItem('gipfAccount'));
-    const r=await fetch('/gipf/api/chessProfile',{method:'POST',headers:{'Content-Type':'application/json','X-Games-Request':'1'},body:JSON.stringify({action:'read',u:s.usernameId})});
-    const d=await r.json();
-    return Object.values(d.legacyProfiles || {}).some(p=>p.rating?.rating===1777);
-  });
-  check(lateMigration, 'later explicit guest migration failed');
-  await signOut(page);
-  return { guestImported, secondDevice, logoutCleared, accountBIsolated, accountRecovery, visibleConflict: true, explicitCloudChoice, mountClaims, emptyClaims, lateMigration };
+  return { guestImported, secondDevice, logoutCleared, accountBIsolated, accountRecovery, visibleConflict: true, explicitCloudChoice };
 }

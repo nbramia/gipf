@@ -22,7 +22,6 @@
 // returns orders that survive the engine's sanitizer for the acting power).
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import DiplomacyBoard from '../DiplomacyBoard.js';
 import * as aiPlayer from '../engine/aiPlayer.js';
 import { decideStrategicIntent } from '../agents/betrayalModel.js';
 import { bindOrders, bindRetreats, bindAdjustments, reconcileHonored } from '../agents/intentBinding.js';

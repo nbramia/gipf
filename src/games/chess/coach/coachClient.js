@@ -83,7 +83,7 @@ export async function requestCommentary(payload) {
   if (!apiKey && !accountKeys().anthropic) return fallback();
 
   try {
-    const res = await fetch(`${process.env.PUBLIC_URL || ''}/api/chessCoach`, {
+    const res = await fetch('/api/chessCoach', {
       method: 'POST',
       headers: ACCOUNT_REQUEST_HEADERS,
       body: JSON.stringify({ ...wirePayload, ...(apiKey ? { apiKey } : {}) }),
@@ -134,7 +134,7 @@ export async function runThreadTurn({ context, history, question, analyze, onToo
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
     let res;
     try {
-      res = await fetch(`${process.env.PUBLIC_URL || ''}/api/chessCoach`, {
+      res = await fetch('/api/chessCoach', {
         method: 'POST',
         headers: ACCOUNT_REQUEST_HEADERS,
         body: JSON.stringify({ mode: 'thread', context, messages, ...(apiKey ? { apiKey } : {}) }),

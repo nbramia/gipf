@@ -1,28 +1,17 @@
 # Games migration: export, retained recovery and authenticated activation
 
-> Caveat (2026-10-04): This record predates hosting. The ungated `play` project
-> (`play.ramia.us`) serves the integrated build on a new Upstash store restored from
-> backup; the gated `gipf` project (`gipf.vercel.app`, `ramia.us/gipf`) still serves the
-> pre-integration build. Its project environment has no `KV_*` variables, while that
-> existing deployment keeps build-time bindings to the original store, which the provider
-> deleted. The gates and checklists below are as originally written and are not evidence of hosted state.
-
-Activation is implemented on a child of PR67 head
-`cb28f167f5e9725bad73386eea3638722e6abd34` for
+The `/migration` page exports device-only progress from a browser's local storage into
+portable files, stages files locally, and, for a signed-in account, activates selected
+records into the cloud. It was built for
 [nbramia/gipf#66](https://github.com/nbramia/gipf/issues/66).
-This does not clear the PR61 provider-security hold or hosted migration gates.
-No provider, deployment, DNS, redirect or origin cleanup is part of this change.
 
 ## Path and integration
 
-The dedicated route is `${PUBLIC_URL}/migration`: `/gipf/migration` in the
-current build, `/migration` when built with an empty PUBLIC_URL. It is outside
-the cloud-settings synchronization wrapper, not outside the existing middleware
-gate. No middleware, authentication API, rewrite or redirect changes are needed.
-The shell must preserve direct protected access on old apex, www and aliases;
-each browser origin has independent storage and needs its own export. Public
-host cutover, hosted protection verification and catalogue integration remain
-coordinator work. Export and staging remain local. Explicit account activation uses authenticated POST actions on the existing prefixed `api/chessProfile` endpoint.
+The route is `/migration` on play.ramia.us, outside the cloud-settings
+synchronization wrapper (`src/index.js` makes no request on that page until asked).
+Each browser origin has independent storage and needs its own export; only
+play.ramia.us serves the app. Export and staging stay local. Explicit account
+activation uses authenticated POST actions on `/api/chessProfile`.
 
 ## Version 1 schema
 
@@ -231,9 +220,9 @@ uses one Lua transaction to compare the receipt, lifetime counter, byte budget, 
 profile, all four matches and extra-progress record, then commit selected domains,
 revisions and ownership together. Ordinary settings/profile/match writers use those
 same keys and revisions, so a stale writer conflicts. A stale preview returns 409
-without mutating destination domains, ownership or claim count. Arrays are encoded
-in JavaScript, never round-tripped through Lua cjson. Existing legacy alternatives
-for explicitly replaced profile domains move into receipt recovery instead of
+without mutating destination domains or ownership. Arrays are encoded
+in JavaScript, never round-tripped through Lua cjson. Stored `legacyProfiles` copies
+of explicitly replaced profile domains move into receipt recovery instead of
 silently merging back over the selected import.
 
 A durable receipt at `gipf:migration:v1:<sha256(exportId)>` binds the whole file and
@@ -290,7 +279,7 @@ server receipts remain durable. Guest activation is disabled: guests retain the
 existing visible, consented 50-file/5-MiB plaintext stage and must sign in and select
 the original file for account activation. No automatic guest ownership transfer.
 
-## Activation verification and release gates
+## Activation verification
 
 `src/migrationActivation.test.js` exercises encrypted recovery, same-account
 fencing, no-write quota failure, lost response, partial promotion, replay, fresh
@@ -300,20 +289,20 @@ executes actual Redis Lua and localhost HTTP with separately imported handlers.
 and isolated Redis, including a delayed second-tab settings read, interrupted HTTP,
 reload resume, matches/statistics, replay and account isolation. All browser routing
 is installed before navigation, service workers are blocked, and nonfixture origins
-are denied. The existing staging harness still checks the unchanged middleware.
+are denied.
 
 Run Redis checks sequentially in an isolated disposable container:
 
 ```sh
-docker run -d --name gipf-migration-activation-synthetic-redis redis:7-alpine
-GIPF_SYNTHETIC_REDIS=gipf-migration-activation-synthetic-redis node --test --test-concurrency=1 tests/public-security.test.mjs tests/ai-security.test.mjs tests/account-redis.test.mjs tests/match-redis.test.mjs tests/profile-arrays-redis.test.mjs tests/migration-activation-redis.test.mjs
+export GIPF_TEST_REDIS_CONTAINER=gipf-test-migration
+docker run --rm -d --name "$GIPF_TEST_REDIS_CONTAINER" redis:7-alpine
+node --test --test-concurrency=1 tests/public-security.test.mjs tests/ai-security.test.mjs tests/account-redis.test.mjs tests/match-redis.test.mjs tests/profile-arrays-redis.test.mjs tests/migration-activation-redis.test.mjs
+npm run build
 PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node tests/migration-activation-browser.mjs
+docker stop "$GIPF_TEST_REDIS_CONTAINER"
 ```
 
-Repeat both browser harnesses with `/gipf` and root builds. Live host rewrites,
-provider guards, account authentication against production KV, service workers,
-production durability and request-size/time budgets remain hosted gates. Portable
-export/staging still accepts 5 MiB per file, but every server migration action
+Portable export/staging still accepts 5 MiB per file, but every server migration action
 (preview, activation and recovery) accepts at most **512 KiB for the entire JSON
 request**, 128 bundled records, and 64 selected records with distinct destinations.
 All records retain envelope/shape, depth/secret-key and digest verification; only
@@ -336,21 +325,15 @@ ceiling; that ceiling does not make a 5 MiB portable file activatable. An over-l
 file/value remains available for staging and manual recovery on the source device,
 with a visible activation error. The exporter does not repack files to these
 tighter server limits. Local browser quota may also be below the journal caps.
-No hosted checks or deployment are implied by local synthetic results.
+Local synthetic results do not certify hosted behaviour.
 
 The Redis/HTTP suite includes the 18-match knight-shuffle amplification request,
 oversized/dense selected PGNs, unselected invalid PGN with valid digests, malformed
 selection and record counts, ordinary writer re-saves, oversized extras/receipts,
 rotating-export-ID storage exhaustion, budget races, account rate limits and
 command deadlines. It retains ownership, byte-exact recovery, stale-writer and
-concurrent-claim checks. Timed local fixtures establish a regression ceiling, not
+concurrent-activation checks. Timed local fixtures establish a regression ceiling, not
 hosted performance certification.
-
-PR68 overlap: at inspected head `052b1af4ecf6b24353e1d3ad63ca9a0dfdb6b821`, the
-account copies and AccountBoundary match PR67; the profile-handler delta changes
-legacy-claim retries, empty claims and durable claim limits. This child adds migration
-actions before normal scope dispatch and leaves that legacy claim code unchanged.
-PR68 was open when inspected; its later merge still requires combined verification.
 
 ## Portable export/staging writer-bound audit (general review round 1)
 
@@ -373,11 +356,11 @@ Unsupported historical extensions, over-limit counters/strings/arrays, and data
 outside these supported interfaces are **not** silently repaired or removed.
 They produce incomplete-export warnings and remain in source storage; retain the
 source device. This audit and its deterministic fixtures do not prove every
-historical or provider-generated shape can migrate. Hosted acceptance and independent security review remain separate release gates.
+historical or provider-generated shape can migrate.
 
 No originals are cleaned up, no origin/cache is cleared, no credentials are
-transferred and no redirect occurs. Re-enter original account/encryption secrets
-for cloud recovery. Keep both the old device and downloaded files until activation and hosted verification are complete.
+transferred and no redirect occurs. Keep both the old device and downloaded files until
+activation is complete.
 
 ## Focused verification
 
@@ -407,10 +390,9 @@ exported) and 2 and 18 deep (exported).
 
 `tests/migration-browser.mjs` uses built assets with deny-by-default context
 routing installed before navigation and service workers blocked. Only four
-explicit synthetic HTTPS fixture origins are fulfilled from local files. The
-unchanged middleware executes in the fixture, and unauthenticated navigation
-is denied. No route continues to the network, and any API request fails the
-test. The fixture covers both base-path builds, three independent source
+explicit synthetic HTTPS fixture origins are fulfilled from local files. No route
+continues to the network, and any API request fails the test. The fixture covers
+three independent source
 origins, keyboard export/import, mobile overflow, destination preservation,
-encrypted staging across reload and cross-account isolation. It does not
-establish hosted protection, live account authentication or deployment readiness.
+encrypted staging across reload and cross-account isolation. It does not establish
+live account authentication or deployment readiness.

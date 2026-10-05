@@ -39,7 +39,7 @@ test('a session stores only its token hash, indexed by identity, and GET reports
   assert.ok(ttl > IDLE_MS - 60000 && ttl <= IDLE_MS);
   const status = await call(session, {}, { method: 'GET', cookie: token, contentType: null, headers: {} });
   assert.equal(status.statusCode, 200);
-  assert.deepEqual({ ...status.body, name: undefined }, { signedIn: true, u, name: undefined, linked: true, keys: { anthropic: false, lichess: false } });
+  assert.deepEqual({ ...status.body, name: undefined }, { signedIn: true, u, name: undefined, keys: { anthropic: false, lichess: false } });
   assert.equal((await call(session, {}, { method: 'GET', contentType: null, headers: {} })).statusCode, 401);
 });
 

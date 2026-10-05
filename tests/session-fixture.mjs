@@ -23,7 +23,7 @@ export async function signInAs(label, data, { name = `${label}@synthetic.example
   useTestKeyCustody();
   const i = identityFor(label);
   const { record } = await ensureIdentity(i);
-  if (data && record.data !== data) redis('SET', identityKey(i), JSON.stringify({ ...record, data, linked: data }));
+  if (data && record.data !== data) redis('SET', identityKey(i), JSON.stringify({ ...record, data }));
   return createSession({ i, u: data || record.data, name }, now);
 }
 
@@ -41,9 +41,9 @@ export async function seedSession(label, data) {
   const { IDLE_MS } = await import('../server/session.js');
   const i = identityFor(label), now = Date.now();
   // An identity is created once, like a first Auth0 sign-in; later sessions reuse it and its seal key.
-  redis('SET', identityKey(i), JSON.stringify({ v: 1, data: data || i, linked: data || null, created: now, keys: { seal: seal(i, 'seal', randomBytes(32).toString('base64')) } }), 'NX');
+  redis('SET', identityKey(i), JSON.stringify({ v: 1, data: data || i, created: now, keys: { seal: seal(i, 'seal', randomBytes(32).toString('base64')) } }), 'NX');
   const token = randomBytes(32).toString('base64url');
-  redis('SET', `gipf:session:v1:${hash(token)}`, JSON.stringify({ i, u: data || i, name: `${label}@synthetic.example`, fresh: false, created: now, seen: now }), 'PX', IDLE_MS);
+  redis('SET', `gipf:session:v1:${hash(token)}`, JSON.stringify({ i, u: data || i, name: `${label}@synthetic.example`, created: now, seen: now }), 'PX', IDLE_MS);
   redis('SADD', `gipf:sessions:v1:${i}`, hash(token));
   return token;
 }

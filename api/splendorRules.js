@@ -1,5 +1,6 @@
 import { guardRequest } from '../server/publicSecurity.js';
 import { requestKey } from '../server/accountKeys.js';
+import { applyCors } from '../server/cors.js';
 export const config = { api: { bodyParser: { sizeLimit: '32kb' } } };
 // Serverless Splendor rules assistant — answers a player's questions about the
 // game, grounded in the live game context.
@@ -9,19 +10,8 @@ export const config = { api: { bodyParser: { sizeLimit: '32kb' } } };
 // (server/accountKeys.js). Either way it is used for exactly one upstream call and
 // is never logged or read from server env. There is no server-side fallback key.
 
-const ALLOWED_ORIGINS = ['https://gipf.vercel.app', 'http://localhost:3000'];
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const DEFAULT_MODEL = 'claude-sonnet-4-6';
-
-function applyCors(req, res) {
-  const origin = req.headers.origin;
-  if (ALLOWED_ORIGINS.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-}
 
 function buildSystemPrompt(ctx = {}) {
   return `You are an expert, friendly Splendor rules teacher embedded in a digital Splendor app. The player wants clear, accurate help with the rules and basic strategy.

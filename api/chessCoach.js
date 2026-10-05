@@ -1,5 +1,6 @@
 import { guardRequest } from '../server/publicSecurity.js';
 import { requestKey } from '../server/accountKeys.js';
+import { applyCors } from '../server/cors.js';
 export const config = { api: { bodyParser: { sizeLimit: '32kb' } } };
 // /api/chessCoach.js — Vercel serverless endpoint that turns structured
 // Stockfish analysis into natural-language coaching prose via the Claude API.
@@ -11,23 +12,11 @@ export const config = { api: { bodyParser: { sizeLimit: '32kb' } } };
 // or read from server env. There is intentionally no server-side key fallback, so a
 // public deploy can never spend the maintainer's credits.
 //
-// CORS mirrors api/aiMove.js: an allowlist applied in BOTH the success and error
-// paths, with OPTIONS preflight handled.
-
-const ALLOWED_ORIGINS = ['https://gipf.vercel.app', 'http://localhost:3000'];
+// CORS (server/cors.js) is applied in both the success and error paths, with
+// OPTIONS preflight handled.
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001'; // fast + inexpensive for per-move use
-
-function applyCors(req, res) {
-  const origin = req.headers.origin;
-  if (ALLOWED_ORIGINS.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
-  res.setHeader('Vary', 'Origin');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-}
 
 // Build the coaching prompt from engine-grounded facts only.
 function buildPrompt(body) {

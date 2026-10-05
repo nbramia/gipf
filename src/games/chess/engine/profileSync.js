@@ -1,29 +1,18 @@
 import { captureFence } from '../../../accountFence.js';
 // profileSync.js — browser client for cross-device Chess "profile" sync.
 //
-// Reads and writes are authorized by the account's session cookie. Legacy
-// profile IDs are never sent in URLs; they are accepted only by bounded claim.
-// The model key reaches the separate model proxy transiently, not this store.
+// Reads and writes are authorized by the account's session cookie. The model key
+// reaches the separate model proxy transiently, not this store.
 
 import { mergeRating } from './rating.js';
-import { ratingIdFromKey } from './ratingSync.js';
 import { evictToCap } from '../coach/mistakeStore.js';
 
-// Re-export rather than re-implement — the hash (and its namespace) must
-// stay byte-for-byte identical to ratingSync's so existing synced ratings
-// resolve to the same id.
-export { ratingIdFromKey as profileIdFromKey };
-
-// The deploy prefix is included because the app is also served from a subdirectory
-// (ramia.us/gipf); a root-absolute path would resolve against that host's root,
-// which is a different deployment. PUBLIC_URL is empty on a bare-root deploy.
-const ENDPOINT = `${process.env.PUBLIC_URL || ''}/api/chessProfile`;
+const ENDPOINT = '/api/chessProfile';
 
 // Identity is captured by the caller, never recovered from the currently active
 // session during a delayed write. An old component cannot write for a new user.
 const revisions = new Map();
-// A v1 session (not yet upgraded) marks itself with its auth token, a v2 session with sid.
-const marker = s => s?.sid || s?.authToken;
+const marker = s => s?.sid;
 async function requestProfile(session, action, fields = {}) {
   if (!session?.usernameId || !marker(session)) throw new Error('account_required');
   const check = captureFence();
@@ -31,7 +20,7 @@ async function requestProfile(session, action, fields = {}) {
   if (active?.usernameId !== session.usernameId || marker(active) !== marker(session)) throw new Error('account_changed');
   const r = await fetch(ENDPOINT, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Games-Request': '1' },
-    body: JSON.stringify({ action, u: session.usernameId, ...(session.authToken ? { auth: session.authToken } : {}), ...fields }),
+    body: JSON.stringify({ action, u: session.usernameId, ...fields }),
   });
   const data = await r.json();
   check();
@@ -40,15 +29,12 @@ async function requestProfile(session, action, fields = {}) {
   if (current?.usernameId !== session.usernameId || marker(current) !== marker(session)) throw new Error('account_changed');
   return data;
 }
-export async function claimLegacyProfile(session, legacyId) {
-  return requestProfile(session, 'claim', { legacyId });
-}
 export async function fetchRemoteProfile(session) {
   const data = await requestProfile(session, 'read');
   revisions.set(session.usernameId, data.revision);
   const profile = { ...data.profile };
-  // Collision copies stay on the authenticated record. Monotonic merge rules
-  // preserve old review/history data without adding counters a second time.
+  // Profiles claimed before Auth0 keep their source copies in `legacyProfiles` on
+  // the record. Monotonic merge rules fold them in without adding counters twice.
   for (const legacy of Object.values(data.legacyProfiles || {})) {
     profile.rating = mergeRating(profile.rating, legacy.rating);
     profile.history = mergeHistory(profile.history, legacy.history);

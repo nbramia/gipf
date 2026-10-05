@@ -10,21 +10,14 @@ import { useAIWorker } from './hooks/useAIWorker.js';
 import { applyAIMove } from './engine/aiPlayer.js';
 import testPositions from './engine/testPositions.js';
 
-// Configuration
-const AI_MODE = 'local'; // Local mode now fixed - removed excessive logging
-// The deploy prefix is included because the app is also served from a subdirectory
-// (ramia.us/gipf); a root-absolute path would resolve against that host's root,
-// which is a different deployment. PUBLIC_URL is empty on a bare-root deploy.
-const API_ENDPOINT = `${process.env.PUBLIC_URL || ''}/api/aiMove`;
-
 // Difficulty presets: model path, simulations, evaluation mode
 // easy = v63 (early-lineage, deliberately weak), advanced = v140 (long-standing
 // former champion, SPRT-beaten starting at v142 — a real, evidence-based
 // mid tier), expert = v1.onnx (always the current deployed best, currently v158).
 const DIFFICULTY_CONFIG = {
-  easy:     { modelPath: `${process.env.PUBLIC_URL || ''}/models/yinsh-value-easy.onnx`,     simulations: 100, evaluationMode: 'nn' },
-  advanced: { modelPath: `${process.env.PUBLIC_URL || ''}/models/yinsh-value-advanced.onnx`, simulations: 150, evaluationMode: 'nn' },
-  expert:   { modelPath: `${process.env.PUBLIC_URL || ''}/models/yinsh-value-v1.onnx`,       simulations: 200, evaluationMode: 'nn' },
+  easy:     { modelPath: '/models/yinsh-value-easy.onnx',     simulations: 100, evaluationMode: 'nn' },
+  advanced: { modelPath: '/models/yinsh-value-advanced.onnx', simulations: 150, evaluationMode: 'nn' },
+  expert:   { modelPath: '/models/yinsh-value-v1.onnx',       simulations: 200, evaluationMode: 'nn' },
 };
 
 // Toggle component — extracted from repeated settings markup

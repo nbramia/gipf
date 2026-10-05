@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import MatchBoundary, { useSavedMatch } from './MatchBoundary.jsx';
 const sample = turn => ({ v: 1, game: 'yinsh', id: 'synthetic', updatedAt: 1, state: { turn }, ui: {} });
 const decode = snapshot => ({ board: snapshot.state, ui: snapshot.ui });
-const session = { usernameId: 'A', authToken: 'synthetic' };
+const session = { v: 3, username: 'A', usernameId: 'A', sid: 'synthetic' };
 function Game() {
   const saved = useSavedMatch();
   return <><span>Turn {saved.restored?.board.turn || 0}</span><button onClick={() => saved.persist({ turn: 9 }, {})}>Move</button></>;
@@ -92,7 +92,7 @@ test('account change during read cannot hydrate or send a queued match for next 
   let resolve;
   global.fetch.mockImplementation(() => new Promise(r => { resolve = r; }));
   mount();
-  localStorage.setItem('gipfAccount', JSON.stringify({ usernameId: 'B', authToken: 'other' }));
+  localStorage.setItem('gipfAccount', JSON.stringify({ v: 3, username: 'B', usernameId: 'B', sid: 'other' }));
   await act(async () => resolve({ ok: true, json: async () => ({ revision: 1, profile: { match: sample(1) } }) }));
   expect(localStorage.getItem('yinshMatch:v1')).toBeNull();
   expect(screen.getByText(/Account changed/)).toBeTruthy();
@@ -317,7 +317,7 @@ test('quota stops a cloud replacement before the request; account change stops a
   spy.mockRestore();
   fireEvent.click(screen.getByText('Keep this match')); await act(async () => {});
   expect(requests('write')).toHaveLength(1);
-  localStorage.setItem('gipfAccount', JSON.stringify({ usernameId: 'B', authToken: 'other' }));
+  localStorage.setItem('gipfAccount', JSON.stringify({ v: 3, username: 'B', usernameId: 'B', sid: 'other' }));
   localStorage.setItem('yinshMatch:v1', JSON.stringify(sample(7)));
   await act(async () => finish({ ok: true, json: async () => ({ revision: 3 }) }));
   expect(localStorage.getItem('yinshMatch:v1')).toBe(JSON.stringify(sample(7)));

@@ -5,7 +5,7 @@ import { loadSession, retainProgress } from './account.js';
 jest.mock('./account.js', () => ({loadSession:jest.fn(),retainProgress:jest.fn(),REQUEST_HEADERS:{'Content-Type':'application/json','X-Games-Request':'1'},credentialFields:()=>({})}));
 beforeEach(() => {
   localStorage.clear(); jest.useFakeTimers();
-  loadSession.mockReturnValue({usernameId:'synthetic',authToken:'synthetic'});
+  loadSession.mockReturnValue({ v: 3, username: 'synthetic', usernameId: 'synthetic', sid: 'synthetic' });
   retainProgress.mockResolvedValue(undefined);
   AbortSignal.timeout = () => new AbortController().signal;
 });

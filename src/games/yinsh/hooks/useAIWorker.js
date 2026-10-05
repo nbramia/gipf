@@ -57,7 +57,7 @@ export function useAIWorker() {
   }, [startWorker]);
 
   const computeMove = useCallback((boardState, simulations, onSuccess, onError,
-    evaluationMode = 'heuristic', modelPath = `${process.env.PUBLIC_URL || ''}/models/yinsh-value-v1.onnx`) => {
+    evaluationMode = 'heuristic', modelPath = '/models/yinsh-value-v1.onnx') => {
     if (!mountedRef.current) return;
     cancelPending();
     const worker = workerRef.current || startWorker();

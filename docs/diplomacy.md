@@ -163,9 +163,9 @@ human-visible conversation store.
 
 ### CORS
 
-`api/diplomacyAgent.js` defines `ALLOWED_ORIGINS = ['https://gipf.vercel.app',
-'http://localhost:3000']` and applies them through a single `applyCors` helper reused by both
-the main handler and the error path. Add new origins there. `vercel.json` already routes
+The app calls its own origin, so production needs no CORS. `api/diplomacyAgent.js` applies
+the shared `applyCors` helper (`server/cors.js`, local development origins only) in both the
+main handler and the error path. `vercel.json` already routes
 `/api/:path*` to the serverless functions, so no rewrite change is needed to expose the
 endpoint.
 

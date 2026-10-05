@@ -57,7 +57,7 @@ export async function askRules({ context, messages }) {
   }
   let res;
   try {
-    res = await fetch(`${process.env.PUBLIC_URL || ''}/api/catanRules`, {
+    res = await fetch('/api/catanRules', {
       method: 'POST',
       headers: ACCOUNT_REQUEST_HEADERS,
       body: JSON.stringify({ context, messages, ...(apiKey ? { apiKey } : {}) }),

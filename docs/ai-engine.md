@@ -154,12 +154,12 @@ Uses `onnxruntime-web` (WASM backend) for browser inference. The model is lazy-l
 ```
 Worker receives evaluationMode='nn'
   → import('valueNetwork.js')
-  → load the requested tier model at `${PUBLIC_URL}/models/...`
+  → load the requested tier model at `/models/...`
   → probe its tensor contract and require a finite value output
   → MCTS calls evaluatePosition() per simulation
 ```
 
-Both games bundle `onnxruntime-web` and use single-threaded WASM. `PUBLIC_URL` is empty on a root deployment or `/gipf` on the shared-domain deployment. Workers cache only successfully loaded models; failed loads remain retryable. They report requested and actual evaluation modes, and the UI displays “Neural model unavailable — using heuristic AI” when an NN request falls back. A later successful load clears the notice.
+Both games bundle `onnxruntime-web` and use single-threaded WASM, loading models from the site root. Workers cache only successfully loaded models; failed loads remain retryable. They report requested and actual evaluation modes, and the UI displays “Neural model unavailable — using heuristic AI” when an NN request falls back. A later successful load clears the notice.
 
 Request IDs, worker identity, and board versions reject stale or duplicate results and errors. Reset, undo/redo, position changes, and AI settings changes cancel pending work; cancellation terminates that worker and discards its model cache. Main-thread fallback searches a clone and checks the same board version before applying a result. See the [browser repair report](yinsh-zertz-browser-repairs-2026-09-20.md) for the scoped Chromium production-build smoke evidence and its limitations.
 
@@ -241,7 +241,7 @@ Runs MCTS in a Web Worker (`mcts.worker.js`) with the selected difficulty's simu
 
 ### API Mode
 
-The optional Vercel endpoint `${PUBLIC_URL}/api/aiMove` runs heuristic MCTS server-side with 30-500 simulations and a 2.5-second time budget. The browser uses local workers by default. See the [snapshot and resolved-response contract](yinsh-api.md); the endpoint restores canonical state and awaits search results.
+The optional Vercel endpoint `/api/aiMove` runs heuristic MCTS server-side with 30-500 simulations and a 2.5-second time budget. The browser uses local workers by default. See the [snapshot and resolved-response contract](yinsh-api.md); the endpoint restores canonical state and awaits search results.
 
 ## Integration with Game Logic
 
@@ -333,7 +333,7 @@ echo training/zertz/bootstrap-v2/best.pt > training/zertz/.deployed-checkpoint
 
 The next normal one-shot invocation is `DATA_DIR=data/zertz/feature-v2 ./scripts/zertz/train-iteration.sh <unused-version> 50 200` (replace `<unused-version>` with an unused integer greater than 1). The continuous path is `DATA_DIR=data/zertz/feature-v2 ./scripts/zertz/continuous-train.sh --max-iterations 1`; first check that `training/zertz/.current-version`, if present, names an unused candidate version. Both paths resume the recorded v2 champion, generate with the deployed NN, and keep the explicit incumbent gate. The continuous script retains its existing commit/push behavior after promotion, so it is not a dry run. If no incumbent exists, manual generation can use `--mode heuristic`, but neither the wrappers nor the bootstrap procedure treats that absence as a tournament win.
 
-**Difficulty wiring in the UI** (`src/games/zertz/ZertzGame.jsx`): `easy` and `advanced` (the default) run heuristic MCTS at 100/200 simulations; `expert` requests `${PUBLIC_URL}/models/zertz-value-v1.onnx` at 300 simulations. An unavailable or incompatible model is visibly reported as heuristic fallback.
+**Difficulty wiring in the UI** (`src/games/zertz/ZertzGame.jsx`): `easy` and `advanced` (the default) run heuristic MCTS at 100/200 simulations; `expert` requests `/models/zertz-value-v1.onnx` at 300 simulations. An unavailable or incompatible model is visibly reported as heuristic fallback.
 
 **Training loss adds heuristic distillation.** Unlike Yinsh, `training/zertz/train.py` blends a third loss term: `loss = value_loss + policy_loss + distill_weight * heuristic_loss`, where `heuristic_loss` regularizes the value head's prediction toward the hand-crafted heuristic evaluation (`--distill-weight`, default 0.5, 0 disables it). Yinsh's training loop has no equivalent term.
 

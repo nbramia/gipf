@@ -1,13 +1,13 @@
 # Optional YINSH move API
 
-The browser uses its local worker by default. The optional `POST /api/aiMove` endpoint accepts the board snapshot itself as the JSON body; when hosted under `/gipf`, use `/gipf/api/aiMove`. This repair does not change the default mode or CORS allowlist.
+The browser uses its local worker by default. The optional `POST /api/aiMove` endpoint accepts the board snapshot itself as the JSON body. CORS admits only local development origins (`server/cors.js`).
 
 ## Canonical request
 
 Send the complete output of `YinshBoard.serializeState()`:
 
 ```js
-const response = await fetch(`${process.env.PUBLIC_URL || ''}/api/aiMove`, {
+const response = await fetch('/api/aiMove', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify(board.serializeState()),

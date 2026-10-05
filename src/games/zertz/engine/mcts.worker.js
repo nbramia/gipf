@@ -29,7 +29,7 @@ self.onmessage = async function (e) {
   if (type !== 'compute') return;
 
   try {
-    const { boardState, simulations, evaluationMode, modelPath = `${process.env.PUBLIC_URL || ''}/models/zertz-value-v1.onnx` } = data;
+    const { boardState, simulations, evaluationMode, modelPath = '/models/zertz-value-v1.onnx' } = data;
 
     // Reconstruct board from serialized state
     const board = ZertzBoard.fromSerializedState(boardState);

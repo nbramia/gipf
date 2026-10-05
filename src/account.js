@@ -18,16 +18,6 @@ import { accountKeys, setAccountKeys } from './accountKeys.js';
 // and never returned: /login sends a new key once over TLS, and the proxies add it
 // to each request (src/accountKeys.js says which keys exist). Guests keep
 // device-only keys in localStorage.
-//
-// Username/password accounts no longer sign in. Their PBKDF2 derivation is kept
-// for one purpose: `linkOldAccount` proves the old password once, opens the old
-// client-encrypted keys here, and links the old account's progress to the signed-in
-// identity. A device still holding a password-era session (v1 or v2) is signed out
-// at startup by `retireLegacySession`, sealing its progress under the old key,
-// which linking makes the new account's seal key.
-
-const NAMESPACE = 'gipf-chess-account:v1:';
-const PBKDF2_ITERATIONS = 310_000;
 
 export const ACCOUNT_STORAGE_KEY = 'gipfAccount';
 
@@ -50,49 +40,14 @@ function base64ToBytes(b64) {
   return bytes;
 }
 
-// ---- credential derivation ------------------------------------------------
-
-// Derive every account secret from a username+password pair. Deterministic:
-// the same username+password always reproduces the same triple, so nothing
-// needs to be stored server-side to "look up" an account beyond the auth
-// token hash. Returns null if either input is empty, or if Web Crypto is
-// unavailable (mirrors ratingIdFromKey's guard).
-export async function deriveCredentials(username, password) {
-  const normalized = String(username).trim().toLowerCase();
-  if (!normalized || typeof password !== 'string' || !password) return null;
-  const subtle = globalThis.crypto && globalThis.crypto.subtle;
-  if (!subtle) return null;
-
-  const enc = new TextEncoder();
-  const salt = enc.encode(NAMESPACE + normalized);
-
-  const key = await subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
-  const bits = await subtle.deriveBits(
-    { name: 'PBKDF2', hash: 'SHA-256', salt, iterations: PBKDF2_ITERATIONS },
-    key,
-    768,
-  );
-  const bytes = new Uint8Array(bits);
-
-  const authToken = bytesToHex(bytes.slice(0, 32));
-  const aesKey = bytesToBase64(bytes.slice(32, 64));
-  const profileId = bytesToHex(bytes.slice(64, 96));
-
-  const usernameIdDigest = await subtle.digest('SHA-256', enc.encode(NAMESPACE + normalized));
-  const usernameId = bytesToHex(new Uint8Array(usernameIdDigest));
-
-  return { username: String(username).trim(), usernameId, authToken, aesKey, profileId };
-}
-
 // ---- API key encryption ---------------------------------------------------
 //
 // encryptApiKey/decryptApiKey are generic string encryptors despite the name: they
-// seal recovery copies and migration journals under the account's seal key, and
-// open a pre-Auth0 account's keys under its password-derived AES key when linking.
+// seal recovery copies and migration journals under the account's seal key.
 
 // Encrypt a string under an AES key. Returns { iv, ct } as base64 strings.
-// `aesKey` is either a base64 key (from deriveCredentials or the server's seal
-// key) or the stored CryptoKey from accountKey().
+// `aesKey` is either the server's base64 seal key or the stored CryptoKey from
+// accountKey().
 async function aesKeyFor(aesKey, usage) {
   if (typeof aesKey !== 'string') return aesKey;
   return globalThis.crypto.subtle.importKey('raw', base64ToBytes(aesKey), { name: 'AES-GCM' }, false, [usage]);
@@ -106,9 +61,8 @@ export async function encryptApiKey(aesKey, apiKey) {
   return { iv: bytesToBase64(iv), ct: bytesToBase64(new Uint8Array(ct)) };
 }
 
-// Decrypt a { iv, ct } record back to the plaintext API key. Lets decrypt
-// failures throw — the caller treats a rejection as bad credentials (wrong
-// password → wrong AES key) or a corrupt record.
+// Decrypt a { iv, ct } record back to the plaintext. Lets decrypt failures throw:
+// a rejection means the wrong key or a corrupt record.
 export async function decryptApiKey(aesKey, enc) {
   const subtle = globalThis.crypto.subtle;
   const key = await aesKeyFor(aesKey, 'decrypt');
@@ -124,15 +78,11 @@ export async function decryptApiKey(aesKey, enc) {
 // and the session cookie is the only authorization. Responses resolve to the parsed
 // body on success, `{ error }` on an HTTP error, and throw only on network failure.
 
-const ACCOUNT_ENDPOINT = `${process.env.PUBLIC_URL || ''}/api/chessAccount`;
-const SESSION_ENDPOINT = `${process.env.PUBLIC_URL || ''}/api/session`;
-const AUTH_ENDPOINT = `${process.env.PUBLIC_URL || ''}/api/auth`;
+const ACCOUNT_ENDPOINT = '/api/chessAccount';
+const SESSION_ENDPOINT = '/api/session';
+const AUTH_ENDPOINT = '/api/auth';
 
 export const REQUEST_HEADERS = { 'Content-Type': 'application/json', 'X-Games-Request': '1' };
-// Body credentials authorize nothing: the session cookie alone does.
-export function credentialFields() {
-  return {};
-}
 
 async function post(url, body, timeout = 10000) {
   const r = await fetch(url, {
@@ -212,11 +162,9 @@ export async function storeAccountKey(usernameId, aesKeyB64) {
   try { await keyStore('readwrite', store => store.put(key, usernameId)); } catch (_) { /* this page only */ }
 }
 
-// The key that seals this account's recovery copies and migration journals. A
-// retired v1 session still carries its password-derived key inline.
+// The key that seals this account's recovery copies and migration journals.
 export async function accountKey(session) {
   if (!session?.usernameId) throw new Error('account_required');
-  if (session.aesKey) return session.aesKey;
   if (keyCache.has(session.usernameId)) return keyCache.get(session.usernameId);
   const key = await keyStore('readonly', store => store.get(session.usernameId)).catch(() => null);
   if (!key) throw new Error('account_key_missing');
@@ -231,24 +179,21 @@ async function forgetAccountKey(usernameId) {
 
 // ---- session persistence ---------------------------------------------------
 
-// The identity marker fences compare: sid, or the auth token of a retired v1 session.
-const mark = s => s?.sid || s?.authToken;
+// The identity marker fences compare.
+const mark = s => s?.sid;
 const randomMarker = () => bytesToHex(globalThis.crypto.getRandomValues(new Uint8Array(16)));
 
 function isValidSession(s) {
-  if (!s || typeof s.username !== 'string' || typeof s.usernameId !== 'string') return false;
-  if (s.v === 3 || s.v === 2) return typeof s.sid === 'string';
-  return s.v === 1 && typeof s.authToken === 'string' && typeof s.aesKey === 'string' && typeof s.profileId === 'string';
+  return !!s && s.v === 3 && typeof s.username === 'string' && typeof s.usernameId === 'string' && typeof s.sid === 'string';
 }
 
-// The cached session. A v1 session's auth token doubles as its identity marker.
+// The cached session, or null when there is none or it is not a valid v3 record.
 export function loadSession() {
   try {
     const raw = localStorage.getItem(ACCOUNT_STORAGE_KEY);
     if (!raw) return null;
     const s = JSON.parse(raw);
-    if (!isValidSession(s)) return null;
-    return s.v === 1 ? { ...s, sid: s.authToken } : s;
+    return isValidSession(s) ? s : null;
   } catch (_) {
     return null;
   }
@@ -259,8 +204,6 @@ async function sessionRecord(account) {
   await storeAccountKey(account.usernameId, account.aesKey);
   return { v: 3, username: account.username, usernameId: account.usernameId, sid: randomMarker() };
 }
-// A session from the username/password era, which no longer signs in.
-const passwordEra = s => s?.v === 1 || s?.v === 2;
 
 // Allowlist of progress only: raw credentials and unrelated apps never enter recovery.
 export const PROGRESS_KEYS = [
@@ -298,27 +241,6 @@ export async function retainProgress(session) {
 }
 async function saveSessionProgress(s, { importGuest = false, keys = null } = {}) {
   const previous = loadSession();
-  // TODO(2026-11-04): retire the API-key-hash claim — 30 days after the unified login
-  // shipped on 2026-10-05. Remove this guest-key claim and the doc note in
-  // docs/public-accounts.md ("Bounded legacy claims"); the password-derived claim stays.
-  const guestLegacyKey = !previous && importGuest ? getSharedApiKey() : '';
-  // A linked account's password-derived profile id is its bounded legacy claim.
-  const ids = s.profileId ? [s.profileId] : [];
-  if (guestLegacyKey) {
-    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('gipf-chess-rating:v1:' + guestLegacyKey));
-    ids.push(bytesToHex(new Uint8Array(bytes)));
-  }
-  for (const legacyId of ids) {
-    try {
-      // The session cookie set at sign-in authorizes the claim.
-      await fetch(`${process.env.PUBLIC_URL || ''}/api/chessProfile`, {
-        method: 'POST', headers: REQUEST_HEADERS,
-        body: JSON.stringify({ action: 'claim', u: s.usernameId, legacyId }),
-        signal: AbortSignal.timeout(5000),
-      });
-    } catch (_) { /* Cloud unavailable: encrypted recovery remains on this device. */ }
-  }
-  if (mark(loadSession()) !== mark(previous)) throw new Error('account_changed');
   assertMatchTransition();
   const record = await sessionRecord(s);
   let committing = false;
@@ -458,16 +380,15 @@ function noteSessionEnded(reason) {
   try { sessionStorage.setItem(SESSION_EXPIRED_KEY, reason); } catch (_) { /* optional notice */ }
 }
 
-// Startup, before the app renders. A password-era session (v1 or v2) no longer
-// signs in: sign it out like any sign-out, sealing its progress under the old key
-// for linking to recover, then revoke its server session without waiting on the
-// network (the server refuses that session regardless). Resolves true when it did.
-export async function retireLegacySession() {
-  if (!passwordEra(loadSession())) return false;
-  await clearSession({ server: false });
-  noteSessionEnded('auth0');
-  endServerSession();
-  return true;
+// Startup, before the app renders: a stored record that is not a valid session cannot
+// sign in or out, and would make every identity fence refuse to run. Drop it; this
+// device's progress stays in place as guest progress. Resolves true when it did.
+export function discardUnreadableSession() {
+  try {
+    if (localStorage.getItem(ACCOUNT_STORAGE_KEY) === null || loadSession()) return false;
+    localStorage.removeItem(ACCOUNT_STORAGE_KEY);
+    return true;
+  } catch (_) { return false; }
 }
 
 // After render: a v3 session whose cookie the server rejects (idle or absolute
@@ -496,7 +417,7 @@ export async function expireRejectedSession() {
 
 // The server session is set by the Auth0 callback; switch this device to it. Keys
 // already on this device as a guest move to the account when it has none of its own,
-// and leave the device either way. Resolves { offerLink, keys, keysMoved } or throws.
+// and leave the device either way. Resolves { keys, keysMoved } or throws.
 export async function completeSignIn({ importGuest = false } = {}) {
   const res = await post(SESSION_ENDPOINT, { action: 'establish' });
   if (!res.signedIn) throw new Error(res.error || 'signed_out');
@@ -508,30 +429,5 @@ export async function completeSignIn({ importGuest = false } = {}) {
     if (saved.keys) keys = saved.keys; else keysMoved = false;
   }
   await saveSession({ username: res.name, usernameId: res.u, aesKey: res.sealKey }, { importGuest, keys });
-  return { offerLink: res.offerLink, keys, keysMoved };
-}
-
-// Link a pre-Auth0 username/password account to the signed-in identity, once. The
-// password is checked by the server against the old verifier; the old keys are
-// opened here and sent once over TLS to be stored server-encrypted; the device then
-// switches to the old account's progress. Resolves { linked:true } or { error }.
-export async function linkOldAccount(username, password) {
-  const current = loadSession();
-  if (current?.v !== 3) return { error: 'signed_out' };
-  const creds = await deriveCredentials(username, password);
-  if (!creds) return { error: 'crypto_unavailable' };
-  const proof = { u: creds.usernameId, auth: creds.authToken };
-  let verified;
-  try { verified = await post(ACCOUNT_ENDPOINT, { action: 'link-verify', ...proof }); } catch (_) { return { error: 'network' }; }
-  if (verified.error) return verified;
-  const keys = {};
-  try {
-    if (verified.enc) keys.anthropic = await decryptApiKey(creds.aesKey, verified.enc);
-    if (verified.encLichess) keys.lichess = await decryptApiKey(creds.aesKey, verified.encLichess);
-  } catch (_) { return { error: 'bad_credentials' }; }
-  let linked;
-  try { linked = await post(ACCOUNT_ENDPOINT, { action: 'link', ...proof, sealKey: creds.aesKey, ...keys }); } catch (_) { return { error: 'network' }; }
-  if (!linked.linked) return linked;
-  await saveSession({ username: current.username, usernameId: linked.u, aesKey: creds.aesKey, profileId: creds.profileId }, { keys: linked.keys });
-  return { linked: true };
+  return { keys, keysMoved };
 }

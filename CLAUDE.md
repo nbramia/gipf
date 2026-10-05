@@ -6,7 +6,7 @@ Critical instructions for AI agents (Claude, Cursor, Copilot, etc.) working on t
 
 ## Project Overview
 
-GIPF Project is a multi-game React application hosting browser-based implementations of board games. Currently includes Yinsh, Zertz, Chess, Catan, Splendor, and Diplomacy. Games are code-split and served under a single deployment with client-side routing.
+GIPF Project is a multi-game React application hosting browser-based implementations of board games. Currently includes Yinsh, Zertz, Chess, Catan, Splendor, and Diplomacy. Games are code-split and served from the root of one public deployment (play.ramia.us) with client-side routing. Accounts are optional Auth0 sign-in; every game plays as a guest.
 
 **Key Concepts:**
 - **Multi-game monorepo**: Each game lives in `src/games/<name>/` with its own logic, UI, CSS, and tests
@@ -32,6 +32,9 @@ GIPF Project is a multi-game React application hosting browser-based implementat
 - [docs/diplomacy.md](docs/diplomacy.md) - Diplomacy rules coverage and AI/agents details
 - [docs/notation.md](docs/notation.md) - Move notation specification (Yinsh)
 - [docs/agents.md](docs/agents.md) - Practical development guide for AI agents
+- [docs/public-accounts.md](docs/public-accounts.md) - Accounts, sessions, key custody and server contracts
+- [docs/games-migration.md](docs/games-migration.md) - `/migration` export, staging and activation
+- [docs/resumable-matches.md](docs/resumable-matches.md) - Match snapshots, sync and recovery
 
 ---
 
@@ -45,21 +48,20 @@ GIPF Project is a multi-game React application hosting browser-based implementat
 
 ### Where this deploys
 
-The cross-repo picture (hosts, stores, gates, migration and rollback) is the canonical
+The cross-repo picture (hosts, stores, migration and rollback) is the canonical
 [ramia system map](https://github.com/nbramia/ramia/blob/main/docs/system-map.md).
 
 There is one Games site: `play.ramia.us`, served by the `play` Vercel project, which
 deploys production from `main`. **`main` is the release branch** — open PRs against `main`;
-`integration/ramia-22` is no longer a merge target. A push to `main` goes live on
-`play.ramia.us`. `play` builds the repository for the URL root (`PUBLIC_URL=/` is a project
-setting) and is ungated: it has no `SITE_PASSWORD`, so `middleware.js` falls through. Never
-add `SITE_PASSWORD` to `play` without deciding that out loud. No `ramia.us` path routes
-here, and there is no other deployment.
+a push to `main` goes live on `play.ramia.us`. The app is served from the domain root and
+is public: no access gate, no deploy prefix (`ramia.us/gipf` only redirects to
+play.ramia.us). There is no other deployment.
 
-`play` reads the Upstash Redis REST store `gipf-public`, named by its
+`play` reads the Upstash Redis REST store `gipf-public` (the only store), named by its
 `KV_REST_API_URL`/`KV_REST_API_TOKEN` variables (bound for Production and Preview; the
 `UPSTASH_REDIS_REST_*` aliases also work; see `server/publicSecurity.js`). Without them the
-account/profile endpoints return 503.
+account/profile endpoints return 503. Previews share that store, so hosted checks use
+synthetic data only.
 
 Sign-in uses `play`'s own Auth0 Regular Web Application on the ramia.us tenant that
 Home uses, with one exact callback, `https://play.ramia.us/api/auth/callback`. `play`
@@ -71,28 +73,12 @@ redirects back to `/login` with an "unavailable" notice; without the KEK account
 return 503. Sign-in completes only on `play.ramia.us`: previews cannot sign in, so
 test sign-in with the synthetic provider (`tests/auth-oidc-redis.test.mjs`).
 
-`public/tiles.json` takes its href prefix the way CRA takes the router basename: a
-`PUBLIC_URL` build variable wins, otherwise `homepage`. `play` sets `PUBLIC_URL=/`, so its
-manifest lists `/chess`, `/yinsh` and the rest; a build without it lists `/gipf/<game>`. Home
-(`nbramia/ramia` `apps/home/src/registry.js`) reads `https://play.ramia.us/tiles.json` and
-resolves each href against that origin, so the two must agree — a prefixed href there becomes
-`play.ramia.us/gipf/<game>`, which no route matches (`src/App.jsx` has no catch-all).
-
-**The app therefore does not own the URL root, and code must not assume it does.**
-
-- `homepage` in `package.json` sets the deploy prefix unless a `PUBLIC_URL` build variable
-  overrides it; CRA exposes the result as `process.env.PUBLIC_URL` and
-  `<BrowserRouter basename>` reads it. One codebase works at a subpath and at a bare root.
-- **Serverless calls must carry the prefix:** `` `${process.env.PUBLIC_URL || ''}/api/x` ``.
-  A root-absolute `/api/x` resolves against the shared host, where these functions do not
-  exist, and fails quietly — the request gets someone else's 404 and the feature simply
-  never responds. Inline the expression per file; do not add a shared helper, per the
-  self-containment rule below.
-- `npm start` sets `PUBLIC_URL` to empty, so **dev cannot distinguish a correct prefix from
-  a missing one.** Verify prefix-sensitive changes against a deployed build.
-- `public/tiles.json` is generated from `src/games-registry.js` by a `prebuild` step and is
-  read by the landing page at `ramia.us` to list the games. Adding a game to that registry
-  is all it takes to appear there.
+- Code uses root-absolute paths: `/api/x`, `/models/x.onnx`, `<BrowserRouter>` with no
+  basename.
+- `public/tiles.json` is generated from `src/games-registry.js` by the `prebuild` step
+  (`scripts/emit-tiles.mjs`); each href is the game's root route. Home (`nbramia/ramia`
+  `apps/home/src/registry.js`) reads `https://play.ramia.us/tiles.json` and resolves each
+  href against that origin, so adding a game to the registry is all it takes to appear there.
 
 Use the below guidelines when executing tasks or pursuing goals that have more than basic complexity. These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
@@ -199,15 +185,15 @@ Before modifying game logic for either game:
 |------|---------|
 | `src/App.jsx` | React Router with lazy-loaded game routes |
 | `src/LandingPage.jsx` | Landing page linking to each game + a single "Sign in" / account link to `/login` |
-| `src/LoginPage.jsx` | `/login`: the only place to sign in (Auth0, the ramia.us sign-in), link a pre-Auth0 username/password account once, sign out (here or everywhere), and enter the Anthropic key and Lichess token (held server-encrypted on the account when signed in, device-only for guests) |
+| `src/LoginPage.jsx` | `/login`: the only place to sign in (Auth0, the ramia.us sign-in), sign out (here or everywhere), and enter the Anthropic key and Lichess token (held server-encrypted on the account when signed in, device-only for guests) |
 | `api/auth.js`, `server/auth0.js` | Auth0 login, callback and logout (openid-client: code + PKCE, state, nonce, RS256 signature, verified email) |
 | `api/session.js`, `server/session.js` | Sign-in sessions: opaque cookie, 30-day idle / 90-day absolute expiry, sign-out everywhere index, CSRF checks; `establish` hands the device its seal key |
-| `server/identity.js`, `server/keyCustody.js` | One identity per Auth0 subject, its data id and old-account link; AES-256-GCM key custody (AAD bound to identity, slot and key version; KEK rotation) |
+| `server/identity.js`, `server/keyCustody.js` | One identity per Auth0 subject and its data id; AES-256-GCM key custody (AAD bound to identity, slot and key version; KEK rotation) |
 | `server/accountKeys.js`, `src/accountKeys.js` | The proxies' key lookup (body key for guests, account key for a session) and the browser's which-keys-exist marker |
+| `server/publicSecurity.js`, `server/cors.js` | Shared API boundary (JSON-only bodies, size limits, Redis rate limits, session `authenticate`) and the CORS helper (local dev origins only; production is same-origin) |
 | `src/loginReturn.js` | `/login?return=` allowlist (exact `games-registry.js` paths, else `/`) and `loginHref()`, which games use for their "Sign in / add key" link |
 | `src/landing.css` | Scoped catalogue and optional account presentation styles |
-| `scripts/landing-fixture/` | Synthetic account browser checks and production guest-launch check; prerequisites and limits in `docs/public-games-design.md` |
-| `src/account.js` | The one account module: Auth0 sign-in completion, sign-out, account keys, old-account linking (PBKDF2 derivation kept for it), recovery sealing (chess's `engine/account.js` re-exports it) |
+| `src/account.js` | The one account module: Auth0 sign-in completion, sign-out, account keys, recovery sealing, and the startup drop of an unreadable stored session (chess's `engine/account.js` re-exports it) |
 | `src/MatchBoundary.jsx` | Match hydration, persistence context, conflict choices, and recovery UI |
 | `src/matchStore.js` | Account-bound local match storage, recovery alternatives, and cloud CAS requests |
 | `src/matchSchema.js` | Shared versioned match envelope and size/field validation |
@@ -218,7 +204,7 @@ Before modifying game logic for either game:
 | `src/index.css` | Tailwind directives + shared keyframes only |
 | `vercel.json` | API rewrites + SPA catch-all for client-side routing |
 | `src/games-registry.js` | The one list of games — read by the landing page and by the tile-manifest build step |
-| `scripts/emit-tiles.mjs` | `prebuild` step writing `public/tiles.json` for the ramia.us landing page |
+| `scripts/emit-tiles.mjs` | `prebuild` step writing `public/tiles.json` (root hrefs) for the Home landing page |
 | `public/index.html` | HTML shell with Google Fonts (Syne + Outfit) |
 | `tailwind.config.js` | Font families (display, heading, body) |
 | `jest.config.js` | Test config (auto-discovers `*.test.js` in all subdirs) |
@@ -270,8 +256,7 @@ and `src/accountKeys.js`, which the games' key clients read to know an account k
 | `engine/uci.js` | Pure UCI parsing (info / bestmove / MultiPV) + `chooseWeakenedMove` (sub-1320 sampling) |
 | `engine/difficulty.js` | Named tiers -> UCI_Elo; `RATING_LADDER` (Rated-mode opponents 800-3000) |
 | `engine/rating.js` | Pure Elo math: K-factor, expected score, `updateRating`, `nearestRung`, `mergeRating` |
-| `engine/ratingSync.js` | Cross-device rating sync client (SHA-256 of the API key -> opaque id) |
-| `engine/profileSync.js` | Cross-device profile sync client -- supersedes ratingSync (rating + opponent history + puzzles + mistakes, same key-hash id) |
+| `engine/profileSync.js` | Cross-device profile sync client for the signed-in account (rating + opponent history + puzzles + mistakes; merges stored `legacyProfiles` copies) |
 | `engine/account.js` | Re-export of the app-level `src/account.js` |
 | `engine/playerHistory.js` | localStorage store: per-opponent W/L/D history (`chessOppHistory`) |
 | `coach/motifs.js` | Pure chess.js position facts (hanging piece, fork, pin, king-shelter, development) feeding the keyless commentary |
@@ -282,17 +267,15 @@ and `src/accountKeys.js`, which the games' key clients read to know an account k
 | `hooks/useStockfish.js` | Engine lifecycle; `getMove()` (opponent) + `analyze()` (coaching), serialized |
 | `coach/*.js` | classify, analyzeMove, templates, coachClient, openings, pgn, accuracy, puzzles, material, sound |
 | `api/chessCoach.js` | Vercel serverless coach (Claude API, **bring-your-own key**, no server fallback) |
-| `api/chessRating.js` | Retired legacy endpoint; returns 410. Claim old cloud data through authenticated `chessProfile` |
-| `api/chessProfile.js` | Authenticated, revisioned Chess profile and separate four-game settings scope; bounded one-owner legacy claims. See `docs/public-accounts.md` |
-| `api/chessAccount.js` | Signed-in account keys (`setKeys`, stored server-encrypted) and the one-time link of a pre-Auth0 username/password account (`link-verify`, `link`); creating or signing in to password accounts returns 410 |
+| `api/chessProfile.js` | Authenticated, revisioned Chess profile and separate four-game settings scope, match scope and `/migration` activation. See `docs/public-accounts.md` |
+| `api/chessAccount.js` | Signed-in account keys (`setKeys`, stored server-encrypted); any other action is 400 |
 
 See [docs/chess.md](docs/chess.md) for the engine + coaching pipeline and the BYO-key security model.
 
 **Rated mode** (`chessRated`/`chessRating`/`chessRatedGames`): a single Elo that
 updates from wins/losses/draws vs a matched `RATING_LADDER` rung. Undo/flip/coach/eval
 are locked out while rated. Cross-device sync goes through the authenticated profile
-endpoint `api/chessProfile.js` (rating, opponent history, puzzle/mistake progress); the
-old `api/chessRating.js` returns 410. Sync needs a Redis REST store
+endpoint `api/chessProfile.js` (rating, opponent history, puzzle/mistake progress). Sync needs a Redis REST store
 (`KV_REST_API_URL` + `KV_REST_API_TOKEN`, or the `UPSTASH_REDIS_REST_*` aliases);
 without it the endpoints return 503 and ratings persist in localStorage only. An
 account, signed in through Auth0 at `/login`, also carries the API key + Lichess
@@ -530,11 +513,11 @@ gipfApiKey   # one BYO Anthropic key, used by the chess coach, the Catan and
              # are migrated into it on first read. Each game keeps an identical
              # copy of the storage helper (no cross-game import).
 gipf:account-transition # Temporary account-switch lease marker {id, until}
-gipfAccount  # cached account session {v:2, username, usernameId, sid}: no
+gipfAccount  # cached account session {v:3, username, usernameId, sid}: no
              # secret. The server session is the HttpOnly __Host-games_session
-             # cookie; the AES key is a non-extractable CryptoKey in IndexedDB.
-             # A v1 session (authToken/aesKey/profileId) is upgraded at startup.
-             # Written only by /login; games read it and link to
+             # cookie; the seal key is a non-extractable CryptoKey in IndexedDB.
+             # Any other stored shape is removed at startup (progress stays as
+             # guest progress). Written only by /login; games read it and link to
              # /login?return=/<game> for sign-in and keys. Signing
              # out clears credentials and visible progress; outgoing progress
              # is retained encrypted in gipf:recovery:<usernameId>.
@@ -547,13 +530,32 @@ Never rename or restructure these without migration logic.
 ## Testing
 
 ```bash
-CI=true npm test              # Full suite -- all tests must pass
+CI=true npm test              # Full Jest suite -- all tests must pass
 npm test -- --watch           # Watch mode for development
 npm run test:engine           # MCTS engine tests
+node --test tests/public-security.test.mjs tests/ai-security.test.mjs tests/test_yinsh_api.mjs tests/emit-tiles.test.mjs
+
+# Server suites against real Redis: a disposable gipf-test-* container only (they FLUSHDB it), one file at a time.
+export GIPF_TEST_REDIS_CONTAINER=gipf-test-local
+docker run --rm -d --name "$GIPF_TEST_REDIS_CONTAINER" redis:7-alpine
+node --test --test-concurrency=1 tests/auth-oidc-redis.test.mjs tests/account-redis.test.mjs tests/session-redis.test.mjs tests/match-redis.test.mjs tests/profile-arrays-redis.test.mjs tests/migration-activation-redis.test.mjs
+
+# Real sign-in in Chromium against a synthetic provider (needs the build and Playwright's index.mjs).
+npm run build
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs node tests/auth-browser.mjs
+docker stop "$GIPF_TEST_REDIS_CONTAINER"
+
+# Lint (the repo has no default ESLint config; this is the project config).
+./node_modules/.bin/eslint --no-eslintrc --config tests/security-eslint.cjs --resolve-plugins-relative-to . <files>
 ```
+
+Other browser fixtures (`tests/*-browser.mjs`, served by `tests/serve-public-security.mjs`)
+are described in `docs/public-accounts.md`, `docs/resumable-matches.md` and
+`docs/games-migration.md`.
 
 **Before any deployment, ALL of these must be true:**
 - [ ] `CI=true npm test` -- full suite passing
+- [ ] Server suites passing when `api/`, `server/` or account code changed
 - [ ] `npm run build` -- completes without errors
 - [ ] Manual play-through of modified game(s) in browser
 
@@ -567,9 +569,16 @@ Vercel auto-deploys on push to `main`. There is no CI gate -- **you are the gate
 git push origin main          # Deploy (only after all checks pass)
 ```
 
-Production URL: https://play.ramia.us (ungated, root), from `main`.
+Production URL: https://play.ramia.us (public, root), from `main`.
 
-Each serverless endpoint keeps its own `ALLOWED_ORIGINS` list (`api/aiMove.js`, `zertzAiMove.js`, `chessCoach.js`, `catanRules.js`, `splendorRules.js`, `diplomacyAgent.js`); update the relevant file when adding a cross-origin caller. The browser only needs a CORS entry for cross-origin calls; same-origin calls (`play.ramia.us` to its own `/api`) work without one, and no `ALLOWED_ORIGINS` list includes `play.ramia.us`.
+Rollback: note the current production deployment before merging (`vercel inspect
+play.ramia.us`, run from a directory linked to the `play` project), and roll back with
+`vercel rollback <deployment-url-or-id>` or by promoting that deployment in the Vercel
+dashboard. A rollback restores the old build; it does not undo store changes.
+
+CORS is one shared helper, `server/cors.js`, used by every serverless endpoint. Its
+allowlist holds only local development origins: the app calls its own origin, so
+production needs no CORS entry.
 
 ---
 
@@ -582,7 +591,7 @@ To add a new GIPF Project game (e.g., DVONN, TZAAR):
 3. Add the wrapper class to the root div in `<Name>Game.jsx`
 4. Add `import './<name>.css'` to the game component
 5. Add a lazy route in `src/App.jsx`
-6. Add a card to `src/LandingPage.jsx`
+6. Add an entry to `src/games-registry.js` (the landing page and `tiles.json` read it)
 7. Use `<name>` prefix for localStorage keys
 
 Games must be fully self-contained -- no imports between game directories.

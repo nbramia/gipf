@@ -1,8 +1,9 @@
 import { migrationActivation, MIGRATION_LIMITS } from '../server/migrationActivation.js';
 import { validChessLog } from '../server/chessLogValidation.js';
 import { validMatch } from '../server/matchValidation.js';
-// Authenticated profile persistence. Legacy IDs are capabilities only in claim.
-import { guardRequest, authenticate, command, hex64, hash, limit } from '../server/publicSecurity.js';
+// Authenticated profile persistence: the signed-in account's chess profile, settings,
+// resumable matches, and /migration imports. The session cookie alone authorizes.
+import { guardRequest, authenticate, command, limit } from '../server/publicSecurity.js';
 export const config = { api: { bodyParser: { sizeLimit: '512kb' } } };
 const MIN_RATING = 100;
 const MAX_RATING = 4000;
@@ -13,8 +14,7 @@ const DOMAINS = ['rating', 'history', 'puzzles', 'mistakes'];
 // --- Per-domain sanitizers. Each returns a clean, storage-ready value or null
 // if the supplied payload doesn't match the expected shape. -----------------
 
-// Same sanitize as chessRating.js, just reshaped to take the {rating, ratedGames}
-// object as it arrives nested under domains.rating in the POST body.
+// The {rating, ratedGames} object nested under domains.rating in the POST body.
 function sanitizeRating(value) {
   if (!value || typeof value !== 'object') return null;
   const rating = Math.round(Number(value.rating));
@@ -144,52 +144,10 @@ const WRITE_MATCH = `local r=redis.call('GET',KEYS[1]); local p=r and cjson.deco
 if p.revision~=tonumber(ARGV[1]) then return 0 end;
 local revision=p.revision+1;
 redis.call('SET',KEYS[1],'{"revision":'..revision..',"profile":{"match":'..ARGV[2]..'}}'); return revision`;
-// Owner check precedes snapshot comparison so same-owner retries stay idempotent.
-// Compare destination and every source before either write; source keys stay intact.
-const CLAIM = `${SNAPSHOT}local owner=redis.call('GET',KEYS[2]); if owner and owner~=ARGV[1] then return -1 end;
-if owner then return 0 end;
-for i=1,7 do if i~=2 and snapshot(KEYS[i])~=ARGV[i+2] then return -3 end end;
-if ARGV[11]=='0' then return 2 end;
-if tonumber(ARGV[10])>=5 then return -2 end;
-if tonumber(redis.call('GET',KEYS[8]) or '0')>=5 then return -4 end;
-local n=redis.call('INCR',KEYS[8]); if n==1 then redis.call('EXPIRE',KEYS[8],86400) end;
-redis.call('SET',KEYS[1],ARGV[2]); redis.call('SET',KEYS[2],ARGV[1]); return 1`;
 const emptyRecord = () => ({ revision: 0, profile: {} });
 
-async function claimLegacy(key, id, user, deadline) {
-  // The three preflight commands already consume up to 9s. Reserve the full
-  // shared command timeout before each remaining request, including retries.
-  const claimCommand = (...args) => {
-    if (Date.now() + 3000 > deadline) throw new Error('store_unavailable');
-    return command(...args);
-  };
-  const keys = [key, `gipf:claim:${id}`, ...DOMAINS.map(d => `chess:profile:${id}:${d}`), `chess:rating:${id}`];
-  // Five competing successful migrations plus a final read must fit the lifetime cap.
-  // All six attempts still share the handler-entry deadline; unrelated writes may conflict.
-  for (let attempt = 0; attempt < 6; attempt++) {
-    const raw = await claimCommand('MGET', ...keys);
-    if (raw[1] != null) return raw[1] === user ? 0 : -1;
-    const record = raw[0] != null ? JSON.parse(raw[0]) : emptyRecord();
-    const count = record.claimCount || 0;
-    const legacy = {};
-    for (let i = 0; i < DOMAINS.length; i++) {
-      const value = raw[i + 2] ?? (i === 0 ? raw[6] : null);
-      if (value != null) {
-        legacy[DOMAINS[i]] = JSON.parse(value);
-        if (!Object.hasOwn(record.profile, DOMAINS[i])) record.profile[DOMAINS[i]] = legacy[DOMAINS[i]];
-      }
-    }
-    record.legacyProfiles = { ...record.legacyProfiles, [keys[1]]: legacy };
-    record.claimCount = count + 1;
-    record.revision++;
-    const result = await claimCommand('EVAL', CLAIM, 8, ...keys, `gipf:limit:claim-user:${hash(user)}`, user, JSON.stringify(record), ...raw.map(snapshot), count, Object.keys(legacy).length);
-    if (result !== -3) return result;
-  }
-  return -3;
-}
-
 export default async function handler(req, res) {
-  const claimDeadline = Date.now() + 17000; // Leave 3s for response/CPU under maxDuration:20.
+  const deadline = Date.now() + 17000; // Leave 3s for response/CPU under maxDuration:20.
   res.setHeader('Cache-Control', 'no-store');
   if (req.method !== 'POST') return res.status(405).json({ error: 'use_authenticated_post' });
   if (!await guardRequest(req, res, { bucket: 'sync', limit: 120, maxBytes: MIGRATION_LIMITS.requestBytes })) return;
@@ -197,29 +155,14 @@ export default async function handler(req, res) {
   const migration = ['migration-preview','migration-activate','migration-recovery'].includes(body.action);
   if (!migration && Buffer.byteLength(JSON.stringify(body)) > 300000) return res.status(413).json({ error: 'too_large' });
   try {
-    if (!await authenticate(body, res, req.network, req)) return;
+    if (!await authenticate(body, res, req)) return;
     if (!await limit(migration ? 'migration-user' : 'sync-user', body.u, migration ? 30 : 120, migration ? 3600 : 60)) return res.status(429).json({ error: 'rate_limited' });
-    if (migration) return await migrationActivation(body, res, SETTING_KEYS, claimDeadline);
+    if (migration) return await migrationActivation(body, res, SETTING_KEYS, deadline);
     const settings = body.scope === 'settings';
     const match = body.scope === 'match';
     if (match && !['chess','yinsh','zertz','catan'].includes(body.game)) return res.status(400).json({ error: 'bad_request' });
     if (body.scope && !settings && !match) return res.status(400).json({ error: 'bad_request' });
     const key = match ? `gipf:match:v1:${body.u}:${body.game}` : `gipf:${settings ? 'settings' : 'profile'}:v2:${body.u}`;
-    if (body.action === 'claim') {
-      if (settings || match) return res.status(400).json({ error: 'bad_request' });
-      const start = Date.parse(process.env.GIPF_LEGACY_CLAIM_FROM || '');
-      const deadline = Date.parse(process.env.GIPF_LEGACY_CLAIM_UNTIL || '');
-      // Explicit operator window, never a permanent alternate authorization path.
-      if (!Number.isFinite(start) || !Number.isFinite(deadline) || deadline - start > 90 * 86400000 || start > Date.now() || Date.now() >= deadline) return res.status(410).json({ error: 'claim_closed' });
-      if (!hex64(body.legacyId)) return res.status(400).json({ error: 'bad_request' });
-      const id = body.legacyId;
-      const result = await claimLegacy(key, id, body.u, claimDeadline);
-      if (result === -4) return res.status(429).json({ error: 'rate_limited' });
-      if (result === -3) return res.status(409).json({ error: 'conflict' });
-      if (result === -2) return res.status(409).json({ error: 'claim_limit' });
-      if (result === -1) return res.status(409).json({ error: 'already_claimed' });
-      return res.status(200).json({ configured: true, claimed: result !== 2 });
-    }
     if (body.action === 'read') {
       const raw = await command('GET', key);
       const record = raw != null ? JSON.parse(raw) : { revision: 0, profile: {} };
