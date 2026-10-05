@@ -1,5 +1,6 @@
 // Shared public API boundary. Redis counters are atomic across cold starts.
 import { createHash, timingSafeEqual } from 'node:crypto';
+import { readSessionToken, resolveSession, sameOriginRequest } from './session.js';
 export const hex64 = (s) => typeof s === 'string' && /^[a-f0-9]{64}$/.test(s);
 export const hash = (s) => createHash('sha256').update(s).digest('hex');
 export async function command(...args) {
@@ -34,6 +35,10 @@ export function networkIdentity(ip) {
 }
 export async function guardRequest(req, res, { bucket = 'public', limit: maximum = 60, maxBytes = 32768 } = {}) {
   res.setHeader('Cache-Control', 'no-store');
+  // JSON bodies only: a cross-site form or no-cors fetch can send text/plain, never JSON.
+  if (req.method === 'POST' && !/^application\/json\s*(;|$)/i.test(String(req.headers?.['content-type'] || ''))) {
+    res.status(415).json({ error: 'unsupported_media_type' }); return false;
+  }
   try {
     const raw = typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {});
     if (Buffer.byteLength(raw) > maxBytes) { res.status(413).json({ error: 'too_large' }); return false; }
@@ -51,7 +56,23 @@ export async function guardRequest(req, res, { bucket = 'public', limit: maximum
 // Failed verifications share one per-network budget across every endpoint, so the
 // higher sync limit cannot be used as a faster password oracle.
 export const AUTH_FAILURES = 20;
-export async function authenticate(body, res, network) {
+// The account record for this request: either the legacy body credentials
+// (u + auth, verified against the stored hash) or the session cookie. A cookie
+// request must pass the same-origin checks and, when it names u, name its own.
+export async function authenticate(body, res, network, req) {
+  if (body.auth === undefined && req) {
+    const token = readSessionToken(req);
+    if (token) {
+      if (!sameOriginRequest(req)) { res.status(403).json({ error: 'forbidden' }); return null; }
+      const session = await resolveSession(token);
+      if (!session || (body.u !== undefined && body.u !== session.u)) { res.status(401).json({ error: 'bad_credentials' }); return null; }
+      const raw = await command('GET', `chess:account:${session.u}`);
+      const record = raw == null ? null : JSON.parse(raw);
+      if (!hex64(record?.authHash)) { res.status(401).json({ error: 'bad_credentials' }); return null; }
+      body.u = session.u;
+      return record;
+    }
+  }
   if (!hex64(body.u) || !hex64(body.auth)) { res.status(401).json({ error: 'bad_credentials' }); return null; }
   const failures = `gipf:limit:auth-fail:${hash(String(network))}`;
   const [raw, failed] = await command('MGET', `chess:account:${body.u}`, failures);

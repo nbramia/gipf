@@ -17,7 +17,8 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'method_not_allowed' });
   if (!await guardRequest(req, res, { bucket: 'account', limit: 20, maxBytes: 12288 })) return;
   const { action, u, auth, enc, encLichess } = req.body;
-  if (!hex64(u) || !hex64(auth)) return res.status(400).json({ error: 'bad_request' });
+  // Creation proves the new credentials in the body; other actions may use the session cookie.
+  if (action === 'create' ? !hex64(u) || !hex64(auth) : (u !== undefined && !hex64(u)) || (auth !== undefined && !hex64(auth))) return res.status(400).json({ error: 'bad_request' });
   if (![enc, encLichess].every(v => v === undefined || v === null || isValidEncShape(v))) return res.status(400).json({ error: 'bad_request' });
   try {
     if (action === 'create') {
@@ -31,16 +32,16 @@ export default async function handler(req, res) {
       if (result !== 'OK') return res.status(409).json({ error: 'taken' });
       return res.status(200).json({ configured: true, created: true });
     }
-    const record = await authenticate(req.body, res, req.network);
+    const record = await authenticate(req.body, res, req.network, req);
     if (!record) return;
     // Public usernames cannot spend an authenticated owner's budget.
     // The pre-auth network counter still bounds password guesses and store work.
-    if (!await limit('account-user', u, 20)) return res.status(429).json({ error: 'rate_limited' });
+    if (!await limit('account-user', req.body.u, 20)) return res.status(429).json({ error: 'rate_limited' });
     if (action === 'login') return res.status(200).json({ configured: true, enc: record.enc || null, encLichess: record.encLichess || null });
     if (action === 'setKey') {
       if (enc === undefined && encLichess === undefined) return res.status(400).json({ error: 'bad_request' });
       // Update only supplied envelopes atomically; concurrent devices cannot erase the other envelope.
-      await command('EVAL', `local r=cjson.decode(redis.call('GET',KEYS[1])); local p=cjson.decode(ARGV[1]); for k,v in pairs(p) do r[k]=v end; redis.call('SET',KEYS[1],cjson.encode(r)); return 1`, 1, `chess:account:${u}`, JSON.stringify({ enc, encLichess }));
+      await command('EVAL', `local r=cjson.decode(redis.call('GET',KEYS[1])); local p=cjson.decode(ARGV[1]); for k,v in pairs(p) do r[k]=v end; redis.call('SET',KEYS[1],cjson.encode(r)); return 1`, 1, `chess:account:${req.body.u}`, JSON.stringify({ enc, encLichess }));
       return res.status(200).json({ configured: true, saved: true });
     }
     return res.status(400).json({ error: 'bad_request' });

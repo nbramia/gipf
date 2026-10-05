@@ -170,7 +170,6 @@ legacy data is retained rather than replaced with a new empty game silently.
 ```json
 {
   "u": "authenticated-username-hash",
-  "auth": "password-derived-auth-token",
   "scope": "match",
   "game": "yinsh",
   "action": "write",

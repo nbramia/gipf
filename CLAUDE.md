@@ -190,6 +190,7 @@ Before modifying game logic for either game:
 | `src/App.jsx` | React Router with lazy-loaded game routes |
 | `src/LandingPage.jsx` | Landing page linking to each game + a single "Sign in" / account link to `/login` |
 | `src/LoginPage.jsx` | `/login`: the only place to sign in, create an account, sign out, and enter the Anthropic key and Lichess token (synced encrypted when signed in, device-only for guests) |
+| `api/session.js`, `server/session.js` | Sign-in sessions: opaque cookie, 30-day idle / 90-day absolute expiry, logout and sign-out everywhere, CSRF checks |
 | `src/loginReturn.js` | `/login?return=` allowlist (exact `games-registry.js` paths, else `/`) and the `loginHref()` games link with |
 | `src/landing.css` | Scoped catalogue and optional account presentation styles |
 | `scripts/landing-fixture/` | Synthetic account browser checks and production guest-launch check; prerequisites and limits in `docs/public-games-design.md` |
@@ -280,7 +281,8 @@ old `api/chessRating.js` returns 410. Sync needs a Redis REST store
 (`KV_REST_API_URL` + `KV_REST_API_TOKEN`, or the `UPSTASH_REDIS_REST_*` aliases);
 without it the endpoints return 503 and ratings persist in localStorage only. A
 username+password account (`api/chessAccount.js`, `src/account.js`), managed at `/login`, also carries the API key + Lichess explorer token + profile across
-devices using usernameId plus a verified password-derived auth token. Public IDs
+devices: the password-derived auth token is verified once by `api/session.js`, which
+issues the HttpOnly session cookie that authorizes everything after. Public IDs
 never authorize persistence. See [docs/public-accounts.md](docs/public-accounts.md).
 
 ### Catan (`src/games/catan/`)
@@ -512,8 +514,10 @@ gipfApiKey   # one BYO Anthropic key, used by the chess coach, the Catan and
              # are migrated into it on first read. Each game keeps an identical
              # copy of the storage helper (no cross-game import).
 gipf:account-transition # Temporary account-switch lease marker {id, until}
-gipfAccount  # username+password account session (derived credentials, cached
-             # locally so the client isn't re-running PBKDF2 every load).
+gipfAccount  # cached account session {v:2, username, usernameId, sid}: no
+             # secret. The server session is the HttpOnly __Host-games_session
+             # cookie; the AES key is a non-extractable CryptoKey in IndexedDB.
+             # A v1 session (authToken/aesKey/profileId) is upgraded at startup.
              # Written only by /login; games read it and link to
              # /login?return=/<game> for sign-in and keys. Signing
              # out clears credentials and visible progress; outgoing progress

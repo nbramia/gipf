@@ -13,7 +13,7 @@ const u='a'.repeat(64), auth='b'.repeat(64), other='c'.repeat(64), legacy='d'.re
 const key=`gipf:profile:v2:${u}`, claimKey=`gipf:claim:${legacy}`;
 async function call(body, handler=profile) {
   const res={statusCode:200,setHeader(){},status(n){this.statusCode=n;return this;},json(body){this.body=body;return this;}};
-  await handler({method:'POST',headers:{},socket:{remoteAddress:'192.0.2.62'},body:{u,auth,...body}},res);return res;
+  await handler({method:'POST',headers:{'content-type':'application/json'},socket:{remoteAddress:'192.0.2.62'},body:{u,auth,...body}},res);return res;
 }
 const read = async(scope) => (await call({action:'read',scope})).body;
 const write = (domains,revision=0,scope) => call({action:'write',domains,revision,scope});

@@ -10,7 +10,8 @@ import * as account from './account';
 jest.mock('./account', () => ({
   loadSession: jest.fn(), clearSession: jest.fn(), saveSession: jest.fn(),
   deriveCredentials: jest.fn(), encryptApiKey: jest.fn(), decryptApiKey: jest.fn(),
-  createAccount: jest.fn(), loginAccount: jest.fn(), pushEncryptedKey: jest.fn(),
+  createAccount: jest.fn(), startServerSession: jest.fn(), endServerSession: jest.fn(), pushEncryptedKey: jest.fn(),
+  accountKey: jest.fn(), SESSION_EXPIRED_KEY: 'gipf:session-expired',
   getSharedApiKey: jest.fn(), setSharedApiKey: jest.fn(),
   getSharedLichessToken: jest.fn(), setSharedLichessToken: jest.fn(),
 }));
@@ -28,8 +29,9 @@ beforeEach(() => {
   delete window.location;
   window.location = { ...originalLocation, hostname: 'play.ramia.us', assign: jest.fn(), reload: jest.fn() };
   account.deriveCredentials.mockResolvedValue(creds);
-  account.loginAccount.mockResolvedValue({});
-  account.createAccount.mockResolvedValue({});
+  account.startServerSession.mockResolvedValue({ signedIn: true });
+  account.createAccount.mockResolvedValue({ created: true });
+  account.accountKey.mockResolvedValue('stored-account-key');
   account.getSharedApiKey.mockReturnValue('');
   account.getSharedLichessToken.mockReturnValue('');
   account.pushEncryptedKey.mockResolvedValue(true);
@@ -47,7 +49,7 @@ describe('return allowlist', () => {
 });
 
 test('signed out: form first, username focused, consent unchecked, password visibility and login errors', async () => {
-  account.loginAccount.mockResolvedValue({ error: 'bad_credentials' });
+  account.startServerSession.mockResolvedValue({ error: 'bad_credentials' });
   mount();
   expect(screen.getByLabelText('Username')).toHaveFocus();
   fill();
@@ -62,7 +64,7 @@ test('signed out: form first, username focused, consent unchecked, password visi
 });
 
 test.each([false, true])('login forwards import consent %s and decrypted keys, then returns to the game', async consent => {
-  account.loginAccount.mockResolvedValue({ enc: 'sealed-api', encLichess: 'sealed-lichess' });
+  account.startServerSession.mockResolvedValue({ enc: 'sealed-api', encLichess: 'sealed-lichess' });
   account.decryptApiKey.mockResolvedValueOnce('synthetic-api').mockResolvedValueOnce('synthetic-lichess');
   mount('?return=/chess');
   expect(screen.getByRole('link', { name: '← Back to chess' })).toHaveAttribute('href', '/gipf/chess');
@@ -93,6 +95,7 @@ test('creation keeps confirmation, recovery warning, validation and encryption b
   fireEvent.change(screen.getByLabelText('Confirm password'), { target: { value: 'synthetic-password' } });
   fireEvent.click(screen.getByRole('button', { name: 'Create account', exact: true }));
   await waitFor(() => expect(account.createAccount).toHaveBeenCalledWith({ usernameId: creds.usernameId, authToken: creds.authToken, enc: 'sealed-api', encLichess: 'sealed-lichess' }));
+  await waitFor(() => expect(account.startServerSession).toHaveBeenCalledWith(creds));
   expect(account.saveSession).toHaveBeenCalledWith(creds, { importGuest: false, apiKey: 'synthetic-api', lichessToken: 'synthetic-lichess' });
   await waitFor(() => expect(window.location.assign).toHaveBeenCalledWith('/splendor'));
 });
@@ -100,7 +103,7 @@ test('creation keeps confirmation, recovery warning, validation and encryption b
 test.each([false, true])('native submit selects displayed create mode %s and blocks duplicate busy submissions', async creating => {
   let release;
   account.deriveCredentials.mockImplementation(() => new Promise(resolve => { release = resolve; }));
-  account.loginAccount.mockResolvedValue({ error: 'bad_credentials' });
+  account.startServerSession.mockResolvedValue({ error: 'bad_credentials' });
   account.createAccount.mockResolvedValue({ error: 'taken' });
   mount(); fill();
   if (creating) {
@@ -119,8 +122,8 @@ test.each([false, true])('native submit selects displayed create mode %s and blo
   expect(account.deriveCredentials).toHaveBeenCalledTimes(1);
   release(creds);
   expect(await screen.findByRole('alert')).toHaveTextContent(creating ? 'That username is taken.' : 'Wrong username or password.');
-  expect(creating ? account.createAccount : account.loginAccount).toHaveBeenCalledTimes(1);
-  expect(creating ? account.loginAccount : account.createAccount).not.toHaveBeenCalled();
+  expect(creating ? account.createAccount : account.startServerSession).toHaveBeenCalledTimes(1);
+  expect(creating ? account.startServerSession : account.createAccount).not.toHaveBeenCalled();
 });
 
 test('native submission preserves empty-field and creation length validation', () => {
@@ -162,7 +165,7 @@ test('signed in: keys are encrypted with the account key and synced; removal cle
   fireEvent.change(screen.getByLabelText('Anthropic API key'), { target: { value: 'sk-ant-synthetic-account-key-00000000000000' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   await waitFor(() => expect(account.pushEncryptedKey).toHaveBeenCalledWith({ usernameId: creds.usernameId, authToken: creds.authToken, enc: 'sealed-api' }));
-  expect(account.encryptApiKey).toHaveBeenCalledWith(creds.aesKey, 'sk-ant-synthetic-account-key-00000000000000');
+  expect(account.encryptApiKey).toHaveBeenCalledWith('stored-account-key', 'sk-ant-synthetic-account-key-00000000000000');
   expect(await screen.findByText('Saved and synced to your account.')).toBeInTheDocument();
   fireEvent.click(screen.getAllByRole('button', { name: 'Remove' })[1]);
   expect(account.setSharedLichessToken).toHaveBeenCalledWith('');
@@ -187,4 +190,29 @@ test('the retired gated host points to play.ramia.us instead of offering sign-in
   mount('?return=/chess');
   expect(screen.getByRole('link', { name: 'play.ramia.us' })).toHaveAttribute('href', 'https://play.ramia.us/login');
   expect(screen.queryByLabelText('Username')).toBeNull();
+});
+
+test('sign out everywhere confirms and revokes every session', async () => {
+  account.loadSession.mockReturnValue(creds);
+  mount();
+  fireEvent.click(screen.getByRole('button', { name: 'Sign out everywhere' }));
+  expect(screen.getByText(/Every other device signed in to this account is signed out too/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'Sign out everywhere' }));
+  await waitFor(() => expect(account.clearSession).toHaveBeenCalledWith({ everywhere: true }));
+});
+
+test('a device switch that fails after the cookie is set ends that server session', async () => {
+  account.saveSession.mockRejectedValue(new Error('progress_changed'));
+  mount(); fill();
+  fireEvent.click(screen.getByRole('button', { name: 'Sign in', exact: true }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Unable to switch accounts safely.');
+  expect(account.endServerSession).toHaveBeenCalledTimes(1);
+  expect(window.location.assign).not.toHaveBeenCalled();
+});
+
+test('an ended session explains itself once', () => {
+  sessionStorage.setItem('gipf:session-expired', '1');
+  mount();
+  expect(screen.getByRole('status')).toHaveTextContent('Your session ended.');
+  expect(sessionStorage.getItem('gipf:session-expired')).toBeNull();
 });

@@ -90,13 +90,14 @@ export function createMatchStore(game) {
     async request(action, extra = {}) {
       assertOwner();
       const session = JSON.parse(owner || 'null');
-      if (!session?.usernameId || !session?.authToken) throw new Error('account_required');
+      if (!session?.usernameId) throw new Error('account_required');
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 10000);
       try {
         const response = await fetch(`${process.env.PUBLIC_URL || ''}/api/chessProfile`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ u: session.usernameId, auth: session.authToken, scope: 'match', game, action, ...extra }),
+          // The session cookie authorizes the write; a v1 session not yet upgraded proves itself in the body.
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Games-Request': '1' },
+          body: JSON.stringify({ u: session.usernameId, ...(session.authToken ? { auth: session.authToken } : {}), scope: 'match', game, action, ...extra }),
           signal: controller.signal,
         });
         assertOwner();

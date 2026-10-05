@@ -253,7 +253,7 @@ puzzle progress lives in `chessPuzzleProgress`, managed by
 
 `engine/profileSync.js` syncs all four as one profile -- rating, history,
 puzzles, mistakes -- against `api/chessProfile.js`, authenticated by the
-signed-in account's `u` and `auth` fields. On load it fetches the remote profile,
+signed-in account's session cookie. On load it fetches the remote profile,
 merges it with the local one, and writes the merged result back both
 locally and remotely; pushes also happen at game end, on a puzzle result,
 and after a rated result. Merges are pure and conflict-free: rating reuses
@@ -288,8 +288,8 @@ still sends the user's plaintext model key transiently through the model proxy
 to Anthropic; there is no maintainer-funded fallback. Forgotten passwords have
 no recovery mechanism.
 
-Normal profile reads and writes now require proven account ownership (`u` and
-`auth` in a POST body). A public username hash or legacy profile ID cannot read
+Profile reads and writes require proven account ownership: the session cookie
+issued at sign-in (see [public account operations](public-accounts.md#sessions)). A public username hash or legacy profile ID cannot read
 or write progress. Registration uses atomic SET NX. Shared Redis rate counters
 bound registration, login, sync, and model requests across instances. Missing
 storage or limiter configuration returns 503; guest play remains local.

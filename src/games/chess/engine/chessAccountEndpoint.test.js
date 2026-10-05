@@ -4,7 +4,7 @@ import { hash } from '../../../../server/publicSecurity.js';
 const u = 'a'.repeat(64), auth = 'b'.repeat(64);
 const enc = { iv: 'AAAAAAAAAAAAAAAA', ct: 'AAAAAAAAAAAAAAAAAAAAAA==' };
 const res = () => ({ statusCode: 200, setHeader() {}, status(n) { this.statusCode = n; return this; }, json(body) { this.body = body; return this; } });
-const req = body => ({ method: 'POST', headers: {}, socket: { remoteAddress: '192.0.2.1' }, body });
+const req = body => ({ method: 'POST', headers: { 'content-type':'application/json' }, socket: { remoteAddress: '192.0.2.1' }, body });
 let oldSignal;
 beforeEach(() => {
   process.env.KV_REST_API_URL = 'https://synthetic.invalid';

@@ -1,6 +1,6 @@
 import { captureFence } from './accountFence.js';
 import React, { useEffect, useState, useCallback } from 'react';
-import { loadSession, retainProgress } from './account.js';
+import { loadSession, retainProgress, REQUEST_HEADERS, credentialFields } from './account.js';
 
 // Preferences plus existing Yinsh scores and Chess finished-game statistics.
 export const SETTING_KEYS = ['chessGameLog','chessTimeControl','chessPuzzleShowTheme','yinshDifficulty','yinshTwoPlayer','zertzDifficulty','zertzTwoPlayer','chessDarkMode','chessShowMoves','chessDifficulty','chessLearningGoal','chessShowEvalBar','chessSound','chessRated','yinshDarkMode','yinshShowMoves','yinshRandomSetup','yinshKeepScore','yinshWins','yinshShowMoveHistory','yinshEvaluationMode','zertzDarkMode','zertzShowMoves','catanDarkMode','catanShowMoves','catanDifficulty','catanRulesetId','catanPlayerCount','catanScenarioId'];
@@ -40,21 +40,21 @@ export default function AccountBoundary({ children }) {
     let pendingConflict = false;
     const request = async (action, extra = {}) => {
       assertStatsOwner();
-      if (loadSession()?.authToken !== session.authToken) throw new Error('account_changed');
+      if (loadSession()?.sid !== session.sid) throw new Error('account_changed');
       const response = await fetch(`${process.env.PUBLIC_URL || ''}/api/chessProfile`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ u: session.usernameId, auth: session.authToken, scope: 'settings', action, ...extra }),
+        method: 'POST', headers: REQUEST_HEADERS,
+        body: JSON.stringify({ u: session.usernameId, ...credentialFields(session), scope: 'settings', action, ...extra }),
         signal: AbortSignal.timeout(10000),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(response.status === 409 ? 'conflict' : 'unavailable');
       assertStatsOwner();
-      if (stopped || loadSession()?.authToken !== session.authToken) throw new Error('account_changed');
+      if (stopped || loadSession()?.sid !== session.sid) throw new Error('account_changed');
       return data;
     };
     const preserveStats = remote => {
       assertStatsOwner();
-      if (stopped || loadSession()?.authToken !== session.authToken) throw new Error('account_changed');
+      if (stopped || loadSession()?.sid !== session.sid) throw new Error('account_changed');
       const key = 'chessStatsRecovery:v1';
       const previous = JSON.parse(localStorage.getItem(key) || '[]');
       const alternatives = [...previous, localStorage.getItem('chessGameLog'), remote.profile.preferences?.chessGameLog].filter(v => typeof v === 'string');
@@ -67,10 +67,10 @@ export default function AccountBoundary({ children }) {
           try { preserveStats(remote); } catch (_) { setError('Cannot preserve statistics recovery; replacement cancelled.'); return; }
           revision = remote.revision; baseline = remote.profile.preferences || {}; pendingConflict = false; setConflict(null); setReady(true); },
         cloud: async () => {
-          if (stopped || loadSession()?.authToken !== session.authToken) return;
+          if (stopped || loadSession()?.sid !== session.sid) return;
           const before = JSON.stringify(snapshot());
           try { preserveStats(remote); await retainProgress(session); assertStatsOwner(); if (JSON.stringify(snapshot()) !== before) throw new Error('progress_changed'); } catch (_) { setError('Cannot preserve recovery on this device; cloud replacement cancelled.'); return; }
-          if (stopped || loadSession()?.authToken !== session.authToken) return;
+          if (stopped || loadSession()?.sid !== session.sid) return;
           apply(remote.profile.preferences || {}); revision = remote.revision; baseline = snapshot();
           pendingConflict = false; setConflict(null); setReady(true); setGeneration(n => n + 1);
         },

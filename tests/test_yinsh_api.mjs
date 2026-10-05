@@ -31,7 +31,7 @@ function response() {
 }
 async function request(handler, body, method = 'POST', origin = 'https://gipf.vercel.app') {
   const res = response();
-  await handler({ method, headers: { origin }, body }, res);
+  await handler({ method, headers: { origin, 'content-type':'application/json' }, body }, res);
   return res;
 }
 function playBoard() {
@@ -115,7 +115,7 @@ test('async iteration is awaited before confidence exit, response, and cache sto
   const iteration = t.mock.method(MCTS.prototype, 'runIteration', () => pending);
   const res = response();
   const body = copy(playBoard().serializeState());
-  const running = handler({ method: 'POST', headers: {}, body }, res);
+  const running = handler({ method: 'POST', headers: { 'content-type':'application/json' }, body }, res);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(res.sent.length, 0);
   assert.equal(iteration.mock.callCount(), 1);

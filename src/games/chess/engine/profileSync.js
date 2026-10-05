@@ -1,7 +1,7 @@
 import { captureFence } from '../../../accountFence.js';
 // profileSync.js — browser client for cross-device Chess "profile" sync.
 //
-// Reads and writes require the account's password-derived auth token. Legacy
+// Reads and writes are authorized by the account's session cookie. Legacy
 // profile IDs are never sent in URLs; they are accepted only by bounded claim.
 // The model key reaches the separate model proxy transiently, not this store.
 
@@ -22,20 +22,22 @@ const ENDPOINT = `${process.env.PUBLIC_URL || ''}/api/chessProfile`;
 // Identity is captured by the caller, never recovered from the currently active
 // session during a delayed write. An old component cannot write for a new user.
 const revisions = new Map();
+// A v1 session (not yet upgraded) marks itself with its auth token, a v2 session with sid.
+const marker = s => s?.sid || s?.authToken;
 async function requestProfile(session, action, fields = {}) {
-  if (!session?.usernameId || !session?.authToken) throw new Error('account_required');
+  if (!session?.usernameId || !marker(session)) throw new Error('account_required');
   const check = captureFence();
   const active = JSON.parse(localStorage.getItem('gipfAccount') || 'null');
-  if (active?.usernameId !== session.usernameId || active?.authToken !== session.authToken) throw new Error('account_changed');
+  if (active?.usernameId !== session.usernameId || marker(active) !== marker(session)) throw new Error('account_changed');
   const r = await fetch(ENDPOINT, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, u: session.usernameId, auth: session.authToken, ...fields }),
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Games-Request': '1' },
+    body: JSON.stringify({ action, u: session.usernameId, ...(session.authToken ? { auth: session.authToken } : {}), ...fields }),
   });
   const data = await r.json();
   check();
   if (!r.ok) throw new Error(data.error === 'conflict' ? 'conflict' : 'sync_failed');
   const current = JSON.parse(localStorage.getItem('gipfAccount') || 'null');
-  if (current?.usernameId !== session.usernameId || current?.authToken !== session.authToken) throw new Error('account_changed');
+  if (current?.usernameId !== session.usernameId || marker(current) !== marker(session)) throw new Error('account_changed');
   return data;
 }
 export async function claimLegacyProfile(session, legacyId) {

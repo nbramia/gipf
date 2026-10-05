@@ -67,8 +67,8 @@ async (page) => {
     const s = JSON.parse(localStorage.getItem('gipfAccount'));
     const call = async body => {
       const response = await fetch('/gipf/api/chessProfile', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ u: s.usernameId, auth: s.authToken, scope: 'settings', ...body }),
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Games-Request': '1' },
+        body: JSON.stringify({ u: s.usernameId, scope: 'settings', ...body }),
       });
       if (!response.ok) throw new Error('fixture request failed');
       return response.json();
@@ -79,7 +79,8 @@ async (page) => {
   });
   await page.getByRole('button', { name: 'Use cloud' }).waitFor({ timeout: 12000 });
   await page.getByRole('button', { name: 'Use cloud' }).click();
-  const explicitCloudChoice = check(await page.evaluate(() => localStorage.getItem('yinshWins') === '{"1":9,"2":0}'), 'cloud conflict choice');
+  // The choice seals a recovery copy first, so it completes asynchronously.
+  const explicitCloudChoice = check(await page.waitForFunction(() => localStorage.getItem('yinshWins') === '{"1":9,"2":0}', null, { timeout: 10000 }).then(() => true, () => false), 'cloud conflict choice');
   // Repeated real Chess mounts must not issue legacy claim requests.
   let mountClaims = 0;
   const observeClaim = request => {
@@ -100,7 +101,7 @@ async (page) => {
     const s = JSON.parse(localStorage.getItem('gipfAccount'));
     const outcomes = [];
     for (let i = 100; i < 108; i++) {
-      const r = await fetch('/gipf/api/chessProfile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({action:'claim',u:s.usernameId,auth:s.authToken,legacyId:i.toString(16).padStart(64,'0')}) });
+      const r = await fetch('/gipf/api/chessProfile', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Games-Request': '1' }, body: JSON.stringify({action:'claim',u:s.usernameId,legacyId:i.toString(16).padStart(64,'0')}) });
       outcomes.push(r.status === 200 && (await r.json()).claimed === false);
     }
     return outcomes.every(Boolean);
@@ -111,7 +112,7 @@ async (page) => {
   await signIn(page, a, false, true);
   const lateMigration = await page.evaluate(async () => {
     const s=JSON.parse(localStorage.getItem('gipfAccount'));
-    const r=await fetch('/gipf/api/chessProfile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'read',u:s.usernameId,auth:s.authToken})});
+    const r=await fetch('/gipf/api/chessProfile',{method:'POST',headers:{'Content-Type':'application/json','X-Games-Request':'1'},body:JSON.stringify({action:'read',u:s.usernameId})});
     const d=await r.json();
     return Object.values(d.legacyProfiles || {}).some(p=>p.rating?.rating===1777);
   });
