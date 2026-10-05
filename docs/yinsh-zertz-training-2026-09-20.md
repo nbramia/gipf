@@ -1,6 +1,6 @@
 # YINSH / ZERTZ fresh training experiments — 2026-09-20
 
-**Final results; retain both incumbents.** Source repairs are packaged in [PR #59](https://github.com/nbramia/gipf/pull/59). Both fresh candidates trained and exported, and both completed automated browser games with real neural inference. ZERTZ finished its incumbent match at **49 wins / 51 losses / 0 draws** and failed its strict-majority gate. YINSH finished at **59 wins / 41 losses / 0 draws**, a promising marginal one-sided signal whose two-sided 95% interval still includes parity. The coordinator retained both incumbents: YINSH requires a confirmatory run, especially given its pre-issue-#60 generation caveat. Neither candidate was promoted; no production deployment is part of these experiments.
+**Final results; retain both incumbents.** Source repairs are packaged in [PR #59](https://github.com/nbramia/gipf/pull/59). Both fresh candidates trained and exported, and both completed automated browser games with real neural inference. ZERTZ finished its incumbent match at **49 wins / 51 losses / 0 draws** and failed its strict-majority gate. YINSH finished at **59 wins / 41 losses / 0 draws**, a promising marginal one-sided signal whose two-sided 95% interval still includes parity. The coordinator retained both incumbents. The later confirmatory and continuation runs, and a direct v167-versus-v164 match, also failed to justify a promotion; see [follow-up evaluations](#follow-up-evaluations). Neither candidate was promoted; no production deployment is part of these experiments.
 
 ## Source repair and validation
 
@@ -49,6 +49,23 @@ The replacement in `evaluation-dddbffe-20260920T2304Z/` completed at 23:21 UTC: 
 The observed 59% win rate passes the plain-majority gate. Under an independent Bernoulli approximation, the Wilson two-sided 95% interval is **49.2%–68.1%**, exact two-sided binomial p = **0.0886**, and one-sided p = **0.0443** against parity. This is a promising marginal one-sided signal, not an absence of evidence, but it does not meet a two-sided 5% threshold. Fixed standard setup, unpaired unseeded stochastic search, and only 100 games limit generalization. Generation still contains **8,363 caught tactical-probe diagnostics** from pre-#60 source; corrected evaluation does not remove that training-data caveat. The coordinator therefore retained v164 pending a confirmatory run; this task launched no further training or evaluation.
 
 The final independent review corrected and closed F6 with measured candidate PyTorch/ONNX parity on **32 legal boards** (31 play, one remove-row). Both value and policy passed `allclose(atol=2e-5, rtol=1e-5)`; ORT-Node 1.20.1 and ORT-Python 1.24.2 were bit-identical on that sample. This is bounded numerical evidence, not proof that export differences can never change an MCTS decision or a full search-trajectory equivalence test.
+
+## Follow-up evaluations
+
+Every run below is local, unseeded, unpaired stochastic play at 100 simulations per move with a fixed standard setup. None promoted a model. YINSH v164 and ZERTZ v80 remain the shipped incumbents. The Wilson intervals and two-sided exact binomial p-values exclude draws and assume independent games.
+
+| Comparison | Code | Games | Candidate W–L–D | Win rate | Wilson 95% | p |
+|---|---|---:|---:|---:|---|---:|
+| YINSH confirmatory candidate vs v164 | `86b6698` | 200 | 112–88–0 | 56.0% | 49.1%–62.7% | 0.10 |
+| ZERTZ v2 continuation candidate vs v80 | `86b6698` | 200 | 115–82–3 | 58.4% | 51.4%–65.0% | 0.022 |
+| Same ZERTZ candidate vs v80, replication | `9cb7d02` | 100 | 48–51–1 | 48.5% | 38.9%–58.2% | 0.84 |
+| YINSH v167 vs v164 | `9cb7d02` | 100 | 40–60–0 | 40.0% | 30.9%–49.8% | 0.057 |
+
+**YINSH confirmatory run.** Run directory `/Users/nathanramia/gipf-training-runs/yinsh-confirmatory-20260920-ctx_da5c8a5511cb`. The run fine-tuned the actual v164 on 200 fresh games: 200 simulations, 180 training and 20 validation games under the grouped seed-42 split. The source included the issue #60 repair, and every stage recorded zero caught probe diagnostics. Evaluation used four shards totalling 100 games per side. The candidate won 64–36 as White and 48–52 as Black. Its interval includes parity, so v164 stays. Candidate ONNX SHA-256 is `b002d09f24332b2cbc6d53dcfea52cc847c516d2379d4ea762dd4bc76dce97a0`.
+
+**ZERTZ v2 continuation.** Run directory `/Users/nathanramia/gipf-training-runs/zertz-continuation-ctx_490f93c8a549`. It resumed the six-plane scratch bootstrap's best checkpoint, and trained on 499 fresh v80-guided games (27,072 positions, 450/49 grouped split). Its original 200-game gate passed the strict majority with p = 0.022. A 100-game replication against the same v80 bytes, on the integration source, finished 48–51–1. Pooling both gives 163–133–4: 55.1% of decisive games, Wilson 49.4%–60.6%, p = 0.09. The replication does not confirm the first result, so v80 stays. Candidate ONNX SHA-256 is `72ee10acb5b11dcaf4f35c7b40f45fc23989eab68580c9de52e9023b498057e4`. The earlier `zertz-next-v2-20260920T234019Z-ctx_ccfabac86987` attempt failed its own game-count assertion before training; the continuation directory supersedes it.
+
+**YINSH v167.** The July continuous loop promoted v165 over v164 (21–18–1) and then v167 over v165 (23–17–0). Both were 40-game plain-majority gates, run on source with the defects listed in the [audit](yinsh-zertz-audit-2026-09-20.md). The loop never compared v167 with v164 directly. A direct match on the repaired source, four shards of 13, 13, 12 and 12 games per side, went 40–60 against v167. As White, v167 went 25–25. As Black, it went 16–34. A longer lineage is not evidence of strength, and v167 is not a promotion candidate. v167 ONNX SHA-256 is `aef0f94efb22dbf366b83da6fab7be8a0296f490237bca5a8a54f1d6bf164f06`. Its checkpoint and the other July exports stay local as untracked training artifacts.
 
 ## Browser compatibility evidence
 
