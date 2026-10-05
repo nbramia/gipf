@@ -72,7 +72,7 @@ export function openTransaction(secret, value, now = Date.now()) {
     decipher.setAuthTag(raw.subarray(12, 28));
     const payload = JSON.parse(Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]).toString('utf8'));
     if (!(payload.expires > now) || ![payload.state, payload.nonce, payload.verifier].every(v => typeof v === 'string' && v)) return null;
-    return { ...payload, returnTo: safeReturn(payload.returnTo) };
+    return { ...payload, returnTo: safeReturn(payload.returnTo), silent: SILENT_ORIGINS.includes(payload.silent) ? payload.silent : null };
   } catch (_) { return null; }
 }
 
@@ -89,10 +89,16 @@ export function readCookie(req, name) {
 export const transactionCookie = value => `${TRANSACTION_COOKIE}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${TRANSACTION_MS / 1000}`;
 export const clearedTransactionCookie = () => `${TRANSACTION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
 
+// Where a silent attempt began: its failure returns there quietly.
+export const SILENT_ORIGINS = ['login', 'home'];
+
 // The provider URL that starts a sign-in, and the transaction cookie that must come
 // back with its callback. `reauthenticate` asks Auth0 for credentials even when its
-// own session would sign the user in silently.
-export async function beginSignIn(config, { returnTo = '/', reauthenticate = false, now = Date.now() } = {}) {
+// own session would sign the user in silently. `silent` ('login' or 'home') sends
+// prompt=none: Auth0 either signs in from its own session (for example from
+// home.ramia.us) or returns an error without showing anything; `reauthenticate` wins.
+export async function beginSignIn(config, { returnTo = '/', reauthenticate = false, silent = null, now = Date.now() } = {}) {
+  const quiet = !reauthenticate && SILENT_ORIGINS.includes(silent) ? silent : null;
   const oidc = await oidcClient(config);
   const verifier = client.randomPKCECodeVerifier();
   const state = client.randomState();
@@ -105,9 +111,9 @@ export async function beginSignIn(config, { returnTo = '/', reauthenticate = fal
     code_challenge_method: 'S256',
     state,
     nonce,
-    ...(reauthenticate ? { prompt: 'login' } : {}),
+    ...(reauthenticate ? { prompt: 'login' } : quiet ? { prompt: 'none' } : {}),
   });
-  const cookie = sealTransaction(config.sessionSecret, { state, nonce, verifier, returnTo: safeReturn(returnTo), expires: now + TRANSACTION_MS });
+  const cookie = sealTransaction(config.sessionSecret, { state, nonce, verifier, returnTo: safeReturn(returnTo), ...(quiet ? { silent: quiet } : {}), expires: now + TRANSACTION_MS });
   return { url: url.href, cookie };
 }
 

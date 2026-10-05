@@ -3,7 +3,6 @@ import { Link, useSearchParams } from 'react-router-dom';
 import {
   signInUrl,
   completeSignIn,
-  linkOldAccount,
   saveAccountKeys,
   endServerSession,
   loadSession,
@@ -18,6 +17,7 @@ import {
 import { accountKeys } from './accountKeys.js';
 import { games } from './games-registry.js';
 import { safeReturn } from './loginReturn.js';
+import { claimSilentAttempt, suppressSilentSignIn, allowSilentSignIn } from './silentSignIn.js';
 import './landing.css';
 
 // The guest-progress choice made before the Auth0 redirect, read when it returns.
@@ -38,12 +38,6 @@ const SIGN_IN_ERRORS = {
   unverified: 'Sign-in needs a verified email address. Verify it with your sign-in provider, then try again.',
   busy: 'New sign-ups are paused for today. Try again tomorrow, or keep playing as a guest.',
   device: 'Unable to finish signing in on this device. Check browser storage and try again.',
-};
-const LINK_ERRORS = {
-  bad_credentials: 'Wrong username or password.',
-  account_linked: 'That games account is already linked to another sign-in.',
-  identity_linked: 'This sign-in already has a games account linked.',
-  rate_limited: 'Too many attempts. Wait a minute and try again.',
 };
 
 // The retired gated hosts never carried accounts of their own; sign-in lives on play.ramia.us.
@@ -127,64 +121,6 @@ function Secrets({ account, keys }) {
   );
 }
 
-// Link a username/password games account from before ramia.us sign-in, once.
-function LinkOldAccount({ onLinked, onSkip, offer }) {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
-  const submit = async event => {
-    event.preventDefault();
-    if (busy || !username.trim() || !password) return;
-    setBusy(true);
-    setError('');
-    try {
-      const res = await linkOldAccount(username.trim(), password);
-      if (res.linked) { onLinked(); return; }
-      setError(LINK_ERRORS[res.error] || (res.error === 'network' ? 'Network error — try again.' : 'Could not link that account. Try again.'));
-    } catch (_) {
-      setError('Unable to switch accounts safely. Check browser storage and try again.');
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <section className="login-section" aria-labelledby="login-link-title">
-      <h2 id="login-link-title">Link your existing games account</h2>
-      <p className="landing-help">
-        If you had a Games username and password, enter them once to bring its progress and keys to this sign-in.
-        After linking, that username no longer signs in on its own.
-        {!offer && ' Progress saved under this sign-in before linking is replaced by the linked account’s.'}
-      </p>
-      <form className="landing-form" onSubmit={submit}>
-        <div className="landing-fields">
-          <label htmlFor="link-username">Old username</label>
-          <input id="link-username" autoComplete="username" type="text" value={username}
-            onChange={e => setUsername(e.target.value)} className="landing-input" />
-          <label htmlFor="link-password">Old password</label>
-          <div className="landing-password">
-            <input id="link-password" autoComplete="current-password" type={showPassword ? 'text' : 'password'}
-              value={password} onChange={e => setPassword(e.target.value)} className="landing-input" />
-            <button type="button" onClick={() => setShowPassword(v => !v)}
-              aria-label={showPassword ? 'Hide password' : 'Show password'} className="landing-button">
-              {showPassword ? 'Hide' : 'Show'}
-            </button>
-          </div>
-          {error && <p role="alert" className="landing-error">{error}</p>}
-          <div className="landing-actions">
-            <button type="submit" className="landing-button landing-primary" disabled={busy || !username.trim() || !password}>
-              {busy ? 'Linking…' : 'Link account'}
-            </button>
-            {onSkip && <button type="button" className="landing-button" onClick={onSkip} disabled={busy}>Skip — start fresh</button>}
-          </div>
-          <p className="landing-privacy">Your old password is checked once and is not stored.</p>
-        </div>
-      </form>
-    </section>
-  );
-}
-
 export default function LoginPage() {
   const [params] = useSearchParams();
   const returnTo = safeReturn(params.get('return'));
@@ -193,8 +129,10 @@ export default function LoginPage() {
   const signInError = SIGN_IN_ERRORS[params.get('error')] || '';
   const [account] = useState(() => arriving ? null : loadSession());
   const completing = arriving;
-  const offerLink = !!account && params.get('link') === '1';
-  const [status, setStatus] = useState(null);
+  // Not signed in to Games: try the ramia.us session first, without a click (once; see
+  // silentSignIn.js). A refused attempt returns with ?silent=failed to the Sign in button.
+  const [trying] = useState(() => !arriving && !account && !params.get('error') && !params.get('silent') &&
+    !LEGACY_HOSTS.includes(window.location.hostname) && claimSilentAttempt('login'));
   const [keys, setKeys] = useState(() => accountKeys());
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const [importGuest, setImportGuest] = useState(false);
@@ -208,6 +146,10 @@ export default function LoginPage() {
   const leave = () => window.location.assign(`${process.env.PUBLIC_URL || ''}${returnTo}`);
   const reloadLogin = query => window.location.replace(`${process.env.PUBLIC_URL || ''}/login?${query}&return=${encodeURIComponent(returnTo)}`);
 
+  useEffect(() => {
+    if (trying) window.location.replace(signInUrl(returnTo, { silent: 'login' }));
+  }, []);
+
   // Back from Auth0: switch this device to the signed-in account, then load afresh.
   useEffect(() => {
     if (!arriving) return;
@@ -220,19 +162,17 @@ export default function LoginPage() {
         reloadLogin('error=device');
         return;
       }
-      if (result.offerLink) reloadLogin(`link=1${result.keysMoved ? '' : '&keys=unmoved'}`);
-      else if (!result.keysMoved) reloadLogin('keys=unmoved');
+      if (!result.keysMoved) reloadLogin('keys=unmoved');
       else leave();
     })();
   }, []);
 
-  // Signed in: whether an old account is linked, and which keys the account holds.
+  // Signed in: which keys the account holds.
   useEffect(() => {
     if (!account || completing) return;
     let cancelled = false;
     checkServerSession().then(res => {
       if (cancelled || typeof res !== 'object' || res.u !== account.usernameId) return;
-      setStatus(res);
       setKeys(res.keys);
     });
     return () => { cancelled = true; };
@@ -240,6 +180,7 @@ export default function LoginPage() {
 
   const startSignIn = ({ reauthenticate = false } = {}) => {
     setFlag(IMPORT_KEY, importGuest ? '1' : '');
+    allowSilentSignIn();
     window.location.assign(signInUrl(returnTo, { reauthenticate }));
   };
 
@@ -248,6 +189,7 @@ export default function LoginPage() {
     setConfirmingSignOut(false);
     try { await clearSession({ everywhere }); } catch (_) { setError('Unable to sign out safely. Check browser storage and try again.'); return; }
     setFlag(SIGNED_OUT_KEY, '1');
+    suppressSilentSignIn();
     window.location.reload();
   };
 
@@ -267,22 +209,11 @@ export default function LoginPage() {
     );
   }
 
-  if (completing) {
+  if (completing || trying) {
     return (
       <main className="landing-page"><div className="landing-shell login-shell">
         <h1 className="login-title">Signing in…</h1>
-        <p role="status" className="landing-help">Setting up this device for your account.</p>
-      </div></main>
-    );
-  }
-
-  if (offerLink) {
-    return (
-      <main className="landing-page"><div className="landing-shell login-shell">
-        <h1 className="login-title">Welcome</h1>
-        <p className="landing-help">Signed in as <span className="landing-identity">{account?.username}</span>.</p>
-        {notice && <p role="status" className="landing-warning">{notice}</p>}
-        <LinkOldAccount offer onLinked={leave} onSkip={leave} />
+        <p role="status" className="landing-help">{trying ? 'Checking for your ramia.us sign-in.' : 'Setting up this device for your account.'}</p>
       </div></main>
     );
   }
@@ -325,7 +256,7 @@ export default function LoginPage() {
           </section>
         ) : (
           <section className="login-section" aria-label="Sign in">
-            {ended === 'auth0' && <p role="status" className="landing-warning">Games now signs in with your ramia.us account. Sign in, then link your old games username to bring back its progress and keys.</p>}
+            {ended === 'auth0' && <p role="status" className="landing-warning">Games now signs in with your ramia.us account. Sign in to carry your keys and progress between devices.</p>}
             {ended === 'expired' && <p role="status" className="landing-warning">Your session ended. Sign in again to pick up where you left off.</p>}
             {signedOut && <p role="status" className="landing-help">Signed out of Games. You are still signed in to ramia.us, so signing in again will not ask for a password; to use another account, choose “Use a different account”.</p>}
             {signInError && <p role="alert" className="landing-error">{signInError}</p>}
@@ -339,7 +270,6 @@ export default function LoginPage() {
             </div>
           </section>
         )}
-        {account && status && !status.linked && <LinkOldAccount onLinked={() => window.location.reload()} />}
         <Secrets account={account} keys={keys} />
       </div>
     </main>

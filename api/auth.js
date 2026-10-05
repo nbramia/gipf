@@ -1,7 +1,11 @@
 // Auth0 sign-in for Games (server/auth0.js does the OIDC work).
-//   GET  /api/auth/login?return=/<game>[&reauthenticate=1]
+//   GET  /api/auth/login?return=/<game>[&reauthenticate=1 | &silent=1 | &silent=home]
 //        -> 302 to Auth0. With an Auth0 session already open (for example from
 //           home.ramia.us), Auth0 returns straight to the callback without a prompt.
+//           `silent` sends prompt=none, which never shows Auth0's login page: when
+//           Auth0 has no session the callback returns quietly — to
+//           /login?silent=failed&return=… for silent=1, or to the catalogue for
+//           silent=home — so the page shows its ordinary Sign in button.
 //   GET  /api/auth/callback -> verifies the code and ID token, requires a verified
 //        email, creates the identity on first sign-in, sets `__Host-games_session`,
 //        and returns to /login?signedin=1&return=… to finish on the device.
@@ -17,21 +21,31 @@ export const config = { api: { bodyParser: { sizeLimit: '1kb' } } };
 
 const PRODUCTION_HOST = new URL(PRODUCTION_ORIGIN).host;
 
-function back(res, query, cookies = []) {
+function back(res, query, cookies = [], path = '/login') {
   res.setHeader('Set-Cookie', [...cookies, clearedTransactionCookie()]);
-  res.setHeader('Location', `/login?${query}`);
+  res.setHeader('Location', query ? `${path}?${query}` : path);
   return res.status(302).end();
+}
+
+// The OAuth errors prompt=none answers with when Auth0 would have to show something.
+const SILENT_REFUSALS = ['login_required', 'consent_required', 'interaction_required'];
+
+// A silent attempt that cannot complete returns to where it began, with no error.
+function quietly(res, silent, returnTo) {
+  return silent === 'home' ? back(res, '', [], '/') : back(res, `silent=failed&return=${encodeURIComponent(returnTo)}`);
 }
 
 async function login(req, res) {
   const returnTo = safeReturn(req.query?.return);
-  const retry = `error=unavailable&return=${encodeURIComponent(returnTo)}`;
+  const reauthenticate = req.query?.reauthenticate === '1';
+  const silent = reauthenticate ? null : ({ 1: 'login', home: 'home' })[req.query?.silent] || null;
+  const retry = () => silent ? quietly(res, silent, returnTo) : back(res, `error=unavailable&return=${encodeURIComponent(returnTo)}`);
   // Auth0 allows exactly one callback, on the production host; elsewhere sign-in cannot complete.
-  if (process.env.VERCEL && req.headers.host !== PRODUCTION_HOST) return back(res, retry);
+  if (process.env.VERCEL && req.headers.host !== PRODUCTION_HOST) return retry();
   let begun;
   try {
-    begun = await beginSignIn(authConfig(), { returnTo, reauthenticate: req.query?.reauthenticate === '1' });
-  } catch (_) { return back(res, retry); }
+    begun = await beginSignIn(authConfig(), { returnTo, reauthenticate, silent });
+  } catch (_) { return retry(); }
   res.setHeader('Set-Cookie', transactionCookie(begun.cookie));
   res.setHeader('Location', begun.url);
   return res.status(302).end();
@@ -43,10 +57,14 @@ async function callback(req, res) {
   const transaction = openTransaction(config.sessionSecret, readCookie(req, TRANSACTION_COOKIE));
   if (!transaction) return back(res, 'error=signin');
   const failed = `error=signin&return=${encodeURIComponent(transaction.returnTo)}`;
+  const url = String(req.url || '');
+  const search = url.includes('?') ? url.slice(url.indexOf('?')) : '';
+  if (transaction.silent && SILENT_REFUSALS.includes(new URLSearchParams(search).get('error'))) {
+    return quietly(res, transaction.silent, transaction.returnTo);
+  }
   let claims;
   try {
-    const url = String(req.url || '');
-    claims = await completeSignIn(config, transaction, url.includes('?') ? url.slice(url.indexOf('?')) : '');
+    claims = await completeSignIn(config, transaction, search);
   } catch (_) { return back(res, failed); }
   if (typeof claims?.sub !== 'string' || !claims.sub || claims.email_verified !== true || typeof claims.email !== 'string') {
     return back(res, `error=unverified&return=${encodeURIComponent(transaction.returnTo)}`);

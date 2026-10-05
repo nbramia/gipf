@@ -246,6 +246,78 @@ test('sign-in fails closed without configuration, off the production host, or wi
   assert.ok(!JSON.stringify(res.headers).includes('synthetic provider unavailable'));
 });
 
+// --- automatic (silent) sign-in --------------------------------------------------
+
+async function silentCallback(transaction, query) {
+  return call(auth, { method: 'GET', query: { action: 'callback' }, url: `/api/auth/callback?${query}`, headers: { host: 'play.ramia.us' }, cookies: { [TRANSACTION_COOKIE]: transaction } });
+}
+
+test('silent login sends prompt=none; reauthenticate wins over it', async () => {
+  await startLogin({ action: 'login', return: '/chess', silent: '1' });
+  assert.equal(provider.authorize.searchParams.get('prompt'), 'none');
+  await startLogin({ action: 'login', silent: 'home' });
+  assert.equal(provider.authorize.searchParams.get('prompt'), 'none');
+  await startLogin({ action: 'login', silent: '1', reauthenticate: '1' });
+  assert.equal(provider.authorize.searchParams.get('prompt'), 'login');
+  await startLogin({ action: 'login', silent: 'anything-else' });
+  assert.equal(provider.authorize.searchParams.get('prompt'), null);
+});
+
+test('silent success: an open provider session signs in and returns to the page', async () => {
+  const { transaction } = await startLogin({ action: 'login', return: '/catan', silent: '1' });
+  const done = await finishLogin(transaction);
+  assert.equal(done.headers.location, '/login?signedin=1&return=%2Fcatan');
+  assert.ok(await resolveSession(cookieValue(done, COOKIE)), 'a session was created');
+  assert.equal(identityKeys().length, 1);
+});
+
+for (const error of ['login_required', 'consent_required', 'interaction_required']) {
+  test(`silent ${error}: back to /login?silent=failed quietly, no session, no token request, transaction cleared`, async () => {
+    const { transaction } = await startLogin({ action: 'login', return: '/chess', silent: '1' });
+    const state = provider.authorize.searchParams.get('state');
+    const res = await silentCallback(transaction, `error=${error}&error_description=synthetic&state=${encodeURIComponent(state)}`);
+    assert.deepEqual([res.statusCode, res.headers.location], [302, '/login?silent=failed&return=%2Fchess']);
+    assert.equal(cookieValue(res, COOKIE), undefined);
+    assert.equal(cookieValue(res, TRANSACTION_COOKIE), '');
+    assert.equal(provider.tokenRequests.length, 0);
+    assert.equal(identityKeys().length, 0);
+  });
+}
+
+test('a silent attempt from the catalogue fails back to the catalogue with no flag', async () => {
+  const { transaction } = await startLogin({ action: 'login', silent: 'home' });
+  const res = await silentCallback(transaction, `error=login_required&state=${encodeURIComponent(provider.authorize.searchParams.get('state'))}`);
+  assert.equal(res.headers.location, '/');
+});
+
+test('silent fallback keeps the return allowlist: an unsafe return becomes the catalogue', async () => {
+  for (const raw of ['https://evil.example', '//evil.example', '/catan/x']) {
+    const { transaction } = await startLogin({ action: 'login', return: raw, silent: '1' });
+    const res = await silentCallback(transaction, 'error=login_required');
+    assert.equal(res.headers.location, '/login?silent=failed&return=%2F', raw);
+  }
+});
+
+test('a provider refusal on an interactive sign-in is still an error, not a quiet fallback', async () => {
+  const { transaction } = await startLogin({ action: 'login', return: '/chess' });
+  const res = await silentCallback(transaction, `error=login_required&state=${encodeURIComponent(provider.authorize.searchParams.get('state'))}`);
+  assert.equal(res.headers.location, '/login?error=signin&return=%2Fchess');
+});
+
+test('silent sign-in that cannot start (unconfigured, off-host, provider down) falls back quietly too', async () => {
+  delete process.env.AUTH0_CLIENT_SECRET;
+  let res = await call(auth, { method: 'GET', query: { action: 'login', return: '/chess', silent: '1' }, headers: { host: 'play.ramia.us' } });
+  assert.equal(res.headers.location, '/login?silent=failed&return=%2Fchess');
+  process.env.AUTH0_CLIENT_SECRET = CLIENT_SECRET;
+  process.env.VERCEL = '1';
+  res = await call(auth, { method: 'GET', query: { action: 'login', silent: 'home' }, headers: { host: 'play-git-branch-nathan-ramias-projects.vercel.app' } });
+  assert.equal(res.headers.location, '/');
+  delete process.env.VERCEL;
+  provider.fail = true;
+  res = await call(auth, { method: 'GET', query: { action: 'login', silent: '1' }, headers: { host: 'play.ramia.us' } });
+  assert.equal(res.headers.location, '/login?silent=failed&return=%2F');
+});
+
 test('first sign-ins spend the identity creation budget; returning identities do not', async () => {
   await signIn();
   for (let n = 2; n <= CREATE_PER_NETWORK; n++) await signIn({ sub: `google-oauth2|synthetic-${n}` });

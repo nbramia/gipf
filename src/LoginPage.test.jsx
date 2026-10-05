@@ -6,9 +6,10 @@ import LoginPage from './LoginPage';
 import { safeReturn, loginHref } from './loginReturn';
 import { games } from './games-registry';
 import * as account from './account';
+import { ATTEMPT_KEY, OFF_KEY, TRY_AGAIN_MS } from './silentSignIn';
 
 jest.mock('./account', () => ({
-  signInUrl: jest.fn(), completeSignIn: jest.fn(), linkOldAccount: jest.fn(), saveAccountKeys: jest.fn(),
+  signInUrl: jest.fn(), completeSignIn: jest.fn(), saveAccountKeys: jest.fn(),
   endServerSession: jest.fn(), loadSession: jest.fn(), clearSession: jest.fn(), checkServerSession: jest.fn(),
   getSharedApiKey: jest.fn(), setSharedApiKey: jest.fn(), getSharedLichessToken: jest.fn(), setSharedLichessToken: jest.fn(),
   SESSION_EXPIRED_KEY: 'gipf:session-expired',
@@ -25,7 +26,11 @@ beforeEach(() => {
   sessionStorage.clear();
   delete window.location;
   window.location = { ...originalLocation, hostname: 'play.ramia.us', assign: jest.fn(), replace: jest.fn(), reload: jest.fn() };
-  account.signInUrl.mockImplementation((r, { reauthenticate = false } = {}) => `/api/auth/login?return=${encodeURIComponent(r)}${reauthenticate ? '&reauthenticate=1' : ''}`);
+  account.signInUrl.mockImplementation((r, { reauthenticate = false, silent = null } = {}) =>
+    `/api/auth/login?return=${encodeURIComponent(r)}${reauthenticate ? '&reauthenticate=1' : silent === 'login' ? '&silent=1' : ''}`);
+  // Most tests show the page after this browser's automatic attempt; the silent
+  // sign-in tests below start without it.
+  localStorage.setItem(ATTEMPT_KEY, String(Date.now()));
   account.getSharedApiKey.mockReturnValue('');
   account.getSharedLichessToken.mockReturnValue('');
   account.checkServerSession.mockResolvedValue(status());
@@ -81,70 +86,17 @@ test('back from Auth0: completes sign-in with the stored consent and leaves to t
   expect(sessionStorage.getItem('gipf:import-guest')).toBeNull();
 });
 
-test('a first sign-in reloads into the link offer; skipping leaves to the game', async () => {
+test('a first sign-in goes straight to the game: no link offer', async () => {
   account.completeSignIn.mockResolvedValue({ offerLink: true, keys: { anthropic: false, lichess: false }, keysMoved: true });
   mount('?signedin=1&return=/catan');
-  // The device changed identity under the account boundary, so the offer loads afresh.
-  await waitFor(() => expect(window.location.replace).toHaveBeenCalledWith('/login?link=1&return=%2Fcatan'));
-  expect(window.location.assign).not.toHaveBeenCalled();
+  await waitFor(() => expect(window.location.assign).toHaveBeenCalledWith('/catan'));
+  expect(window.location.replace).not.toHaveBeenCalled();
 });
 
 test('keys that could not move are reported after the reload', async () => {
   account.completeSignIn.mockResolvedValue({ offerLink: true, keys: { anthropic: false, lichess: false }, keysMoved: false });
-  mount('?signedin=1&return=/catan');
-  await waitFor(() => expect(window.location.replace).toHaveBeenCalledWith('/login?link=1&keys=unmoved&return=%2Fcatan'));
-  account.completeSignIn.mockResolvedValue({ offerLink: false, keys: { anthropic: false, lichess: false }, keysMoved: false });
   mount('?signedin=1&return=/chess');
   await waitFor(() => expect(window.location.replace).toHaveBeenCalledWith('/login?keys=unmoved&return=%2Fchess'));
-});
-
-test('the link offer page: skipping leaves to the game', async () => {
-  account.loadSession.mockReturnValue(signedIn);
-  mount('?link=1&return=/catan');
-  expect(await screen.findByRole('heading', { name: 'Link your existing games account' })).toBeInTheDocument();
-  expect(screen.getByText('player@synthetic.example')).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Skip — start fresh' }));
-  expect(window.location.assign).toHaveBeenCalledWith('/catan');
-  expect(account.linkOldAccount).not.toHaveBeenCalled();
-});
-
-test('the link offer page shows the unmoved-keys notice', () => {
-  account.loadSession.mockReturnValue(signedIn);
-  mount('?link=1&keys=unmoved&return=/catan');
-  expect(screen.getByText(/keys could not be moved to your account/)).toBeInTheDocument();
-});
-
-test.each([
-  ['bad_credentials', 'Wrong username or password.'],
-  ['account_linked', 'That games account is already linked to another sign-in.'],
-  ['identity_linked', 'This sign-in already has a games account linked.'],
-])('the link form reports %s', async (error, message) => {
-  account.loadSession.mockReturnValue(signedIn);
-  account.linkOldAccount.mockResolvedValue({ error });
-  mount('?link=1&return=/catan');
-  fireEvent.change(await screen.findByLabelText('Old username'), { target: { value: 'synthetic-old' } });
-  fireEvent.change(screen.getByLabelText('Old password'), { target: { value: 'synthetic-password' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Link account' }));
-  expect(await screen.findByRole('alert')).toHaveTextContent(message);
-  expect(account.linkOldAccount).toHaveBeenCalledWith('synthetic-old', 'synthetic-password');
-  expect(window.location.assign).not.toHaveBeenCalled();
-});
-
-test('a successful link leaves to the game', async () => {
-  account.loadSession.mockReturnValue(signedIn);
-  account.linkOldAccount.mockResolvedValue({ linked: true });
-  mount('?link=1&return=/chess');
-  fireEvent.change(await screen.findByLabelText('Old username'), { target: { value: 'synthetic-old' } });
-  fireEvent.change(screen.getByLabelText('Old password'), { target: { value: 'synthetic-password' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Link account' }));
-  await waitFor(() => expect(window.location.assign).toHaveBeenCalledWith('/chess'));
-});
-
-test('without a session the link offer is not shown', () => {
-  account.loadSession.mockReturnValue(null);
-  mount('?link=1&return=/chess');
-  expect(screen.queryByRole('heading', { name: 'Link your existing games account' })).toBeNull();
-  expect(screen.getByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
 });
 
 test('a device switch that fails after the cookie is set ends that server session', async () => {
@@ -178,12 +130,11 @@ test('guest keys are device-only', async () => {
 
 test('signed in: key status comes from the server; saves and removals go to the account only', async () => {
   account.loadSession.mockReturnValue(signedIn);
-  account.checkServerSession.mockResolvedValue(status({ linked: true, keys: { anthropic: false, lichess: true } }));
+  account.checkServerSession.mockResolvedValue(status({ keys: { anthropic: false, lichess: true } }));
   mount();
   expect(screen.getByText('Signed in as player@synthetic.example')).toBeInTheDocument();
   expect(screen.getByRole('heading', { name: 'Keys on your account' })).toBeInTheDocument();
   expect(await screen.findByText('Saved ✓')).toBeInTheDocument();
-  expect(screen.queryByRole('heading', { name: 'Link your existing games account' })).toBeNull();
   fireEvent.change(screen.getByLabelText('Anthropic API key'), { target: { value: 'sk-ant-synthetic-account-key-00000000000000' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   await waitFor(() => expect(account.saveAccountKeys).toHaveBeenCalledWith({ anthropic: 'sk-ant-synthetic-account-key-00000000000000' }));
@@ -194,12 +145,13 @@ test('signed in: key status comes from the server; saves and removals go to the 
   expect(account.setSharedLichessToken).not.toHaveBeenCalled();
 });
 
-test('signed in but unlinked: the link form is offered in the account view', async () => {
+test('no page offers to link an old games account', async () => {
   account.loadSession.mockReturnValue(signedIn);
-  mount();
-  expect(await screen.findByRole('heading', { name: 'Link your existing games account' })).toBeInTheDocument();
-  expect(screen.getByText(/replaced by the linked account/)).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: 'Skip — start fresh' })).toBeNull();
+  mount('?link=1&return=/catan');
+  await screen.findByText('Signed in as player@synthetic.example');
+  await waitFor(() => expect(account.checkServerSession).toHaveBeenCalled());
+  expect(screen.queryByRole('heading', { name: /Link your existing/ })).toBeNull();
+  expect(screen.queryByLabelText(/Old username|Old password/)).toBeNull();
 });
 
 test('a failed account save is reported', async () => {
@@ -223,6 +175,7 @@ test('sign-out cancel preserves the account; confirmation clears the session and
   await waitFor(() => expect(account.clearSession).toHaveBeenCalledWith({ everywhere: false }));
   await waitFor(() => expect(window.location.reload).toHaveBeenCalled());
   expect(sessionStorage.getItem('gipf:signed-out')).toBe('1');
+  expect(localStorage.getItem(OFF_KEY)).toBe('1');
 });
 
 test('sign out everywhere confirms and revokes every session', async () => {
@@ -253,4 +206,80 @@ test('the retired gated host points to play.ramia.us instead of offering sign-in
   mount('?return=/chess');
   expect(screen.getByRole('link', { name: 'play.ramia.us' })).toHaveAttribute('href', 'https://play.ramia.us/login');
   expect(screen.queryByRole('button', { name: 'Sign in', exact: true })).toBeNull();
+});
+
+describe('automatic sign-in from the ramia.us session', () => {
+  beforeEach(() => localStorage.removeItem(ATTEMPT_KEY));
+
+  test('signed out with no recent attempt: one top-level prompt=none redirect, keeping the return', () => {
+    mount('?return=/chess');
+    expect(screen.getByRole('heading', { name: 'Signing in…' })).toBeInTheDocument();
+    expect(account.signInUrl).toHaveBeenCalledWith('/chess', { silent: 'login' });
+    expect(window.location.replace).toHaveBeenCalledTimes(1);
+    expect(window.location.replace).toHaveBeenCalledWith('/api/auth/login?return=%2Fchess&silent=1');
+    expect(Number(localStorage.getItem(ATTEMPT_KEY))).toBeGreaterThan(0);
+  });
+
+  test('an unsafe return is reduced to the catalogue before the attempt', () => {
+    mount('?return=https://evil.example');
+    expect(account.signInUrl).toHaveBeenCalledWith('/', { silent: 'login' });
+  });
+
+  test('a refused attempt (?silent=failed) shows the Sign in button and never redirects again', () => {
+    mount('?silent=failed&return=/chess');
+    expect(screen.getByRole('button', { name: 'Sign in', exact: true })).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(window.location.replace).not.toHaveBeenCalled();
+  });
+
+  test('the same browser does not try again for ten minutes, then may', () => {
+    localStorage.setItem(ATTEMPT_KEY, String(Date.now() - TRY_AGAIN_MS + 60000));
+    mount('?return=/chess');
+    expect(window.location.replace).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Sign in', exact: true })).toBeInTheDocument();
+  });
+
+  test('an attempt older than ten minutes is retried', () => {
+    localStorage.setItem(ATTEMPT_KEY, String(Date.now() - TRY_AGAIN_MS - 1000));
+    mount();
+    expect(window.location.replace).toHaveBeenCalledWith('/api/auth/login?return=%2F&silent=1');
+  });
+
+  test('after signing out of Games there is no attempt until the user chooses Sign in', () => {
+    localStorage.setItem(OFF_KEY, '1');
+    mount('?return=/catan');
+    expect(window.location.replace).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in', exact: true }));
+    expect(window.location.assign).toHaveBeenCalledWith('/api/auth/login?return=%2Fcatan');
+    expect(localStorage.getItem(OFF_KEY)).toBeNull();
+  });
+
+  test('"Use a different account" also re-enables it and still sends prompt=login', () => {
+    localStorage.setItem(OFF_KEY, '1');
+    mount('?return=/catan');
+    fireEvent.click(screen.getByRole('button', { name: 'Use a different account' }));
+    expect(window.location.assign).toHaveBeenCalledWith('/api/auth/login?return=%2Fcatan&reauthenticate=1');
+    expect(localStorage.getItem(OFF_KEY)).toBeNull();
+  });
+
+  test.each([
+    ['signed in', () => account.loadSession.mockReturnValue(signedIn), ''],
+    ['an error to show', () => {}, '?error=signin'],
+    ['returning from Auth0', () => account.completeSignIn.mockReturnValue(new Promise(() => {})), '?signedin=1'],
+    ['off play.ramia.us', () => { window.location.hostname = 'gipf-preview.vercel.app'; }, ''],
+    ['on a retired host', () => { window.location.hostname = 'ramia.us'; }, ''],
+  ])('no attempt when %s', (_, arrange, search) => {
+    arrange();
+    mount(search);
+    expect(window.location.replace).not.toHaveBeenCalled();
+  });
+
+  test('no attempt when the marker cannot be stored, so a blocked storage cannot loop', () => {
+    const setItem = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked'); });
+    try {
+      mount();
+      expect(window.location.replace).not.toHaveBeenCalled();
+      expect(screen.getByRole('button', { name: 'Sign in', exact: true })).toBeInTheDocument();
+    } finally { setItem.mockRestore(); }
+  });
 });

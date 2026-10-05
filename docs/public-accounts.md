@@ -6,8 +6,8 @@ plays as a guest. Related to https://github.com/nbramia/ramia/issues/22.
 
 ## Sign-in surface
 
-`/login` (`src/LoginPage.jsx`) is the only place to sign in, sign out, link an old
-games account, or enter the Anthropic key and Lichess token. The landing page links to
+`/login` (`src/LoginPage.jsx`) is the only place to sign in, sign out, or enter the
+Anthropic key and Lichess token. The landing page links to
 `/login`, and each game that uses a key links to `/login?return=/<game>`. `return` must
 exactly equal a `games-registry.js` path, otherwise sign-in returns to `/` — checked in
 the browser (`src/loginReturn.js`) and again by the server (`server/auth0.js`), so the
@@ -18,10 +18,33 @@ sign-in redirect is never open. Games contain no credential or key inputs, enfor
 Signing in uses the ramia.us Auth0 tenant — the same one home.ramia.us uses, with the
 same Google and email/password connections — through `play`'s own Regular Web
 Application. An Auth0 session already open from Home completes the redirect without a
-prompt. Anyone may sign up; that grants nothing on Home, which admits only identities
+prompt, and Games uses it without a click (below). Anyone may sign up; that grants nothing on Home, which admits only identities
 with an enabled membership row (ramia `docs/private-portal-contracts.md`). "Use a
 different account" asks Auth0 for credentials even when its session would sign in
 silently. There are no username/password sign-ins or new password accounts.
+
+### Automatic sign-in
+
+Being signed in at home.ramia.us signs Games in on its own (`src/silentSignIn.js`).
+With no Games session, `/login` and the catalogue (`/`) make one top-level redirect to
+`/api/auth/login?silent=…`, which sends `prompt=none`: Auth0 either completes from its
+own session or answers `login_required` / `consent_required` / `interaction_required`
+without showing anything. The callback treats those as a quiet fallback — no session,
+no error message — returning to `/login?silent=failed&return=…` (from `/login`) or to
+`/` (from the catalogue), where the ordinary Sign in button shows. Top-level redirects
+rather than an iframe, so third-party cookie blocking does not matter.
+
+It never loops or interrupts a guest:
+
+- After any attempt, the browser makes no other for 10 minutes (`gipf:silent-sign-in-at`
+  in localStorage). If that marker cannot be stored, there is no attempt at all.
+- The catalogue tries at most once per browser session (`gipf:silent-sign-in-home` in
+  sessionStorage); game routes never try.
+- Signing out of Games sets `gipf:silent-sign-in-off`, which stops attempts until the
+  player next chooses Sign in or "Use a different account"; otherwise the Auth0 session
+  that outlives a Games sign-out would sign straight back in.
+- Only on play.ramia.us, the one host Auth0 accepts a callback for, and never while
+  `/login` is showing an error or finishing a sign-in.
 
 ## Auth0 flow
 
@@ -32,7 +55,10 @@ silently. There are no username/password sign-ins or new password accounts.
   `https://play.ramia.us/api/auth/callback`. Those values ride in
   `__Host-games_auth` (HttpOnly, Secure, SameSite=Lax, 10 minutes), AES-GCM-sealed under
   a key derived from `GAMES_SESSION_SECRET`. Off `play.ramia.us`, or with any
-  configuration missing, it returns to `/login?error=unavailable` instead.
+  configuration missing, it returns to `/login?error=unavailable` instead (or quietly,
+  as above, for a silent attempt). `silent=1` or `silent=home` adds `prompt=none` and
+  records the attempt's origin in the sealed transaction; `reauthenticate=1` adds
+  `prompt=login` and takes precedence.
 - `GET /api/auth/callback` needs that cookie, exchanges the code with
   `client_secret_post`, and validates the ID token: issuer, audience, expiry, nonce,
   state, and its RS256 signature against the tenant's JWKS. It then requires
@@ -48,8 +74,8 @@ silently. There are no username/password sign-ins or new password accounts.
   identity) and clears the cookie. **It does not end the Auth0 session**, so Home stays
   signed in and signing in to Games again is one click with no password. Signing out is
   still meaningful on Games: the session is revoked server-side, the device's identity,
-  keys and progress are cleared and sealed, and nothing signs in again until the player
-  chooses Sign in. A player on a shared computer signs out of Home (or Google) to end
+  keys and progress are cleared and sealed, and nothing signs in again — automatically
+  or otherwise — until the player chooses Sign in. A player on a shared computer signs out of Home (or Google) to end
   the provider session too.
 
 ## Sessions
@@ -71,7 +97,7 @@ silently. There are no username/password sign-ins or new password accounts.
   sight. The browser retires a password-era `gipfAccount` (v1 or v2) at startup
   (`retireLegacySession`): it signs out locally, sealing progress under the old key,
   revokes the old session without waiting, and `/login` explains that Games now signs in
-  with the ramia.us account and offers the link.
+  with the ramia.us account.
 - CSRF: `guardRequest` rejects any POST whose `Content-Type` is not `application/json`
   (415), so no cross-site form or no-cors fetch reaches a handler. Every
   cookie-authenticated request and every session change also needs
@@ -134,8 +160,9 @@ and seal key unreadable; its backup is `~/Code/Sync/envs/gipf/.env`.
 ## Linking a pre-Auth0 games account
 
 Accounts created before Auth0 (`chess:account:<usernameId>`, PBKDF2 credentials derived
-in the browser) no longer sign in. After a first Auth0 sign-in, `/login` offers "Link
-your existing games account"; while unlinked, the account page keeps offering it.
+in the browser) no longer sign in. The play UI offers no linking; the server-side flow
+below (`link-verify` / `link`, and `linkOldAccount` in `src/account.js`) remains
+callable for an operator-driven link.
 
 1. The browser derives `authToken` and `aesKey` from the old username and password with
    the original derivation (namespace, 310,000 PBKDF2-SHA256 iterations, 768-bit split).
@@ -376,9 +403,12 @@ docker stop "$GIPF_TEST_REDIS_CONTAINER"
 provider (discovery, JWKS, token endpoint, throwaway RS256 key): redirect parameters,
 state/nonce/PKCE and signature failures, verified email, the return allowlist, session
 and CSRF rules, key custody (ciphertext only at rest, AAD binding, rotation), the proxies
-using account keys, and linking (happy path, wrong password, double link).
-`tests/auth-browser.mjs` drives the built app in Chromium through sign-in, the link
-offer, linking, a model request, sign-out and a silent second sign-in.
+using account keys, linking (happy path, wrong password, double link), and automatic
+sign-in (`prompt=none`, the quiet fallback for each refusal, its return allowlist).
+`tests/auth-browser.mjs` drives the built app in Chromium: the catalogue's and
+`/login`'s automatic attempts falling back once with no provider session, `/login`
+completing on its own with one, a model request, sign-out suppressing the automatic
+attempt, a clicked silent sign-in, and `prompt=login`.
 
 The fixtures use only synthetic local Redis and refuse real provider calls.
 `GIPF_TEST_REDIS_CONTAINER` must explicitly name a `gipf-test-*` disposable
@@ -406,8 +436,9 @@ client id, `redirect_uri=https://play.ramia.us/api/auth/callback`, `response_typ
 `code_challenge_method=S256`, `state` and `nonce`, and sets a host-only
 `__Host-games_auth` cookie (HttpOnly, Secure, SameSite=Lax, no `Domain`); that a
 non-registry `return` falls back to `/`; that all six game routes and their refreshes
-work as a guest, and `/login` itself; and that no API answers 503 (health:
+work as a guest, and `/login` itself; that a fresh anonymous `/login` makes exactly one
+`prompt=none` round trip and settles on `/login?silent=failed` with the Sign in button,
+and a second visit within 10 minutes makes none; and that no API answers 503 (health:
 `GET /api/session` is 401 signed out, not 503). The full sign-in — including
-silent SSO from home.ramia.us, adding keys, AI in Catan, linking an old account and
-signing out — is checked by Nathan with a real identity. `x-vercel-forwarded-for` must
+automatic sign-in from home.ramia.us, adding keys, AI in Catan and signing out — is checked by Nathan with a real identity. `x-vercel-forwarded-for` must
 remain the end-user identity, or every visitor shares one rate-limit bucket.

@@ -145,9 +145,11 @@ async function post(url, body, timeout = 10000) {
 }
 
 // Start Auth0 sign-in. `reauthenticate` asks Auth0 for credentials even when its own
-// session (for example from home.ramia.us) would sign in silently.
-export function signInUrl(returnTo = '/', { reauthenticate = false } = {}) {
-  return `${AUTH_ENDPOINT}/login?return=${encodeURIComponent(returnTo)}${reauthenticate ? '&reauthenticate=1' : ''}`;
+// session (for example from home.ramia.us) would sign in silently. `silent` ('login'
+// or 'home') asks Auth0 never to show its login page; see silentSignIn.js.
+export function signInUrl(returnTo = '/', { reauthenticate = false, silent = null } = {}) {
+  const mode = reauthenticate ? '&reauthenticate=1' : silent === 'login' ? '&silent=1' : silent === 'home' ? '&silent=home' : '';
+  return `${AUTH_ENDPOINT}/login?return=${encodeURIComponent(returnTo)}${mode}`;
 }
 
 // Store the account's keys: a string sets, null clears, undefined keeps. The key

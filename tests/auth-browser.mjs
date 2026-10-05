@@ -5,9 +5,11 @@
 // with every request to that origin and to the synthetic issuer answered by this
 // process: the real API handlers, a disposable gipf-test-* Redis, and a provider that
 // signs ID tokens with a throwaway key. Nothing reaches Auth0, Anthropic, Lichess or a
-// shared store. It covers: sign-in from the landing page, the first-sign-in link offer,
-// linking a synthetic username/password account, host-only cookies, keys never in the
-// page, a model request using the account key, sign-out, and the silent second sign-in.
+// shared store. It covers: the catalogue's and /login's automatic prompt=none attempt
+// failing quietly with no provider session (once, no loop), /login completing on its own
+// once the provider has a session (as after signing in at home.ramia.us), host-only
+// cookies, keys never in the page, a model request using the account key, sign-out
+// suppressing the automatic attempt, the clicked silent sign-in, and prompt=login.
 //
 //   docker run --rm -d --name gipf-test-auth-browser redis:7-alpine
 //   PUBLIC_URL=/ npm run build
@@ -16,7 +18,7 @@ import http from 'node:http';
 import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
-import { createHash, generateKeyPairSync, sign, webcrypto } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { redis, redisAsync } from './redis-fixture.mjs';
 import { useTestKeyCustody } from './session-fixture.mjs';
@@ -26,38 +28,21 @@ import chessAccount from '../api/chessAccount.js';
 import chessProfile from '../api/chessProfile.js';
 import catanRules from '../api/catanRules.js';
 import chessCoach from '../api/chessCoach.js';
-import { hash } from '../server/publicSecurity.js';
-import { identityKey } from '../server/identity.js';
-import { open } from '../server/keyCustody.js';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const ISSUER = 'https://synthetic-tenant.auth0.example';
 const ORIGIN = 'https://play.ramia.us';
 const CLIENT_ID = 'synthetic-play-client', CLIENT_SECRET = 'synthetic-play-client-secret';
-const OLD_USER = 'Synthetic Old Player', OLD_PASSWORD = 'synthetic-old-password';
-const OLD_KEY = 'sk-ant-synthetic-old-account-key-000000000000000000';
 const keys = generateKeyPairSync('rsa', { modulusLength: 2048 });
 
 redis('FLUSHDB');
 useTestKeyCustody();
 Object.assign(process.env, { KV_REST_API_URL: 'https://synthetic.invalid/', KV_REST_API_TOKEN: 'synthetic', AUTH0_ISSUER_BASE_URL: ISSUER, AUTH0_CLIENT_ID: CLIENT_ID, AUTH0_CLIENT_SECRET: CLIENT_SECRET, GAMES_SESSION_SECRET: 'synthetic-session-secret-0123456789abcdef' });
 
-// --- a synthetic pre-Auth0 account, derived exactly as the original client did -----
-const subtle = webcrypto.subtle, enc = new TextEncoder();
-const NAMESPACE = 'gipf-chess-account:v1:';
-const normalized = OLD_USER.trim().toLowerCase();
-const bits = new Uint8Array(await subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: enc.encode(NAMESPACE + normalized), iterations: 310000 }, await subtle.importKey('raw', enc.encode(OLD_PASSWORD), 'PBKDF2', false, ['deriveBits']), 768));
-const oldU = Buffer.from(await subtle.digest('SHA-256', enc.encode(NAMESPACE + normalized))).toString('hex');
-const authToken = Buffer.from(bits.slice(0, 32)).toString('hex');
-const aesKey = await subtle.importKey('raw', bits.slice(32, 64), { name: 'AES-GCM' }, false, ['encrypt']);
-const iv = webcrypto.getRandomValues(new Uint8Array(12));
-const sealed = { iv: Buffer.from(iv).toString('base64'), ct: Buffer.from(await subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, enc.encode(OLD_KEY))).toString('base64') };
-redis('SET', `chess:account:${oldU}`, JSON.stringify({ authHash: hash(authToken), enc: sealed, encLichess: null, createdAt: 1 }));
-redis('SET', `gipf:settings:v2:${oldU}`, JSON.stringify({ revision: 1, profile: { preferences: { catanDarkMode: 'true' } } }));
-
 // --- the synthetic provider and upstreams, reached by the handlers' fetch -----------
-const provider = { authorize: null, sub: 'google-oauth2|synthetic-browser-1', authorizations: 0, prompts: [] };
+// `session`: whether the provider has its own sign-in open (as after signing in at Home).
+const provider = { authorize: null, sub: 'google-oauth2|synthetic-browser-1', authorizations: 0, prompts: [], session: false };
 const upstream = { anthropic: [] };
 function jwt(claims) {
   const e = v => Buffer.from(JSON.stringify(v)).toString('base64url');
@@ -92,14 +77,23 @@ const server = http.createServer(async (req, res) => {
   res.status = n => { res.statusCode = n; return res; };
   res.json = value => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value)); return res; };
   if (req.headers['x-target'] === 'provider') {
-    // Auth0's /authorize: an open provider session (as after signing in to Home) answers at once.
+    // Auth0's /authorize: an open provider session answers at once; without one,
+    // prompt=none is refused with login_required, and anything else stands in for the
+    // user entering credentials (which opens the provider session).
     assert.equal(url.pathname, '/authorize');
     provider.authorize = url.searchParams;
     provider.authorizations++;
-    provider.prompts.push(url.searchParams.get('prompt'));
+    const prompt = url.searchParams.get('prompt');
+    provider.prompts.push(prompt);
     assert.equal(url.searchParams.get('redirect_uri'), `${ORIGIN}/api/auth/callback`);
     assert.equal(url.searchParams.get('client_id'), CLIENT_ID);
-    res.writeHead(302, { Location: `${ORIGIN}/api/auth/callback?code=synthetic-code&state=${encodeURIComponent(url.searchParams.get('state'))}` });
+    const state = encodeURIComponent(url.searchParams.get('state'));
+    if (prompt === 'none' && !provider.session) {
+      res.writeHead(302, { Location: `${ORIGIN}/api/auth/callback?error=login_required&error_description=Login%20required&state=${state}` });
+      return res.end();
+    }
+    provider.session = true;
+    res.writeHead(302, { Location: `${ORIGIN}/api/auth/callback?code=synthetic-code&state=${state}` });
     return res.end();
   }
   const authAction = url.pathname.match(/^\/api\/auth\/(\w+)$/)?.[1];
@@ -175,24 +169,55 @@ async function useCloudPreferences() {
 const pass = label => console.log(`PASS ${label}`);
 const storage = () => page.evaluate(() => Object.fromEntries(Object.keys(localStorage).map(k => [k, localStorage.getItem(k)])));
 
+const GUEST_KEY = 'sk-ant-synthetic-guest-device-key-00000000000000';
+const settle = () => page.waitForLoadState('networkidle');
+
 try {
-  // Guest: the landing page links to /login; a guest key stays on the device.
+  // No provider session: the catalogue's one automatic attempt is refused and comes
+  // straight back; a reload in the same browser session does not try again.
   await page.goto(`${ORIGIN}/`);
+  await page.getByRole('link', { name: 'Sign in' }).waitFor();
+  await settle();
+  assert.equal(new URL(page.url()).pathname, '/');
+  assert.deepEqual(provider.prompts, ['none']);
+  await page.reload();
+  await settle();
+  assert.deepEqual(provider.prompts, ['none']);
+  assert.ok(!(await context.cookies(ORIGIN)).some(c => c.name === '__Host-games_session'));
+  pass('catalogue tries prompt=none once, falls back quietly, and does not retry on reload');
+
+  // /login within ten minutes of that attempt shows the button without redirecting.
   await page.getByRole('link', { name: 'Sign in' }).click();
   await page.waitForURL(`${ORIGIN}/login`);
-  await page.getByLabel('Anthropic API key').fill('sk-ant-synthetic-guest-device-key-00000000000000');
+  await page.getByRole('button', { name: 'Sign in', exact: true }).waitFor();
+  assert.deepEqual(provider.prompts, ['none']);
+  await page.getByLabel('Anthropic API key').fill(GUEST_KEY);
   await page.getByRole('button', { name: 'Save' }).first().click();
   await page.getByText('Saved on this device.').waitFor();
-  assert.equal((await storage()).gipfApiKey, 'sk-ant-synthetic-guest-device-key-00000000000000');
-  pass('guest reaches /login from the landing page; guest key is device-only');
+  assert.equal((await storage()).gipfApiKey, GUEST_KEY);
+  pass('guest reaches /login with no second attempt; guest key is device-only');
 
-  // Sign in: Auth0 redirect, silent provider session, callback, link offer.
-  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await page.getByRole('heading', { name: 'Welcome' }).waitFor({ timeout: 15000 }).catch(async error => {
+  // A fresh /login with no provider session: one prompt=none redirect, back to /login
+  // with the Sign in button, and no loop.
+  await page.evaluate(() => localStorage.removeItem('gipf:silent-sign-in-at'));
+  await page.goto(`${ORIGIN}/login?return=/chess`);
+  await page.waitForURL(`${ORIGIN}/login?silent=failed&return=%2Fchess`);
+  await page.getByRole('button', { name: 'Sign in', exact: true }).waitFor();
+  await settle();
+  assert.deepEqual(provider.prompts, ['none', 'none']);
+  assert.equal(await page.getByRole('alert').count(), 0);
+  pass('/login without a provider session: exactly one prompt=none redirect, back to the Sign in button');
+
+  // Signed in at Home (the provider session is open): /login completes on its own.
+  provider.session = true;
+  await page.evaluate(() => localStorage.setItem('gipf:silent-sign-in-at', String(Date.now() - 11 * 60000)));
+  await page.goto(`${ORIGIN}/login?return=/catan`);
+  await page.waitForURL(`${ORIGIN}/catan`, { timeout: 15000 }).catch(async error => {
     console.error('DEBUG url', page.url(), (await page.locator('body').innerText()).slice(0, 600), errors);
     throw error;
   });
-  assert.deepEqual(provider.prompts, [null]);
+  await useCloudPreferences();
+  assert.deepEqual(provider.prompts, ['none', 'none', 'none']);
   const cookies = await context.cookies(ORIGIN);
   const sessionCookie = cookies.find(c => c.name === '__Host-games_session');
   assert.ok(sessionCookie && sessionCookie.httpOnly && sessionCookie.secure && sessionCookie.sameSite === 'Lax' && sessionCookie.domain === 'play.ramia.us' && sessionCookie.path === '/');
@@ -200,53 +225,33 @@ try {
   let local = await storage();
   assert.equal(local.gipfApiKey, undefined, 'the guest key left the device');
   assert.deepEqual(JSON.parse(local.gipfAccountKeys), { anthropic: true, lichess: false }, 'and moved to the account');
-  pass('sign-in completes without credentials; host-only HttpOnly Secure Lax cookie; guest key moved to the account');
-
-  // Link the synthetic pre-Auth0 account.
-  await page.getByLabel('Old username').fill(OLD_USER);
-  await page.getByLabel('Old password').fill('wrong-synthetic-password');
-  await page.getByRole('button', { name: 'Link account' }).click();
-  await page.getByRole('alert').filter({ hasText: 'Wrong username or password.' }).waitFor();
-  await page.getByLabel('Old password').fill(OLD_PASSWORD);
-  await page.getByRole('button', { name: 'Link account' }).click();
-  await page.waitForURL(`${ORIGIN}/`);
-  await useCloudPreferences();
-  local = await storage();
-  const account = JSON.parse(local.gipfAccount);
-  assert.deepEqual([account.v, account.usernameId, account.username], [3, oldU, 'browser-player@synthetic.example']);
+  assert.equal(JSON.parse(local.gipfAccount).username, 'browser-player@synthetic.example');
   assert.ok(!Object.values(local).some(v => v.includes('sk-ant-')), 'no key anywhere in localStorage');
-  const identity = JSON.parse(redis('GET', redis('KEYS', 'gipf:identity:v1:*')[0]));
-  const id = redis('KEYS', 'gipf:identity:v1:*')[0].slice('gipf:identity:v1:'.length);
-  assert.deepEqual([identity.data, identity.linked], [oldU, oldU]);
-  assert.equal(open(id, 'anthropic', identity.keys.anthropic), 'sk-ant-synthetic-guest-device-key-00000000000000', 'the key set since sign-in is kept');
-  assert.equal(redis('GET', `gipf:identity-link:v1:${oldU}`), id);
-  pass('old account links once with its password; device switches to its data id; no key in localStorage');
+  pass('already signed in at the provider: /login auto-completes with no click and lands on the game; host-only cookie; key moved');
 
-  // The account page reads the linked settings in place and shows keys only as saved.
+  // The account page shows saved keys without the key, and offers no account linking.
   await page.goto(`${ORIGIN}/login`);
   await useCloudPreferences();
   await page.getByText('Signed in as browser-player@synthetic.example').waitFor();
   await page.getByText('Saved ✓').first().waitFor();
-  assert.equal(await page.getByRole('heading', { name: 'Link your existing games account' }).count(), 0);
-  const html = await page.content();
-  assert.ok(!html.includes('sk-ant-'), 'the page never contains a key');
-  pass('account page shows linked state and saved keys without the key');
+  assert.equal(await page.getByRole('heading', { name: /Link your existing/ }).count(), 0);
+  assert.ok(!(await page.content()).includes('sk-ant-'), 'the page never contains a key');
+  pass('account page shows saved keys without the key and no link form');
 
-  // Catan's rules assistant uses the account key server-side; settings load from the old account.
+  // Catan's rules assistant uses the account key server-side.
   await page.goto(`${ORIGIN}/catan`);
-  await page.waitForLoadState('networkidle');
+  await settle();
   const answer = await page.evaluate(async () => {
     const r = await fetch('/api/catanRules', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Games-Request': '1' }, body: JSON.stringify({ context: {}, messages: [{ role: 'user', content: 'How does the robber work?' }] }) });
     return { status: r.status, body: await r.text() };
   });
   assert.equal(answer.status, 200);
   assert.ok(!answer.body.includes('sk-ant-'));
-  assert.deepEqual(upstream.anthropic, ['sk-ant-synthetic-guest-device-key-00000000000000']);
-  const settings = await page.evaluate(async () => (await fetch('/api/chessProfile', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Games-Request': '1' }, body: JSON.stringify({ action: 'read', scope: 'settings' }) })).json());
-  assert.equal(settings.profile.preferences.catanDarkMode, 'true');
-  pass('Catan AI request uses the account key on the server; linked settings read in place');
+  assert.deepEqual(upstream.anthropic, [GUEST_KEY]);
+  pass('Catan AI request uses the account key on the server');
 
-  // Sign out: cookie cleared, server session revoked, device keys and marker gone.
+  // Sign out: cookie cleared, server session revoked, and no automatic sign-in back in
+  // even though the provider session is still open — on /login or the catalogue.
   await page.goto(`${ORIGIN}/login`);
   await useCloudPreferences();
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
@@ -257,13 +262,22 @@ try {
   assert.equal(local.gipfAccount, undefined);
   assert.equal(local.gipfAccountKeys, undefined);
   assert.equal(redis('KEYS', 'gipf:session:v1:*').length, 0);
-  pass('sign-out clears the cookie, the server session, the identity and the key marker');
+  await page.evaluate(() => { localStorage.removeItem('gipf:silent-sign-in-at'); sessionStorage.clear(); });
+  await page.goto(`${ORIGIN}/login`);
+  await page.getByRole('button', { name: 'Sign in', exact: true }).waitFor();
+  await page.goto(`${ORIGIN}/`);
+  await page.getByRole('link', { name: 'Sign in' }).waitFor();
+  await settle();
+  assert.deepEqual(provider.prompts, ['none', 'none', 'none'], 'no attempt after sign-out');
+  pass('sign-out clears the session and suppresses the automatic sign-in on /login and the catalogue');
 
-  // Signing in again is silent (the provider session survives Games sign-out) and offers no link.
+  // Choosing Sign in is silent with the provider session open; "Use a different account" sends prompt=login.
+  await page.goto(`${ORIGIN}/login`);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await page.waitForURL(`${ORIGIN}/`);
-  assert.equal(JSON.parse((await storage()).gipfAccount).usernameId, oldU);
-  // "Use a different account" asks the provider for credentials.
+  await useCloudPreferences();
+  assert.equal(JSON.parse((await storage()).gipfAccount).username, 'browser-player@synthetic.example');
+  assert.equal(await page.evaluate(() => localStorage.getItem('gipf:silent-sign-in-off')), null, 'Sign in re-enables automatic sign-in');
   await page.goto(`${ORIGIN}/login`);
   await useCloudPreferences();
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();
@@ -271,8 +285,8 @@ try {
   await page.getByText('Signed out of Games.').waitFor();
   await page.getByRole('button', { name: 'Use a different account' }).click();
   await page.waitForURL(`${ORIGIN}/`);
-  assert.deepEqual(provider.prompts, [null, null, 'login']);
-  pass('second sign-in is silent and lands on the linked data; "Use a different account" sends prompt=login');
+  assert.deepEqual(provider.prompts, ['none', 'none', 'none', null, 'login']);
+  pass('clicked sign-in is silent; "Use a different account" sends prompt=login');
 
   for (const path of ['/yinsh', '/zertz', '/chess', '/catan', '/splendor', '/diplomacy']) {
     await page.goto(`${ORIGIN}${path}`);
