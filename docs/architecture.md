@@ -39,7 +39,7 @@ const DiplomacyGame = lazy(() => import('./games/diplomacy/DiplomacyGame.jsx'));
 
 Visiting `/zertz` does not load the Yinsh MCTS engine. Zertz loads its own inference code and ONNX runtime when NN evaluation is requested. `LandingPage` is eagerly loaded since it's the entry point.
 
-The app is built for two hosting shapes from the same source: the `gipf` Vercel project serves it under the `/gipf` deploy prefix (`homepage` in `package.json`) behind the `middleware.js` password gate, and a second ungated project serves it at a bare root. `vercel.json` routes API calls to serverless functions and everything else to `index.html` for client-side routing:
+The app is deployed by the `play` Vercel project at a bare root (`PUBLIC_URL=/`), ungated, at `play.ramia.us`. The source still supports a deploy prefix (`homepage` in `package.json`, `/gipf`, applies when `PUBLIC_URL` is unset), though no deployment uses one. `vercel.json` routes API calls to serverless functions and everything else to `index.html` for client-side routing:
 ```json
 { "source": "/api/:path*", "destination": "/api/:path*" },
 { "source": "/(.*)", "destination": "/index.html" }
