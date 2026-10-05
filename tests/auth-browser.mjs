@@ -20,7 +20,7 @@ import { createHash, generateKeyPairSync, sign, webcrypto } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { redis, redisAsync } from './redis-fixture.mjs';
 import { useTestKeyCustody } from './session-fixture.mjs';
-import auth from '../api/auth/[action].js';
+import auth from '../api/auth.js';
 import session from '../api/session.js';
 import chessAccount from '../api/chessAccount.js';
 import chessProfile from '../api/chessProfile.js';

@@ -14,7 +14,7 @@ import catanRules from '../api/catanRules.js';
 import splendorRules from '../api/splendorRules.js';
 import diplomacyAgent from '../api/diplomacyAgent.js';
 import session from '../api/session.js';
-import auth from '../api/auth/[action].js';
+import auth from '../api/auth.js';
 import { useTestKeyCustody, seedSession } from './session-fixture.mjs';
 import { safeReturn } from '../server/auth0.js';
 useTestKeyCustody();

@@ -200,7 +200,7 @@ Before modifying game logic for either game:
 | `src/App.jsx` | React Router with lazy-loaded game routes |
 | `src/LandingPage.jsx` | Landing page linking to each game + a single "Sign in" / account link to `/login` |
 | `src/LoginPage.jsx` | `/login`: the only place to sign in (Auth0, the ramia.us sign-in), link a pre-Auth0 username/password account once, sign out (here or everywhere), and enter the Anthropic key and Lichess token (held server-encrypted on the account when signed in, device-only for guests) |
-| `api/auth/[action].js`, `server/auth0.js` | Auth0 login, callback and logout (openid-client: code + PKCE, state, nonce, RS256 signature, verified email) |
+| `api/auth.js`, `server/auth0.js` | Auth0 login, callback and logout (openid-client: code + PKCE, state, nonce, RS256 signature, verified email) |
 | `api/session.js`, `server/session.js` | Sign-in sessions: opaque cookie, 30-day idle / 90-day absolute expiry, sign-out everywhere index, CSRF checks; `establish` hands the device its seal key |
 | `server/identity.js`, `server/keyCustody.js` | One identity per Auth0 subject, its data id and old-account link; AES-256-GCM key custody (AAD bound to identity, slot and key version; KEK rotation) |
 | `server/accountKeys.js`, `src/accountKeys.js` | The proxies' key lookup (body key for guests, account key for a session) and the browser's which-keys-exist marker |

@@ -9,10 +9,10 @@
 //        the identity) and clears the cookie. It does not end the Auth0 session, so
 //        home.ramia.us stays signed in; see docs/public-accounts.md.
 // Any sign-in failure returns to /login?error=… with no provider detail.
-import { guardRequest, limit } from '../../server/publicSecurity.js';
-import { readSessionToken, resolveSession, revokeSession, revokeAllSessions, createSession, sameOriginRequest, sessionCookie, clearedSessionCookie, PRODUCTION_ORIGIN } from '../../server/session.js';
-import { authConfig, beginSignIn, completeSignIn, openTransaction, readCookie, safeReturn, transactionCookie, clearedTransactionCookie, TRANSACTION_COOKIE } from '../../server/auth0.js';
-import { identityId, readIdentity, ensureIdentity, CREATE_PER_NETWORK, CREATE_PER_DAY } from '../../server/identity.js';
+import { guardRequest, limit } from '../server/publicSecurity.js';
+import { readSessionToken, resolveSession, revokeSession, revokeAllSessions, createSession, sameOriginRequest, sessionCookie, clearedSessionCookie, PRODUCTION_ORIGIN } from '../server/session.js';
+import { authConfig, beginSignIn, completeSignIn, openTransaction, readCookie, safeReturn, transactionCookie, clearedTransactionCookie, TRANSACTION_COOKIE } from '../server/auth0.js';
+import { identityId, readIdentity, ensureIdentity, CREATE_PER_NETWORK, CREATE_PER_DAY } from '../server/identity.js';
 export const config = { api: { bodyParser: { sizeLimit: '1kb' } } };
 
 const PRODUCTION_HOST = new URL(PRODUCTION_ORIGIN).host;

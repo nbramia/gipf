@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { redis, redisAsync } from './redis-fixture.mjs';
 import { useTestKeyCustody, TEST_KEK } from './session-fixture.mjs';
-import auth from '../api/auth/[action].js';
+import auth from '../api/auth.js';
 import session from '../api/session.js';
 import account from '../api/chessAccount.js';
 import profile from '../api/chessProfile.js';

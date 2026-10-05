@@ -25,7 +25,7 @@ silently. There are no username/password sign-ins or new password accounts.
 
 ## Auth0 flow
 
-`api/auth/[action].js` with `server/auth0.js` (openid-client):
+`api/auth.js` with `server/auth0.js` (openid-client):
 
 - `GET /api/auth/login?return=` builds an authorization-code request with PKCE (S256),
   `state` and `nonce`, `scope=openid email profile`, and the one registered callback
