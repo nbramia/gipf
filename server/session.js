@@ -1,11 +1,13 @@
 // Server sessions for Games accounts.
 //
-// The browser proves its password once (POST /api/session with the derived auth
-// token); the server answers with an opaque random token in the
-// `__Host-games_session` cookie. Only the token's SHA-256 is stored, at
-// `gipf:session:v1:<sha256>`, with a 30-day idle and 90-day absolute lifetime.
-// `gipf:sessions:v1:<usernameId>` indexes an account's sessions so they can all be
-// revoked at once ("sign out everywhere").
+// A successful Auth0 sign-in (api/auth/[action].js) ends with an opaque random token
+// in the `__Host-games_session` cookie. Only the token's SHA-256 is stored, at
+// `gipf:session:v1:<sha256>` → {i, u, name, fresh, created, seen}: the identity
+// (server/identity.js), the data id its progress is stored under, the verified email
+// shown as the account name, and whether this sign-in created the identity. Sessions
+// last 30 days idle and 90 days absolute. `gipf:sessions:v1:<identityId>` indexes an
+// identity's sessions so they can all be revoked at once ("sign out everywhere").
+// A record without an identity predates Auth0 and is refused and removed on sight.
 import { randomBytes } from 'node:crypto';
 import { command, hash } from './publicSecurity.js';
 
@@ -19,7 +21,7 @@ export const REQUEST_HEADER = 'x-games-request';
 
 const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
 const sessionKey = id => `gipf:session:v1:${id}`;
-const indexKey = u => `gipf:sessions:v1:${u}`;
+const indexKey = i => `gipf:sessions:v1:${i}`;
 
 // Scripts touch only declared KEYS, so they stay valid on any Redis deployment.
 const CREATE = `
@@ -71,17 +73,22 @@ export function sameOriginRequest(req) {
   return !origin || origin === `${process.env.VERCEL ? 'https' : 'http'}://${headers.host}`;
 }
 
-export async function createSession(u, now = Date.now()) {
+const HEX64 = /^[a-f0-9]{64}$/;
+
+// A new session for identity `i`, whose progress lives under data id `u`.
+export async function createSession({ i, u, name = '', fresh = false }, now = Date.now()) {
+  if (!HEX64.test(i) || !HEX64.test(u)) throw new TypeError('bad_session');
   // Forget index entries whose sessions have already expired.
-  const ids = await command('SMEMBERS', indexKey(u)) || [];
+  const ids = await command('SMEMBERS', indexKey(i)) || [];
   if (ids.length) {
     const live = await command('MGET', ...ids.map(sessionKey));
-    const dead = ids.filter((_, i) => live[i] == null);
-    if (dead.length) await command('SREM', indexKey(u), ...dead);
+    const dead = ids.filter((_, n) => live[n] == null);
+    if (dead.length) await command('SREM', indexKey(i), ...dead);
   }
   const token = randomBytes(32).toString('base64url');
   const id = hash(token);
-  await command('EVAL', CREATE, 2, sessionKey(id), indexKey(u), JSON.stringify({ u, created: now, seen: now }), IDLE_MS, id, ABSOLUTE_MS);
+  const record = { i, u, name: String(name).slice(0, 254), fresh: !!fresh, created: now, seen: now };
+  await command('EVAL', CREATE, 2, sessionKey(id), indexKey(i), JSON.stringify(record), IDLE_MS, id, ABSOLUTE_MS);
   return token;
 }
 
@@ -94,17 +101,22 @@ export async function resolveSession(token, now = Date.now()) {
   if (raw == null) return null;
   let record;
   try { record = JSON.parse(raw); } catch (_) { return null; }
-  if (!/^[a-f0-9]{64}$/.test(record?.u || '') || !Number.isFinite(record.created) || !Number.isFinite(record.seen)) return null;
+  if (!HEX64.test(record?.i || '') || !HEX64.test(record.u || '')) {
+    // A pre-Auth0 password session: never honoured, removed as it is found.
+    await command('DEL', sessionKey(id));
+    return null;
+  }
+  if (!Number.isFinite(record.created) || !Number.isFinite(record.seen)) return null;
   const remaining = record.created + ABSOLUTE_MS - now;
   if (remaining <= 0 || now - record.seen >= IDLE_MS) {
     await command('DEL', sessionKey(id));
-    await command('SREM', indexKey(record.u), id);
+    await command('SREM', indexKey(record.i), id);
     return null;
   }
   if (now - record.seen >= TOUCH_MS) {
     await command('SET', sessionKey(id), JSON.stringify({ ...record, seen: now }), 'PX', Math.min(IDLE_MS, remaining), 'XX');
   }
-  return { u: record.u, id };
+  return { i: record.i, u: record.u, name: typeof record.name === 'string' ? record.name : '', fresh: record.fresh === true, id };
 }
 
 export async function revokeSession(token) {
@@ -112,11 +124,12 @@ export async function revokeSession(token) {
   const id = hash(token);
   const raw = await command('GET', sessionKey(id));
   await command('DEL', sessionKey(id));
-  try { const u = JSON.parse(raw)?.u; if (u) await command('SREM', indexKey(u), id); } catch (_) { /* already gone */ }
+  try { const i = JSON.parse(raw)?.i; if (HEX64.test(i || '')) await command('SREM', indexKey(i), id); } catch (_) { /* already gone */ }
 }
 
-export async function revokeAllSessions(u) {
-  const ids = await command('SMEMBERS', indexKey(u)) || [];
+// Revoke every session of identity `i`.
+export async function revokeAllSessions(i) {
+  const ids = await command('SMEMBERS', indexKey(i)) || [];
   if (!ids.length) return 0;
-  return Number(await command('EVAL', REVOKE, 1 + ids.length, indexKey(u), ...ids.map(sessionKey), ...ids));
+  return Number(await command('EVAL', REVOKE, 1 + ids.length, indexKey(i), ...ids.map(sessionKey), ...ids));
 }

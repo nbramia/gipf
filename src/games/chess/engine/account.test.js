@@ -21,7 +21,9 @@ import {
   loadSession,
   saveSession,
   clearSession,
+  accountKey,
 } from './account.js';
+import { accountKeys } from '../../../accountKeys.js';
 
 if (!globalThis.crypto || !globalThis.crypto.subtle) {
   globalThis.crypto = webcrypto;
@@ -160,12 +162,20 @@ describe('session persistence', () => {
     username: 'Alice',
     usernameId: 'a'.repeat(64),
     authToken: 'b'.repeat(64),
-    aesKey: 'base64keydata==',
+    aesKey: Buffer.alloc(32, 5).toString('base64'),
     profileId: 'c'.repeat(64),
   };
 
-  test('without IndexedDB, save/load keeps the v1 shape; its auth token marks the identity', async () => {
+  test('save/load writes a secret-free v3 session; without IndexedDB the key is held for this page', async () => {
     await saveSession(session);
+    expect(loadSession()).toEqual({ v: 3, username: session.username, usernameId: session.usernameId, sid: expect.stringMatching(/^[a-f0-9]{32}$/) });
+    const raw = localStorage.getItem(ACCOUNT_STORAGE_KEY);
+    for (const secret of [session.authToken, session.aesKey, session.profileId]) expect(raw).not.toContain(secret);
+    expect((await accountKey(loadSession())).extractable).toBe(false);
+  });
+
+  test('a retired v1 session still loads, marked by its auth token, so it can be signed out', () => {
+    localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify({ v: 1, ...session }));
     expect(loadSession()).toEqual({ v: 1, ...session, sid: session.authToken });
   });
 
@@ -218,9 +228,14 @@ test('account B sees neither A progress nor A keys and A can recover unsynced pr
   localStorage.clear();
   const a = await deriveCredentials('synthetic-account-a', 'synthetic-password');
   const b = await deriveCredentials('synthetic-account-b', 'synthetic-password');
-  await saveSession(a, { apiKey: 'synthetic-secret-a', lichessToken: 'synthetic-token-a' });
+  localStorage.setItem('gipfApiKey', 'synthetic-guest-secret');
+  await saveSession(a, { keys: { anthropic: true, lichess: true } });
+  // Signed in, no key stays on the device; only the account marker says one exists.
+  expect(localStorage.getItem('gipfApiKey')).toBeNull();
+  expect(accountKeys()).toEqual({ anthropic: true, lichess: true });
   localStorage.setItem('chessRating', '1729');
   await saveSession(b);
+  expect(accountKeys()).toEqual({ anthropic: false, lichess: false });
   expect(localStorage.getItem('chessRating')).toBeNull();
   expect(localStorage.getItem('gipfApiKey')).toBeNull();
   expect(localStorage.getItem('chessLichessToken')).toBeNull();
@@ -260,7 +275,7 @@ test('matches the original v1 PBKDF2 vector and decrypts an independently sealed
 test('recovery quota failure aborts logout before deleting the only copy', async () => {
   localStorage.clear();
   const a = await deriveCredentials('synthetic-quota', 'synthetic-password');
-  await saveSession(a, { apiKey: 'synthetic-key' });
+  await saveSession(a, { keys: { anthropic: true, lichess: false } });
   localStorage.setItem('chessRating', '1492');
   const original = Storage.prototype.setItem;
   const mock = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
@@ -270,7 +285,7 @@ test('recovery quota failure aborts logout before deleting the only copy', async
   await expect(clearSession()).rejects.toThrow('synthetic quota');
   expect(loadSession().usernameId).toBe(a.usernameId);
   expect(localStorage.getItem('chessRating')).toBe('1492');
-  expect(localStorage.getItem('gipfApiKey')).toBe('synthetic-key');
+  expect(accountKeys().anthropic).toBe(true);
   mock.mockRestore();
   await clearSession();
 });

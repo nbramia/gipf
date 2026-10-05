@@ -53,32 +53,32 @@ export async function guardRequest(req, res, { bucket = 'public', limit: maximum
     return true;
   } catch (_) { res.status(503).json({ error: 'service_unavailable' }); return false; }
 }
-// Failed verifications share one per-network budget across every endpoint, so the
-// higher sync limit cannot be used as a faster password oracle.
+// Failed verifications share one per-network budget across every endpoint, so no
+// endpoint is a faster password oracle than another.
 export const AUTH_FAILURES = 20;
-// The account record for this request: either the legacy body credentials
-// (u + auth, verified against the stored hash) or the session cookie. A cookie
-// request must pass the same-origin checks and, when it names u, name its own.
+// The signed-in session for a request, or null after answering it. Only the session
+// cookie authorizes: the request must pass the same-origin checks and, when the body
+// names an account `u`, name the session's own. On success `body.u` is the session's
+// data id.
 export async function authenticate(body, res, network, req) {
-  if (body.auth === undefined && req) {
-    const token = readSessionToken(req);
-    if (token) {
-      if (!sameOriginRequest(req)) { res.status(403).json({ error: 'forbidden' }); return null; }
-      const session = await resolveSession(token);
-      if (!session || (body.u !== undefined && body.u !== session.u)) { res.status(401).json({ error: 'bad_credentials' }); return null; }
-      const raw = await command('GET', `chess:account:${session.u}`);
-      const record = raw == null ? null : JSON.parse(raw);
-      if (!hex64(record?.authHash)) { res.status(401).json({ error: 'bad_credentials' }); return null; }
-      body.u = session.u;
-      return record;
-    }
-  }
-  if (!hex64(body.u) || !hex64(body.auth)) { res.status(401).json({ error: 'bad_credentials' }); return null; }
+  const token = req ? readSessionToken(req) : null;
+  if (!token) { res.status(401).json({ error: 'signed_out' }); return null; }
+  if (!sameOriginRequest(req)) { res.status(403).json({ error: 'forbidden' }); return null; }
+  const session = await resolveSession(token);
+  if (!session || (body.u !== undefined && body.u !== session.u)) { res.status(401).json({ error: 'bad_credentials' }); return null; }
+  body.u = session.u;
+  return session;
+}
+// A pre-Auth0 games account, proven by its password-derived auth token. Used only to
+// link that account to a signed-in identity. Absent accounts and wrong tokens get the
+// same 401, and both spend the network's failure budget.
+export async function verifyLegacyAccount(u, auth, res, network) {
+  if (!hex64(u) || !hex64(auth)) { res.status(401).json({ error: 'bad_credentials' }); return null; }
   const failures = `gipf:limit:auth-fail:${hash(String(network))}`;
-  const [raw, failed] = await command('MGET', `chess:account:${body.u}`, failures);
+  const [raw, failed] = await command('MGET', `chess:account:${u}`, failures);
   if (Number(failed) >= AUTH_FAILURES) { res.setHeader('Retry-After', '60'); res.status(429).json({ error: 'rate_limited' }); return null; }
   const record = raw == null ? null : JSON.parse(raw);
-  if (!hex64(record?.authHash) || !timingSafeEqual(Buffer.from(hash(body.auth), 'hex'), Buffer.from(record.authHash, 'hex'))) {
+  if (!hex64(record?.authHash) || !timingSafeEqual(Buffer.from(hash(auth), 'hex'), Buffer.from(record.authHash, 'hex'))) {
     await command('EVAL', LIMIT_SCRIPT, 1, failures, 60);
     res.status(401).json({ error: 'bad_credentials' }); return null;
   }

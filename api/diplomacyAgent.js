@@ -1,4 +1,5 @@
 import { guardRequest } from '../server/publicSecurity.js';
+import { requestKey } from '../server/accountKeys.js';
 export const config = { api: { bodyParser: { sizeLimit: '32kb' } } };
 // Serverless Diplomacy agent — gives one AI power a conversational voice so the
 // human can negotiate with (threaten, lie to, ally with) it. The endpoint builds
@@ -7,10 +8,10 @@ export const config = { api: { bodyParser: { sizeLimit: '32kb' } } };
 // disposition toward every other power). The scratchpad is NEVER shown to the
 // human — it is a separate field the caller persists for later issues.
 //
-// Bring-your-own-key: the Anthropic API key arrives in the request body, is used
-// for exactly one upstream call, and is NEVER logged, persisted, or read from
-// server env. There is no server-side fallback key. This mirrors the Catan rules
-// assistant (api/catanRules.js) and chess coach (api/chessCoach.js) BYO-key model.
+// Bring-your-own-key: a guest's Anthropic key arrives in the request body; a
+// signed-in player's is decrypted from their account on the server
+// (server/accountKeys.js). Either way it is used for exactly one upstream call and
+// is NEVER logged or read from server env. There is no server-side fallback key.
 
 const ALLOWED_ORIGINS = ['https://gipf.vercel.app', 'http://localhost:3000'];
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
@@ -279,14 +280,12 @@ export default async function handler(req, res) {
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
-    const apiKey = body.apiKey;
+    // A guest's key is in the body; a signed-in player's is read from the account.
+    const apiKey = await requestKey(req, res, body, 'anthropic', 'apiKey');
+    if (!apiKey) return;
     const initiate = !!body.initiate;
     let messages = Array.isArray(body.messages) ? body.messages : null;
 
-    if (!apiKey || typeof apiKey !== 'string') {
-      res.status(401).json({ error: 'missing_api_key', message: 'No API key provided.' });
-      return;
-    }
     // An empty thread is legitimate: the FIRST AI↔AI proposal in a channel opens
     // with no prior transcript, and a proactive-outreach (initiate) call opens a
     // fresh human thread. The upstream needs ≥1 message, so synthesize a single

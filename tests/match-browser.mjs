@@ -1,4 +1,5 @@
-// Synthetic browser acceptance against tests/serve-public-security.mjs (PR5 Redis).
+// Synthetic browser acceptance against tests/serve-public-security.mjs (PR5 Redis), whose
+// /api/auth/login is a synthetic Auth0 sign-in of the `fixture-identity` cookie's identity.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -6,7 +7,6 @@ import ChessBoard from '../src/games/chess/ChessBoard.js';
 import YinshBoard from '../src/games/yinsh/YinshBoard.js';
 import ZertzBoard from '../src/games/zertz/ZertzBoard.js';
 import CatanBoard from '../src/games/catan/CatanBoard.js';
-import { deriveCredentials } from '../src/account.js';
 const origin = 'http://127.0.0.1:3189';
 const boards = { chess: new ChessBoard(), yinsh: new YinshBoard(), zertz: new ZertzBoard(), catan: new CatanBoard({ seed: 1234 }) };
 boards.chess.move('e2','e4'); boards.chess.move('e7','e5');
@@ -29,6 +29,19 @@ async function device() {
   await page.goto(`${origin}/gipf/`);
   return page;
 }
+// Sign `page` in as identity `label` with data id `u`, through the real /login completion.
+async function signIn(page, label, u, { importGuest = false, returnTo = '/' } = {}) {
+  await page.context().addCookies([{ name: 'fixture-identity', value: `${label}:${u}`, url: origin }]);
+  if (importGuest) await page.evaluate(() => sessionStorage.setItem('gipf:import-guest', '1'));
+  await page.goto(`${origin}/gipf/api/auth/login?return=${encodeURIComponent(returnTo)}`);
+  await page.waitForFunction(id => JSON.parse(localStorage.getItem('gipfAccount') || 'null')?.usernameId === id && location.pathname !== '/gipf/login', u);
+}
+// Playwright's request client does not send a Secure cookie over plain http, so the
+// session cookie is passed explicitly.
+const apiHeaders = async page => {
+  const session = (await page.context().cookies()).find(c => c.name === '__Host-games_session');
+  return { 'x-games-request': '1', 'sec-fetch-site': 'same-origin', origin, cookie: `__Host-games_session=${session.value}` };
+};
 const getSnapshot = (page, game) => page.evaluate(g => JSON.parse(localStorage.getItem(`${g}Match:v1`)), game);
 try {
   for (const [game, board] of Object.entries(boards)) {
@@ -47,19 +60,17 @@ try {
     await a.reload(); await a.locator(`.game-${game}`).waitFor();
     assert.deepEqual((await getSnapshot(a,game)).state,JSON.parse(JSON.stringify(snapshot.state)));
     console.log(`PASS ${game}: guest reload retains canonical mid-turn state`);
-    const u = String(Object.keys(boards).indexOf(game)+1).repeat(64), auth = '9'.repeat(64);
-    const created = await a.request.post(`${origin}/gipf/api/chessAccount`,{data:{action:'create',u,auth,enc:null}});
-    assert.ok([200,409].includes(created.status()));
-    const session = {v:1,username:`Synthetic ${game}`,usernameId:u,authToken:auth,aesKey:'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',profileId:'8'.repeat(64)};
-    await a.evaluate(s => localStorage.setItem('gipfAccount',JSON.stringify(s)),session);
-    await a.reload(); await a.locator(`.game-${game}`).waitFor();
+    const u = String(Object.keys(boards).indexOf(game)+1).repeat(64), label = `synthetic-${game}`;
+    // Signing in with explicit guest import carries this device's match into the account.
+    await signIn(a, label, u, { importGuest: true, returnTo: `/${game}` });
+    await a.locator(`.game-${game}`).waitFor();
     await a.getByText('Saved to your account.',{exact:true}).waitFor({timeout:20000});
     if(game==='chess') {
       const expectedLog=await a.evaluate(()=>localStorage.getItem('chessGameLog'));
       assert.ok(expectedLog);
       let synced=false;
       for(let attempt=0;attempt<20;attempt++) {
-        const response=await a.request.post(`${origin}/gipf/api/chessProfile`,{data:{u,auth,scope:'settings',action:'read'}});
+        const response=await a.request.post(`${origin}/gipf/api/chessProfile`,{data:{scope:'settings',action:'read'},headers:await apiHeaders(a)});
         const data=await response.json();
         if(data.profile?.preferences?.chessGameLog===expectedLog) { synced=true; break; }
         await new Promise(resolve=>setTimeout(resolve,1000));
@@ -67,8 +78,8 @@ try {
       assert.ok(synced,'Chess statistics must be acknowledged before opening another device');
     }
     const b = await device();
-    await b.evaluate(s => localStorage.setItem('gipfAccount',JSON.stringify(s)),session);
-    await b.goto(`${origin}/gipf/${game}`); await b.locator(`.game-${game}`).waitFor();
+    await signIn(b, label, u, { returnTo: `/${game}` });
+    await b.locator(`.game-${game}`).waitFor();
     assert.deepEqual((await getSnapshot(b,game)).state,(await getSnapshot(a,game)).state);
     console.log(`PASS ${game}: second authenticated browser resumes same match`);
     if(game==='chess') {
@@ -142,27 +153,19 @@ try {
 
   // Exercise real account save/clear functions through the UI, across two tabs.
   const shared = await device();
-  const pass = 'synthetic-password-for-browser';
-  const ownerA = await deriveCredentials('synthetic-shared-a',pass);
-  const ownerB = await deriveCredentials('synthetic-shared-b',pass);
-  // Earlier sections create more accounts than one network's daily creation cap allows.
-  redisCli('EVAL',"for _,k in ipairs(redis.call('KEYS','gipf:limit:account-create*')) do redis.call('DEL',k) end return 1",'0');
-  for (const owner of [ownerA,ownerB]) {
-    const response=await shared.request.post(`${origin}/gipf/api/chessAccount`,{data:{action:'create',u:owner.usernameId,auth:owner.authToken,enc:null}});
-    assert.equal(response.status(),200);
-  }
-  await shared.evaluate(owner=>localStorage.setItem('gipfAccount',JSON.stringify({v:1,...owner})),ownerA);
-  await shared.goto(`${origin}/gipf/yinsh`); await shared.locator('.game-yinsh').waitFor();
+  const ownerA = { label: 'synthetic-shared-a', usernameId: 'e'.repeat(64) };
+  const ownerB = { label: 'synthetic-shared-b', usernameId: 'f'.repeat(64) };
+  await signIn(shared, ownerA.label, ownerA.usernameId, { returnTo: '/yinsh' });
+  await shared.locator('.game-yinsh').waitFor();
   await shared.getByText('Saved to your account.',{exact:true}).waitFor({timeout:20000});
   const originalId=(await getSnapshot(shared,'yinsh')).id;
   const login=await shared.context().newPage(); await login.goto(`${origin}/gipf/login`);
   await login.getByRole('button',{name:'Sign out',exact:true}).click();
   await login.getByRole('button',{name:'Sign out',exact:true}).click();
-  await login.getByPlaceholder('Username',{exact:true}).waitFor();
+  await login.getByText('Signed out of Games.').waitFor();
   await shared.waitForFunction(id=>!localStorage.getItem('gipfAccount') && JSON.parse(localStorage.getItem('yinshMatch:v1')||'null')?.id!==id,originalId);
   assert.ok(await login.evaluate(id=>localStorage.getItem(`gipf:recovery:${id}`),ownerA.usernameId));
-  await login.getByPlaceholder('Username',{exact:true}).fill(ownerB.username);
-  await login.getByPlaceholder('Password',{exact:true}).fill(pass);
+  await login.context().addCookies([{ name: 'fixture-identity', value: `${ownerB.label}:${ownerB.usernameId}`, url: origin }]);
   await login.getByRole('button',{name:'Sign in',exact:true}).click();
   await login.waitForFunction(id=>JSON.parse(localStorage.getItem('gipfAccount')||'null')?.usernameId===id,ownerB.usernameId);
   await shared.waitForFunction(id=>JSON.parse(localStorage.getItem('gipfAccount')||'null')?.usernameId===id,ownerB.usernameId);

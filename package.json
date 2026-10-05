@@ -8,6 +8,7 @@
   "dependencies": {
     "chess.js": "^1.4.0",
     "onnxruntime-web": "^1.24.1",
+    "openid-client": "^6.8.8",
     "react": "^18.2.0",
     "react-chessboard": "^4.7.3",
     "react-dom": "^18.2.0",

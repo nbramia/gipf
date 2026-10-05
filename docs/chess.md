@@ -21,7 +21,7 @@ src/games/chess/
     rating.js            # Pure Elo math + matchmaking for Rated mode
     ratingSync.js        # Cross-device rating sync client (keyed by key hash)
     profileSync.js       # Cross-device profile sync -- supersedes ratingSync (rating + history + puzzles + mistakes)
-    account.js           # Username+password accounts: PBKDF2 credential derivation, API-key encryption, session cache
+    account.js           # Re-export of src/account.js (Auth0 sign-in completion, account keys, old-account linking)
     playerHistory.js     # localStorage: per-opponent W/L/D history (chessOppHistory)
   hooks/
     useStockfish.js      # Engine lifecycle; getMove() + analyze(); serialized
@@ -47,7 +47,7 @@ src/games/chess/
     sound.js             # WebAudio move cues (#21)
 api/chessCoach.js        # Vercel serverless coach endpoint
 api/chessProfile.js      # Vercel serverless profile sync endpoint (rating + history + puzzles + mistakes)
-api/chessAccount.js      # Vercel serverless account store (username+password, encrypted API key)
+api/chessAccount.js      # Account keys (server-encrypted) and the one-time link of a pre-Auth0 account
 ```
 
 ## Engine (Stockfish)
@@ -234,7 +234,7 @@ tier:
   strength, so evals stay honest even against the weakest rungs.
 - **Cross-device sync (account-only):** rating is one of four domains synced by
   `engine/profileSync.js` -- see "Player profile & cross-device sync" below.
-  Reads and writes are authenticated with a username+password account; a
+  Reads and writes are authenticated with a signed-in account (Auth0); a
   key-hash or other public identifier never authorizes access. The retired
   `api/chessRating.js` returns 410, and old key-hash records are claimed into an
   account through `api/chessProfile.js` (see `docs/public-accounts.md`).
@@ -272,26 +272,21 @@ localStorage as it always has. The server side needs a Redis REST store
 the store is missing or unreachable the endpoints return 503 and the client stays
 local-only.
 
-## Accounts (username + password)
+## Accounts
 
-Chess offers a lightweight username+password account, so a player can sign
-in once per machine (at `/login`) instead of re-pasting an Anthropic API key everywhere. The
-account authorizes the profile sync above and carries the API key too.
-
-Every secret is derived client-side from the password
-(`src/account.js#deriveCredentials`: PBKDF2-SHA256, 310k iterations, salt
-`'gipf-chess-account:v1:' + lowercase(username)`). The original 768-bit split
-and AES-GCM `{iv, ct}` envelopes are unchanged. The account service stores a
-SHA-256 verifier of the authentication token and separately encrypted Anthropic
-and Lichess envelopes. The encryption key stays in the browser. Model assistance
-still sends the user's plaintext model key transiently through the model proxy
-to Anthropic; there is no maintainer-funded fallback. Forgotten passwords have
-no recovery mechanism.
+Chess offers an optional account, signed in at `/login` with the ramia.us sign-in
+(Auth0: Google or email and password), so a player signs in once per machine instead of
+re-pasting an Anthropic API key everywhere. The account authorizes the profile sync
+above and carries the API key and Lichess token, which are stored encrypted on the
+server and added to coach and explorer requests there, so they never reach the browser;
+there is no maintainer-funded fallback. A username/password account from before Auth0
+links once to a sign-in by proving its password (`src/account.js#deriveCredentials`,
+the original PBKDF2 derivation) and keeps its progress in place.
 
 Profile reads and writes require proven account ownership: the session cookie
 issued at sign-in (see [public account operations](public-accounts.md#sessions)). A public username hash or legacy profile ID cannot read
-or write progress. Registration uses atomic SET NX. Shared Redis rate counters
-bound registration, login, sync, and model requests across instances. Missing
+or write progress. Shared Redis rate counters bound sign-up, linking, sync, and model
+requests across instances. Missing
 storage or limiter configuration returns 503; guest play remains local.
 
 Old profile and API-key-derived IDs are bearer capabilities, accepted only by
@@ -302,8 +297,8 @@ without adding the same statistics twice. The old rating endpoint returns 410.
 See [public account operations](public-accounts.md) for exact contracts and setup.
 
 Sign-in asks whether to import this device's guest progress. Signing out clears
-local credentials and visible progress, retaining an AES-GCM-encrypted recovery
-copy for the outgoing account. Signing into another account cannot load that
+local credentials and visible progress, retaining a recovery copy encrypted with
+the outgoing account's seal key. Signing into another account cannot load that
 copy. Switching reloads the app, and other open tabs reload on identity changes;
 pending profile responses also verify the originating account before applying.
 Cloud writes use revisions: conflicts retain local data and show a sync warning.
@@ -335,9 +330,10 @@ the single engine best move. A move that stays in a known ECO line
 (`coach/openings.js`) — or is within a wide eval band — is labeled **Book**
 (neutral), never inaccuracy/mistake. This works with no network dependency.
 
-When a **Lichess token** is set (`coach/openingCoach.js`, BYO, stored in
-`localStorage['chessLichessToken']` and, for a signed-in account, synced the
-same encrypted way as the API key -- see Accounts above), the coach also
+When a **Lichess token** is set (`coach/openingCoach.js`, BYO: a guest's in
+`localStorage['chessLichessToken']`, queried from the browser; a signed-in
+account's held on the server, which queries the explorer itself through
+`api/chessCoach.js` `mode: 'explorer'` -- see Accounts above), the coach also
 fetches the Lichess masters
 opening explorer and reports real popularity — "the Nth most-common master move,
 played in X% of games, scoring Y%" — plus the other popular choices. The explorer

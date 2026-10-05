@@ -1,5 +1,6 @@
 // Client for the Diplomacy agents (api/diplomacyAgent.js). Manages the
-// bring-your-own Anthropic API key (browser-only, localStorage) and sends a
+// bring-your-own Anthropic API key (a guest's in localStorage; a signed-in
+// account's held on the server, see src/accountKeys.js) and sends a
 // per-power conversation plus the live board context to get an in-character
 // reply and the agent's private scratchpad back.
 
@@ -12,6 +13,7 @@ import {
   serializeMemory,
   deserializeMemory,
 } from './memory.js';
+import { accountKeys, ACCOUNT_KEYS_STORAGE, ACCOUNT_REQUEST_HEADERS } from '../../../accountKeys.js';
 
 // One Anthropic key is shared across the whole app (chess coach + Catan rules
 // chat + this Diplomacy chat), so a key saved in any game is reused everywhere.
@@ -63,8 +65,10 @@ export function setApiKey(key) {
   }
 }
 
+// A key on this device (guests), or one held on the signed-in account, which the
+// server adds to each request so it never reaches the browser.
 export function hasApiKey() {
-  return !!getApiKey();
+  return !!getApiKey() || accountKeys().anthropic;
 }
 
 // Subscribe to key changes from anywhere: this tab (our KEY_EVENT, e.g. saving a
@@ -74,7 +78,7 @@ export function subscribeApiKey(callback) {
   if (typeof window === 'undefined') return () => {};
   const onChange = () => callback();
   const onStorage = (e) => {
-    if (!e || e.key === null || e.key === KEY_STORAGE || LEGACY_KEYS.includes(e.key)) callback();
+    if (!e || e.key === null || e.key === KEY_STORAGE || e.key === ACCOUNT_KEYS_STORAGE || LEGACY_KEYS.includes(e.key)) callback();
   };
   window.addEventListener(KEY_EVENT, onChange);
   window.addEventListener('storage', onStorage);
@@ -99,7 +103,7 @@ export { createMemory, serializeMemory, deserializeMemory, validateScratchpad };
 // Returns { message, scratchpad } on success, or { error, message } like askRules.
 export async function sendMessage({ power, history, context, addressee, model, store } = {}) {
   const apiKey = getApiKey();
-  if (!apiKey) {
+  if (!apiKey && !accountKeys().anthropic) {
     return { error: 'no_key', message: 'Add your Anthropic API key to talk to the other powers.' };
   }
 
@@ -110,8 +114,8 @@ export async function sendMessage({ power, history, context, addressee, model, s
   try {
     res = await fetch(`${process.env.PUBLIC_URL || ''}/api/diplomacyAgent`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ apiKey, power, persona, context, messages, addressee, model }),
+      headers: ACCOUNT_REQUEST_HEADERS,
+      body: JSON.stringify({ ...(apiKey ? { apiKey } : {}), power, persona, context, messages, addressee, model }),
     });
   } catch (_) {
     return { error: 'network', message: 'Could not reach the other power. Check your connection.' };
@@ -168,7 +172,7 @@ export async function askAgent({
   initiate,
 } = {}) {
   const apiKey = getApiKey();
-  if (!apiKey) {
+  if (!apiKey && !accountKeys().anthropic) {
     return { error: 'no_key', reply: { message: 'Add your Anthropic API key to enable AI negotiation.' } };
   }
 
@@ -179,9 +183,9 @@ export async function askAgent({
   try {
     res = await fetch(`${process.env.PUBLIC_URL || ''}/api/diplomacyAgent`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: ACCOUNT_REQUEST_HEADERS,
       body: JSON.stringify({
-        apiKey,
+        ...(apiKey ? { apiKey } : {}),
         power,
         persona: resolvedPersona,
         context: boardContext,

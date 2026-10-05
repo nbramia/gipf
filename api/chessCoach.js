@@ -1,13 +1,15 @@
 import { guardRequest } from '../server/publicSecurity.js';
+import { requestKey } from '../server/accountKeys.js';
 export const config = { api: { bodyParser: { sizeLimit: '32kb' } } };
 // /api/chessCoach.js — Vercel serverless endpoint that turns structured
 // Stockfish analysis into natural-language coaching prose via the Claude API.
 //
-// SECURITY MODEL (issue #6): the Anthropic API key is BRING-YOUR-OWN. It arrives
-// in the request body (sent by the user's browser, where it lives only in
-// localStorage), is used for exactly one upstream call, and is NEVER logged,
-// persisted, or read from server env. There is intentionally no server-side key
-// fallback, so a public deploy can never spend the maintainer's credits.
+// SECURITY MODEL (issue #6): the Anthropic API key is BRING-YOUR-OWN. A guest's key
+// arrives in the request body from that device; a signed-in player's is decrypted
+// from their account on the server (server/accountKeys.js) and never reaches the
+// browser. Either way it is used for exactly one upstream call and is NEVER logged
+// or read from server env. There is intentionally no server-side key fallback, so a
+// public deploy can never spend the maintainer's credits.
 //
 // CORS mirrors api/aiMove.js: an allowlist applied in BOTH the success and error
 // paths, with OPTIONS preflight handled.
@@ -269,8 +271,32 @@ async function handleThread(req, res, body, apiKey) {
   res.status(200).json({ stop_reason: data.stop_reason, content: data.content || [] });
 }
 
+// The Lichess masters explorer for a signed-in player: the request carries only the
+// position, and the account's Lichess token is added here, so it never reaches the
+// browser. Guests query Lichess directly with their device-only token.
+const EXPLORER_URL = 'https://explorer.lichess.ovh/masters';
+const FEN_RE = /^[A-Za-z0-9/ -]{10,100}$/;
+async function handleExplorer(req, res, body) {
+  if (typeof body.fen !== 'string' || !FEN_RE.test(body.fen)) {
+    res.status(400).json({ error: 'bad_request', message: 'Missing position.' });
+    return;
+  }
+  const token = await requestKey(req, res, {}, 'lichess', 'token');
+  if (!token) return;
+  const upstream = await fetch(`${EXPLORER_URL}?fen=${encodeURIComponent(body.fen)}&moves=12&topGames=0`, {
+    signal: AbortSignal.timeout(12000),
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+  });
+  if (!upstream.ok) {
+    res.status(502).json({ error: 'upstream_error', status: upstream.status });
+    return;
+  }
+  res.status(200).json(await upstream.json());
+}
+
 export default async function handler(req, res) {
-  if (req.method === 'POST' && !await guardRequest(req, res, { bucket: 'ai', limit: 30 })) return;
+  const explorer = req.body && typeof req.body === 'object' && req.body.mode === 'explorer';
+  if (req.method === 'POST' && !await guardRequest(req, res, explorer ? { bucket: 'explorer', limit: 60 } : { bucket: 'ai', limit: 30 })) return;
   res.setHeader('Cache-Control', 'no-store');
   applyCors(req, res);
 
@@ -285,14 +311,13 @@ export default async function handler(req, res) {
 
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
-    const apiKey = body.apiKey;
-
-    if (!apiKey || typeof apiKey !== 'string') {
-      // 401 (not 500) so the client knows to prompt for a key and use the
-      // local templated fallback instead.
-      res.status(401).json({ error: 'missing_api_key', message: 'No API key provided.' });
+    if (body.mode === 'explorer') {
+      await handleExplorer(req, res, body);
       return;
     }
+    // A guest's key is in the body; a signed-in player's is read from the account.
+    const apiKey = await requestKey(req, res, body, 'anthropic', 'apiKey');
+    if (!apiKey) return;
 
     // Threaded Q&A path (tool-use) vs. the original single-shot commentary path.
     if (body.mode === 'thread') {

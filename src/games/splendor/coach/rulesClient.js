@@ -1,6 +1,9 @@
 // Client for the Splendor rules assistant (api/splendorRules.js). Manages the
-// bring-your-own Anthropic API key (browser-only, localStorage) and sends the
+// bring-your-own Anthropic API key (a guest's in localStorage; a signed-in
+// account's held on the server, see src/accountKeys.js) and sends the
 // running conversation plus the current game context for grounded answers.
+
+import { accountKeys, ACCOUNT_REQUEST_HEADERS } from '../../../accountKeys.js';
 
 // One Anthropic key is shared across the whole app (chess coach + Catan rules
 // chat + this one), so a key saved in any game is reused by the others. Legacy
@@ -40,23 +43,25 @@ export function setApiKey(key) {
   }
 }
 
+// A key on this device (guests), or one held on the signed-in account, which the
+// server adds to each request so it never reaches the browser.
 export function hasApiKey() {
-  return !!getApiKey();
+  return !!getApiKey() || accountKeys().anthropic;
 }
 
 // messages: [{ role: 'user' | 'assistant', content: string }] — the full thread,
 // including the latest user question. Returns { answer } or { error, message }.
 export async function askRules({ context, messages }) {
   const apiKey = getApiKey();
-  if (!apiKey) {
+  if (!apiKey && !accountKeys().anthropic) {
     return { error: 'no_key', message: 'Add your Anthropic API key to ask about the rules.' };
   }
   let res;
   try {
     res = await fetch(`${process.env.PUBLIC_URL || ''}/api/splendorRules`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ context, messages, apiKey }),
+      headers: ACCOUNT_REQUEST_HEADERS,
+      body: JSON.stringify({ context, messages, ...(apiKey ? { apiKey } : {}) }),
     });
   } catch (_) {
     return { error: 'network', message: 'Could not reach the rules assistant. Check your connection.' };
