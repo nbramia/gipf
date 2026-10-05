@@ -5,7 +5,7 @@ import { CARDS, NOBLES, GEMS } from '../splendorCards.js';
 // ---------------------------------------------------------------------------
 // Tactical benchmark positions. Each sets up a position with an unambiguous
 // best line and asserts the search finds it. These prove competence and guard
-// against regressions as the engine/heuristic/NN evolve (see docs/splendor-ai-plan.md).
+// against regressions as the engine/heuristic/NN evolve.
 // ---------------------------------------------------------------------------
 
 function freshPlayPosition(seed = 1) {

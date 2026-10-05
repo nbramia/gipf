@@ -1,4 +1,4 @@
-// repertoire.js — a lightweight opening repertoire (docs/chess-ux-review.md).
+// repertoire.js — a lightweight opening repertoire.
 //
 // Opening support elsewhere in the coach (openings.js) is purely reactive: it
 // names whatever opening the game happens to reach, after the fact. Serious

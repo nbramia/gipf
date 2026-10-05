@@ -1,4 +1,4 @@
-// puzzles.js — tiered tactics puzzles + a sound, solver-based checker (#18).
+// puzzles.js — tiered tactics puzzles + a sound, solver-based checker.
 //
 // The bank has two kinds of puzzle:
 //  - forced MATE puzzles (mateIn = 1, 2, or 3), checked by evaluatePuzzleMove
@@ -18,13 +18,13 @@
 //    puzzles.test.js re-verifies that invariant on every run.
 //
 // Because correctness is decided by a solver either way, the feedback can
-// never be wrong (the #22 truthfulness principle).
+// never be wrong (the coach's truthfulness principle).
 
 import { Chess } from 'chess.js';
 import { searchMate } from './mateSolver.js';
 
 // Difficulty tier (from the game's selector) -> which mate length to train.
-// Kept for tier-based entry; the adaptive trainer (#24) orders the whole bank
+// Kept for tier-based entry; the adaptive trainer orders the whole bank
 // by the player's puzzle rating instead (coach/puzzleProgress.js).
 export const DIFFICULTY_TO_MATE_IN = {
   beginner: 1,
@@ -74,7 +74,7 @@ export const PUZZLES = [
   { id: 'm1-epaulette', mateIn: 1, rating: 900, solution: ['g3g6'], fen: '5rkr/8/8/8/8/6Q1/8/6K1 w - - 0 1', theme: 'Epaulette mate', hint: 'His own rooks block the escape — strike down the file.' },
   { id: 'm1-boden', mateIn: 1, rating: 950, solution: ['f1a6'], fen: '2kr4/3p4/8/8/5B2/8/8/2K2B2 w - - 0 1', theme: "Boden's mate", hint: 'Criss-crossing bishops; the king is blocked by his own pieces.' },
   // Additional mate-in-1 (generated + solver-verified offline): splits the
-  // beginner/casual pool so the two tiers no longer share every puzzle.
+  // beginner/casual pool so the two tiers do not share every puzzle.
   { id: 'm1-queen-edge-a', mateIn: 1, rating: 520, solution: ['d1a1'], fen: '8/8/8/8/k1K5/8/8/3Q4 w - - 0 1', theme: 'Queen & king (edge)', hint: 'The king is boxed against the side of the board.' },
   { id: 'm1-queen-corner-a', mateIn: 1, rating: 800, solution: ['a8g2'], fen: 'Q7/8/8/8/8/6K1/8/7k w - - 0 1', theme: 'Queen corner mate', hint: 'Swing the queen onto the long diagonal.' },
   { id: 'm1-queen-edge-b', mateIn: 1, rating: 580, solution: ['h4a4'], fen: 'k1K5/8/8/8/7Q/8/8/8 w - - 0 1', theme: 'Queen edge mate', hint: 'The queen slides all the way across the rank.' },
@@ -161,8 +161,7 @@ export function getPuzzle(id) {
   return PUZZLES.find((p) => p.id === id) || null;
 }
 
-// Canonical label for a puzzle's theme, for the user-facing theme filter
-// (docs/chess-ux-review.md #5, "no theme filter for puzzles"). Tactical
+// Canonical label for a puzzle's theme, for the user-facing theme filter. Tactical
 // puzzles store a lowercase, single-motif `theme` (see `themes`); mate
 // puzzles use display-ready but ad-hoc strings, and some of those name the
 // same motif the tactical bank calls 'back-rank' ('Back-rank mate', 'Queen
@@ -255,7 +254,7 @@ export function budgetPliesFor(mateIn) {
 }
 
 // Evaluate a player's attempt against a scripted UCI solution (Lichess-style
-// puzzles, #24, and this bank's non-mate tactics). Lichess solutions are
+// puzzles and this bank's non-mate tactics). Lichess solutions are
 // validated "only moves": the exact solution move is required, except any
 // checkmate always wins (their mate-in-1 convention). The opponent's replies
 // come from the script, not a solver.
