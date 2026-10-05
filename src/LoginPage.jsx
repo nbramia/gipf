@@ -215,7 +215,7 @@ export default function LoginPage() {
     <main className="landing-page">
       <div className="landing-shell login-shell">
         {back}
-        <h1 className="login-title">{account ? 'Your account' : 'Sign in'}</h1>
+        <h1 className="login-title">{account ? 'Your account' : creatingAccount ? 'Create account' : 'Sign in'}</h1>
         {account ? (
           <section className="login-section" aria-label="Account">
             {confirmingSignOut ? (
@@ -241,7 +241,6 @@ export default function LoginPage() {
           <section className="login-section" aria-label="Sign in or create an account">
             <p className="landing-help">Optional. Every game can be played as a guest. An account carries your keys and progress between devices.</p>
             <form className="landing-form" onSubmit={submitAccount}>
-              <h2 className="landing-form-title">{creatingAccount ? 'Create account' : 'Sign in'}</h2>
               <div className="landing-fields">
                 <label htmlFor="landing-username">Username</label>
                 <input ref={usernameRef} id="landing-username" autoComplete="username" type="text" value={username}
