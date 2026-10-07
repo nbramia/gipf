@@ -20,6 +20,8 @@ jest.mock('react-chessboard', () => ({
 }));
 
 import ChessGame from './ChessGame';
+import ChessBoard from './ChessBoard';
+import { encodeBoard } from './matchSnapshot';
 
 describe('ChessGame — render smoke', () => {
   test('mounts without throwing and renders the board + key controls', () => {
@@ -161,5 +163,128 @@ describe('ChessGame — PGN import and clock behavior', () => {
     fireEvent.change(select, { target: { value: '3+2' } });
     expect(utils.queryByLabelText('White clock')).toBeNull();
     expect(localStorage.getItem('chessTimeControl')).toBe('3+2');
+  });
+});
+
+describe('ChessGame — automatic draw wording', () => {
+  const mount = () => render(<MemoryRouter><ChessGame /></MemoryRouter>);
+  const importAndChoose = async (utils, text) => {
+    const input = utils.container.querySelector('input[type="file"]');
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [new File([text], 'g.pgn', { type: 'text/plain' })] } });
+    });
+    const dialog = await utils.findByRole('dialog');
+    await act(async () => {
+      fireEvent.click(Array.from(dialog.querySelectorAll('button')).find((b) => b.textContent.startsWith('White')));
+    });
+  };
+  beforeEach(() => localStorage.clear());
+
+  test('threefold repetition says it was claimed automatically', async () => {
+    const utils = mount();
+    await importAndChoose(utils, '1. Nf3 Nf6 2. Ng1 Ng8 3. Nf3 Nf6 4. Ng1 Ng8 *');
+    expect(utils.container.textContent).toContain('Draw by threefold repetition (claimed automatically)');
+  });
+
+  test('the fifty-move rule says it was claimed automatically', async () => {
+    const utils = mount();
+    await importAndChoose(utils, '[SetUp "1"]\n[FEN "7k/8/8/8/8/8/R7/K7 w - - 99 51"]\n\n51. Ra3 *');
+    expect(utils.container.textContent).toContain('Draw by the 50-move rule (claimed automatically)');
+  });
+
+  test('stalemate keeps its own wording', async () => {
+    const utils = mount();
+    await importAndChoose(utils, '[SetUp "1"]\n[FEN "7k/8/5QK1/8/8/8/8/8 w - - 0 1"]\n\n1. Qf7 *');
+    expect(utils.container.textContent).toContain('Draw — stalemate');
+  });
+});
+
+describe('ChessGame — abandoning a rated game', () => {
+  const seed = (pgn, humanColor) => {
+    const board = new ChessBoard();
+    board.loadPgn(pgn);
+    localStorage.setItem('chessMatch:v1', JSON.stringify({
+      v: 1, game: 'chess', id: 'rated', updatedAt: 1, state: encodeBoard(board),
+      ui: { humanColor, rated: true, timeControl: 'off' },
+    }));
+  };
+  const mount = () => render(<MemoryRouter><ChessGame /></MemoryRouter>);
+  const click = async (utils, name) => {
+    await act(async () => { fireEvent.click(utils.getByRole('button', { name })); });
+  };
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem('chessIntroSeen', 'true');
+  });
+
+  test('before both sides have moved, a new rated game is free', async () => {
+    seed('1. e4', 'b'); // the engine opened; the human has not moved yet
+    const utils = mount();
+    await click(utils, 'New Rated Game');
+    expect(utils.queryByRole('dialog')).toBeNull();
+    expect(localStorage.getItem('chessRatedGames')).not.toBe('1');
+  });
+
+  test('after both sides have moved, it asks and books a loss like Resign', async () => {
+    seed('1. e4 e5', 'w');
+    const utils = mount();
+    await click(utils, 'New Rated Game');
+    const dialog = await utils.findByRole('dialog');
+    expect(dialog.textContent).toMatch(/loss/);
+    await click(utils, 'Forfeit and continue');
+    expect(utils.queryByRole('dialog')).toBeNull();
+    expect(JSON.parse(localStorage.getItem('chessRating'))).toBeLessThan(1000);
+    expect(localStorage.getItem('chessRatedGames')).toBe('1');
+    expect(localStorage.getItem('chessOppHistory')).toBeTruthy();
+    expect(utils.container.textContent).toContain('No moves yet.');
+  });
+
+  test('cancelling the prompt keeps the game and the rating', async () => {
+    seed('1. e4 e5', 'w');
+    const utils = mount();
+    await click(utils, 'New Rated Game');
+    await click(utils, 'Cancel');
+    expect(localStorage.getItem('chessRatedGames')).not.toBe('1');
+    expect(utils.container.textContent).not.toContain('No moves yet.');
+  });
+
+  test('a resigned game is not scored again by New Rated Game', async () => {
+    seed('1. e4 e5', 'w');
+    const utils = mount();
+    await click(utils, 'Resign');
+    await act(async () => { fireEvent.click(utils.getAllByRole('button', { name: 'Resign' }).pop()); });
+    expect(localStorage.getItem('chessRatedGames')).toBe('1');
+    const afterResign = localStorage.getItem('chessRating');
+    await click(utils, 'New Rated Game');
+    expect(utils.queryByRole('dialog')).toBeNull();
+    expect(localStorage.getItem('chessRatedGames')).toBe('1');
+    expect(localStorage.getItem('chessRating')).toBe(afterResign);
+  });
+});
+
+describe('ChessGame — Game panel tabs', () => {
+  const mount = () => render(<MemoryRouter><ChessGame /></MemoryRouter>);
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem('chessIntroSeen', 'true');
+  });
+
+  test('Play holds strength, clock and colour; Train holds puzzle and mistake filters', async () => {
+    const utils = mount();
+    expect(utils.getByRole('tab', { name: 'Play' }).getAttribute('aria-selected')).toBe('true');
+    expect(utils.container.textContent).toContain('Difficulty');
+    expect(utils.container.textContent).not.toContain('Puzzle themes');
+    await act(async () => { fireEvent.click(utils.getByRole('tab', { name: 'Train' })); });
+    expect(utils.container.textContent).toContain('Puzzle themes');
+    expect(utils.container.textContent).not.toContain('Picking a colour starts a new game');
+    expect(localStorage.getItem('chessGameTab')).toBe('train');
+  });
+
+  test('the Train tab stays locked in rated mode', async () => {
+    localStorage.setItem('chessRated', 'true');
+    localStorage.setItem('chessGameTab', 'train');
+    const utils = mount();
+    expect(utils.container.textContent).toContain('off during rated games');
+    expect(utils.container.textContent).not.toContain('Puzzle themes');
   });
 });

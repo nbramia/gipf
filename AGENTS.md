@@ -514,6 +514,7 @@ chessRepertoire,                           # Openings the player intends to play
 chessTimeControl,                          # Optional clock: off | 3+2 | 5+0 | 10+0 | 15+10
 chessPuzzleShowTheme,                      # Opt in to seeing the puzzle theme/mate-in-N before solving
 chessIntroSeen, chessKeyNudgeDismissed     # One-time onboarding banner + BYO-key nudge dismissals
+chessGameTab                               # Game panel tab: play | train
 ```
 
 **Catan:**
