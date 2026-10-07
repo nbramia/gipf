@@ -5,19 +5,16 @@
 
 import React from 'react';
 
-// Recursive inline parser: `code` (literal), ***both***, **bold** / __bold__,
-// *italic*. Emphasis nests; an unclosed marker stays literal text.
-function loneStar(text, from) {
-  for (let j = from; j < text.length; j += 1) {
-    if (text[j] === '*' && text[j - 1] !== '*' && text[j + 1] !== '*' && !/\s/.test(text[j - 1] || ' ')) return j;
-  }
-  return -1;
-}
-
-function inline(text, keyBase) {
+// Recursive inline parser: `code` (literal), ***both*** / ___both___,
+// **bold** / __bold__, *italic*. Emphasis nests. A closer is the first
+// delimiter whose inner text parses cleanly (no stray emphasis marker left
+// over), so adjacent closing runs such as `**A *x***` split innermost-first.
+// An unclosed marker stays literal text.
+function parseInline(text, keyBase) {
   const out = [];
   let buf = '';
   let n = 0;
+  let dangling = false;
   const flush = () => {
     if (buf) out.push(buf);
     buf = '';
@@ -27,31 +24,65 @@ function inline(text, keyBase) {
     out.push(node);
     n += 1;
   };
+  // First closer for `delim` at/after `from` whose inner text is non-empty,
+  // doesn't end in whitespace and parses with no dangling marker.
+  const findClose = (delim, from, key) => {
+    for (let j = text.indexOf(delim, from + 1); j !== -1; j = text.indexOf(delim, j + 1)) {
+      if (/\s/.test(text[j - 1])) continue;
+      const inner = parseInline(text.slice(from, j), key);
+      if (!inner.dangling) return { j, nodes: inner.nodes };
+    }
+    return null;
+  };
   let i = 0;
   while (i < text.length) {
-    const rest = text.slice(i);
     const key = `${keyBase}-${n}`;
-    let close;
-    if (rest[0] === '`' && (close = text.indexOf('`', i + 1)) > i + 1) {
-      push(<code key={key}>{text.slice(i + 1, close)}</code>);
-      i = close + 1;
-    } else if (rest.startsWith('***') && (close = text.indexOf('***', i + 3)) > i + 3) {
-      push(<strong key={key}><em>{inline(text.slice(i + 3, close), key)}</em></strong>);
-      i = close + 3;
-    } else if ((rest.startsWith('**') || rest.startsWith('__')) && (close = text.indexOf(rest.slice(0, 2), i + 2)) > i + 2) {
-      push(<strong key={key}>{inline(text.slice(i + 2, close), key)}</strong>);
-      i = close + 2;
-    } else if (rest[0] === '*' && rest[1] && !/[\s*]/.test(rest[1]) && (close = loneStar(text, i + 2)) > 0) {
-      push(<em key={key}>{inline(text.slice(i + 1, close), key)}</em>);
-      i = close + 1;
-    } else {
-      buf += text[i];
-      i += 1;
+    const c = text[i];
+    let m = null;
+    if (c === '`') {
+      const close = text.indexOf('`', i + 1);
+      if (close > i + 1) {
+        push(<code key={key}>{text.slice(i + 1, close)}</code>);
+        i = close + 1;
+        continue;
+      }
     }
+    if (text.startsWith('***', i) || text.startsWith('___', i)) {
+      m = findClose(text.slice(i, i + 3), i + 3, key);
+      if (m) {
+        push(<strong key={key}><em>{m.nodes}</em></strong>);
+        i = m.j + 3;
+        continue;
+      }
+    }
+    if (text.startsWith('**', i) || text.startsWith('__', i)) {
+      m = findClose(text.slice(i, i + 2), i + 2, key);
+      if (m) {
+        push(<strong key={key}>{m.nodes}</strong>);
+        i = m.j + 2;
+        continue;
+      }
+    }
+    if (c === '*' && text[i + 1] && !/[\s*]/.test(text[i + 1])) {
+      m = findClose('*', i + 1, key);
+      if (m) {
+        push(<em key={key}>{m.nodes}</em>);
+        i = m.j + 1;
+        continue;
+      }
+    }
+    // A leftover marker char that isn't plain spaced text (e.g. "2 * 3").
+    if ((c === '*' || c === '_') && !(/\s/.test(text[i - 1] || '') && /\s/.test(text[i + 1] || ''))) {
+      if (c === '*' || text[i + 1] === '_' || text[i - 1] === '_') dangling = true;
+    }
+    buf += c;
+    i += 1;
   }
   flush();
-  return out;
+  return { nodes: out, dangling };
 }
+
+const inline = (text, keyBase) => parseInline(text, keyBase).nodes;
 
 const BULLET = /^\s*[-*•]\s+(.*)$/;
 const NUMBERED = /^\s*\d+[.)]\s+(.*)$/;

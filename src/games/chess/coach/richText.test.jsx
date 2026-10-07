@@ -46,6 +46,13 @@ describe('CoachText', () => {
     expect(html('*a **b** c*')).toContain('<strong>b</strong>');
   });
 
+  test('adjacent closing runs split innermost-first', () => {
+    expect(html('**A *strong move***')).toBe('<div><strong>A <em>strong move</em></strong></div>');
+    expect(html('*A **strong move***')).toBe('<div><em>A <strong>strong move</strong></em></div>');
+    expect(html('__A *strong move*__')).toBe('<div><strong>A <em>strong move</em></strong></div>');
+    expect(html('___x___')).toBe('<div><strong><em>x</em></strong></div>');
+  });
+
   test('HTML inside nested emphasis stays text', () => {
     const { container } = render(<CoachText text={'**a *<img src=x onerror=1>* b**'} />);
     expect(container.querySelector('img')).toBeNull();
