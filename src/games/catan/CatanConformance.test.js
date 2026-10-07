@@ -598,6 +598,22 @@ describe('No live round cap', () => {
     expect(board.winner).toBe(null);
   });
 
+  test('the cap is only the configured limit, not a fixed 100 rounds', () => {
+    CatanBoard.roundLimit = 200;
+    try {
+      const board = new CatanBoard({ seed: 80, skipInitialHistory: true });
+      board.firstPlayer = 1;
+      board.primaryTurnPlayer = 1;
+      board.currentPlayer = 1;
+      endRounds(board, 105);
+      expect(board.phase).toBe('roll');
+      endRounds(board, 100);
+      expect(board.phase).toBe('game-over');
+    } finally {
+      CatanBoard.roundLimit = null;
+    }
+  });
+
   test('the opt-in simulation cap still ends the game for the VP leader', () => {
     CatanBoard.roundLimit = 100;
     try {

@@ -655,6 +655,10 @@
 }
 
 .game-catan .catan-port-group {
+  pointer-events: auto;
+}
+
+.game-catan .catan-port-pier {
   pointer-events: none;
 }
 
@@ -1251,4 +1255,38 @@
 
 .game-catan .catan-rules-keylink:hover {
   color: var(--color-accent);
+}
+
+/* ========== Phone turn-control strip ========== */
+
+.game-catan .catan-mobile-strip {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px calc(8px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--color-border-panel);
+  background: var(--color-bg-panel);
+  box-shadow: 0 -6px 18px rgba(40, 28, 14, 0.14);
+}
+
+.game-catan .catan-mobile-strip .catan-primary-btn,
+.game-catan .catan-mobile-strip .catan-tool-btn {
+  min-height: 44px;
+}
+
+.game-catan .catan-mobile-strip-note {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+@media (min-width: 1024px) {
+  .game-catan .catan-mobile-strip {
+    display: none;
+  }
 }

@@ -647,22 +647,24 @@ function CatanGame() {
   // Targets the human can act on right now. These drive pointer and keyboard
   // activation; "Show Legal Moves" only controls whether they are highlighted.
   const freeRoadPending = isHumanTurn && board.freeRoadsRemaining > 0 && (board.phase === 'roll' || board.phase === 'action');
+  // Building is open in the normal action phase and the 5-6 player Special Building Phase.
+  const buildPhase = board.phase === 'action' || board.phase === 'paired-action';
   const actionableVertices = useMemo(() => {
     if (!isHumanTurn) return [];
     if (board.phase === 'setup-settlement') return board.getValidSettlementVertices(HUMAN_PLAYER, true);
-    if (board.phase !== 'action') return [];
+    if (!buildPhase) return [];
     if (selectedAction === 'settlement') return board.getValidSettlementVertices(HUMAN_PLAYER, false);
     if (selectedAction === 'city') return board.getValidCityVertices(HUMAN_PLAYER);
     return [];
-  }, [board, isHumanTurn, selectedAction]);
+  }, [board, buildPhase, isHumanTurn, selectedAction]);
 
   const actionableEdges = useMemo(() => {
     if (!isHumanTurn) return [];
     if (board.phase === 'setup-road') return board.getValidSetupRoadEdges(board.pendingSetupSettlement, HUMAN_PLAYER);
     if (freeRoadPending) return board.getValidRoadEdges(HUMAN_PLAYER, true);
-    if (board.phase === 'action' && selectedAction === 'road') return board.getValidRoadEdges(HUMAN_PLAYER, false);
+    if (buildPhase && selectedAction === 'road') return board.getValidRoadEdges(HUMAN_PLAYER, false);
     return [];
-  }, [board, freeRoadPending, isHumanTurn, selectedAction]);
+  }, [board, buildPhase, freeRoadPending, isHumanTurn, selectedAction]);
 
   const actionableTiles = useMemo(() => {
     if (!isHumanTurn || board.phase !== 'robber') return [];
@@ -819,6 +821,33 @@ function CatanGame() {
         )}
         {note && <p className="text-xs leading-relaxed" style={{ color: 'var(--color-text-muted)' }}>{note}</p>}
       </>
+    );
+  };
+
+  // Phone-only bar pinned to the bottom: the primary turn controls stay
+  // reachable while the board is on screen.
+  const renderMobileStrip = () => {
+    if (!isHumanTurn || !['roll', 'action', 'paired-action'].includes(board.phase)) return null;
+    const types = new Set(board.getLegalMoves().map(move => move.type));
+    const mode = ACTIONS.find(action => action.id === selectedAction);
+    return (
+      <div className="catan-mobile-strip" role="region" aria-label="Turn controls">
+        {freeRoadPending && (
+          <span className="catan-mobile-strip-note">
+            {board.freeRoadsRemaining === 1 ? '1 free road left' : `${board.freeRoadsRemaining} free roads left`}
+          </span>
+        )}
+        {mode && (
+          <button className="catan-tool-btn" onClick={() => setSelectedAction(null)}>Cancel {mode.label}</button>
+        )}
+        {board.phase === 'roll' ? (
+          <button className="catan-primary-btn flex-1" disabled={!types.has('roll')} onClick={() => applyMove({ type: 'roll' })}>Roll Dice</button>
+        ) : (
+          <button className="catan-primary-btn flex-1" disabled={!types.has('end-turn')} onClick={() => applyMove({ type: 'end-turn' })}>
+            {board.phase === 'paired-action' ? 'Finish Special Build' : 'End Turn'}
+          </button>
+        )}
+      </div>
     );
   };
 
@@ -1392,7 +1421,13 @@ function CatanGame() {
               className={`catan-road ${isValid ? 'valid' : ''} ${isLast ? 'last' : ''}`}
               style={{ stroke: edge.owner ? board.players[edge.owner].color : undefined }}
             />
-            {edge.port && (() => {
+          </g>
+        );
+      })}
+
+      {/* Harbors are their own layer so they stay inspectable regardless of road actionability. */}
+      {Object.values(board.edges).filter(edge => edge.port).map(edge => {
+        const [a, b] = edge.vertices.map(vertexId => screenPoint(board.vertices[vertexId]));
               const mx = (a.x + b.x) / 2;
               const my = (a.y + b.y) / 2;
               const dirX = mx - BOARD_VIEWBOX.width / 2;
@@ -1403,6 +1438,7 @@ function CatanGame() {
               const isAny = edge.port === 'any';
               const portName = isAny ? 'Any resource, 3:1 harbor' : `${RESOURCE_LABELS[edge.port]}, 2:1 harbor`;
               return (
+                <React.Fragment key={`port-${edge.id}`}>
                 <g className="catan-port-group" role="img" aria-label={portName}>
                   <title>{portName}</title>
                   <line x1={a.x} y1={a.y} x2={bx} y2={by} className="catan-port-pier" />
@@ -1431,10 +1467,9 @@ function CatanGame() {
                     </text>
                   </g>
                 </g>
+                </React.Fragment>
               );
-            })()}
-          </g>
-        );
+
       })}
 
       {Object.values(board.vertices).map(vertex => {
@@ -1815,7 +1850,7 @@ function CatanGame() {
         </Dialog>
       )}
 
-      <div className="mx-auto flex min-h-screen w-full max-w-[1500px] flex-col gap-3 px-4 py-3 lg:flex-row lg:gap-4 lg:px-6 lg:py-4">
+      <div className="mx-auto flex min-h-screen w-full max-w-[1500px] flex-col gap-3 px-4 pb-24 pt-3 lg:flex-row lg:gap-4 lg:px-6 lg:py-4">
         <div className="contents lg:order-1 lg:flex lg:w-[330px] lg:flex-col lg:gap-3">
           <div className="catan-panel order-1 p-3 lg:p-4">
             <div className="flex items-center justify-between gap-3">
@@ -2014,6 +2049,7 @@ function CatanGame() {
           </div>
         </div>
       </div>
+      {renderMobileStrip()}
     </div>
   );
 }
