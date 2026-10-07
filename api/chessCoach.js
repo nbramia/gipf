@@ -18,6 +18,29 @@ export const config = { api: { bodyParser: { sizeLimit: '32kb' } } };
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001'; // fast + inexpensive for per-move use
 
+// Whole-request deadline: vercel.json gives this function MAX_DURATION_MS. The
+// upstream call gets whatever is left after the guard / key lookup that already
+// ran, minus a margin so we can still answer before the platform kills us.
+const MAX_DURATION_MS = 20000; // keep in sync with vercel.json
+const DEADLINE_MARGIN_MS = 1500;
+const MIN_UPSTREAM_MS = 3000;
+export function upstreamTimeoutMs(startedAt, now = Date.now()) {
+  return Math.max(MIN_UPSTREAM_MS, MAX_DURATION_MS - DEADLINE_MARGIN_MS - (now - startedAt));
+}
+function upstreamSignal(startedAt) {
+  return AbortSignal.timeout(upstreamTimeoutMs(startedAt));
+}
+
+const TIMEOUT_CODES = new Set(['UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT']);
+// True for an aborted / timed-out upstream call, including fetch's TypeError
+// wrapper whose cause is the real timeout.
+export function isTimeoutError(err, depth = 0) {
+  if (!err || typeof err !== 'object' || depth > 3) return false;
+  if (err.name === 'TimeoutError' || err.name === 'AbortError') return true;
+  if (typeof err.code === 'string' && TIMEOUT_CODES.has(err.code)) return true;
+  return isTimeoutError(err.cause, depth + 1);
+}
+
 // Shared house style + legality rules for every coach reply.
 const STYLE_RULES =
   'Write plain text with no markdown (no asterisks, no headings, no bullet syntax). ' +
@@ -246,6 +269,13 @@ export function buildThreadSystem(context) {
   const legalAfter = cleanSanList(c.legalMovesAfter);
   if (legalBefore.length) facts.push(`Legal moves before the move: ${legalBefore.join(' ')}`);
   if (legalAfter.length) facts.push(`Legal moves after the move: ${legalAfter.join(' ')}`);
+  const nextMoves = cleanSanList(c.movedPieceNextMoves);
+  if (nextMoves.length) {
+    facts.push(
+      `If the side that just moved were to move again, the moved piece could go: ${nextMoves.join(' ')}. ` +
+        'Use this for "where can it retreat / go next" questions; never name a destination not listed.'
+    );
+  }
   if (c.classification) facts.push(`Engine classification: ${c.classification}`);
   if (c.evalBefore) facts.push(`Eval before (White POV): ${c.evalBefore}`);
   if (c.evalAfter) facts.push(`Eval after (White POV): ${c.evalAfter}`);
@@ -274,7 +304,7 @@ export function buildThreadSystem(context) {
   );
 }
 
-async function handleThread(req, res, body, apiKey) {
+async function handleThread(req, res, body, apiKey, startedAt) {
   const messages = Array.isArray(body.messages) ? body.messages : null;
   if (!messages || messages.length === 0) {
     res.status(400).json({ error: 'bad_request', message: 'Missing conversation messages.' });
@@ -286,7 +316,7 @@ async function handleThread(req, res, body, apiKey) {
   ];
 
   const upstream = await fetch(ANTHROPIC_URL, {
-    signal: AbortSignal.timeout(12000),
+    signal: upstreamSignal(startedAt),
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -325,7 +355,7 @@ async function handleThread(req, res, body, apiKey) {
 // browser. Guests query Lichess directly with their device-only token.
 const EXPLORER_URL = 'https://explorer.lichess.ovh/masters';
 const FEN_RE = /^[A-Za-z0-9/ -]{10,100}$/;
-async function handleExplorer(req, res, body) {
+async function handleExplorer(req, res, body, startedAt) {
   if (typeof body.fen !== 'string' || !FEN_RE.test(body.fen)) {
     res.status(400).json({ error: 'bad_request', message: 'Missing position.' });
     return;
@@ -333,7 +363,7 @@ async function handleExplorer(req, res, body) {
   const token = await requestKey(req, res, {}, 'lichess', 'token');
   if (!token) return;
   const upstream = await fetch(`${EXPLORER_URL}?fen=${encodeURIComponent(body.fen)}&moves=12&topGames=0`, {
-    signal: AbortSignal.timeout(12000),
+    signal: upstreamSignal(startedAt),
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
   });
   if (!upstream.ok) {
@@ -344,6 +374,7 @@ async function handleExplorer(req, res, body) {
 }
 
 export default async function handler(req, res) {
+  const startedAt = Date.now();
   const explorer = req.body && typeof req.body === 'object' && req.body.mode === 'explorer';
   if (req.method === 'POST' && !await guardRequest(req, res, explorer ? { bucket: 'explorer', limit: 60 } : { bucket: 'ai', limit: 30 })) return;
   res.setHeader('Cache-Control', 'no-store');
@@ -361,7 +392,7 @@ export default async function handler(req, res) {
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
     if (body.mode === 'explorer') {
-      await handleExplorer(req, res, body);
+      await handleExplorer(req, res, body, startedAt);
       return;
     }
     // A guest's key is in the body; a signed-in player's is read from the account.
@@ -370,7 +401,7 @@ export default async function handler(req, res) {
 
     // Threaded Q&A path (tool-use) vs. the original single-shot commentary path.
     if (body.mode === 'thread') {
-      await handleThread(req, res, body, apiKey);
+      await handleThread(req, res, body, apiKey, startedAt);
       return;
     }
 
@@ -382,7 +413,7 @@ export default async function handler(req, res) {
     const prompt = buildPrompt(body);
 
     const upstream = await fetch(ANTHROPIC_URL, {
-    signal: AbortSignal.timeout(12000),
+    signal: upstreamSignal(startedAt),
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -423,6 +454,10 @@ export default async function handler(req, res) {
   } catch (err) {
     // Never include the request body (which holds the key) in error output.
     applyCors(req, res);
+    if (isTimeoutError(err)) {
+      res.status(504).json({ error: 'upstream_timeout', message: 'The model took too long to respond.' });
+      return;
+    }
     res.status(500).json({ error: 'server_error', message: 'Failed to generate commentary.' });
   }
 }
