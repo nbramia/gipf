@@ -34,7 +34,7 @@ async function playGame(index) {
   for (let seat = 1; seat <= PLAYERS; seat++) {
     assign[seat] = (seat - 1 + offset) % 2 === 0 ? 'challenger' : 'champion';
   }
-  const board = new SplendorBoard({ seed: SEED + index, playerCount: PLAYERS, skipInitialHistory: true });
+  const board = new SplendorBoard({ seed: SEED + index, playerCount: PLAYERS, skipInitialHistory: true, maxTurns: 200 });
   board._skipHistory = true;
   const engines = {};
   for (let seat = 1; seat <= PLAYERS; seat++) engines[seat] = makeEngine(assign[seat]);

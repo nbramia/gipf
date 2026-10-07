@@ -88,7 +88,7 @@ async function main() {
       for (let g = 0; g < GAMES; g++) {
         const iSeat = (g % 2) + 1;            // alternate which seat engine i takes
         const jSeat = iSeat === 1 ? 2 : 1;
-        const board = new SplendorBoard({ seed: SEED + gameIx++, playerCount: PLAYERS, skipInitialHistory: true });
+        const board = new SplendorBoard({ seed: SEED + gameIx++, playerCount: PLAYERS, skipInitialHistory: true, maxTurns: 200 });
         board._skipHistory = true;
         const seatEngine = { [iSeat]: { e: ei, sims: engines[i].sims, idx: i }, [jSeat]: { e: ej, sims: engines[j].sims, idx: j } };
         // remaining seats (3-4p) get the lower-sim engine to fill, but ELO is only

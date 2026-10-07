@@ -110,8 +110,9 @@ function completesNoble(board, playerId, color) {
 
 function evaluatePosition(board, me) {
   if (board.phase === 'game-over') {
-    if (board.winner === me) return 1;
-    if (board.winner != null) return -1;
+    const winners = board.winners || [];
+    if (winners.length === 1) return winners[0] === me ? 1 : -1;
+    if (winners.length > 1) return winners.includes(me) ? 0 : -1; // shared victory ~ draw
     return 0;
   }
 
@@ -331,11 +332,17 @@ function heuristicValueVector(board, players) {
   return softmaxOverPlayers(raw, players, VALUE_TEMP);
 }
 
-function terminalValueVector(board, players) {
-  if (board.winner == null) return heuristicValueVector(board, players);
+// Win-probability vector for a finished game; a shared victory splits the win.
+function decidedValueVector(board, players) {
+  const winners = board.winners || [];
+  if (winners.length === 0) return null;
   const out = {};
-  for (const p of players) out[p] = board.winner === p ? 1 : 0;
+  for (const p of players) out[p] = winners.includes(p) ? 1 / winners.length : 0;
   return out;
+}
+
+function terminalValueVector(board, players) {
+  return decidedValueVector(board, players) || heuristicValueVector(board, players);
 }
 
 function heuristicPriors(board, moves, toMove) {
@@ -358,12 +365,7 @@ function rolloutValueVector(board, players, steps) {
     if (!move || !sim.applyMove(move)) break;
     i++;
   }
-  if (sim.phase === 'game-over' && sim.winner != null) {
-    const out = {};
-    for (const p of players) out[p] = sim.winner === p ? 1 : 0;
-    return out;
-  }
-  return heuristicValueVector(sim, players);
+  return (sim.phase === 'game-over' && decidedValueVector(sim, players)) || heuristicValueVector(sim, players);
 }
 
 class HeuristicEvaluator {

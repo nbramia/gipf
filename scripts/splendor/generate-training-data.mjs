@@ -70,7 +70,7 @@ async function main() {
   const start = Date.now();
 
   for (let game = 0; game < NUM_GAMES; game++) {
-    const board = new SplendorBoard({ seed: SEED_BASE + game, playerCount: PLAYERS, skipInitialHistory: true });
+    const board = new SplendorBoard({ seed: SEED_BASE + game, playerCount: PLAYERS, skipInitialHistory: true, maxTurns: 200 });
     board._skipHistory = true;
     const mcts = evaluator
       ? new MCTS({ maxChildren: 44, evaluator })
