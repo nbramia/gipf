@@ -9,7 +9,7 @@ import { accountKeys, ACCOUNT_REQUEST_HEADERS } from '../../../accountKeys.js';
 // chat), so a key saved in either game is reused by the other. Legacy per-game
 // keys are migrated into the shared slot on first read. (The chess client keeps
 // an identical copy of this logic — the games stay independent, no cross-import.)
-const KEY_STORAGE = 'gipfApiKey';
+const KEY_STORAGE = 'playApiKey';
 const LEGACY_KEYS = ['chessApiKey', 'catanApiKey'];
 
 export function getApiKey() {

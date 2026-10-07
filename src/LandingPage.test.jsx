@@ -40,7 +40,7 @@ test('signed out, offers a single Sign in link to /login and no credential input
 });
 
 test('signed in, names the account and links to account and keys', () => {
-  localStorage.setItem('gipfAccount', JSON.stringify({
+  localStorage.setItem('playAccount', JSON.stringify({
     v: 3, username: 'Synthetic', usernameId: 'a'.repeat(64), sid: 'b'.repeat(32),
   }));
   renderLanding();
@@ -75,24 +75,24 @@ describe('automatic sign-in from the ramia.us session', () => {
   });
 
   test('at most once per browser session, even after the ten-minute window', () => {
-    sessionStorage.setItem('gipf:silent-sign-in-home', '1');
+    sessionStorage.setItem('play:silent-sign-in-home', '1');
     renderLanding();
     expect(window.location.replace).not.toHaveBeenCalled();
   });
 
   test('not within ten minutes of another attempt (for example from /login)', () => {
-    localStorage.setItem('gipf:silent-sign-in-at', String(Date.now()));
+    localStorage.setItem('play:silent-sign-in-at', String(Date.now()));
     renderLanding();
     expect(window.location.replace).not.toHaveBeenCalled();
   });
 
   test('not after signing out of Games, and not when already signed in', () => {
-    localStorage.setItem('gipf:silent-sign-in-off', '1');
+    localStorage.setItem('play:silent-sign-in-off', '1');
     const { unmount } = renderLanding();
     expect(window.location.replace).not.toHaveBeenCalled();
     unmount();
-    localStorage.removeItem('gipf:silent-sign-in-off');
-    localStorage.setItem('gipfAccount', JSON.stringify({
+    localStorage.removeItem('play:silent-sign-in-off');
+    localStorage.setItem('playAccount', JSON.stringify({
       v: 3, username: 'Synthetic', usernameId: 'a'.repeat(64), sid: 'b'.repeat(32),
     }));
     renderLanding();

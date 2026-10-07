@@ -63,13 +63,13 @@ test('inventory covers all supported record kinds and six-game preferences witho
     chessOppHistory: '{"v":1,"casual":{},"rated":{}}',
     chessPuzzleProgress: '{"rating":1000,"attempts":0,"puzzles":{}}',
     chessMistakes: '[]', chessRepertoire: '{"version":1,"white":[],"black":[]}', chessGameLog: '[]',
-    gipfApiKey: 'synthetic-api-secret', chessLichessToken: 'synthetic-lichess-secret', unrelated: 'private',
+    playApiKey: 'synthetic-api-secret', chessLichessToken: 'synthetic-lichess-secret', unrelated: 'private',
   };
   Object.entries(values).forEach(([k,v]) => localStorage.setItem(k,v));
   const result = await exportProgress(origin);
   expect(result.issues).toEqual([]);
   expect(result.bundles[0].records).toHaveLength(11);
-  expect(JSON.stringify(result.bundles[0])).not.toMatch(/secret|private|gipfApiKey|chessLichessToken/);
+  expect(JSON.stringify(result.bundles[0])).not.toMatch(/secret|private|playApiKey|chessLichessToken/);
   localStorage.setItem('diplomacyGameState', '{"version":1}');
   expect((await exportProgress(origin)).issues[0]).toContain('diplomacyGameState');
 });
@@ -126,11 +126,11 @@ test('conflict preview, explicit choice, replay and atomic quota failure leave a
 test('captured identity and transition changes invalidate asynchronous import', async () => {
   const bundle = await exportFile();
   const guard = captureIdentity();
-  localStorage.setItem('gipfAccount', '{"synthetic":"other"}');
+  localStorage.setItem('playAccount', '{"synthetic":"other"}');
   await expect(stageImport(bundle, 'retain', guard)).rejects.toThrow('account_changed');
   localStorage.clear();
   const guard2 = captureIdentity();
-  localStorage.setItem('gipf:account-transition', JSON.stringify({ id:'synthetic', until: Date.now()+60000 }));
+  localStorage.setItem('play:account-transition', JSON.stringify({ id:'synthetic', until: Date.now()+60000 }));
   await expect(stageImport(bundle, 'retain', guard2)).rejects.toThrow('account_changed');
   expect(localStorage.getItem('gamesMigration:v1:guest')).toBeNull();
 });
@@ -159,7 +159,7 @@ const account = n => ({v:3,username:`Synthetic ${n}`,usernameId:String(n).repeat
 beforeAll(async () => { for (const n of [1,2,3,4,5,6,7,8,9]) await storeAccountKey(String(n).repeat(64),'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='); });
 test('active and encrypted alternatives are progress-only, deduplicated, recoverable and scoped', async () => {
   const session = account(1);
-  localStorage.setItem('gipfAccount',JSON.stringify(session));
+  localStorage.setItem('playAccount',JSON.stringify(session));
   const current = snapshot('chess',chess,new ChessBoard());
   const alternative = {...current,updatedAt:9,ui:{rated:true}};
   localStorage.setItem('chessMatch:v1',JSON.stringify(current));
@@ -167,10 +167,10 @@ test('active and encrypted alternatives are progress-only, deduplicated, recover
   localStorage.setItem('chessStatsRecovery:v1','["[]"]');
   const sealed = await encryptApiKey(session.aesKey,JSON.stringify({
     'chessMatch:v1':JSON.stringify(alternative),chessGameLog:'[]',
-    gipfApiKey:'synthetic-never-export',chessLichessToken:'synthetic-never-export',
+    playApiKey:'synthetic-never-export',chessLichessToken:'synthetic-never-export',
   }));
-  localStorage.setItem(`gipf:recovery:${session.usernameId}`,JSON.stringify(sealed));
-  localStorage.setItem(`gipf:recovery:${account(5).usernameId}`,'not this account');
+  localStorage.setItem(`play:recovery:${session.usernameId}`,JSON.stringify(sealed));
+  localStorage.setItem(`play:recovery:${account(5).usernameId}`,'not this account');
   const {bundles:[bundle],issues} = await exportProgress(origin);
   expect(bundle.records).toHaveLength(3);
   expect(issues).toHaveLength(2);
@@ -179,29 +179,29 @@ test('active and encrypted alternatives are progress-only, deduplicated, recover
   await stageImport(bundle,'retain');
   expect(localStorage.getItem(`gamesMigration:v1:${session.usernameId}`)).not.toContain('ramia-migration');
   expect(await readStages()).toEqual([bundle]);
-  localStorage.setItem('gipfAccount',JSON.stringify(account(5)));
+  localStorage.setItem('playAccount',JSON.stringify(account(5)));
   expect(await readStages()).toEqual([]);
-  localStorage.removeItem('gipfAccount');
+  localStorage.removeItem('playAccount');
   expect(await readStages()).toEqual([]);
 });
 
 test('excluded encrypted legacy/preferences content makes export explicitly incomplete', async () => {
   const session = account(1);
-  localStorage.setItem('gipfAccount',JSON.stringify(session));
-  const sealed = await encryptApiKey(session.aesKey,JSON.stringify({chessGameState:'{"v":1,"pgn":""}',chessDarkMode:'true',gipfApiKey:'do-not-copy'}));
-  localStorage.setItem(`gipf:recovery:${session.usernameId}`,JSON.stringify(sealed));
+  localStorage.setItem('playAccount',JSON.stringify(session));
+  const sealed = await encryptApiKey(session.aesKey,JSON.stringify({chessGameState:'{"v":1,"pgn":""}',chessDarkMode:'true',playApiKey:'do-not-copy'}));
+  localStorage.setItem(`play:recovery:${session.usernameId}`,JSON.stringify(sealed));
   const {bundles:[bundle],issues} = await exportProgress(origin);
   expect(bundle.records).toEqual([]);
   expect(issues).toHaveLength(2);
   expect(issues.join(' ')).toMatch(/chessGameState/);
-  expect(issues.join(' ')).not.toMatch(/do-not-copy|gipfApiKey/);
+  expect(issues.join(' ')).not.toMatch(/do-not-copy|playApiKey/);
 });
 
 test.each(['export','stage'])('account switch DURING asynchronous %s cryptography cannot finish under the next identity', async operation => {
   const session = account(1);
-  localStorage.setItem('gipfAccount',JSON.stringify(session));
+  localStorage.setItem('playAccount',JSON.stringify(session));
   const sealed = await encryptApiKey(session.aesKey,'{}');
-  localStorage.setItem(`gipf:recovery:${session.usernameId}`,JSON.stringify(sealed));
+  localStorage.setItem(`play:recovery:${session.usernameId}`,JSON.stringify(sealed));
   const bundle = await exportFile();
   const method = operation === 'export' ? 'decrypt' : 'encrypt';
   const real = webcrypto.subtle[method].bind(webcrypto.subtle);
@@ -211,12 +211,12 @@ test.each(['export','stage'])('account switch DURING asynchronous %s cryptograph
   const spy = jest.spyOn(webcrypto.subtle,method).mockImplementation(async (...args) => {reached();await pause;return real(...args);});
   const pending = operation === 'export' ? exportProgress(origin) : stageImport(bundle,'retain');
   await started;
-  localStorage.setItem('gipfAccount',JSON.stringify(account(5)));
+  localStorage.setItem('playAccount',JSON.stringify(account(5)));
   release();
   await expect(pending).rejects.toThrow('account_changed');
   spy.mockRestore();
   expect(localStorage.getItem(`gamesMigration:v1:${session.usernameId}`)).toBeNull();
-  expect(localStorage.getItem(`gipf:recovery:${session.usernameId}`)).toBe(JSON.stringify(sealed));
+  expect(localStorage.getItem(`play:recovery:${session.usernameId}`)).toBe(JSON.stringify(sealed));
 });
 
 test('different revisions sharing an export ID reject, keep performs no writes, and corrupt stage is preserved', async () => {
@@ -255,7 +255,7 @@ test('populated statistics and trainer stores preserve existing formats without 
 
 test('transition appearing during encryption and encryption failure leave account stage unchanged', async () => {
   const session = account(1);
-  localStorage.setItem('gipfAccount',JSON.stringify(session));
+  localStorage.setItem('playAccount',JSON.stringify(session));
   const bundle = await exportFile();
   await stageImport(bundle,'retain');
   const key = `gamesMigration:v1:${session.usernameId}`, original = localStorage.getItem(key);
@@ -267,7 +267,7 @@ test('transition appearing during encryption and encryption failure leave accoun
   const real = webcrypto.subtle.encrypt.bind(webcrypto.subtle);
   const transition = jest.spyOn(webcrypto.subtle,'encrypt').mockImplementation(async (...args) => {
     const result = await real(...args);
-    localStorage.setItem('gipf:account-transition',JSON.stringify({id:'synthetic-new-transition',until:Date.now()+60000}));
+    localStorage.setItem('play:account-transition',JSON.stringify({id:'synthetic-new-transition',until:Date.now()+60000}));
     return result;
   });
   await expect(stageImport(next,'retain')).rejects.toThrow('account_changed');

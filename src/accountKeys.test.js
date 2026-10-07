@@ -61,7 +61,7 @@ describe.each(requests)('%s', (_name, send, endpoint, has) => {
     expect(call.headers['X-Games-Request']).toBe('1');
   });
   test('a guest sends the device key in the body', async () => {
-    localStorage.setItem('gipfApiKey', GUEST_KEY);
+    localStorage.setItem('playApiKey', GUEST_KEY);
     expect(has()).toBe(true);
     await send();
     expect(calls.find(c => c.url.endsWith(endpoint)).body.apiKey).toBe(GUEST_KEY);

@@ -42,16 +42,16 @@ describe('shared key storage', () => {
     expect(localStorage.getItem('chessApiKey')).toBeNull();
   });
 
-  test('migrates legacy chessApiKey into gipfApiKey on first read', () => {
+  test('migrates legacy chessApiKey into playApiKey on first read', () => {
     localStorage.setItem('chessApiKey', 'sk-from-chess');
     expect(getApiKey()).toBe('sk-from-chess');
-    expect(localStorage.getItem('gipfApiKey')).toBe('sk-from-chess');
+    expect(localStorage.getItem('playApiKey')).toBe('sk-from-chess');
   });
 
-  test('migrates legacy catanApiKey into gipfApiKey', () => {
+  test('migrates legacy catanApiKey into playApiKey', () => {
     localStorage.setItem('catanApiKey', 'sk-from-catan');
     expect(getApiKey()).toBe('sk-from-catan');
-    expect(localStorage.getItem('gipfApiKey')).toBe('sk-from-catan');
+    expect(localStorage.getItem('playApiKey')).toBe('sk-from-catan');
   });
 });
 

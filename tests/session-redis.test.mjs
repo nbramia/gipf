@@ -31,11 +31,11 @@ beforeEach(() => {
 
 test('a session stores only its token hash, indexed by identity, and GET reports the signed-in account', async () => {
   const token = await signIn();
-  assert.equal(redis('EXISTS', `gipf:session:v1:${token}`), 0);
-  const stored = JSON.parse(redis('GET', `gipf:session:v1:${hash(token)}`));
+  assert.equal(redis('EXISTS', `play:session:v1:${token}`), 0);
+  const stored = JSON.parse(redis('GET', `play:session:v1:${hash(token)}`));
   assert.deepEqual([stored.i, stored.u], [identityFor('owner'), u]);
-  assert.deepEqual(redis('SMEMBERS', `gipf:sessions:v1:${identityFor('owner')}`), [hash(token)]);
-  const ttl = redis('PTTL', `gipf:session:v1:${hash(token)}`);
+  assert.deepEqual(redis('SMEMBERS', `play:sessions:v1:${identityFor('owner')}`), [hash(token)]);
+  const ttl = redis('PTTL', `play:session:v1:${hash(token)}`);
   assert.ok(ttl > IDLE_MS - 60000 && ttl <= IDLE_MS);
   const status = await call(session, {}, { method: 'GET', cookie: token, contentType: null, headers: {} });
   assert.equal(status.statusCode, 200);
@@ -45,10 +45,10 @@ test('a session stores only its token hash, indexed by identity, and GET reports
 
 test('a pre-Auth0 password session is refused and removed', async () => {
   const token = 'p'.repeat(43);
-  redis('SET', `gipf:session:v1:${hash(token)}`, JSON.stringify({ u, created: Date.now(), seen: Date.now() }), 'PX', IDLE_MS);
+  redis('SET', `play:session:v1:${hash(token)}`, JSON.stringify({ u, created: Date.now(), seen: Date.now() }), 'PX', IDLE_MS);
   assert.equal((await call(profile, { action: 'read' }, { cookie: token })).statusCode, 401);
   assert.equal((await call(session, {}, { method: 'GET', cookie: token, contentType: null, headers: {} })).statusCode, 401);
-  assert.equal(redis('EXISTS', `gipf:session:v1:${hash(token)}`), 0);
+  assert.equal(redis('EXISTS', `play:session:v1:${hash(token)}`), 0);
   assert.equal((await call(session, { action: 'create', u, auth: 'b'.repeat(64) })).statusCode, 400);
 });
 
@@ -59,7 +59,7 @@ test('the cookie authorizes account and profile requests; a mismatched u is refu
   assert.equal(read.statusCode, 200);
   const write = await call(profile, { action: 'write', scope: 'settings', revision: 0, domains: { preferences: { chessDarkMode: 'true' } } }, { cookie: token });
   assert.equal(write.statusCode, 200);
-  assert.ok(redis('EXISTS', `gipf:settings:v2:${u}`));
+  assert.ok(redis('EXISTS', `play:settings:v2:${u}`));
   assert.equal((await call(profile, { action: 'read', u: other }, { cookie: token })).statusCode, 401);
   assert.equal((await call(profile, { action: 'read' }, { cookie: 'x'.repeat(43) })).statusCode, 401);
   assert.equal((await call(profile, { action: 'read' })).statusCode, 401);
@@ -109,8 +109,8 @@ test('idle and absolute expiry', async () => {
   // The previous resolve refreshed the idle window.
   assert.ok(await resolveSession(idle, start + 2 * IDLE_MS - 2));
   assert.equal(await resolveSession(idle, start + 3 * IDLE_MS), null);
-  assert.equal(redis('EXISTS', `gipf:session:v1:${hash(idle)}`), 0);
-  assert.ok(!redis('SMEMBERS', `gipf:sessions:v1:${i}`).includes(hash(idle)));
+  assert.equal(redis('EXISTS', `play:session:v1:${hash(idle)}`), 0);
+  assert.ok(!redis('SMEMBERS', `play:sessions:v1:${i}`).includes(hash(idle)));
 
   const busy = await createSession({ i, u }, start);
   for (let t = start; t < start + ABSOLUTE_MS; t += IDLE_MS / 2) assert.ok(await resolveSession(busy, t), 'active use stays signed in until the absolute limit');
@@ -118,7 +118,7 @@ test('idle and absolute expiry', async () => {
 
   const quiet = await createSession({ i, u }, start);
   await resolveSession(quiet, start + TOUCH_MS - 1);
-  assert.equal(JSON.parse(redis('GET', `gipf:session:v1:${hash(quiet)}`)).seen, start, 'reads inside the touch interval do not write');
+  assert.equal(JSON.parse(redis('GET', `play:session:v1:${hash(quiet)}`)).seen, start, 'reads inside the touch interval do not write');
 });
 
 test('logout revokes this session and clears the cookie; other sessions stay', async () => {
@@ -128,7 +128,7 @@ test('logout revokes this session and clears the cookie; other sessions stay', a
   assert.match(res.headers['set-cookie'], new RegExp(`^${COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0$`));
   assert.equal((await call(profile, { action: 'read' }, { cookie: one })).statusCode, 401);
   assert.equal((await call(profile, { action: 'read' }, { cookie: two })).statusCode, 200);
-  assert.deepEqual(redis('SMEMBERS', `gipf:sessions:v1:${identityFor('owner')}`), [hash(two)]);
+  assert.deepEqual(redis('SMEMBERS', `play:sessions:v1:${identityFor('owner')}`), [hash(two)]);
 });
 
 test('sign out everywhere revokes every session of that identity only', async () => {
@@ -137,7 +137,7 @@ test('sign out everywhere revokes every session of that identity only', async ()
   const res = await logout({ everywhere: true }, { cookie: mine[0] });
   assert.deepEqual([res.statusCode, res.body.revoked], [200, 3]);
   for (const token of mine) assert.equal((await call(profile, { action: 'read' }, { cookie: token })).statusCode, 401);
-  assert.equal(redis('EXISTS', `gipf:sessions:v1:${identityFor('owner')}`), 0);
+  assert.equal(redis('EXISTS', `play:sessions:v1:${identityFor('owner')}`), 0);
   assert.equal((await call(profile, { action: 'read' }, { cookie: theirs })).statusCode, 200);
   assert.equal((await logout({ everywhere: true }, { cookie: mine[0] })).statusCode, 401);
   assert.equal(await revokeAllSessions(identityFor('owner')), 0);
@@ -145,7 +145,7 @@ test('sign out everywhere revokes every session of that identity only', async ()
 
 test('expired index entries are pruned when a new session starts', async () => {
   const old = await signIn();
-  redis('DEL', `gipf:session:v1:${hash(old)}`);
+  redis('DEL', `play:session:v1:${hash(old)}`);
   const fresh = await signIn();
-  assert.deepEqual(redis('SMEMBERS', `gipf:sessions:v1:${identityFor('owner')}`), [hash(fresh)]);
+  assert.deepEqual(redis('SMEMBERS', `play:sessions:v1:${identityFor('owner')}`), [hash(fresh)]);
 });

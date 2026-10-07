@@ -10,7 +10,7 @@ import { accountKeys, ACCOUNT_REQUEST_HEADERS } from '../../../accountKeys.js';
 // per-game keys are migrated into the shared slot on first read. (Each game
 // keeps an identical copy of this logic — the games stay independent, no
 // cross-import.)
-const KEY_STORAGE = 'gipfApiKey';
+const KEY_STORAGE = 'playApiKey';
 const LEGACY_KEYS = ['chessApiKey', 'catanApiKey'];
 
 export function getApiKey() {

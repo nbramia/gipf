@@ -2,9 +2,9 @@ import { captureFence } from './accountFence.js';
 import { validateMatch } from './matchSchema.js';
 export const matchKey = game => `${game}Match:v1`;
 export const syncKey = game => `${game}MatchSync:v1`;
-export const identity = () => localStorage.getItem('gipfAccount');
+export const identity = () => localStorage.getItem('playAccount');
 function transitioning() {
-  const raw = localStorage.getItem('gipf:account-transition');
+  const raw = localStorage.getItem('play:account-transition');
   if (!raw) return false;
   try { return JSON.parse(raw).until > Date.now(); } catch (_) { return true; }
 }
@@ -40,7 +40,7 @@ export function createMatchStore(game) {
       const raw = JSON.stringify(value);
       localStorage.setItem(matchKey(game), raw);
       known = raw;
-      window.dispatchEvent(new CustomEvent('gipf-match-saved', { detail: game }));
+      window.dispatchEvent(new CustomEvent('play-match-saved', { detail: game }));
     },
     recovery() {
       assertOwner();

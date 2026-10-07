@@ -40,7 +40,7 @@ beforeEach(() => {
 afterEach(() => { jest.restoreAllMocks(); jest.useRealTimers(); });
 
 test('real Chess adopts legacy once, explicit damaged clear/remount never resurrects or uploads it', async () => {
-  localStorage.setItem('gipfAccount', JSON.stringify({ v: 3, username: 'A', usernameId: 'A', sid: 'synthetic' }));
+  localStorage.setItem('playAccount', JSON.stringify({ v: 3, username: 'A', usernameId: 'A', sid: 'synthetic' }));
   const raw = JSON.stringify({ v: 1, pgn: '1. d4 d5', humanColor: 'w' });
   localStorage.setItem('chessGameState', raw);
   let cloud = null;
@@ -113,7 +113,7 @@ test('real theme toggle updates saved-match chrome', async () => {
 test('account sync status cannot turn clock ticks into writes; visibility flush stops at account change', async () => {
   jest.useFakeTimers();
   let cloud = seed();
-  localStorage.setItem('gipfAccount', JSON.stringify({ v: 3, username: 'A', usernameId: 'A', sid: 'synthetic' }));
+  localStorage.setItem('playAccount', JSON.stringify({ v: 3, username: 'A', usernameId: 'A', sid: 'synthetic' }));
   global.fetch.mockImplementation(async (_url, init) => {
     const req = JSON.parse(init.body);
     if (req.action === 'write') cloud = req.domains.match;
@@ -131,7 +131,7 @@ test('account sync status cannot turn clock ticks into writes; visibility flush 
   fireEvent(document, new Event('visibilitychange')); await settle();
   expect(current().ui.clock.w).toBe(260000);
   const retained = localStorage.getItem('chessMatch:v1');
-  localStorage.setItem('gipfAccount', JSON.stringify({ v: 3, username: 'B', usernameId: 'B', sid: 'other' }));
+  localStorage.setItem('playAccount', JSON.stringify({ v: 3, username: 'B', usernameId: 'B', sid: 'other' }));
   await advance(200);
   view.unmount();
   expect(localStorage.getItem('chessMatch:v1')).toBe(retained);

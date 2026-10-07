@@ -2,10 +2,10 @@
 //
 // A successful Auth0 sign-in (api/auth.js) ends with an opaque random token
 // in the `__Host-games_session` cookie. Only the token's SHA-256 is stored, at
-// `gipf:session:v1:<sha256>` → {i, u, name, created, seen}: the identity
+// `play:session:v1:<sha256>` → {i, u, name, created, seen}: the identity
 // (server/identity.js), the data id its progress is stored under, and the verified
 // email shown as the account name. Sessions
-// last 30 days idle and 90 days absolute. `gipf:sessions:v1:<identityId>` indexes an
+// last 30 days idle and 90 days absolute. `play:sessions:v1:<identityId>` indexes an
 // identity's sessions so they can all be revoked at once ("sign out everywhere").
 // A record without a well-formed identity and data id is refused and removed on sight.
 import { randomBytes } from 'node:crypto';
@@ -20,8 +20,8 @@ export const PRODUCTION_ORIGIN = 'https://play.ramia.us';
 export const REQUEST_HEADER = 'x-games-request';
 
 const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
-const sessionKey = id => `gipf:session:v1:${id}`;
-const indexKey = i => `gipf:sessions:v1:${i}`;
+const sessionKey = id => `play:session:v1:${id}`;
+const indexKey = i => `play:sessions:v1:${i}`;
 
 // Scripts touch only declared KEYS, so they stay valid on any Redis deployment.
 const CREATE = `

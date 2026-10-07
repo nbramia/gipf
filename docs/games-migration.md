@@ -224,7 +224,7 @@ in JavaScript, never round-tripped through Lua cjson. Stored `legacyProfiles` co
 of explicitly replaced profile domains move into receipt recovery instead of
 silently merging back over the selected import.
 
-A durable receipt at `gipf:migration:v1:<sha256(exportId)>` binds the whole file and
+A durable receipt at `play:migration:v1:<sha256(exportId)>` binds the whole file and
 its immutable selection to one authenticated account. Replaying that selection
 neither increments counters nor reapplies local values after later play. A different
 account, changed file or changed selection receives 409. One export permits one
@@ -234,7 +234,7 @@ claimant: anyone holding a file can choose to import it into their own account.
 There is a lifetime cap of 50 activated files and a 4 MiB lifetime migration byte
 budget per account. Each activation charges the exact UTF-8 bytes of its complete
 receipt plus every changed destination record, including replacement writes.
-The byte ledger (`gipf:migration-bytes:v1:<account>`) participates in the same CAS;
+The byte ledger (`play:migration-bytes:v1:<account>`) participates in the same CAS;
 concurrent requests cannot overspend it. Receipts do not expire, so ownership and
 replay protection survive indefinitely; the lifetime byte budget is the durable
 storage bound instead of a TTL. Redis key/ledger metadata adds a bounded overhead
@@ -245,7 +245,7 @@ than treating prior storage as free. Split export files have independent IDs.
 
 Settings/statistics, Chess rating/history/puzzles/mistakes and the four matches
 activate in their cloud domains. Other supported preferences, repertoire
-and Diplomacy saves are durably retained in `gipf:migration-extra:v1:<account>` and
+and Diplomacy saves are durably retained in `play:migration-extra:v1:<account>` and
 activated in the destination browser; this does not add automatic cross-device
 sync to those games. Sign-out recovery still includes these local progress keys.
 Server activation has tighter bounds than portable export/staging (see below).
@@ -293,12 +293,12 @@ are denied.
 Run Redis checks sequentially in an isolated disposable container:
 
 ```sh
-export GIPF_TEST_REDIS_CONTAINER=gipf-test-migration
-docker run --rm -d --name "$GIPF_TEST_REDIS_CONTAINER" redis:7-alpine
+export PLAY_TEST_REDIS_CONTAINER=play-test-migration
+docker run --rm -d --name "$PLAY_TEST_REDIS_CONTAINER" redis:7-alpine
 node --test --test-concurrency=1 tests/public-security.test.mjs tests/ai-security.test.mjs tests/account-redis.test.mjs tests/match-redis.test.mjs tests/profile-arrays-redis.test.mjs tests/migration-activation-redis.test.mjs
 npm run build
 PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs node tests/migration-activation-browser.mjs
-docker stop "$GIPF_TEST_REDIS_CONTAINER"
+docker stop "$PLAY_TEST_REDIS_CONTAINER"
 ```
 
 Portable export/staging accepts 5 MiB per file, but every server migration action

@@ -11,7 +11,7 @@ export function validateMatch(value, game) {
   const serialized = JSON.stringify(value);
   if (encodeURIComponent(serialized).replace(/%[A-F0-9]{2}/g, 'x').length > MAX_MATCH_BYTES) return false;
   // Secrets are never a match field, including inside nested imported objects.
-  const forbidden = /^(?:authToken|aesKey|profileId|apiKey|encLichess|enc|password|gipfAccount|lichessToken|__proto__|constructor|prototype)$/i;
+  const forbidden = /^(?:authToken|aesKey|profileId|apiKey|encLichess|enc|password|playAccount|lichessToken|__proto__|constructor|prototype)$/i;
   const walk = (v, depth = 0) => {
     if (depth > 24) return false;
     if (!v || typeof v !== 'object') return typeof v !== 'number' || Number.isFinite(v);

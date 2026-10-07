@@ -59,5 +59,5 @@ const server=http.createServer(async(req,res)=>{
     res.setHeader('Content-Type',({'.js':'text/javascript','.css':'text/css','.json':'application/json','.html':'text/html','.wasm':'application/wasm'})[extname(path)]||'application/octet-stream');res.end(data);
   } catch(_) {res.setHeader('Content-Type','text/html');res.end(await readFile(resolve(root,'index.html')));}
 });
-const port = Number(process.env.GIPF_TEST_PORT || 3187);
+const port = Number(process.env.PLAY_TEST_PORT || 3187);
 server.listen(port,'127.0.0.1',()=>console.log(`Synthetic fixture ready at http://127.0.0.1:${port}/`));

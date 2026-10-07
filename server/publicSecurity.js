@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { readSessionToken, resolveSession, sameOriginRequest } from './session.js';
 export const hex64 = (s) => typeof s === 'string' && /^[a-f0-9]{64}$/.test(s);
 export const hash = (s) => createHash('sha256').update(s).digest('hex');
-export async function command(...args) {
+async function send(args) {
   const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
   const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
   if (!url || !token) throw new Error('store_unavailable');
@@ -13,13 +13,29 @@ export async function command(...args) {
   if (data.error) throw new Error('store_unavailable');
   return data.result;
 }
+// Keys moved from the legacy `gipf:` prefix to `play:`. Until every stored key has been
+// renamed, a command that names a `play:` key first moves a still-legacy predecessor into
+// place (RENAME keeps its TTL), so reads find old data and writes land only under `play:`.
+// Rate-limit counters are left out: they are short-lived and safe to start again.
+const LEGACY_PREFIX = 'gipf:';
+const ADOPT = "for i=1,#KEYS,2 do if redis.call('EXISTS',KEYS[i])==0 and redis.call('EXISTS',KEYS[i+1])==1 then redis.call('RENAME',KEYS[i+1],KEYS[i]) end end return 0";
+export function legacyKeyPairs(args) {
+  if (String(args[0]).toUpperCase() === 'SCAN') return [];
+  const keys = [...new Set(args.filter(a => typeof a === 'string' && /^play:[a-z-]+:/.test(a) && !a.startsWith('play:limit:')))];
+  return keys.flatMap(k => [k, LEGACY_PREFIX + k.slice('play:'.length)]);
+}
+export async function command(...args) {
+  const pairs = legacyKeyPairs(args);
+  if (pairs.length) await send(['EVAL', ADOPT, pairs.length, ...pairs]);
+  return send(args);
+}
 export async function read(key) {
   const value = await command('GET', key);
   return value == null ? null : JSON.parse(value);
 }
 const LIMIT_SCRIPT = "local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('EXPIRE',KEYS[1],ARGV[1]) end; return n";
 export async function limit(bucket, identity, maximum, seconds = 60) {
-  const n = await command('EVAL', LIMIT_SCRIPT, 1, `gipf:limit:${bucket}:${hash(identity)}`, seconds);
+  const n = await command('EVAL', LIMIT_SCRIPT, 1, `play:limit:${bucket}:${hash(identity)}`, seconds);
   return Number.isFinite(Number(n)) && Number(n) <= maximum;
 }
 // One IPv6 subscriber controls a whole /64, so it is one network; IPv4 stays per address.

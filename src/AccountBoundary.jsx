@@ -18,17 +18,17 @@ export default function AccountBoundary({ children }) {
   const [generation, setGeneration] = useState(0);
   const [statBackups, setStatBackups] = useState(null);
   const [checkFence] = useState(() => { try { return captureFence(); } catch (_) { return () => { throw new Error('account_changed'); }; } });
-  const [accountOwner] = useState(() => localStorage.getItem('gipfAccount'));
+  const [accountOwner] = useState(() => localStorage.getItem('playAccount'));
   const assertStatsOwner = useCallback(() => {
     checkFence();
-    const marker = localStorage.getItem('gipf:account-transition');
-    if (localStorage.getItem('gipfAccount') !== accountOwner || (marker && JSON.parse(marker).until > Date.now())) throw new Error('account_changed');
+    const marker = localStorage.getItem('play:account-transition');
+    if (localStorage.getItem('playAccount') !== accountOwner || (marker && JSON.parse(marker).until > Date.now())) throw new Error('account_changed');
   }, [checkFence,accountOwner]);
   useEffect(() => {
     const changed = () => { try { checkFence(); } catch (_) { setBlocked(true); setConflict(null); } };
     window.addEventListener('storage',changed);
-    window.addEventListener('gipf-account-transition',changed);
-    return () => { window.removeEventListener('storage',changed); window.removeEventListener('gipf-account-transition',changed); };
+    window.addEventListener('play-account-transition',changed);
+    return () => { window.removeEventListener('storage',changed); window.removeEventListener('play-account-transition',changed); };
   }, [checkFence]);
   useEffect(() => {
     const session = loadSession();

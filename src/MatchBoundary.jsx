@@ -85,9 +85,9 @@ export default function MatchBoundary({ game, decode, loadLegacy, children }) {
         } catch (_) { showConflict({ kind: 'local', local: latest.current, remote: null, invalidRemote: true }); }
       }
     };
-    window.addEventListener('gipf-account-transition', transition);
+    window.addEventListener('play-account-transition', transition);
     window.addEventListener('storage', storage);
-    return () => { stopped.current = true; window.removeEventListener('storage', storage); window.removeEventListener('gipf-account-transition', transition); };
+    return () => { stopped.current = true; window.removeEventListener('storage', storage); window.removeEventListener('play-account-transition', transition); };
   }, [game, store, showConflict]);
 
   useEffect(() => {
@@ -166,14 +166,14 @@ export default function MatchBoundary({ game, decode, loadLegacy, children }) {
     };
     sync();
     const wake = event => {
-      if (event.type === 'gipf-match-saved' && event.detail !== game) return;
+      if (event.type === 'play-match-saved' && event.detail !== game) return;
       // Edits/reconnects may accelerate idle polling, but never defeat outage backoff.
       if (!failures) nextAt = Math.min(nextAt, Math.max(lastAttempt + 10000, Date.now() + 1000));
     };
     const interval = setInterval(sync, 1000);
     window.addEventListener('online', wake);
-    window.addEventListener('gipf-match-saved', wake);
-    return () => { disposed = true; clearInterval(interval); window.removeEventListener('online', wake); window.removeEventListener('gipf-match-saved', wake); };
+    window.addEventListener('play-match-saved', wake);
+    return () => { disposed = true; clearInterval(interval); window.removeEventListener('online', wake); window.removeEventListener('play-match-saved', wake); };
   }, [game, store, decode, initial.invalid, remount, showConflict]);
 
   const choose = async useLocal => {

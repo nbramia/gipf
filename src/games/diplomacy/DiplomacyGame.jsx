@@ -166,7 +166,7 @@ export default function DiplomacyGame() {
   const [keyPromptDismissed, setKeyPromptDismissed] = useState(false);
   const [logExpanded, setLogExpanded] = useState(false); // Results Log modal
   // Reactive shared-key signal: re-renders this view the instant the key is set
-  // or cleared anywhere (this chat, another tab, or another GIPF game), so the
+  // or cleared anywhere (this chat, another tab, or another game in this app), so the
   // negotiation auto-run and the no-key prompt react without a reload.
   const hasKey = useHasApiKey();
 
@@ -554,7 +554,7 @@ export default function DiplomacyGame() {
           <div className="dip-panel p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <Link to="/" className="dip-panel-label hover:opacity-80">GIPF Project</Link>
+                <Link to="/" className="dip-panel-label hover:opacity-80">Games</Link>
                 <h1 className="dip-title mt-1 text-2xl" style={{ color: 'var(--dip-text)' }}>DIPLOMACY</h1>
               </div>
             </div>

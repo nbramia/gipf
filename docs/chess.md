@@ -94,7 +94,7 @@ line, and the API prompt instructs the model to use only the supplied facts.
 The app is open source and publicly shared, so there is **no maintainer key**:
 
 - The key is entered only at `/login`. For a guest it stays in the browser,
-  under a single slot shared across the whole app (`localStorage['gipfApiKey']`,
+  under a single slot shared across the whole app (`localStorage['playApiKey']`,
   read by `coach/coachClient.js`), and is sent per-request in the POST body to
   `/api/chessCoach` over HTTPS. A per-game key under `chessApiKey` or
   `catanApiKey` is moved into the shared slot the first time it's read. For a
@@ -312,8 +312,8 @@ chessShowEvalBar, chessSound, chessLichessToken, chessRated, chessRating,
 chessRatedGames, chessMistakes, chessOppHistory, chessPuzzleProgress,
 chessMatch:v1, chessMatchSync:v1, chessMatchRecovery:v1, chessStatsRecovery:v1
 
-gipfApiKey  # shared app-wide (all games), not chess-prefixed
-gipfAccount # shared app-wide, written only by /login; cached account session
+playApiKey  # shared app-wide (all games), not chess-prefixed
+playAccount # shared app-wide, written only by /login; cached account session
 ```
 
 ## Opening coaching (master stats)

@@ -2,7 +2,7 @@
 
 ## Project Structure
 
-GIPF Project is a multi-game React application. Each game is self-contained in `src/games/<name>/` and lazy-loaded via React Router. Games share only the routing shell, Tailwind config, fonts, and deployment infrastructure.
+Play is a multi-game React application. Each game is self-contained in `src/games/<name>/` and lazy-loaded via React Router. Games share only the routing shell, Tailwind config, fonts, and deployment infrastructure.
 
 ```
 src/

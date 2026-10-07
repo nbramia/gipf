@@ -1585,7 +1585,7 @@ function CatanGame() {
           <div className="catan-panel p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <Link to="/" className="catan-panel-label hover:opacity-80">GIPF Project</Link>
+                <Link to="/" className="catan-panel-label hover:opacity-80">Games</Link>
                 <h1 className="mt-1 font-display text-3xl font-bold" style={{ color: 'var(--color-text-primary)' }}>CATAN</h1>
                 <p className="mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>
                   {activeRuleset.name} / {board.mapName}

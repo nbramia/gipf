@@ -11,9 +11,9 @@
 //     since the ramia.us session outlives a Games sign-out and would sign straight back in;
 //   - if the markers cannot be stored, there is no attempt at all.
 // Only on play.ramia.us: Auth0 accepts no other callback.
-export const ATTEMPT_KEY = 'gipf:silent-sign-in-at';
-export const OFF_KEY = 'gipf:silent-sign-in-off';
-export const HOME_KEY = 'gipf:silent-sign-in-home';
+export const ATTEMPT_KEY = 'play:silent-sign-in-at';
+export const OFF_KEY = 'play:silent-sign-in-off';
+export const HOME_KEY = 'play:silent-sign-in-home';
 export const TRY_AGAIN_MS = 10 * 60000;
 export const SILENT_HOST = 'play.ramia.us';
 

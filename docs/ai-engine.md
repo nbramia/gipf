@@ -345,7 +345,7 @@ Focused regression command (use an environment with `training/requirements.txt` 
 
 ## Other Game AI in This Repo
 
-The rest of the GIPF suite uses approaches unrelated to the Yinsh/Zertz/Catan MCTS-plus-trained-network pattern:
+The app's other games use approaches unrelated to the Yinsh/Zertz/Catan MCTS-plus-trained-network pattern:
 
 - **Splendor** — a maxⁿ PUCT game-tree MCTS with a hand-written evaluation function and determinized handling of hidden information (opponents' blind reserves, shuffled decks). A trained self-play network was built and evaluated but did not beat the heuristic in gated play, so the heuristic ships. See [splendor.md](splendor.md).
 - **Chess** — delegates move generation entirely to Stockfish, loaded as a self-contained asm.js build inside a same-origin Blob Web Worker (no server-side engine). See [chess.md](chess.md).

@@ -43,7 +43,7 @@ test('a key saved elsewhere reveals the power selector and the message input wit
 });
 
 test('a pre-existing key skips the gate entirely', () => {
-  localStorage.setItem('gipfApiKey', 'sk-existing');
+  localStorage.setItem('playApiKey', 'sk-existing');
   const { container } = renderPanel();
   expect(container.querySelector('a[href="/login?return=/diplomacy"]')).toBeFalsy();
   expect(container.querySelector('.dip-chat-send')).toBeTruthy();

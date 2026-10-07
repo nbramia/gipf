@@ -20,7 +20,7 @@ async (page) => {
     check(!(await consent.isChecked()), 'guest import defaults unchecked');
     if (importGuest) await consent.check();
     await p.getByRole('button', { name: 'Sign in', exact: true }).click();
-    await p.waitForFunction(() => JSON.parse(localStorage.getItem('gipfAccount') || 'null')?.v === 3 && !location.pathname.endsWith('/login'));
+    await p.waitForFunction(() => JSON.parse(localStorage.getItem('playAccount') || 'null')?.v === 3 && !location.pathname.endsWith('/login'));
     await p.goto(base + '/login');
     await settlePreferences(p);
     await p.getByText(`Signed in as ${name}@synthetic.example`).waitFor();
@@ -35,7 +35,7 @@ async (page) => {
   await page.goto(base);
   await page.evaluate(() => {
     localStorage.clear();
-    localStorage.setItem('gipfApiKey', 'synthetic-anthropic-a');
+    localStorage.setItem('playApiKey', 'synthetic-anthropic-a');
     localStorage.setItem('chessLichessToken', 'synthetic-lichess-a');
     localStorage.setItem('chessRating', '1234');
     localStorage.setItem('yinshWins', '{"1":2,"2":0}');
@@ -50,23 +50,23 @@ async (page) => {
   await signIn(second, a);
   // The guest keys moved to the account: the second device knows they exist, never holds them.
   const secondDevice = await second.evaluate(() => ({
-    keys: localStorage.getItem('gipfAccountKeys') === '{"anthropic":true,"lichess":true}',
-    noPlaintext: !localStorage.getItem('gipfApiKey') && !localStorage.getItem('chessLichessToken'),
+    keys: localStorage.getItem('playAccountKeys') === '{"anthropic":true,"lichess":true}',
+    noPlaintext: !localStorage.getItem('playApiKey') && !localStorage.getItem('chessLichessToken'),
     score: localStorage.getItem('yinshWins') === '{"1":2,"2":0}',
   }));
   check(Object.values(secondDevice).every(Boolean), 'second device');
   await context.close();
   await signOut(page);
-  const logoutCleared = check(await page.evaluate(() => ['gipfAccount', 'gipfAccountKeys', 'gipfApiKey', 'chessLichessToken', 'chessRating', 'yinshWins'].every(k => !localStorage.getItem(k))), 'logout');
+  const logoutCleared = check(await page.evaluate(() => ['playAccount', 'playAccountKeys', 'playApiKey', 'chessLichessToken', 'chessRating', 'yinshWins'].every(k => !localStorage.getItem(k))), 'logout');
   await signIn(page, b);
   // Account B holds no keys: its marker says so, and no key or A's progress is on the device.
-  const accountBIsolated = check(await page.evaluate(() => localStorage.getItem('gipfAccountKeys') === '{"anthropic":false,"lichess":false}' &&
-    ['gipfApiKey', 'chessLichessToken', 'chessRating', 'yinshWins'].every(k => !localStorage.getItem(k))), 'account B isolation');
+  const accountBIsolated = check(await page.evaluate(() => localStorage.getItem('playAccountKeys') === '{"anthropic":false,"lichess":false}' &&
+    ['playApiKey', 'chessLichessToken', 'chessRating', 'yinshWins'].every(k => !localStorage.getItem(k))), 'account B isolation');
   await signOut(page);
   await signIn(page, a);
   const accountRecovery = check(await page.evaluate(() => localStorage.getItem('chessRating') === '1234'), 'account recovery');
   await page.evaluate(async () => {
-    const s = JSON.parse(localStorage.getItem('gipfAccount'));
+    const s = JSON.parse(localStorage.getItem('playAccount'));
     const call = async body => {
       const response = await fetch('/api/chessProfile', {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Games-Request': '1' },

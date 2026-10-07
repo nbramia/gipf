@@ -9,8 +9,8 @@ import { signInAs, cookieHeaders } from './session-fixture.mjs';
 import { canonical } from '../src/migrationSchema.js';
 import { fromLegacy } from '../src/games/chess/matchSnapshot.js';
 import { MIGRATION_LIMITS as limits, migrationActivation } from '../server/migrationActivation.js';
-const redisContainer = process.env.GIPF_TEST_REDIS_CONTAINER;
-if (!/^gipf-test-[a-z0-9-]+$/.test(redisContainer || '')) throw new Error('Set GIPF_TEST_REDIS_CONTAINER to a disposable gipf-test-* container');
+const redisContainer = process.env.PLAY_TEST_REDIS_CONTAINER;
+if (!/^play-test-[a-z0-9-]+$/.test(redisContainer || '')) throw new Error('Set PLAY_TEST_REDIS_CONTAINER to a disposable play-test-* container');
 const redis = (...args) => JSON.parse(execFileSync('docker',['exec','-i',redisContainer,'redis-cli','--json'],{encoding:'utf8',maxBuffer:8*1024*1024,input:args.map(v=>JSON.stringify(String(v))).join(' ')+'\n'}));
 const u='a'.repeat(64), other='c'.repeat(64),auth='b'.repeat(64);
 let tokens={};
@@ -18,7 +18,7 @@ const secretOf=id=>id===other?auth:auth;
 // The signed-in device for a request: its session cookie when the body carries that account's
 // own credential, none otherwise (a wrong or missing credential is a signed-out request).
 const sessionHeaders=body=>{const id=body.u??u;return cookieHeaders(body.auth!==undefined&&body.auth===secretOf(id)?tokens[id]:null);};
-const settings=`gipf:settings:v2:${u}`, profileKey=`gipf:profile:v2:${u}`;
+const settings=`play:settings:v2:${u}`, profileKey=`play:profile:v2:${u}`;
 const preference=(id,data)=>({kind:'preference',id,schemaVersion:1,revision:hash(canonical(data)),data});
 const file=(records=[preference('chessDarkMode','true'),preference('chessRating','1500'),preference('splendorDifficulty','strong')])=>({format:'ramia-migration',version:1,app:'games',exportId:'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',exportedAt:'2026-09-21T00:00:00.000Z',sourceOrigin:'https://synthetic.example.test',records});
 const payload=bundle=>({bundle,selected:bundle.records.map(r=>`${r.kind}/${r.id}`)});
@@ -43,20 +43,20 @@ test('atomic activation updates existing writer domains, preserves old bytes, au
  assert.equal((await claim(p,token)).body.status,'activated');
  assert.deepEqual(JSON.parse(redis('GET',settings)),{revision:4,profile:{preferences:{chessDarkMode:'true',chessGameLog:'[]'}}});
  assert.equal(JSON.parse(redis('GET',profileKey)).profile.rating.rating,1500);
- assert.equal(JSON.parse(redis('GET',`gipf:migration-extra:v1:${u}`)).profile.values.splendorDifficulty,'strong');
+ assert.equal(JSON.parse(redis('GET',`play:migration-extra:v1:${u}`)).profile.values.splendorDifficulty,'strong');
  const recovery=await call({action:'migration-recovery',...p});assert.equal(recovery.body.receipt.before[0],old);
  const before=redis('GET',settings);
  assert.equal((await claim(p,token)).body.status,'replay');assert.equal(redis('GET',settings),before);
  assert.equal((await call({action:'write',scope:'settings',revision:3,domains:{preferences:{}}})).statusCode,409);
  assert.equal((await call({action:'migration-preview',...p,u:other})).statusCode,409);
- assert.equal(redis('GET',`gipf:migration-count:v1:${u}`),'1');
+ assert.equal(redis('GET',`play:migration-count:v1:${u}`),'1');
 });
 test('stale preview and a same-revision write racing inside Lua cause no migration writes or ownership',async()=>{
  const p=payload(file()), token=await prepare(p), competing=JSON.stringify({revision:0,profile:{preferences:{chessDarkMode:'false'}}});
  const original=fetch;let raced=false;
  globalThis.fetch=async(url,options)=>{const args=JSON.parse(options.body);if(args[0]==='EVAL'&&args[2]===10){raced=true;redis('SET',settings,competing);}return original(url,options);};
  assert.equal((await claim(p,token)).statusCode,409);assert.ok(raced);assert.equal(redis('GET',settings),competing);
- assert.equal(redis('GET',profileKey),null);assert.equal(redis('GET',`gipf:migration-count:v1:${u}`),null);
+ assert.equal(redis('GET',profileKey),null);assert.equal(redis('GET',`play:migration-count:v1:${u}`),null);
  globalThis.fetch=original;assert.equal((await claim(p,token)).statusCode,409);
 });
 test('two independently imported handlers produce one owner and one increment',async()=>{
@@ -64,21 +64,21 @@ test('two independently imported handlers produce one owner and one increment',a
  const p=payload(file()), firstToken=await prepare(p), otherToken=(await call({action:'migration-preview',...p,u:other})).body.token;
  const results=await Promise.all([claim(p,firstToken),call({action:'migration-activate',...p,token:otherToken,u:other},second)]);
  assert.deepEqual(results.map(r=>r.statusCode).sort(),[200,409]);
- const owner=JSON.parse(redis('GET',`gipf:migration:v1:${hash(p.bundle.exportId)}`)).owner;
- assert.equal(redis('GET',`gipf:migration-count:v1:${owner}`),'1');
+ const owner=JSON.parse(redis('GET',`play:migration:v1:${hash(p.bundle.exportId)}`)).owner;
+ assert.equal(redis('GET',`play:migration-count:v1:${owner}`),'1');
 });
 test('bad schema, digest, duplicate target, changed selection and lifetime bound fail closed',async()=>{
  const p=payload(file());p.bundle.records[0].revision='0'.repeat(64);
  assert.equal((await call({action:'migration-preview',...p})).statusCode,400);
  const good=payload(file());assert.equal((await call({action:'migration-preview',...good,selected:[...good.selected,good.selected[0]]})).statusCode,400);
- redis('SET',`gipf:migration-count:v1:${u}`,'50');assert.equal((await call({action:'migration-preview',...good})).statusCode,409);assert.equal(redis('GET',settings),null);
- redis('DEL',`gipf:migration-count:v1:${u}`);assert.equal((await claim(good,await prepare(good))).statusCode,200);
+ redis('SET',`play:migration-count:v1:${u}`,'50');assert.equal((await call({action:'migration-preview',...good})).statusCode,409);assert.equal(redis('GET',settings),null);
+ redis('DEL',`play:migration-count:v1:${u}`);assert.equal((await claim(good,await prepare(good))).statusCode,200);
  assert.equal((await call({action:'migration-preview',...good,selected:[good.selected[0]]})).statusCode,409);
 });
 test('localhost HTTP performs preview, activation, read and rejects unauthenticated import',async()=>{
  const server=createServer(async(req,res)=>{let raw='';for await(const chunk of req)raw+=chunk;req.body=raw;res.status=n=>{res.statusCode=n;return res;};res.json=v=>res.end(JSON.stringify(v));await profile(req,res);});
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
- const send=body=>new Promise((resolve,reject)=>{const req=request({hostname:'127.0.0.1',port:server.address().port,path:'/gipf/api/chessProfile',method:'POST',headers:{'Content-Type':'application/json',...sessionHeaders({u,auth,...body})}},res=>{let raw='';res.on('data',c=>raw+=c);res.on('end',()=>resolve({status:res.statusCode,body:JSON.parse(raw)}));});req.on('error',reject);req.end(JSON.stringify({u,auth,...body}));});
+ const send=body=>new Promise((resolve,reject)=>{const req=request({hostname:'127.0.0.1',port:server.address().port,path:'/play/api/chessProfile',method:'POST',headers:{'Content-Type':'application/json',...sessionHeaders({u,auth,...body})}},res=>{let raw='';res.on('data',c=>raw+=c);res.on('end',()=>resolve({status:res.statusCode,body:JSON.parse(raw)}));});req.on('error',reject);req.end(JSON.stringify({u,auth,...body}));});
  try {const p=payload(file()),preview=await send({action:'migration-preview',...p});assert.equal(preview.status,200);assert.equal((await send({action:'migration-activate',...p,token:preview.body.token,auth:undefined})).status,401);assert.equal((await send({action:'migration-activate',...p,token:preview.body.token})).status,200);assert.equal((await send({action:'read',scope:'settings'})).body.profile.preferences.chessDarkMode,'true');}
  finally {await new Promise(resolve=>server.close(resolve));}
 });
@@ -86,14 +86,14 @@ test('localhost HTTP performs preview, activation, read and rejects unauthentica
 const record=(kind,id,data)=>({kind,id,schemaVersion:1,revision:hash(canonical(data)),data});
 const matchRecord=pgn=>{const data=fromLegacy({v:1,pgn:''});data.state.pgn=pgn;return record('chess-match',data.id,data);};
 const shuffle=cycles=>Array.from({length:cycles},(_,i)=>`${i*2+1}. Nf3 Nf6 ${i*2+2}. Ng1 Ng8`).join(' ');
-const receiptKey=p=>`gipf:migration:v1:${hash(p.bundle.exportId)}`;
-const budgetKey=`gipf:migration-bytes:v1:${u}`;
-const resetRate=()=>redis('DEL',`gipf:limit:migration-user:${hash(u)}`,`gipf:limit:sync:${hash('192.0.2.88')}`);
+const receiptKey=p=>`play:migration:v1:${hash(p.bundle.exportId)}`;
+const budgetKey=`play:migration-bytes:v1:${u}`;
+const resetRate=()=>redis('DEL',`play:limit:migration-user:${hash(u)}`,`play:limit:sync:${hash('192.0.2.88')}`);
 const unchanged=()=>{
  assert.equal(redis('GET',settings),null);
- assert.equal(redis('GET',`gipf:migration-count:v1:${u}`),null);
+ assert.equal(redis('GET',`play:migration-count:v1:${u}`),null);
  assert.equal(redis('GET',budgetKey),null);
- assert.deepEqual(redis('KEYS','gipf:migration:v1:*'),[]);
+ assert.deepEqual(redis('KEYS','play:migration:v1:*'),[]);
 };
 
 test('CPU preflight rejects amplified PGNs, dense PGN tokens, record counts and malformed selections before Redis snapshots',async()=>{
@@ -155,10 +155,10 @@ test('lifetime byte budget bounds rotating export IDs, remains durable and prese
    const preview=await call({action:'migration-preview',...p});
    if(preview.statusCode===409){assert.equal(preview.body.error,'migration_storage_limit');break;}
    assert.equal(preview.statusCode,200);assert.equal((await claim(p,preview.body.token)).statusCode,200);activated++;last=structuredClone(p);
-   const stored=redis('KEYS','gipf:migration:v1:*').reduce((n,k)=>n+redis('STRLEN',k),0)+redis('STRLEN',`gipf:migration-extra:v1:${u}`);
+   const stored=redis('KEYS','play:migration:v1:*').reduce((n,k)=>n+redis('STRLEN',k),0)+redis('STRLEN',`play:migration-extra:v1:${u}`);
    assert.ok(stored<=Number(redis('GET',budgetKey)));assert.ok(Number(redis('GET',budgetKey))<=limits.accountBytes);
  }
- assert.ok(activated>1&&activated<20);assert.equal(redis('GET',`gipf:migration-count:v1:${u}`),String(activated));
+ assert.ok(activated>1&&activated<20);assert.equal(redis('GET',`play:migration-count:v1:${u}`),String(activated));
  const before=redis('GET',budgetKey);assert.equal((await claim(last,'stale')).body.status,'replay');
  const recovered=await call({action:'migration-recovery',...last});assert.equal(recovered.body.receipt.values.chessRepertoire,JSON.stringify(last.bundle.records[0].data));
  assert.equal(redis('GET',budgetKey),before);assert.equal(redis('TTL',receiptKey(last)),-1);
@@ -180,11 +180,11 @@ test('receipt/snapshot bounds and concurrent budget updates fail before any part
  const token=await prepare(p),original=fetch;
  globalThis.fetch=async(url,options)=>{const args=JSON.parse(options.body);if(args[0]==='EVAL'&&args[2]===10)redis('SET',budgetKey,String(limits.accountBytes));return original(url,options);};
  assert.equal((await claim(p,token)).body.error,'migration_conflict');assert.equal(redis('GET',settings),null);assert.equal(redis('GET',receiptKey(p)),null);
- assert.equal(redis('GET',`gipf:migration-count:v1:${u}`),null);assert.equal(redis('GET',budgetKey),String(limits.accountBytes));
+ assert.equal(redis('GET',`play:migration-count:v1:${u}`),null);assert.equal(redis('GET',budgetKey),String(limits.accountBytes));
 });
 
 test('migration rate limit and exhausted command deadline fail closed without committing',async()=>{
- const p=payload(file());redis('SET',`gipf:limit:migration-user:${hash(u)}`,'30');
+ const p=payload(file());redis('SET',`play:limit:migration-user:${hash(u)}`,'30');
  assert.equal((await call({action:'migration-preview',...p})).statusCode,429);unchanged();
  assert.equal((await call({action:'read',scope:'settings'})).statusCode,200,'ordinary sync has a separate bucket');
  await assert.rejects(migrationActivation({u,action:'migration-preview',...p},{},[],Date.now()+1000),/store_unavailable/);unchanged();

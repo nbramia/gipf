@@ -148,7 +148,7 @@ reading and after any await. Never export the raw containers or their metadata.
 
 If the active account has an encrypted device recovery copy, the migration UI
 can use the local `decryptApiKey(await accountKey(session), sealed)` functions on
-`gipf:recovery:<that same usernameId>` after the user has authenticated that
+`play:recovery:<that same usernameId>` after the user has authenticated that
 account. From the decoded progress object, allowlist only the four portable
 match values, `chessGameLog`, and validated progress extracted from the recovery
 arrays above. Credentials, AES keys, ciphertext wrappers, queue baselines,
@@ -191,7 +191,7 @@ a match. It returns the new revision. Wrong ownership returns 401, unsupported
 schema/game or invalid engine state 400, stale revision 409, oversized request
 413, rate limit 429, unavailable storage 503. No public-ID/bearer shortcut exists.
 
-Redis keys are `gipf:match:v1:<usernameId>:<game>`. Each account/game has its own
+Redis keys are `play:match:v1:<usernameId>:<game>`. Each account/game has its own
 atomic CAS revision. The match Lua operation stores validated JSON opaquely:
 Redis `cjson` otherwise turns empty arrays into objects. Profile and settings
 records likewise store JS-serialized JSON opaquely, and their writes use exact
@@ -243,15 +243,15 @@ real handlers and a disposable Redis container; external requests are blocked.
 See `tests/match-browser.mjs` and `tests/match-redis.test.mjs`.
 
 ```sh
-# Dedicated gipf-test-* container only, never shared/production Redis; the tests flush it.
-export GIPF_TEST_REDIS_CONTAINER=gipf-test-matches
-docker run --rm -d --name "$GIPF_TEST_REDIS_CONTAINER" redis:7-alpine
+# Dedicated play-test-* container only, never shared/production Redis; the tests flush it.
+export PLAY_TEST_REDIS_CONTAINER=play-test-matches
+docker run --rm -d --name "$PLAY_TEST_REDIS_CONTAINER" redis:7-alpine
 node --test tests/match-redis.test.mjs
 npm run build
-GIPF_TEST_PORT=3189 node tests/serve-public-security.mjs &
+PLAY_TEST_PORT=3189 node tests/serve-public-security.mjs &
 # With Playwright available, or PLAYWRIGHT_MODULE pointing to its installed index.mjs:
 node tests/match-browser.mjs
-docker exec "$GIPF_TEST_REDIS_CONTAINER" redis-cli FLUSHDB   # each network may create five accounts a day
+docker exec "$PLAY_TEST_REDIS_CONTAINER" redis-cli FLUSHDB   # each network may create five accounts a day
 node tests/match-import-browser.mjs
 ```
 

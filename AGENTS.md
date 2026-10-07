@@ -6,7 +6,7 @@ Critical instructions for AI agents (Claude, Cursor, Copilot, etc.) working on t
 
 ## Project Overview
 
-GIPF Project is a multi-game React application hosting browser-based implementations of board games. Currently includes Yinsh, Zertz, Chess, Catan, Splendor, and Diplomacy. Games are code-split and served from the root of one public deployment (play.ramia.us) with client-side routing. Accounts are optional Auth0 sign-in; every game plays as a guest.
+Play is a multi-game React application hosting browser-based implementations of board games. Currently includes Yinsh, Zertz, Chess, Catan, Splendor, and Diplomacy. Games are code-split and served from the root of one public deployment (play.ramia.us) with client-side routing. Accounts are optional Auth0 sign-in; every game plays as a guest.
 
 **Key Concepts:**
 - **Multi-game monorepo**: Each game lives in `src/games/<name>/` with its own logic, UI, CSS, and tests
@@ -56,11 +56,11 @@ personal data, or details of private infrastructure.
 project that builds production from `main` and serves the app from the domain root,
 ungated. `main` is the release branch: merging a PR to `main` deploys to production, so
 open PRs against `main` and treat the merge as the release. There is no other
-deployment; `ramia.us/gipf` only redirects here, and nothing in this repo should use it
+deployment; `ramia.us/play` only redirects here, and nothing in this repo should use it
 as a route or prefix.
 
 **Relationship to the rest of ramia.us.** play.ramia.us is one app on the author's
-personal domain. Routing for the wider domain (redirects such as `ramia.us/gipf`) and the
+personal domain. Routing for the wider domain (redirects such as `ramia.us/play`) and the
 shared sign-in that the author's other apps use (for example home.ramia.us) live in a
 separate private repository. Changes there aren't made from here. What this repo relies
 on from that setup is a small contract, listed below; if you think it needs to change,
@@ -327,7 +327,7 @@ Public IDs never authorize persistence. See [docs/public-accounts.md](docs/publi
 | `engine/mcts.js` | PUCT game-tree MCTS (maxⁿ value, dice chance nodes, heuristic-rollout/NN evaluator) |
 | `engine/features.js` | Self-play feature extraction and policy targets |
 | `hooks/useAIWorker.js` | React hook managing Catan MCTS Web Worker lifecycle |
-| `coach/rulesClient.js` | Rules-assistant client + BYO Anthropic key storage (shared `gipfApiKey`, reused across chess + Catan) |
+| `coach/rulesClient.js` | Rules-assistant client + BYO Anthropic key storage (shared `playApiKey`, reused across chess + Catan) |
 | `api/catanRules.js` | Vercel serverless rules assistant (Claude API, **bring-your-own key**, ruleset-aware) |
 | `CatanBoard.test.js` | Jest tests covering core Catan logic and AI legality |
 | `CatanConformance.test.js` | Official-rules conformance tests + seeded self-play invariant soak |
@@ -345,7 +345,7 @@ See [docs/catan.md](docs/catan.md) for rule coverage and AI/training details.
 | `engine/mcts.js` | maxⁿ PUCT game-tree MCTS (no chance nodes; determinization for hidden deck/reserves; heuristic-rollout/NN evaluator) |
 | `engine/features.js` | Self-play feature extraction and policy targets |
 | `hooks/useAIWorker.js` | React hook managing Splendor MCTS Web Worker lifecycle |
-| `coach/rulesClient.js` | Rules-assistant client + BYO Anthropic key storage (shared `gipfApiKey`) |
+| `coach/rulesClient.js` | Rules-assistant client + BYO Anthropic key storage (shared `playApiKey`) |
 | `api/splendorRules.js` | Vercel serverless rules assistant (Claude API, **bring-your-own key**) |
 | `SplendorBoard.test.js` | Jest tests: data invariants, full rules, AI legality, self-play termination |
 
@@ -539,23 +539,32 @@ diplomacyGameState    # versioned in-progress save (board snapshot + UI phase + 
 **Shared (app-wide):**
 
 ```
-gipfApiKey   # one BYO Anthropic key, used by the chess coach, the Catan and
+playApiKey   # one BYO Anthropic key, used by the chess coach, the Catan and
              # Splendor rules chats, and Diplomacy negotiation. Entered only at
              # /login (synced encrypted when signed in, device-only for guests). Per-game chessApiKey /
              # catanApiKey values are moved into it on first read. Each game keeps an identical
              # copy of the storage helper (no cross-game import).
-gipf:account-transition # Temporary account-switch lease marker {id, until}
-gipfAccount  # cached account session {v:3, username, usernameId, sid}: no
+play:account-transition # Temporary account-switch lease marker {id, until}
+playAccount  # cached account session {v:3, username, usernameId, sid}: no
              # secret. The server session is the HttpOnly __Host-games_session
              # cookie; the seal key is a non-extractable CryptoKey in IndexedDB.
              # Any other stored shape is removed at startup (progress stays as
              # guest progress). Written only by /login; games read it and link to
              # /login?return=/<game> for sign-in and keys. Signing
              # out clears credentials and visible progress; outgoing progress
-             # is retained encrypted in gipf:recovery:<usernameId>.
+             # is retained encrypted in play:recovery:<usernameId>.
 ```
 
-Never rename or restructure these without migration logic.
+Never rename or restructure these without migration logic. `src/storageRename.js` is the
+pattern: imported first by `src/index.js`, it moves the legacy `gipf*` / `gipf:*` keys in
+localStorage and sessionStorage, and the `gipf-account` IndexedDB database, to their `play`
+names, idempotently, keeping any value already under the new name.
+
+The server's Redis keys share the `play:` prefix. Domain-separation strings fed to hashes
+and encryption (`gipf-games-identity:v1` in `server/identity.js`, `gipf-games-key:v1` in
+`server/keyCustody.js`, `gipf-games` in `server/auth0.js`) keep their original values: they
+are part of the stored data's format, and changing one would orphan every identity or
+make every stored key undecryptable.
 
 ---
 
@@ -567,15 +576,15 @@ npm test -- --watch           # Watch mode for development
 npm run test:engine           # MCTS engine tests
 node --test tests/public-security.test.mjs tests/ai-security.test.mjs tests/test_yinsh_api.mjs tests/emit-tiles.test.mjs
 
-# Server suites against real Redis: a disposable gipf-test-* container only (they FLUSHDB it), one file at a time.
-export GIPF_TEST_REDIS_CONTAINER=gipf-test-local
-docker run --rm -d --name "$GIPF_TEST_REDIS_CONTAINER" redis:7-alpine
-node --test --test-concurrency=1 tests/auth-oidc-redis.test.mjs tests/account-redis.test.mjs tests/session-redis.test.mjs tests/match-redis.test.mjs tests/profile-arrays-redis.test.mjs tests/migration-activation-redis.test.mjs
+# Server suites against real Redis: a disposable play-test-* container only (they FLUSHDB it), one file at a time.
+export PLAY_TEST_REDIS_CONTAINER=play-test-local
+docker run --rm -d --name "$PLAY_TEST_REDIS_CONTAINER" redis:7-alpine
+node --test --test-concurrency=1 tests/auth-oidc-redis.test.mjs tests/account-redis.test.mjs tests/session-redis.test.mjs tests/match-redis.test.mjs tests/profile-arrays-redis.test.mjs tests/migration-activation-redis.test.mjs tests/legacy-prefix-redis.test.mjs
 
 # Real sign-in in Chromium against a synthetic provider (needs the build and Playwright's index.mjs).
 npm run build
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs node tests/auth-browser.mjs
-docker stop "$GIPF_TEST_REDIS_CONTAINER"
+docker stop "$PLAY_TEST_REDIS_CONTAINER"
 
 # Lint (the repo has no default ESLint config; this is the project config).
 ./node_modules/.bin/eslint --no-eslintrc --config tests/security-eslint.cjs --resolve-plugins-relative-to . <files>

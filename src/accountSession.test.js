@@ -1,4 +1,4 @@
-// Auth0 sessions on the device: the cached gipfAccount (v3) holds no secret, the seal
+// Auth0 sessions on the device: the cached playAccount (v3) holds no secret, the seal
 // key is a non-extractable CryptoKey in IndexedDB, and account keys stay on the server.
 import { webcrypto } from 'crypto';
 import { TextEncoder, TextDecoder } from 'util';
@@ -90,7 +90,7 @@ test('completing sign-in stores a secret-free v3 session and a non-extractable s
 });
 
 test('guest device keys move to an account that lacks them, then leave the device', async () => {
-  localStorage.setItem('gipfApiKey', 'sk-ant-synthetic-guest');
+  localStorage.setItem('playApiKey', 'sk-ant-synthetic-guest');
   localStorage.setItem('chessLichessToken', 'lip_syntheticGuest');
   server.establish = { ...server.establish, keys: { anthropic: false, lichess: true } };
   server.account = () => reply(200, { saved: true, keys: { anthropic: true, lichess: true } });
@@ -99,18 +99,18 @@ test('guest device keys move to an account that lacks them, then leave the devic
   expect(moved.body).toEqual({ action: 'setKeys', anthropic: 'sk-ant-synthetic-guest' });
   expect(moved.headers['X-Games-Request']).toBe('1');
   expect(result.keysMoved).toBe(true);
-  expect(localStorage.getItem('gipfApiKey')).toBeNull();
+  expect(localStorage.getItem('playApiKey')).toBeNull();
   expect(localStorage.getItem('chessLichessToken')).toBeNull();
   expect(accountKeys()).toEqual({ anthropic: true, lichess: true });
   expect(JSON.stringify({ ...localStorage })).not.toMatch(/sk-ant-synthetic-guest|lip_syntheticGuest/);
 });
 
 test('a failed key move is reported and the device key still leaves', async () => {
-  localStorage.setItem('gipfApiKey', 'sk-ant-synthetic-guest');
+  localStorage.setItem('playApiKey', 'sk-ant-synthetic-guest');
   server.account = () => reply(503, { error: 'store_unavailable' });
   const result = await completeSignIn();
   expect(result.keysMoved).toBe(false);
-  expect(localStorage.getItem('gipfApiKey')).toBeNull();
+  expect(localStorage.getItem('playApiKey')).toBeNull();
   expect(accountKeys()).toEqual({ anthropic: false, lichess: false });
 });
 
@@ -151,7 +151,7 @@ test('sign-out revokes the server session, forgets the key, and seals progress',
   const logout = calls.find(c => c.url.endsWith('/api/auth/logout'));
   expect(logout.body).toEqual({ everywhere: false });
   expect(logout.headers['X-Games-Request']).toBe('1');
-  expect(localStorage.getItem(`gipf:recovery:${DATA_ID}`)).not.toContain('1500');
+  expect(localStorage.getItem(`play:recovery:${DATA_ID}`)).not.toContain('1500');
   // The server hands back the same seal key at the next sign-in, which reopens it.
   await completeSignIn();
   expect(localStorage.getItem('chessRating')).toBe('1500');

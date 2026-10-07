@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import YinshBoard from '../src/games/yinsh/YinshBoard.js';
 import { encodeBoard } from '../src/games/yinsh/matchSnapshot.js';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const origin=`http://127.0.0.1:${process.env.GIPF_TEST_PORT || 3189}`;
+const origin=`http://127.0.0.1:${process.env.PLAY_TEST_PORT || 3189}`;
 const owner={label:`synthetic-import-${Date.now()}`};
 owner.name=`${owner.label}@synthetic.example`;
 const browser=await chromium.launch({headless:true});
@@ -24,7 +24,7 @@ try {
     assert.equal(await checkbox.isChecked(),false);
     if(importGuest) await checkbox.check();
     await page.getByRole('button',{name:'Sign in',exact:true}).click();
-    await page.waitForFunction(()=>JSON.parse(localStorage.getItem('gipfAccount')||'null')?.v===3);
+    await page.waitForFunction(()=>JSON.parse(localStorage.getItem('playAccount')||'null')?.v===3);
     await page.goto(`${origin}/login`);
     await page.getByText(`Signed in as ${owner.name}`).waitFor();
   };

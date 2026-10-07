@@ -1,7 +1,7 @@
 // Run against tests/serve-public-security.mjs. Output contains no credentials.
 import assert from 'node:assert/strict';
 import ZertzBoard from '../src/games/zertz/ZertzBoard.js';
-const base=`http://127.0.0.1:${process.env.GIPF_TEST_PORT || 3187}/api/`;
+const base=`http://127.0.0.1:${process.env.PLAY_TEST_PORT || 3187}/api/`;
 import { hash } from '../server/publicSecurity.js';
 import { redis } from './redis-fixture.mjs';
 import { seedSession, identityFor } from './session-fixture.mjs';
@@ -40,18 +40,18 @@ await call('aiMove',{boardState:'synthetic-private-value'},400);
 console.log('PASS: real HTTP handlers, synthetic Redis/provider boundary, valid and error paths');
 
 // Saving keys: the account-user budget bounds one identity across networks.
-const freshBudget=`gipf:limit:account-user:${hash(identityFor('smoke-fresh'))}`;
-redis('DEL',`gipf:limit:account:${hash('127.0.0.1')}`,freshBudget);
+const freshBudget=`play:limit:account-user:${hash(identityFor('smoke-fresh'))}`;
+redis('DEL',`play:limit:account:${hash('127.0.0.1')}`,freshBudget);
 for(let i=0;i<20;i++) await call('chessAccount',{action:'setKeys',lichess:null},200,fresh);
 // A fresh network does not reset it.
-redis('DEL',`gipf:limit:account:${hash('127.0.0.1')}`);
+redis('DEL',`play:limit:account:${hash('127.0.0.1')}`);
 await call('chessAccount',{action:'setKeys',lichess:null},429,fresh);
 assert.equal(redis('GET',freshBudget),'21');
-redis('DEL',`gipf:limit:account:${hash('127.0.0.1')}`,freshBudget);
+redis('DEL',`play:limit:account:${hash('127.0.0.1')}`,freshBudget);
 console.log('PASS: setKeys with the session cookie, then the per-identity budget');
 
 // The session cookie is the only credential: CSRF refusals, then logout revocation.
-redis('DEL',`gipf:limit:account:${hash('127.0.0.1')}`,`gipf:limit:sync:${hash('127.0.0.1')}`);
+redis('DEL',`play:limit:account:${hash('127.0.0.1')}`,`play:limit:sync:${hash('127.0.0.1')}`);
 const post=(name,body,headers=same,cookie)=>fetch(base+name,{method:'POST',headers:{...headers,...(cookie?{Cookie:cookie}:{})},body:typeof body==='string'?body:JSON.stringify(body)});
 assert.equal((await post('chessProfile',{action:'read'},same,owner)).status,200);
 assert.equal((await post('session',{action:'establish'},same,owner)).status,200);

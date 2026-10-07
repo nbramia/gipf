@@ -7,15 +7,15 @@ import ChessBoard from '../src/games/chess/ChessBoard.js';
 import YinshBoard from '../src/games/yinsh/YinshBoard.js';
 import ZertzBoard from '../src/games/zertz/ZertzBoard.js';
 import CatanBoard from '../src/games/catan/CatanBoard.js';
-const origin = `http://127.0.0.1:${process.env.GIPF_TEST_PORT || 3189}`;
+const origin = `http://127.0.0.1:${process.env.PLAY_TEST_PORT || 3189}`;
 const boards = { chess: new ChessBoard(), yinsh: new YinshBoard(), zertz: new ZertzBoard(), catan: new CatanBoard({ seed: 1234 }) };
 boards.chess.move('e2','e4'); boards.chess.move('e7','e5');
 boards.yinsh.handleClick(0,0);
 boards.zertz.selectMarbleColor('white'); boards.zertz.placeMarble(0,0);
 boards.catan.applyMove(boards.catan.getLegalMoves()[0]);
-// The server's disposable gipf-test-* container (synthetic data only).
-const container = process.env.GIPF_TEST_REDIS_CONTAINER;
-if (!/^gipf-test-[a-z0-9-]+$/.test(container || '')) throw new Error('Set GIPF_TEST_REDIS_CONTAINER to the fixture server container');
+// The server's disposable play-test-* container (synthetic data only).
+const container = process.env.PLAY_TEST_REDIS_CONTAINER;
+if (!/^play-test-[a-z0-9-]+$/.test(container || '')) throw new Error('Set PLAY_TEST_REDIS_CONTAINER to the fixture server container');
 const redisCli = (...args) => execFileSync('docker',['exec',container,'redis-cli',...args]);
 redisCli('FLUSHDB');
 const browser = await chromium.launch({ headless: true });
@@ -32,9 +32,9 @@ async function device() {
 // Sign `page` in as identity `label` with data id `u`, through the real /login completion.
 async function signIn(page, label, u, { importGuest = false, returnTo = '/' } = {}) {
   await page.context().addCookies([{ name: 'fixture-identity', value: `${label}:${u}`, url: origin }]);
-  if (importGuest) await page.evaluate(() => sessionStorage.setItem('gipf:import-guest', '1'));
+  if (importGuest) await page.evaluate(() => sessionStorage.setItem('play:import-guest', '1'));
   await page.goto(`${origin}/api/auth/login?return=${encodeURIComponent(returnTo)}`);
-  await page.waitForFunction(id => JSON.parse(localStorage.getItem('gipfAccount') || 'null')?.usernameId === id && location.pathname !== '/login', u);
+  await page.waitForFunction(id => JSON.parse(localStorage.getItem('playAccount') || 'null')?.usernameId === id && location.pathname !== '/login', u);
 }
 // Playwright's request client does not send a Secure cookie over plain http, so the
 // session cookie is passed explicitly.
@@ -159,7 +159,7 @@ try {
   const secondTab = await tabs.context().newPage();
   await secondTab.goto(`${origin}/`);
   await secondTab.evaluate(() => {
-    localStorage.setItem('gipf:account-transition',JSON.stringify({id:'synthetic-switch',until:Date.now()+60000}));
+    localStorage.setItem('play:account-transition',JSON.stringify({id:'synthetic-switch',until:Date.now()+60000}));
   });
   await tabs.getByText('Account progress changed in another operation. Reload before playing.',{exact:true}).waitFor();
   assert.equal(await tabs.locator('.game-yinsh').count(),0);
@@ -178,12 +178,12 @@ try {
   await login.getByRole('button',{name:'Sign out',exact:true}).click();
   await login.getByRole('button',{name:'Sign out',exact:true}).click();
   await login.getByText('Signed out of Games.').waitFor();
-  await shared.waitForFunction(id=>!localStorage.getItem('gipfAccount') && JSON.parse(localStorage.getItem('yinshMatch:v1')||'null')?.id!==id,originalId);
-  assert.ok(await login.evaluate(id=>localStorage.getItem(`gipf:recovery:${id}`),ownerA.usernameId));
+  await shared.waitForFunction(id=>!localStorage.getItem('playAccount') && JSON.parse(localStorage.getItem('yinshMatch:v1')||'null')?.id!==id,originalId);
+  assert.ok(await login.evaluate(id=>localStorage.getItem(`play:recovery:${id}`),ownerA.usernameId));
   await login.context().addCookies([{ name: 'fixture-identity', value: `${ownerB.label}:${ownerB.usernameId}`, url: origin }]);
   await login.getByRole('button',{name:'Sign in',exact:true}).click();
-  await login.waitForFunction(id=>JSON.parse(localStorage.getItem('gipfAccount')||'null')?.usernameId===id,ownerB.usernameId);
-  await shared.waitForFunction(id=>JSON.parse(localStorage.getItem('gipfAccount')||'null')?.usernameId===id,ownerB.usernameId);
+  await login.waitForFunction(id=>JSON.parse(localStorage.getItem('playAccount')||'null')?.usernameId===id,ownerB.usernameId);
+  await shared.waitForFunction(id=>JSON.parse(localStorage.getItem('playAccount')||'null')?.usernameId===id,ownerB.usernameId);
   assert.notEqual((await getSnapshot(shared,'yinsh'))?.id,originalId);
   console.log('PASS real A logout/B login across tabs: outgoing match sealed, no pending payload imported into B');
   await shared.context().close();

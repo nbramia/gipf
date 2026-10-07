@@ -12,7 +12,7 @@ jest.mock('./account', () => ({
   signInUrl: jest.fn(), completeSignIn: jest.fn(), saveAccountKeys: jest.fn(),
   endServerSession: jest.fn(), loadSession: jest.fn(), clearSession: jest.fn(), checkServerSession: jest.fn(),
   getSharedApiKey: jest.fn(), setSharedApiKey: jest.fn(), getSharedLichessToken: jest.fn(), setSharedLichessToken: jest.fn(),
-  SESSION_EXPIRED_KEY: 'gipf:session-expired',
+  SESSION_EXPIRED_KEY: 'play:session-expired',
 }));
 const signedIn = { v: 3, username: 'player@synthetic.example', usernameId: 'f'.repeat(64), sid: 'a'.repeat(32) };
 const status = (over = {}) => ({ signedIn: true, u: signedIn.usernameId, name: signedIn.username, keys: { anthropic: false, lichess: false }, ...over });
@@ -59,7 +59,7 @@ test('signed out: Auth0 sign-in with the allowlisted return; no username/passwor
   fireEvent.click(screen.getByRole('button', { name: 'Sign in', exact: true }));
   expect(account.signInUrl).toHaveBeenCalledWith('/chess', { reauthenticate: false });
   expect(window.location.assign).toHaveBeenCalledWith('/api/auth/login?return=%2Fchess');
-  expect(sessionStorage.getItem('gipf:import-guest')).toBeNull();
+  expect(sessionStorage.getItem('play:import-guest')).toBeNull();
 });
 
 test.each(['?return=https://evil.example', '?return=//evil.example', '?return=/chess/../../x', ''])('sign-in with %p returns to the catalogue', search => {
@@ -72,18 +72,18 @@ test('import consent survives the redirect; "Use a different account" asks Auth0
   mount('?return=/catan');
   fireEvent.click(screen.getByRole('checkbox'));
   fireEvent.click(screen.getByRole('button', { name: 'Use a different account' }));
-  expect(sessionStorage.getItem('gipf:import-guest')).toBe('1');
+  expect(sessionStorage.getItem('play:import-guest')).toBe('1');
   expect(window.location.assign).toHaveBeenCalledWith('/api/auth/login?return=%2Fcatan&reauthenticate=1');
 });
 
 test('back from Auth0: completes sign-in with the stored consent and leaves to the game', async () => {
-  sessionStorage.setItem('gipf:import-guest', '1');
+  sessionStorage.setItem('play:import-guest', '1');
   account.completeSignIn.mockResolvedValue({ keys: { anthropic: true, lichess: false }, keysMoved: true });
   mount('?signedin=1&return=/splendor');
   expect(screen.getByRole('heading', { name: 'Signing in…' })).toBeInTheDocument();
   await waitFor(() => expect(window.location.assign).toHaveBeenCalledWith('/splendor'));
   expect(account.completeSignIn).toHaveBeenCalledWith({ importGuest: true });
-  expect(sessionStorage.getItem('gipf:import-guest')).toBeNull();
+  expect(sessionStorage.getItem('play:import-guest')).toBeNull();
 });
 
 test('a sign-in goes straight to the game', async () => {
@@ -165,7 +165,7 @@ test('sign-out cancel preserves the account; confirmation clears the session and
   fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
   await waitFor(() => expect(account.clearSession).toHaveBeenCalledWith({ everywhere: false }));
   await waitFor(() => expect(window.location.reload).toHaveBeenCalled());
-  expect(sessionStorage.getItem('gipf:signed-out')).toBe('1');
+  expect(sessionStorage.getItem('play:signed-out')).toBe('1');
   expect(localStorage.getItem(OFF_KEY)).toBe('1');
 });
 
@@ -179,17 +179,17 @@ test('sign out everywhere confirms and revokes every session', async () => {
 });
 
 test('after sign-out the page says the ramia.us sign-in is still open', () => {
-  sessionStorage.setItem('gipf:signed-out', '1');
+  sessionStorage.setItem('play:signed-out', '1');
   mount();
   expect(screen.getByText(/Signed out of Games/)).toHaveTextContent('Use a different account');
-  expect(sessionStorage.getItem('gipf:signed-out')).toBeNull();
+  expect(sessionStorage.getItem('play:signed-out')).toBeNull();
 });
 
 test.each([['expired', 'Your session ended.']])('an ended (%s) session explains itself once', (reason, message) => {
-  sessionStorage.setItem('gipf:session-expired', reason);
+  sessionStorage.setItem('play:session-expired', reason);
   mount();
   expect(screen.getByRole('status')).toHaveTextContent(message);
-  expect(sessionStorage.getItem('gipf:session-expired')).toBeNull();
+  expect(sessionStorage.getItem('play:session-expired')).toBeNull();
 });
 
 describe('automatic sign-in from the ramia.us session', () => {
@@ -250,7 +250,7 @@ describe('automatic sign-in from the ramia.us session', () => {
     ['signed in', () => account.loadSession.mockReturnValue(signedIn), ''],
     ['an error to show', () => {}, '?error=signin'],
     ['returning from Auth0', () => account.completeSignIn.mockReturnValue(new Promise(() => {})), '?signedin=1'],
-    ['off play.ramia.us', () => { window.location.hostname = 'gipf-preview.vercel.app'; }, ''],
+    ['off play.ramia.us', () => { window.location.hostname = 'play-preview.vercel.app'; }, ''],
     ['on the ramia.us apex', () => { window.location.hostname = 'ramia.us'; }, ''],
   ])('no attempt when %s', (_, arrange, search) => {
     arrange();

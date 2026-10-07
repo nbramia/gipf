@@ -5,9 +5,9 @@
 //
 // Games read it here; /login and src/account.js write it on sign-in, on a key change,
 // and when the server reports the account's keys. Sign-out clears it.
-const MARKER = 'gipfAccountKeys';
+const MARKER = 'playAccountKeys';
 // The same-tab event the games already listen to for key changes.
-const KEY_EVENT = 'gipf-apikey-change';
+const KEY_EVENT = 'play-apikey-change';
 
 export const ACCOUNT_KEYS_STORAGE = MARKER;
 

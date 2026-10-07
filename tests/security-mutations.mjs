@@ -1,11 +1,11 @@
-// Run only with a separate disposable GIPF_TEST_REDIS_CONTAINER. Mutate a temporary
+// Run only with a separate disposable PLAY_TEST_REDIS_CONTAINER. Mutate a temporary
 // source copy, never the checkout or a running browser fixture's modules.
 import assert from 'node:assert/strict';
 import { mkdtemp, cp, symlink, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-const root=await mkdtemp(join(tmpdir(),'gipf-security-mutations-'));
+const root=await mkdtemp(join(tmpdir(),'play-security-mutations-'));
 try {
   for(const path of ['api','server','tests','package.json']) await cp(resolve(path),join(root,path),{recursive:true});
   await symlink(resolve('src'),join(root,'src'));

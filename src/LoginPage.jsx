@@ -21,9 +21,9 @@ import { claimSilentAttempt, suppressSilentSignIn, allowSilentSignIn } from './s
 import './landing.css';
 
 // The guest-progress choice made before the Auth0 redirect, read when it returns.
-const IMPORT_KEY = 'gipf:import-guest';
+const IMPORT_KEY = 'play:import-guest';
 // Set by sign-out so the next visit says what signing in again will do.
-const SIGNED_OUT_KEY = 'gipf:signed-out';
+const SIGNED_OUT_KEY = 'play:signed-out';
 
 function takeFlag(key) {
   try { const value = sessionStorage.getItem(key); sessionStorage.removeItem(key); return value; } catch (_) { return null; }

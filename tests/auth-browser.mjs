@@ -3,7 +3,7 @@
 // Auth0 accepts only the exact production callback, so preview deployments cannot sign
 // in. This drives the built app as https://play.ramia.us in Chromium,
 // with every request to that origin and to the synthetic issuer answered by this
-// process: the real API handlers, a disposable gipf-test-* Redis, and a provider that
+// process: the real API handlers, a disposable play-test-* Redis, and a provider that
 // signs ID tokens with a throwaway key. Nothing reaches Auth0, Anthropic, Lichess or a
 // shared store. It covers: the catalogue's and /login's automatic prompt=none attempt
 // failing quietly with no provider session (once, no loop), /login completing on its own
@@ -11,9 +11,9 @@
 // cookies, keys never in the page, a model request using the account key, sign-out
 // suppressing the automatic attempt, the clicked silent sign-in, and prompt=login.
 //
-//   docker run --rm -d --name gipf-test-auth-browser redis:7-alpine
+//   docker run --rm -d --name play-test-auth-browser redis:7-alpine
 //   npm run build
-//   GIPF_TEST_REDIS_CONTAINER=gipf-test-auth-browser PLAYWRIGHT_MODULE=/path/to/playwright node tests/auth-browser.mjs
+//   PLAY_TEST_REDIS_CONTAINER=play-test-auth-browser PLAYWRIGHT_MODULE=/path/to/playwright node tests/auth-browser.mjs
 import http from 'node:http';
 import { createRequire } from 'node:module';
 import { readFile } from 'node:fs/promises';
@@ -194,12 +194,12 @@ try {
   await page.getByLabel('Anthropic API key').fill(GUEST_KEY);
   await page.getByRole('button', { name: 'Save' }).first().click();
   await page.getByText('Saved on this device.').waitFor();
-  assert.equal((await storage()).gipfApiKey, GUEST_KEY);
+  assert.equal((await storage()).playApiKey, GUEST_KEY);
   pass('guest reaches /login with no second attempt; guest key is device-only');
 
   // A fresh /login with no provider session: one prompt=none redirect, back to /login
   // with the Sign in button, and no loop.
-  await page.evaluate(() => localStorage.removeItem('gipf:silent-sign-in-at'));
+  await page.evaluate(() => localStorage.removeItem('play:silent-sign-in-at'));
   await page.goto(`${ORIGIN}/login?return=/chess`);
   await page.waitForURL(`${ORIGIN}/login?silent=failed&return=%2Fchess`);
   await page.getByRole('button', { name: 'Sign in', exact: true }).waitFor();
@@ -210,7 +210,7 @@ try {
 
   // Signed in at Home (the provider session is open): /login completes on its own.
   provider.session = true;
-  await page.evaluate(() => localStorage.setItem('gipf:silent-sign-in-at', String(Date.now() - 11 * 60000)));
+  await page.evaluate(() => localStorage.setItem('play:silent-sign-in-at', String(Date.now() - 11 * 60000)));
   await page.goto(`${ORIGIN}/login?return=/catan`);
   await page.waitForURL(`${ORIGIN}/catan`, { timeout: 15000 }).catch(async error => {
     console.error('DEBUG url', page.url(), (await page.locator('body').innerText()).slice(0, 600), errors);
@@ -223,9 +223,9 @@ try {
   assert.ok(sessionCookie && sessionCookie.httpOnly && sessionCookie.secure && sessionCookie.sameSite === 'Lax' && sessionCookie.domain === 'play.ramia.us' && sessionCookie.path === '/');
   assert.ok(!cookies.some(c => c.name === '__Host-games_auth'), 'transaction cookie cleared');
   let local = await storage();
-  assert.equal(local.gipfApiKey, undefined, 'the guest key left the device');
-  assert.deepEqual(JSON.parse(local.gipfAccountKeys), { anthropic: true, lichess: false }, 'and moved to the account');
-  assert.equal(JSON.parse(local.gipfAccount).username, 'browser-player@synthetic.example');
+  assert.equal(local.playApiKey, undefined, 'the guest key left the device');
+  assert.deepEqual(JSON.parse(local.playAccountKeys), { anthropic: true, lichess: false }, 'and moved to the account');
+  assert.equal(JSON.parse(local.playAccount).username, 'browser-player@synthetic.example');
   assert.ok(!Object.values(local).some(v => v.includes('sk-ant-')), 'no key anywhere in localStorage');
   pass('already signed in at the provider: /login auto-completes with no click and lands on the game; host-only cookie; key moved');
 
@@ -259,10 +259,10 @@ try {
   await page.getByText('Signed out of Games.').waitFor();
   assert.ok(!(await context.cookies(ORIGIN)).some(c => c.name === '__Host-games_session'));
   local = await storage();
-  assert.equal(local.gipfAccount, undefined);
-  assert.equal(local.gipfAccountKeys, undefined);
-  assert.equal(redis('KEYS', 'gipf:session:v1:*').length, 0);
-  await page.evaluate(() => { localStorage.removeItem('gipf:silent-sign-in-at'); sessionStorage.clear(); });
+  assert.equal(local.playAccount, undefined);
+  assert.equal(local.playAccountKeys, undefined);
+  assert.equal(redis('KEYS', 'play:session:v1:*').length, 0);
+  await page.evaluate(() => { localStorage.removeItem('play:silent-sign-in-at'); sessionStorage.clear(); });
   await page.goto(`${ORIGIN}/login`);
   await page.getByRole('button', { name: 'Sign in', exact: true }).waitFor();
   await page.goto(`${ORIGIN}/`);
@@ -276,8 +276,8 @@ try {
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await page.waitForURL(`${ORIGIN}/`);
   await useCloudPreferences();
-  assert.equal(JSON.parse((await storage()).gipfAccount).username, 'browser-player@synthetic.example');
-  assert.equal(await page.evaluate(() => localStorage.getItem('gipf:silent-sign-in-off')), null, 'Sign in re-enables automatic sign-in');
+  assert.equal(JSON.parse((await storage()).playAccount).username, 'browser-player@synthetic.example');
+  assert.equal(await page.evaluate(() => localStorage.getItem('play:silent-sign-in-off')), null, 'Sign in re-enables automatic sign-in');
   await page.goto(`${ORIGIN}/login`);
   await useCloudPreferences();
   await page.getByRole('button', { name: 'Sign out', exact: true }).click();

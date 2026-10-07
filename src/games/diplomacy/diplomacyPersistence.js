@@ -177,7 +177,7 @@ export function loadGame() {
 }
 
 // clearGame() — remove the saved game AND every diplomacy*-prefixed key except
-// the shared cross-game `gipfApiKey` (which belongs to the whole app, not this
+// the shared cross-game `playApiKey` (which belongs to the whole app, not this
 // game). Never throws.
 export function clearGame() {
   try {

@@ -160,14 +160,14 @@ describe('session persistence', () => {
 test('logout clears both credentials and encrypts outgoing progress for that account', async () => {
   const a = account('synthetic-a');
   await saveSession(a);
-  localStorage.setItem('gipfApiKey', 'synthetic-secret');
+  localStorage.setItem('playApiKey', 'synthetic-secret');
   localStorage.setItem('chessLichessToken', 'synthetic-token');
   localStorage.setItem('chessRating', '1234');
   await clearSession();
-  expect(localStorage.getItem('gipfApiKey')).toBeNull();
+  expect(localStorage.getItem('playApiKey')).toBeNull();
   expect(localStorage.getItem('chessLichessToken')).toBeNull();
   expect(localStorage.getItem('chessRating')).toBeNull();
-  const recovery = localStorage.getItem(`gipf:recovery:${a.usernameId}`);
+  const recovery = localStorage.getItem(`play:recovery:${a.usernameId}`);
   expect(recovery).not.toContain('1234');
   expect(recovery).not.toContain('synthetic-secret');
   await saveSession(a);
@@ -178,16 +178,16 @@ test('account B sees neither A progress nor A keys and A can recover unsynced pr
   localStorage.clear();
   const a = account('synthetic-account-a');
   const b = account('synthetic-account-b');
-  localStorage.setItem('gipfApiKey', 'synthetic-guest-secret');
+  localStorage.setItem('playApiKey', 'synthetic-guest-secret');
   await saveSession(a, { keys: { anthropic: true, lichess: true } });
   // Signed in, no key stays on the device; only the account marker says one exists.
-  expect(localStorage.getItem('gipfApiKey')).toBeNull();
+  expect(localStorage.getItem('playApiKey')).toBeNull();
   expect(accountKeys()).toEqual({ anthropic: true, lichess: true });
   localStorage.setItem('chessRating', '1729');
   await saveSession(b);
   expect(accountKeys()).toEqual({ anthropic: false, lichess: false });
   expect(localStorage.getItem('chessRating')).toBeNull();
-  expect(localStorage.getItem('gipfApiKey')).toBeNull();
+  expect(localStorage.getItem('playApiKey')).toBeNull();
   expect(localStorage.getItem('chessLichessToken')).toBeNull();
   expect(JSON.stringify(Object.values(localStorage))).not.toContain('1729');
   await clearSession();
@@ -202,7 +202,7 @@ test('guest progress is preserved separately and imported only by explicit choic
   localStorage.setItem('chessRating', '1357');
   await saveSession(a);
   expect(localStorage.getItem('chessRating')).toBeNull();
-  expect(JSON.parse(localStorage.getItem('gipf:guest:recovery')).chessRating).toBe('1357');
+  expect(JSON.parse(localStorage.getItem('play:guest:recovery')).chessRating).toBe('1357');
   await clearSession();
   await saveSession(a, { importGuest: true });
   expect(localStorage.getItem('chessRating')).toBe('1357');
@@ -216,7 +216,7 @@ test('recovery quota failure aborts logout before deleting the only copy', async
   localStorage.setItem('chessRating', '1492');
   const original = Storage.prototype.setItem;
   const mock = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
-    if (key.startsWith('gipf:recovery:')) throw new Error('synthetic quota');
+    if (key.startsWith('play:recovery:')) throw new Error('synthetic quota');
     return original.call(this, key, value);
   });
   await expect(clearSession()).rejects.toThrow('synthetic quota');
@@ -258,7 +258,7 @@ test('four-game pending saves and alternatives stay encrypted with their origina
     expect(localStorage.getItem(`${game}MatchSync:v1`)).toBeNull();
     expect(localStorage.getItem(`${game}MatchRecovery:v1`)).toBeNull();
   }
-  expect(localStorage.getItem(`gipf:recovery:${a.usernameId}`)).not.toContain('unsynced-A');
+  expect(localStorage.getItem(`play:recovery:${a.usernameId}`)).not.toContain('unsynced-A');
   await saveSession(a);
   expect(localStorage.getItem('catanMatch:v1')).toContain('unsynced-A');
   expect(JSON.parse(localStorage.getItem('catanMatchSync:v1')).owner).toBe(a.usernameId);

@@ -37,7 +37,7 @@ try {
     await page.evaluate(index => {
       localStorage.setItem('chessDarkMode',index === 1 ? 'false' : 'true');
       localStorage.setItem('splendorDifficulty','strong');
-      localStorage.setItem('gipfApiKey','SYNTHETIC_SECRET_DO_NOT_EXPORT');
+      localStorage.setItem('playApiKey','SYNTHETIC_SECRET_DO_NOT_EXPORT');
       localStorage.setItem('chessLichessToken','SYNTHETIC_LICHESS_DO_NOT_EXPORT');
       localStorage.setItem('chessGameState','{"v":1,"pgn":""}');
     },i);
@@ -85,7 +85,7 @@ try {
     const key = 'gamesMigration:v1:guest';
     const raw = localStorage.getItem(key).slice(0,-1) + ', {"future":9}]';
     localStorage.setItem(key,raw);
-    localStorage.setItem('gipf:recovery:hidden-other-identity','synthetic-sealed');
+    localStorage.setItem('play:recovery:hidden-other-identity','synthetic-sealed');
     return raw;
   });
   await destination.getByRole('button',{name:'Show retained files'}).click();
@@ -137,12 +137,12 @@ try {
   const signIn = n => destination.evaluate(async ({session,sealKey}) => {
     const key = await crypto.subtle.importKey('raw',Uint8Array.from(atob(sealKey),c => c.charCodeAt(0)),{name:'AES-GCM'},false,['encrypt','decrypt']);
     await new Promise((resolve,reject) => {
-      const open = indexedDB.open('gipf-account',1);
+      const open = indexedDB.open('play-account',1);
       open.onupgradeneeded = () => open.result.createObjectStore('keys');
       open.onerror = () => reject(open.error);
       open.onsuccess = () => { const tx = open.result.transaction('keys','readwrite'); tx.objectStore('keys').put(key,session.usernameId); tx.oncomplete = () => { open.result.close(); resolve(); }; tx.onerror = () => reject(tx.error); };
     });
-    localStorage.setItem('gipfAccount',JSON.stringify(session));
+    localStorage.setItem('playAccount',JSON.stringify(session));
   },{session:syntheticSession(n),sealKey:'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='});
   await signIn(1);
   await destination.reload();
