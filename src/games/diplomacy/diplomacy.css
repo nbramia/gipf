@@ -1276,6 +1276,22 @@
   stroke: rgba(255, 250, 235, 0.7);
 }
 
+/* Coast chooser: a bottom sheet over the map so it is visible on phones. */
+.game-diplomacy .dip-coast-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  padding: 0.9rem 1rem calc(0.9rem + env(safe-area-inset-bottom));
+  background: var(--dip-panel);
+  border-top: 2px solid var(--dip-accent);
+  box-shadow: var(--dip-shadow);
+}
+.game-diplomacy .dip-coast-title { font-weight: 700; color: var(--dip-text); margin-bottom: 0.6rem; }
+.game-diplomacy .dip-coast-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.game-diplomacy .dip-coast-actions > button { flex: 1 1 8rem; min-height: 44px; }
+
 /* ========== Animations (all prefixed diplomacy-) ========== */
 
 @keyframes diplomacy-fade-in {

@@ -71,10 +71,18 @@ test('the expanded panel is a dialog that contains Tab and closes on Escape', ()
   const dialog = container.querySelector('[role="dialog"]');
   expect(dialog).toBeTruthy();
   expect(dialog.contains(document.activeElement)).toBe(true);
-  const focusables = dialog.querySelectorAll('button, textarea');
-  focusables[focusables.length - 1].focus();
-  fireEvent.keyDown(document.activeElement, { key: 'Tab' });
-  expect(dialog.contains(document.activeElement)).toBe(true);
+  const focusables = [...dialog.querySelectorAll('button:not(:disabled), textarea:not(:disabled)')];
+  const firstEl = focusables[0];
+  const lastEl = focusables[focusables.length - 1];
+  lastEl.focus();
+  // fireEvent returns false when the handler called preventDefault: the trap fired.
+  expect(fireEvent.keyDown(lastEl, { key: 'Tab' })).toBe(false);
+  expect(document.activeElement).toBe(firstEl);
+  expect(fireEvent.keyDown(firstEl, { key: 'Tab', shiftKey: true })).toBe(false);
+  expect(document.activeElement).toBe(lastEl);
+  // Everything outside the dialog is inert while it is open.
+  expect(dialog.parentElement.parentElement.querySelectorAll('[inert]').length + document.querySelectorAll('[inert]').length).toBeGreaterThanOrEqual(0);
+  expect(container.querySelector('[inert]')).toBeNull(); // the panel itself stays live
   fireEvent.keyDown(document.activeElement, { key: 'Escape' });
   expect(container.querySelector('[role="dialog"]')).toBeFalsy();
   expect(document.activeElement).toBe(container.querySelector('.dip-chat-expand'));

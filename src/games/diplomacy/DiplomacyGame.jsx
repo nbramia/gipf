@@ -31,7 +31,7 @@ import useHasApiKey from './hooks/useApiKey.js';
 import useAIWorker from './hooks/useAIWorker.js';
 import useDiplomacyTurn from './hooks/useDiplomacyTurn.js';
 import useModalFocus from './hooks/useModalFocus.js';
-import { moveOptionsInto, toggleAdjustment } from './orderEntry.js';
+import { moveOptionsInto, toggleAdjustment, normalizeAdjustments } from './orderEntry.js';
 import DiplomacySetup from './DiplomacySetup.jsx';
 import {
   loadSettings,
@@ -195,8 +195,18 @@ export default function DiplomacyGame() {
   useEffect(() => localStorage.setItem('diplomacyShowLastMoves', JSON.stringify(showLastMoves)), [showLastMoves]);
   const logRef = useRef(null);
   const confirmRef = useRef(null);
+  const coastRef = useRef(null);
   useModalFocus(logExpanded, logRef, () => setLogExpanded(false));
   useModalFocus(confirmNew, confirmRef, () => setConfirmNew(false));
+  // Non-modal sheet: focus its first coast button and let Escape cancel.
+  useEffect(() => {
+    if (!coastChoices) return undefined;
+    const btn = coastRef.current && coastRef.current.querySelector('button');
+    if (btn) btn.focus();
+    const onKey = (e) => { if (e.key === 'Escape') setCoastChoices(null); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [coastChoices]);
 
   const setBoard = useCallback((next) => setBoardState(next), []);
 
@@ -476,6 +486,21 @@ export default function DiplomacyGame() {
     turn.submitAdjustments(buildOrders);
   }
 
+  // A restored save can hold an impossible plan (too many picks, two builds in
+  // one home); trim it to the engine's allowance and say so.
+  useEffect(() => {
+    if (!board.isWinterPhase()) return;
+    const adj = board.getAdjustments()[humanPower];
+    const current = buildOrders[humanPower];
+    if (!adj || !current || current.length === 0) return;
+    const limit = adj.delta > 0 ? adj.buildCount : adj.disbandCount;
+    const fixed = normalizeAdjustments(current, limit, pendingKey, baseProvince);
+    if (fixed.length !== current.length) {
+      setBuildOrders(prev => ({ ...prev, [humanPower]: fixed }));
+      setBuildNotice(`Some saved selections exceeded your allowance of ${limit} and were removed.`);
+    }
+  }, [board, humanPower, buildOrders]);
+
   // ----- new game / setup -----
   function startGame(chosen) {
     const next = { ...settings, ...chosen };
@@ -549,6 +574,27 @@ export default function DiplomacyGame() {
               <button className="dip-primary-btn flex-1" onClick={returnToSetup}>New Game</button>
               <button className="dip-tool-btn flex-1" onClick={() => setConfirmNew(false)}>Cancel</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {coastChoices && (
+        <div
+          ref={coastRef}
+          className="dip-overlay dip-coast-sheet"
+          role="dialog"
+          aria-label="Choose a coast"
+        >
+          <p className="dip-coast-title" role="status">
+            Which coast of {PROVINCES[baseProvince(coastChoices[0].to)].name}?
+          </p>
+          <div className="dip-coast-actions">
+            {coastChoices.map(option => (
+              <button key={pendingKey(option)} className="dip-primary-btn" onClick={() => setPendingOrder(option)}>
+                {provinceLabel(option.to)}
+              </button>
+            ))}
+            <button className="dip-tool-btn" onClick={() => setCoastChoices(null)}>Cancel</button>
           </div>
         </div>
       )}
@@ -640,7 +686,7 @@ export default function DiplomacyGame() {
             </div>
           )}
 
-          {logExpanded && <div className="dip-chat-backdrop" onClick={() => setLogExpanded(false)} />}
+          {logExpanded && <div className="dip-chat-backdrop" data-modal-keep onClick={() => setLogExpanded(false)} />}
           <div
             ref={logRef}
             className={`dip-panel p-4 ${logExpanded ? 'dip-log--modal' : ''}`}
@@ -987,18 +1033,6 @@ export default function DiplomacyGame() {
                         : <>Now click the highlighted destination for <strong>{supportFrom}</strong>. <button className="dip-linkbtn" onClick={() => setSupportFrom(null)}>change unit</button></>)
                     : 'Click a highlighted province on the map — or pick from the list.'}
                 </p>
-                {coastChoices && (
-                  <div className="dip-coast-picker mt-2" role="group" aria-label="Choose a coast">
-                    <p className="dip-target-hint">Which coast of {PROVINCES[baseProvince(coastChoices[0].to)].name}?</p>
-                    <div className="dip-target-grid mt-1">
-                      {coastChoices.map(option => (
-                        <button key={pendingKey(option)} className="dip-target-btn" onClick={() => setPendingOrder(option)}>
-                          {provinceLabel(option.to)}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
                 <div className="mt-2 dip-target-grid">
                   {optionsForType.length === 0 && <p className="dip-log-empty">No legal targets.</p>}
                   {optionsForType.map(option => (

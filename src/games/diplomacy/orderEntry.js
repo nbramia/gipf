@@ -31,3 +31,14 @@ export function toggleAdjustment(list, order, limit, key, baseProvince) {
   }
   return { list: [...next, order], error: null };
 }
+
+// Reduce an arbitrary saved selection to one the allowance permits: later
+// builds in the same home replace earlier ones, extras beyond `limit` drop.
+export function normalizeAdjustments(list, limit, key, baseProvince) {
+  let out = [];
+  for (const order of list) {
+    if (out.some(o => key(o) === key(order))) continue;
+    out = toggleAdjustment(out, order, limit, key, baseProvince).list;
+  }
+  return out;
+}

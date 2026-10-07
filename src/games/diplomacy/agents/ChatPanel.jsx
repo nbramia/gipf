@@ -110,7 +110,7 @@ export default function ChatPanel({
 
   return (
     <>
-      {expanded && <div className="dip-chat-backdrop" onClick={() => setExpanded(false)} />}
+      {expanded && <div className="dip-chat-backdrop" data-modal-keep onClick={() => setExpanded(false)} />}
       <div
         ref={dialogRef}
         className={`dip-chat ${expanded ? 'dip-chat--modal' : ''}`}

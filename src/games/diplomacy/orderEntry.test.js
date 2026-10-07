@@ -1,5 +1,5 @@
 import DiplomacyBoard, { baseProvince } from './DiplomacyBoard.js';
-import { moveOptionsInto, toggleAdjustment } from './orderEntry.js';
+import { moveOptionsInto, toggleAdjustment, normalizeAdjustments } from './orderEntry.js';
 
 const key = (o) => JSON.stringify(o);
 const build = (unitType, loc) => ({ type: 'build', power: 'england', unitType, loc });
@@ -34,5 +34,14 @@ describe('toggleAdjustment', () => {
     const o = { type: 'disband', unitLoc: 'LON' };
     const on = toggleAdjustment([], o, 1, key, baseProvince);
     expect(toggleAdjustment(on.list, o, 1, key, baseProvince).list).toEqual([]);
+  });
+});
+
+describe('normalizeAdjustments', () => {
+  test('trims a restored A EDI + F EDI + F LVP plan to the single build allowed', () => {
+    const saved = [build('army', 'EDI'), build('fleet', 'EDI'), build('fleet', 'LVP')];
+    const fixed = normalizeAdjustments(saved, 1, key, baseProvince);
+    expect(fixed).toHaveLength(1);
+    expect(fixed[0].loc).toBe('EDI');
   });
 });

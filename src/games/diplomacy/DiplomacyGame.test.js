@@ -4,7 +4,7 @@
 // Agents are stubbed (no real key in CI); assertions are structural.
 
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 import DiplomacyGame from './DiplomacyGame';
@@ -124,7 +124,18 @@ describe('DiplomacyGame — layout and dialogs', () => {
     const dialog = container.querySelector('[role="dialog"]');
     expect(dialog.getAttribute('aria-label')).toBe('Results Log');
     expect(dialog.contains(document.activeElement)).toBe(true);
-    fireEvent.keyDown(document.activeElement, { key: 'Tab' });
+    const items = [...dialog.querySelectorAll('button:not(:disabled), a[href], textarea, input')];
+    items[items.length - 1].focus();
+    expect(fireEvent.keyDown(items[items.length - 1], { key: 'Tab' })).toBe(false);
+    expect(document.activeElement).toBe(items[0]);
+    // The Games link and the rest of the page are inert while the dialog is open.
+    const link = container.querySelector('.dip-home-link');
+    expect(link.closest('[inert]')).toBeTruthy();
+    expect(link.closest('[aria-hidden="true"]')).toBeTruthy();
+    // Programmatic focus on the background is pulled back in.
+    act(() => { container.querySelector('.dip-chat-expand').focus(); });
     expect(dialog.contains(document.activeElement)).toBe(true);
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' });
+    expect(container.querySelector('[inert]')).toBeNull();
   });
 });
