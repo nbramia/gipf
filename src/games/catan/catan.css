@@ -15,6 +15,7 @@
   --color-accent-hover: #8F3F1E;
   --color-accent-soft: #F4D5BE;
   --color-harbor: #1E6F82;
+  --color-harbor-token: #1E6F82;
   --color-btn-primary-bg: #B4532A;
   --color-btn-primary-text: #FFFFFF;
   --color-toggle-active: #2F7D55;
@@ -55,6 +56,7 @@
   --color-accent-hover: #FDBA74;
   --color-accent-soft: #4B2D1F;
   --color-harbor: #6EC7D8;
+  --color-harbor-token: #1F6F82;
   --color-btn-primary-bg: #C75F2D;
   --color-btn-primary-text: #FFFFFF;
   --color-toggle-active: #3E9C6A;
@@ -589,7 +591,17 @@
 
 .game-catan .catan-edge-hit {
   stroke: transparent;
-  stroke-width: 22;
+  stroke-width: 50;
+  stroke-linecap: round;
+}
+
+.game-catan .catan-vertex-hit {
+  fill: transparent;
+}
+
+/* Board targets that cannot be acted on neither take focus nor swallow clicks. */
+.game-catan .catan-inert {
+  pointer-events: none;
 }
 
 .game-catan .catan-road-casing {
@@ -655,7 +667,7 @@
 
 /* Round wooden harbor token */
 .game-catan .catan-port-disc {
-  fill: var(--color-harbor);
+  fill: var(--color-harbor-token);
   stroke: var(--color-piece-outline);
   stroke-width: 1.5;
 }
@@ -669,7 +681,7 @@
 .game-catan .catan-port-ratio {
   fill: #FFFFFF;
   font-family: Outfit, sans-serif;
-  font-size: 9.5px;
+  font-size: 11.5px;
   font-weight: 800;
   letter-spacing: 0.2px;
 }
@@ -831,6 +843,178 @@
 @media (max-width: 1023px) {
   .game-catan .catan-board-shell {
     width: min(100%, 720px);
+  }
+}
+
+/* Desktop: keep the board and hand inside the viewport. */
+@media (min-width: 1024px) {
+  .game-catan .catan-board-shell {
+    width: min(100%, 820px, calc((100vh - 200px) * 760 / 720));
+  }
+}
+
+/* ========== Navigation, dialogs, and form feedback ========== */
+
+.game-catan .catan-home-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding-right: 8px;
+  color: var(--color-text-secondary);
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.game-catan .catan-home-link:hover {
+  color: var(--color-accent);
+}
+
+.game-catan .catan-close-btn {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  color: var(--color-text-secondary);
+  font-size: 28px;
+  line-height: 1;
+}
+
+.game-catan .catan-close-btn:hover {
+  background: var(--color-accent-soft);
+  color: var(--color-text-primary);
+}
+
+.game-catan .catan-dialog-head {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px 8px 24px;
+  border-bottom: 1px solid var(--color-border-panel);
+}
+
+.game-catan .catan-dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 24px;
+}
+
+.game-catan .catan-dialog-foot {
+  flex-shrink: 0;
+  padding: 12px 24px 16px;
+  border-top: 1px solid var(--color-border-panel);
+  background: inherit;
+}
+
+.game-catan .catan-trade-problem {
+  margin-bottom: 8px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.game-catan .catan-trade-problem.is-error {
+  color: #B3261E;
+  font-weight: 700;
+}
+
+.game-catan.dark .catan-trade-problem.is-error {
+  color: #FCA5A5;
+}
+
+.game-catan .catan-banner {
+  border: 1px solid var(--color-accent);
+  border-radius: 8px;
+  background: var(--color-accent-soft);
+  color: var(--color-text-primary);
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.game-catan .catan-build-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 44px;
+  text-align: left;
+}
+
+.game-catan .catan-build-btn:disabled {
+  opacity: 0.62;
+}
+
+.game-catan .catan-build-btn small {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: right;
+}
+
+.game-catan .catan-bank-label {
+  margin: 6px 0 3px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.game-catan .catan-bank-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.game-catan .catan-bank-pill {
+  min-height: 44px;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+
+.game-catan .catan-bank-pill span {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.game-catan .catan-bank-pill:disabled {
+  cursor: default;
+  opacity: 0.32;
+}
+
+.game-catan .catan-bank-pill.selected {
+  border-color: var(--color-text-primary);
+  box-shadow: 0 0 0 1px var(--color-text-primary);
+}
+
+.game-catan .catan-dev-pill .catan-dev-new {
+  display: block;
+  color: var(--color-accent);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+/* Phones: a compact one-row hand so the board, hand and Actions share a screen. */
+@media (max-width: 639px) {
+  .game-catan .catan-card-tray {
+    gap: 8px;
+    padding: 2px 4px 6px;
+  }
+
+  .game-catan .catan-card-stack {
+    width: 46px;
+    height: 64px;
+  }
+
+  .game-catan .catan-card-name {
+    font-size: 8px;
   }
 }
 
