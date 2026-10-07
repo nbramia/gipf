@@ -235,6 +235,12 @@ export default function MatchBoundary({ game, decode, loadLegacy, children }) {
     } catch (_) { return false; }
     // recoveryCheck re-reads storage after each save and sync.
   }, [store, ready, conflict, initial.invalid, recoveryCheck]);
+  // Retained alternatives keep a quiet entry reachable after any notice clears.
+  const hasRecovery = useMemo(() => {
+    if (!ready || conflict || initial.invalid) return false;
+    try { return store.recovery().length > 0; } catch (_) { return false; }
+    // recoveryCheck re-reads storage after each save and sync.
+  }, [store, ready, conflict, initial.invalid, recoveryCheck]);
   const message = notice?.text || (newerInRecovery ? 'A newer copy of this match is saved in recovery on this device.' : '');
   const recoveryButton = <button className="m-2 underline" onClick={openRecovery}>Match recovery</button>;
   const context = useMemo(() => ({ restored: initial.decoded, persist, assertOwner: store.assertOwner, isCurrent, setTheme,
@@ -246,6 +252,7 @@ export default function MatchBoundary({ game, decode, loadLegacy, children }) {
     <div className={message ? 'p-2 text-sm' : undefined} aria-live="polite">
       {message && <><span>{message}</span>{' '}{!conflict && !initial.invalid && recoveryButton}</>}
     </div>
+    {!message && hasRecovery && !recovery && <p className="match-recovery-entry">{recoveryButton}</p>}
     {recovery && <div role="dialog" aria-label="Match recovery" className="p-3 match-recovery">
       <p><strong>{gameLabel(game)} match recovery.</strong> Saved alternatives stay on this device. Restoring one may require a cloud conflict choice.</p>
       <ul className="match-choices">

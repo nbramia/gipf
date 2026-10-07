@@ -27,8 +27,10 @@ another decision. Both alternatives are staged in local recovery before either
 is replaced. **Match recovery** exposes the last eight distinct retained alternatives.
 
 Saving is quiet: while saves and syncs succeed, the match chrome shows no status
-line and no recovery control. A notice appears in a polite live region, with
-**Match recovery** beside it, only when the player may need to act: a local save
+line. While any retained recovery alternative exists for the game, a small
+**Match recovery** entry stays in the chrome and opens the recovery view; it is
+absent when there are none. A notice appears in a polite live region, with
+the same control beside it, only when the player may need to act: a local save
 failed, the cloud is unavailable or rejected the match (it retries automatically
 where it can), a conflict choice was just made, or recovery holds a copy newer
 than both the current and the account match. Older retained copies are the
