@@ -209,3 +209,42 @@ test('localhost HTTP bounds multi-megabyte input and rejects storage amplificati
    unchanged();
  } finally {await new Promise(resolve=>server.close(resolve));}
 });
+
+// One match per game is the ordinary full export; every game must fit in a single activation.
+async function fiveMatches() {
+  const boards = {
+    chess: new (await import('../src/games/chess/ChessBoard.js')).default(),
+    yinsh: new (await import('../src/games/yinsh/YinshBoard.js')).default(),
+    zertz: new (await import('../src/games/zertz/ZertzBoard.js')).default(),
+    catan: new (await import('../src/games/catan/CatanBoard.js')).default({ seed: 1234 }),
+    splendor: new (await import('../src/games/splendor/SplendorBoard.js')).default({ seed: 1234, playerCount: 3 }),
+  };
+  const records = [];
+  for (const [game, board] of Object.entries(boards)) {
+    const { encodeBoard } = await import(`../src/games/${game}/matchSnapshot.js`);
+    records.push(record(`${game}-match`, `synthetic-${game}`, { v: 1, game, id: `synthetic-${game}`, updatedAt: 1, state: encodeBoard(board), ui: {} }));
+  }
+  return payload(file(records));
+}
+
+test('all five games activate in one selection and land in their own match records',async()=>{
+ const p=await fiveMatches(), token=await prepare(p);
+ assert.equal(p.selected.length,5);
+ assert.equal((await claim(p,token)).body.status,'activated');
+ for(const game of ['chess','yinsh','zertz','catan','splendor']) assert.equal(JSON.parse(redis('GET',`play:match:v1:${u}:${game}`)).profile.match.game,game);
+ const receipt=JSON.parse(redis('GET',receiptKey(p)));
+ assert.equal(receipt.before.length,8,'settings, profile, five matches, extras');
+ const replayed=await call({action:'migration-recovery',...p});assert.equal(replayed.body.receipt.before.length,8);
+});
+
+test('a receipt written before Splendor existed (seven entries) still replays and recovers',async()=>{
+ const p=payload(file()), token=await prepare(p);
+ assert.equal((await claim(p,token)).body.status,'activated');
+ const receipt=JSON.parse(redis('GET',receiptKey(p)));
+ receipt.before.splice(5,1); // the Splendor match slot did not exist in the old layout
+ assert.equal(receipt.before.length,7);
+ redis('SET',receiptKey(p),JSON.stringify(receipt));
+ const recovered=await call({action:'migration-recovery',...p});
+ assert.equal(recovered.statusCode,200);assert.equal(recovered.body.receipt.before.length,7);
+ assert.equal((await claim(p,'stale')).body.status,'replay');
+});

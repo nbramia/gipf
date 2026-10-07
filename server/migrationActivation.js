@@ -3,7 +3,7 @@ import { validateFile } from '../src/migration.js';
 import { canonical, destinationKey } from '../src/migrationSchema.js';
 
 export const MIGRATION_LIMITS = Object.freeze({
-  requestBytes: 512 * 1024, records: 128, selected: 64, matches: 4,
+  requestBytes: 512 * 1024, records: 128, selected: 64, matches: 5,
   pgnBytes: 8192, pgnTokens: 1024,
   extrasBytes: 256 * 1024, profileBytes: 280000, settingsBytes: 280000,
   snapshotBytes: 2 * 1024 * 1024, receiptBytes: 1024 * 1024,

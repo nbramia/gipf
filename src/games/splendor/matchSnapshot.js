@@ -29,9 +29,9 @@ export function decodeMatch(snapshot) {
   const n = s.playerCount;
   check(Number.isInteger(n) && n >= 2 && n <= 4);
   const seats = Array.from({ length: n }, (_, i) => i + 1);
-  check(Array.isArray(s.playerIds) && s.playerIds.join() === seats.join());
+  check(Array.isArray(s.playerIds) && s.playerIds.length === n && s.playerIds.every((id, i) => id === seats[i]));
   check(Number.isSafeInteger(s.seed) && s.victoryTarget === VICTORY_POINTS && s.maxTurns === null);
-  check(seats.includes(s.firstPlayer) && seats.includes(s.currentPlayer) && PHASES.includes(s.phase));
+  check(Number.isInteger(s.firstPlayer) && Number.isInteger(s.currentPlayer) && seats.includes(s.firstPlayer) && seats.includes(s.currentPlayer) && PHASES.includes(s.phase));
   check(Number.isInteger(s.turnNumber) && s.turnNumber >= 1 && s.turnNumber <= 10000 && typeof s.endTriggered === 'boolean');
   check(text(s.lastAction, 300) && ids(s.log, 60) && s.log.every(line => text(line, 300)));
   check(Array.isArray(s.stateHistory) && s.stateHistory.length === 0 && s.historyIndex === -1 && s.maxHistoryLength === 100);
@@ -85,15 +85,29 @@ export function decodeMatch(snapshot) {
 
   check(ids(s.nobles, 5) && s.nobles.every(id => isNoble(id) &&!claimed.has(id)) && new Set(s.nobles).size === s.nobles.length);
   check(s.nobles.length + claimed.size === nobleCount(n));
-  check(ids(s.pendingNobles, 5) && s.pendingNobles.every(id => s.nobles.includes(id)));
-  check(s.phase === 'noble-choice' ? s.pendingNobles.length > 1 : s.pendingNobles.length === 0);
+  check(ids(s.pendingNobles, 5) && s.pendingNobles.every(id => s.nobles.includes(id)) && new Set(s.pendingNobles).size === s.pendingNobles.length);
+  // A noble choice is offered only between nobles the current player has earned, and only when there is a real choice.
+  const qualifies = (seat, nobleId) => GEMS.every(g => s.players[seat].bonuses[g] >= (NOBLES_BY_ID[nobleId].requirement[g] || 0));
+  if (s.phase === 'noble-choice') check(s.pendingNobles.length > 1 && s.pendingNobles.every(id => qualifies(s.currentPlayer, id)));
+  else check(s.pendingNobles.length === 0);
+  // Hands may exceed the limit only while the current player is returning tokens.
   const tokenCount = id => ALL_TOKENS.reduce((sum, t) => sum + s.players[id].tokens[t], 0);
-  check(s.phase === 'discard' ? tokenCount(s.currentPlayer) > MAX_TOKENS : seats.every(id => id === s.currentPlayer || tokenCount(id) <= MAX_TOKENS));
+  check(seats.every(id => id === s.currentPlayer && s.phase === 'discard' ? tokenCount(id) > MAX_TOKENS : tokenCount(id) <= MAX_TOKENS));
 
   check(ids(s.winners, n) && s.winners.every((id, i) => seats.includes(id) && s.winners.indexOf(id) === i));
   if (s.phase === 'game-over') {
-    check(s.winners.length >= 1 && s.winner === (s.winners.length === 1 ? s.winners[0] : null) && count(s.winningPoints, 100));
-  } else check(s.winners.length === 0 && s.winner === null && s.winningPoints === 0);
+    // The result must be what the scores and the fewest-cards tiebreak produce, after a triggered final round.
+    const best = Math.max(...seats.map(id => s.players[id].points));
+    const leaders = seats.filter(id => s.players[id].points === best);
+    const fewest = Math.min(...leaders.map(id => s.players[id].cards.length));
+    const winners = leaders.filter(id => s.players[id].cards.length === fewest);
+    check(s.endTriggered && best >= VICTORY_POINTS && s.winningPoints === best);
+    check(s.winners.join() === winners.join() && s.winner === (winners.length === 1 ? winners[0] : null));
+    check(s.currentPlayer === seats[(seats.indexOf(s.firstPlayer) + n - 1) % n]);
+  } else {
+    check(s.winners.length === 0 && s.winner === null && s.winningPoints === 0);
+    check(s.endTriggered || seats.every(id => id === s.currentPlayer || s.players[id].points < VICTORY_POINTS));
+  }
 
   const board = SplendorBoard.fromSerializedState(JSON.parse(JSON.stringify(s)));
   board._captureState();

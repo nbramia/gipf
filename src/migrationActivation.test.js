@@ -3,7 +3,7 @@ import { TextEncoder, TextDecoder } from 'util';
 import { exportProgress, captureIdentity } from './migration.js';
 import { previewActivation, activateImport, activationRecovery, defaultSelection } from './migrationActivation.js';
 import { createMatchStore } from './matchStore.js';
-import { storeAccountKey } from './account.js';
+import { storeAccountKey, encryptApiKey, decryptApiKey, accountKey } from './account.js';
 const session={v:3,username:'Synthetic',usernameId:'1'.repeat(64),sid:'2'.repeat(64),aesKey:'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA='};
 let bundle, selected, activated;
 beforeEach(async()=>{
@@ -86,4 +86,23 @@ test('account changing while activation waits for the writer lock cannot claim o
    return fn();
  };
  await expect(activateImport(plan)).rejects.toThrow('account_changed');expect(activated).toBe(false);expect(localStorage.getItem('chessDarkMode')).toBe('false');
+});
+
+test('a pending journal written before the Splendor keys existed still resumes, and real edits are still caught',async()=>{
+ const plan=await previewActivation(bundle,selected);fetch.mockImplementationOnce(async()=>{activated=true;throw new Error('lost_response');});
+ await expect(activateImport(plan)).rejects.toThrow('lost_response');
+ // Rewrite the journal the way the previous release stored it: no Splendor keys at all.
+ const key=`gamesMigrationActivation:v1:${session.usernameId}`;
+ const journal=JSON.parse(await decryptApiKey(await accountKey(session),JSON.parse(localStorage.getItem(key))));
+ const legacy=o=>Object.fromEntries(Object.entries(o).filter(([k])=>!k.startsWith('splendor')));
+ expect(Object.keys(journal.before).some(k=>k.startsWith('splendor'))).toBe(true);
+ journal.before=legacy(journal.before);journal.after=legacy(journal.after);
+ localStorage.setItem(key,JSON.stringify(await encryptApiKey(await accountKey(session),JSON.stringify(journal))));
+ fetch.mockResolvedValue({ok:true,json:async()=>({status:'replay'})});
+ const resume={bundle:journal.bundle,selected:journal.selected,before:journal.before,cloud:{token:journal.token}};
+ localStorage.setItem('splendorDifficulty','expert');
+ await expect(activateImport(resume)).rejects.toThrow('progress_changed');
+ localStorage.removeItem('splendorDifficulty');
+ await activateImport(resume);
+ expect(localStorage.getItem('chessDarkMode')).toBe('true');expect((await activationRecovery()).done).toBe(true);
 });

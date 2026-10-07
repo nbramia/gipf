@@ -237,7 +237,7 @@ match replacement unmount game controllers; worker IDs and component generations
 reject late AI responses; Yinsh, Zertz, Catan and Splendor share this worker-generation
 pattern.
 
-Five-game preferences, Yinsh win counts and Chess finished-game statistics
+Four-game preferences (Chess, Yinsh, Zertz, Catan), Yinsh win counts and Chess finished-game statistics
 (`chessGameLog`) use the separate settings CAS record. The Chess log is a validated
 JSON string of at most 200 entries / 100,000 UTF-8 bytes, so Redis
 never re-encodes its arrays. Settings conflict choices preserve both Chess logs

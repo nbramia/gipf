@@ -1,6 +1,8 @@
 import SplendorBoard from './SplendorBoard.js';
 import { encodeBoard, decodeMatch } from './matchSnapshot.js';
 import { validatePortableMatch } from '../../migrationMatchSchema.js';
+import { validateMatch, MAX_MATCH_BYTES } from '../../matchSchema.js';
+import { validMatch } from '../../../server/matchValidation.js';
 
 const UI = { difficulty: 'expert', showModal: false };
 const envelope = (board, ui = UI) => JSON.parse(JSON.stringify({
@@ -111,9 +113,41 @@ describe('Splendor snapshot rejection', () => {
     expect(() => decodeMatch(snapshot)).toThrow('invalid_snapshot');
   });
 
-  test('rejects an oversized envelope', () => {
-    const snapshot = mutate(s => { s.state.log = Array(60).fill('x'.repeat(300)); s.state.lastAction = 'y'.repeat(300); s.ui.difficulty = 'z'.repeat(300000); });
+  test('the shared byte guard, not field validation, stops an oversized envelope', () => {
+    const ok = envelope(midGame(2));
+    expect(validateMatch(ok, 'splendor')).toBe(true);
+    // Same valid fields; only padding beyond the byte budget differs.
+    expect(validateMatch({ ...ok, state: { ...ok.state, pad: 'x'.repeat(MAX_MATCH_BYTES) } }, 'splendor')).toBe(false);
+  });
+
+  test('the largest legal snapshot stays far inside the byte budget', () => {
+    const board = midGame(4, 40);
+    board.log = Array(60).fill('x'.repeat(300));
+    board.lastAction = 'y'.repeat(300);
+    const snapshot = envelope(board);
+    expect(() => decodeMatch(snapshot)).not.toThrow();
+    expect(JSON.stringify(snapshot).length).toBeLessThan(MAX_MATCH_BYTES / 4);
+  });
+
+  test.each([
+    ['string seat ids', s => { s.state.playerIds = ['1', '2']; }],
+    ['string current seat', s => { s.state.currentPlayer = '1'; }],
+    ['string starting seat', s => { s.state.firstPlayer = '1'; }],
+    ['fractional seat ids', s => { s.state.playerIds = [1, 2.0000001]; }],
+  ])('rejects %s on both the client and the server decoder', (_label, change) => {
+    const snapshot = mutate(change);
     expect(() => decodeMatch(snapshot)).toThrow('invalid_snapshot');
+    expect(validMatch('splendor', snapshot)).toBe(false);
+  });
+
+  test.each([
+    ['a noble choice between nobles nobody has earned', s => { s.state.phase = 'noble-choice'; s.state.pendingNobles = s.state.nobles.slice(0, 2); }],
+    ['a game over nobody won', s => { s.state.phase = 'game-over'; s.state.winners = [1]; s.state.winner = 1; s.state.winningPoints = 99; }],
+    ['a game over with the wrong winner', s => { s.state.phase = 'game-over'; s.state.endTriggered = true; s.state.winners = [2]; s.state.winner = 2; s.state.winningPoints = 15; s.state.players[1].points = 15; }],
+    ['eleven tokens held in the play phase', s => { const p = s.state.players[s.state.currentPlayer]; const take = 11 - Object.values(p.tokens).reduce((a, b) => a + b, 0); p.tokens.white += take; s.state.bank.white -= take; }],
+    ['a final round that was never triggered but has a 15-point leader', s => { s.state.players[2].points = 15; }],
+  ])('rejects %s', (_label, change) => {
+    expect(() => decodeMatch(mutate(change))).toThrow('invalid_snapshot');
   });
 
   test('the portable migration schema accepts a valid snapshot and rejects unknown fields', () => {
