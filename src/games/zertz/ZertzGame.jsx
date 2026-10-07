@@ -197,9 +197,12 @@ const ZertzGame = () => {
     setLastMoveKeys([]);
   }, [board, twoPlayerMode, humanPlayer, setBoard]);
 
+  const dialogOpen = showModal || showSettings || showRules;
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
+      if (dialogOpen) return; // gameplay shortcuts are inert behind dialogs
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
         navigateHistory(-1);
@@ -212,7 +215,7 @@ const ZertzGame = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [navigateHistory]);
+  }, [navigateHistory, dialogOpen]);
 
   // --- AI Logic ---
 
@@ -742,7 +745,7 @@ const ZertzGame = () => {
                 &times;
               </button>
             </div>
-            <div className="space-y-6 text-sm leading-relaxed overflow-y-auto px-6 pt-4 pb-6" style={{ color: 'var(--color-text-secondary)' }}>
+            <div tabIndex={0} role="region" aria-label="Rules text" className="space-y-6 text-sm leading-relaxed overflow-y-auto px-6 pt-4 pb-6" style={{ color: 'var(--color-text-secondary)' }}>
 
               {/* Overview */}
               <div>
@@ -919,7 +922,7 @@ const ZertzGame = () => {
               {/* Isolated Rings */}
               <div>
                 <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Isolated Rings</h3>
-                <p className="mb-3">When removing a ring splits the board into separate groups, a group cut off from the main (largest) group is captured only if <strong style={{ color: 'var(--color-text-primary)' }}>every ring in it holds a marble</strong>. Its rings and marbles are then removed, and the marbles go to the player who made the move. A cut-off group that still has a vacant ring stays on the board; if you later place a marble on its last vacant ring, you capture the whole group.</p>
+                <p className="mb-3">When removing a ring splits the board into separate groups, a group of rings cut off from the rest of the board is claimed when <strong style={{ color: 'var(--color-text-primary)' }}>every ring in it holds a marble</strong>. Its rings and marbles are then removed, and the marbles go to the player who made the move. A cut-off group with a vacant ring stays on the board; if you later place a marble on its last vacant ring, you capture the whole group.</p>
 
                 {/* Isolation diagram */}
                 <div className="flex justify-center my-3">

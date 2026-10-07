@@ -61,10 +61,52 @@ test('undo against the AI lands on a human decision point and keeps redo availab
 test('redo is not destroyed by AI autoplay after keyboard undo', () => {
   mount();
   playHumanTurnThenAI();
+  const snapshot = () => [...document.querySelectorAll('svg g[role=button]')].map(g => g.getAttribute('aria-label')).join('|');
+  const atEnd = snapshot();
+  const requestCount = requests().length;
   fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
+  const undone = snapshot();
+  expect(undone).not.toBe(atEnd);
+  // Both AI actions are undone: its marble is gone and its ring is back.
+  expect(tile(0, 0).getAttribute('aria-label')).toBe('Ring (0,0), empty');
+  expect(tile(-3, 0)).toBeTruthy();
   wait(3000);
+  expect(requests().length).toBe(requestCount); // no AI replay
+  expect(snapshot()).toBe(undone); // position stayed stable
+  expect(screen.getByTitle('Redo (Ctrl+Shift+Z)').disabled).toBe(false); // redo branch preserved
   fireEvent.keyDown(window, { key: 'z', ctrlKey: true, shiftKey: true });
-  expect(screen.getByTitle('Undo (Ctrl+Z)').disabled).toBe(false);
+  expect(snapshot()).toBe(atEnd); // exact restoration
+  wait(3000);
+  expect(requests().length).toBe(requestCount);
+  expect(screen.getByTitle('Redo (Ctrl+Shift+Z)').disabled).toBe(true);
+});
+
+test('undo and redo shortcuts do nothing while a dialog is open', () => {
+  mount({ twoPlayer: true });
+  pickColor('White'); fireEvent.click(tile(0, 0));
+  fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Rules' }));
+  fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
+  fireEvent.keyDown(window, { key: 'z', ctrlKey: true, shiftKey: true });
+  fireEvent.keyDown(window, { key: 'z', ctrlKey: true });
+  fireEvent.keyDown(screen.getByRole('dialog', { name: 'How to Play ZERTZ' }), { key: 'Escape' });
+  fireEvent.keyDown(screen.getByRole('dialog', { name: 'Settings' }), { key: 'Escape' });
+  expect(tile(0, 0).getAttribute('aria-label')).toBe('Ring (0,0), White marble');
+});
+
+test('the Rules scroll region is focusable and inside the focus trap', () => {
+  mount({ twoPlayer: true });
+  fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Rules' }));
+  const rules = screen.getByRole('dialog', { name: 'How to Play ZERTZ' });
+  const region = within(rules).getByRole('region', { name: 'Rules text' });
+  const close = within(rules).getByRole('button', { name: 'Close rules' });
+  close.focus();
+  fireEvent.keyDown(close, { key: 'Tab' }); // jsdom does not move focus itself
+  region.focus();
+  expect(document.activeElement).toBe(region);
+  fireEvent.keyDown(region, { key: 'Tab' }); // last focusable: wraps to first
+  expect(document.activeElement).toBe(close);
 });
 
 test('AI Suggest names the marble color and keeps the hint when that color is chosen', () => {
