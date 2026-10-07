@@ -9,6 +9,7 @@
 import { describeAiMove, describePlayerMove } from './templates.js';
 import { describePuzzleFail, hintLeaksSolution } from './puzzleCoach.js';
 import { runTool } from './analysisTools.js';
+import { legalSan } from './legalMoves.js';
 import { getLichessToken } from './openingCoach.js';
 import { accountKeys, ACCOUNT_REQUEST_HEADERS } from '../../../accountKeys.js';
 
@@ -128,6 +129,13 @@ export async function runThreadTurn({ context, history, question, analyze, onToo
     return { error: 'no_key', text: 'Add your Anthropic API key to ask questions about this move.' };
   }
 
+  // Legal moves for both anchor positions travel with the context so the model
+  // only names moves that exist (computed here, not persisted with the entry).
+  const threadContext = {
+    ...context,
+    ...(context && context.fenBefore ? { legalMoves: legalSan(context.fenBefore) } : {}),
+    ...(context && context.fenAfter ? { legalMovesAfter: legalSan(context.fenAfter) } : {}),
+  };
   const messages = [...(history || []), { role: 'user', content: question }];
   const toolCalls = [];
 
@@ -137,7 +145,7 @@ export async function runThreadTurn({ context, history, question, analyze, onToo
       res = await fetch('/api/chessCoach', {
         method: 'POST',
         headers: ACCOUNT_REQUEST_HEADERS,
-        body: JSON.stringify({ mode: 'thread', context, messages, ...(apiKey ? { apiKey } : {}) }),
+        body: JSON.stringify({ mode: 'thread', context: threadContext, messages, ...(apiKey ? { apiKey } : {}) }),
       });
     } catch (_) {
       return { error: 'network', text: 'Could not reach the coach. Check your connection.', messages };

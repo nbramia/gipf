@@ -76,6 +76,7 @@ import { playSound, moveSoundKind } from './coach/sound.js';
 import { formatEval, CLASSIFICATION_LEGEND } from './coach/classify.js';
 import { describeEngineError } from './engine/stockfishLoader.js';
 import { requestCommentary, runThreadTurn, hasApiKey } from './coach/coachClient.js';
+import { CoachText } from './coach/richText.jsx';
 import './chess.css';
 
 const PIECE_GLYPH = { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛', k: '♚' };
@@ -832,6 +833,8 @@ function ChessGame() {
                     fenAfter,
                     movePlayed: payload.movePlayed && payload.movePlayed.san,
                     classification: payload.classification,
+                    mover: payload.mover,
+                    playerColor: payload.playerColor,
                     evalBefore: payload.evalBefore,
                     evalAfter: payload.evalAfter,
                     bestMove: payload.bestMove
@@ -2548,9 +2551,9 @@ function ChessGame() {
                             </span>
                           )}
                         </div>
-                        <p style={{ color: 'var(--color-text-secondary)' }}>
-                          {e.pending ? 'Analyzing…' : e.text}
-                        </p>
+                        <div style={{ color: 'var(--color-text-secondary)' }}>
+                          {e.pending ? 'Analyzing…' : <CoachText text={e.text} />}
+                        </div>
                         {!e.pending && e.analysis && (
                           <button
                             onClick={() => setThreadEntryId(e.id)}
@@ -3068,7 +3071,7 @@ function ChessGame() {
 
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               <div className="coach-entry font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-                {threadEntry.text}
+                <CoachText text={threadEntry.text} />
               </div>
               {(threadEntry.thread || []).map((m, i) => (
                 <div
@@ -3080,7 +3083,7 @@ function ChessGame() {
                       : { color: 'var(--color-text-secondary)' }
                   }
                 >
-                  {m.content}
+                  {m.role === 'user' ? m.content : <CoachText text={m.content} />}
                 </div>
               ))}
               {threadBusy && (

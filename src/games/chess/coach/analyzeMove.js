@@ -9,6 +9,7 @@
 
 import { Chess } from 'chess.js';
 import { classifyMove, centipawnLoss, formatEval } from './classify.js';
+import { legalSan } from './legalMoves.js';
 
 // Convert a UCI pv (array of long-algebraic moves) to SAN, replaying from `fen`.
 // Stops at the first illegal/unexpected move so a malformed pv can't crash us.
@@ -85,6 +86,13 @@ export function buildMovePayload({
     kind,
     fen: fenBefore,
     sideToMove: moverColor,
+    // Who is who: the human student's colour, and whether the student or the
+    // engine opponent made this move. The coach must narrate accordingly.
+    mover: kind === 'ai-move' ? 'engine' : 'user',
+    playerColor: kind === 'ai-move' ? (moverColor === 'w' ? 'b' : 'w') : moverColor,
+    // Every legal move (SAN) before / after the move, so suggestions are legal.
+    legalMoves: legalSan(fenBefore),
+    legalMovesAfter: legalSan(fenAfter),
     movePlayed: { san: movePlayedSan },
     candidates,
     bestMove: bestLine
