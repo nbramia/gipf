@@ -5,7 +5,8 @@
 //
 // Where the DATC infers intent that the engine takes explicitly (an own fleet
 // convoying an adjacent army: 6.G.1/5/6/9/11), the fixtures carry
-// `viaConvoy: true`.
+// `viaConvoy: true`. Case 6.E.11 is adapted: its support orders name the base
+// province (SPA), as the UI/API do, instead of a coast (SPA/nc).
 
 import DiplomacyBoard from './DiplomacyBoard.js';
 import cases from './datcCases.json';
@@ -13,7 +14,6 @@ import cases from './datcCases.json';
 // Known limitations that are not part of movement adjudication.
 const SKIPPED = {
   '6.F.7': 'the case also requires the dislodged unit to retreat into a province that only saw a failed convoyed move; contestedProvinces blocks every move target',
-  '6.E.11': 'fixture uses coast-qualified support destinations (SPA/nc), which the order sanitizer rejects; the UI/API name the base province',
 };
 
 function adjudicate(units, orders) {
@@ -36,7 +36,8 @@ describe('DATC data-driven cases', () => {
       test.skip(`${id} (skipped: ${SKIPPED[id]})`, () => {});
       continue;
     }
-    test(`${id} outcome is independent of unit insertion order`, () => {
+    const label = id === '6.E.11' ? `${id} (adapted: base-province support)` : id;
+    test(`${label} outcome is independent of unit insertion order`, () => {
       const expected = { moved: c.moved, dislodged: c.dislodged };
       expect(adjudicate(c.units, c.orders)).toEqual(expected);
       expect(adjudicate([...c.units].reverse(), c.orders)).toEqual(expected);
