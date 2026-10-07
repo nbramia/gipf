@@ -21,7 +21,7 @@ edits and reconnects can bring the next check forward, with at least 10 seconds
 between automatic attempts; transient failures back off from 10 to 120 seconds.
 Each check compares the snapshot with the last acknowledged account/game baseline. Timestamps never
 select a winner. A changed cloud match or another tab's match pauses play and
-presents **Keep this match** / **Use cloud match** (or **Use other tab match**).
+presents **Keep this match** / **Use cloud match** (or **Use other tab match**), each labelled with the game, saved time, and turn or phase where the snapshot carries it.
 A cloud keep-local choice makes an explicit CAS write; a second conflict requires
 another decision. Both alternatives are staged in local recovery before either
 is replaced. **Match recovery** exposes the last eight distinct retained alternatives.
@@ -227,7 +227,7 @@ Four-game preferences, Yinsh win counts and Chess finished-game statistics
 (`chessGameLog`) use the separate settings CAS record. The Chess log is a validated
 JSON string of at most 200 entries / 100,000 UTF-8 bytes, so Redis
 never re-encodes its arrays. Settings conflict choices preserve both Chess logs
-in the account-scoped `chessStatsRecovery:v1` key; **Statistics recovery** can
+in the account-scoped `chessStatsRecovery:v1` key; **Chess statistics recovery** can
 restore an alternative without adding or duplicating counters. That internal
 recovery key is excluded from ordinary exports; `chessGameLog` remains portable. Chess's rating, opponent history, puzzles and
 mistakes use the authenticated profile domains. These records

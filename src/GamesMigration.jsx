@@ -16,7 +16,7 @@ export default function GamesMigration() {
   const [prepared,setPrepared] = useState(null), [incoming,setIncoming] = useState(null);
   const [preview,setPreview] = useState([]), [stages,setStages] = useState([]);
   const [busy,setBusy] = useState(false), [error,setError] = useState(''), [status,setStatus] = useState('');
-  const [confirmed,setConfirmed] = useState(false), [invalid,setInvalid] = useState(false);
+  const [confirmed,setConfirmed] = useState(false), [invalid,setInvalid] = useState(false), [fileError,setFileError] = useState('');
   const [unreadable,setUnreadable] = useState(0), [rawConsent,setRawConsent] = useState(false), [downloaded,setDownloaded] = useState([]);
   const guard = useRef(null);
   const mounted = useRef(true);
@@ -34,7 +34,7 @@ export default function GamesMigration() {
     window.addEventListener('play-account-transition',changed);
     return () => { mounted.current = false; guard.current?.invalidate(); window.removeEventListener('storage',changed); window.removeEventListener('play-account-transition',changed); };
   },[]);
-  const run = async fn => {
+  const run = async (fn, { activation = false } = {}) => {
     if (!guard.current || invalid || busy) return;
     setBusy(true); setError(''); setStatus('');
     try {
@@ -51,7 +51,8 @@ export default function GamesMigration() {
           : e.message === 'migration_claimed' ? 'This export is already claimed by another account or with a different selection. Destination progress was not replaced.'
           : e.message === 'progress_changed' ? 'Progress changed during this operation. New edits were preserved. Keep the source file and download activation recovery before trying again.'
           : e.message === 'activation_pending' ? 'Finish the pending activation before activating a different file.'
-          : 'Unable to finish. Keep the original files. If activation started, use Resume pending activation or download activation recovery; cloud progress may already be committed.');
+          : activation ? 'Unable to finish. Keep the original files. Activation started: use Resume pending activation or download activation recovery; cloud progress may already be committed.'
+          : 'Unable to finish. Keep the original files and try again.');
       }
     } finally { if (mounted.current) setBusy(false); }
   };
@@ -65,6 +66,9 @@ export default function GamesMigration() {
     </div>
     <p>Close other Games tabs before exporting. This page checks your current identity, but cannot freeze older tabs. Sign in through Games first to include that account’s decrypted progress recovery. Guest recovery stays separate.</p>
     <p>No passwords, account sessions, API keys, Lichess tokens or encrypted credential containers are transferred. Re-enter your original account and encryption secrets for cloud recovery.</p>
+    {busy && <p role="status">Checking local progress…</p>}
+    {status && <p role="status">{status}</p>}
+    {error && <p role="alert">{error}</p>}
     <fieldset disabled={busy || invalid}>
       <legend>1. Export this browser</legend>
       <button onClick={() => { setPrepared(null); setDownloaded([]); run(async g => { const result = await exportProgress(window.location.origin,g); g.check(); setPrepared(result); }); }}>Prepare export</button>
@@ -86,15 +90,24 @@ export default function GamesMigration() {
     <fieldset disabled={busy || invalid}>
       <legend>2. Validate and preview a file</legend>
       <label>Migration file <input type="file" accept="application/json,.json" onChange={e => {
-        const file = e.target.files?.[0]; setIncoming(null); setActivation(null); setPreview([]); setConfirmed(false);
+        const file = e.target.files?.[0]; setIncoming(null); setActivation(null); setPreview([]); setConfirmed(false); setFileError('');
         if (!file) return;
         run(async g => {
-          if (file.size > MAX_BYTES) throw new Error('too_large');
-          g.check(); const raw = await file.text(); g.check();
-          const bundle = await validateFile(raw,g); g.check();
-          setPreview(previewImport(bundle,g)); setSelected(defaultSelection(bundle)); setActivation(null); setIncoming(bundle);
+          try {
+            if (file.size > MAX_BYTES) throw new Error('too_large');
+            g.check(); const raw = await file.text(); g.check();
+            const bundle = await validateFile(raw,g); g.check();
+            setPreview(previewImport(bundle,g)); setSelected(defaultSelection(bundle)); setActivation(null); setIncoming(bundle);
+          } catch (err) {
+            // Only a rejected file is reported here; account changes and other failures use the shared path.
+            if (err.message === 'too_large') setFileError('This file is larger than 5 MiB, so it cannot be a Games migration file. No progress was changed.');
+            else if (err instanceof SyntaxError) setFileError('This file is not valid JSON, so it cannot be a Games migration file. No progress was changed.');
+            else if (err.message === 'invalid_migration') setFileError('This is not a valid Games migration file. No progress was changed.');
+            else throw err;
+          }
         });
       }} /></label>
+      {fileError && <p role="alert" className="migration-file-error">{fileError}</p>}
       <p>Maximum 5 MiB. The entire file is checked before it can be retained.</p>
       {incoming && <>
         <p>{preview.length} records checked against current destination progress. Retaining a file leaves active saves unchanged; activation requires a separate cloud preview and confirmation.</p>
@@ -110,7 +123,7 @@ export default function GamesMigration() {
             <button disabled={!confirmed} onClick={() => run(async g => {
               try { const result = await activateImport(activation,g); setStatus(result.status === 'replay' ? 'This selection is already activated. No progress was added again.' : 'Selected progress activated. Reload Games before playing.'); setIncoming(null); setActivation(null); }
               finally { guard.current = captureIdentity(); }
-            })}>Activate selected progress</button>
+            },{activation:true})}>Activate selected progress</button>
           </div>}
         </>}
         <div className="migration-actions">
@@ -132,7 +145,7 @@ export default function GamesMigration() {
           if (!recovery || recovery.done) { setStatus('No pending activation for this account.'); return; }
           try { await activateImport({bundle:recovery.bundle,selected:recovery.selected,before:recovery.before,cloud:{token:recovery.token}},g); setStatus('Activation resumed. Reload Games before playing.'); }
           finally { guard.current = captureIdentity(); }
-        })}>Resume pending activation</button>
+        },{activation:true})}>Resume pending activation</button>
       </>}
       <button onClick={() => run(async g => { const result = await inspectStages(g); g.check(); setStages(result.stages); setUnreadable(result.unreadable); setStatus(result.stages.length || result.unreadable ? 'Retained files loaded for this identity.' : 'No retained files for this identity.'); })}>Show retained files</button>
       {!!unreadable && <p role="alert">{unreadable} retained entries cannot be validated by this build. Their originals are preserved; other valid files remain available below.</p>}
@@ -141,8 +154,5 @@ export default function GamesMigration() {
       <label><input type="checkbox" checked={rawConsent} onChange={e => setRawConsent(e.target.checked)} /> I understand raw recovery is unvalidated and may contain private data.</label>
       <button disabled={!rawConsent} onClick={() => run(async g => { const raw = rawStageRecovery(g); g.check(); download(raw,true); setRawConsent(false); })}>Download raw stage recovery</button>
     </fieldset>
-    {busy && <p role="status">Checking local progress…</p>}
-    {status && <p role="status">{status}</p>}
-    {error && <p role="alert">{error}</p>}
   </main>;
 }

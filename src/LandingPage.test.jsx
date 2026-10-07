@@ -53,8 +53,8 @@ test('integrated guest catalogue is first in keyboard order and statistics recov
   render(<AccountBoundary><MemoryRouter><LandingPage /></MemoryRouter></AccountBoundary>);
   const controls = document.querySelectorAll('a[href], button, input');
   expect(controls[0]).toHaveAccessibleName('Play YINSH');
-  fireEvent.click(screen.getByRole('button', { name: 'Statistics recovery' }));
-  expect(screen.getByRole('dialog', { name: 'Statistics recovery' })).toHaveTextContent('No statistics alternatives saved.');
+  fireEvent.click(screen.getByRole('button', { name: 'Chess statistics recovery' }));
+  expect(screen.getByRole('dialog', { name: 'Chess statistics recovery' })).toHaveTextContent('No statistics alternatives saved.');
   fireEvent.click(screen.getByRole('button', { name: 'Close', exact: true }));
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });
