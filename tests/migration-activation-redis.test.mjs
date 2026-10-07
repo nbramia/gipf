@@ -54,7 +54,7 @@ test('atomic activation updates existing writer domains, preserves old bytes, au
 test('stale preview and a same-revision write racing inside Lua cause no migration writes or ownership',async()=>{
  const p=payload(file()), token=await prepare(p), competing=JSON.stringify({revision:0,profile:{preferences:{chessDarkMode:'false'}}});
  const original=fetch;let raced=false;
- globalThis.fetch=async(url,options)=>{const args=JSON.parse(options.body);if(args[0]==='EVAL'&&args[2]===10){raced=true;redis('SET',settings,competing);}return original(url,options);};
+ globalThis.fetch=async(url,options)=>{const args=JSON.parse(options.body);if(args[0]==='EVAL'&&args[2]===11){raced=true;redis('SET',settings,competing);}return original(url,options);};
  assert.equal((await claim(p,token)).statusCode,409);assert.ok(raced);assert.equal(redis('GET',settings),competing);
  assert.equal(redis('GET',profileKey),null);assert.equal(redis('GET',`play:migration-count:v1:${u}`),null);
  globalThis.fetch=original;assert.equal((await claim(p,token)).statusCode,409);
@@ -178,7 +178,7 @@ test('receipt/snapshot bounds and concurrent budget updates fail before any part
  assert.equal((await call({action:'migration-preview',...p})).body.error,'migration_storage_limit');
  redis('DEL',profileKey);
  const token=await prepare(p),original=fetch;
- globalThis.fetch=async(url,options)=>{const args=JSON.parse(options.body);if(args[0]==='EVAL'&&args[2]===10)redis('SET',budgetKey,String(limits.accountBytes));return original(url,options);};
+ globalThis.fetch=async(url,options)=>{const args=JSON.parse(options.body);if(args[0]==='EVAL'&&args[2]===11)redis('SET',budgetKey,String(limits.accountBytes));return original(url,options);};
  assert.equal((await claim(p,token)).body.error,'migration_conflict');assert.equal(redis('GET',settings),null);assert.equal(redis('GET',receiptKey(p)),null);
  assert.equal(redis('GET',`play:migration-count:v1:${u}`),null);assert.equal(redis('GET',budgetKey),String(limits.accountBytes));
 });
