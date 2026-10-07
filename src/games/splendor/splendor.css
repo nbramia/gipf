@@ -509,4 +509,4 @@
 .game-splendor .spl-modal p.spl-pay-total { font-style: normal; font-family: inherit; font-size: 14px; color: var(--spl-ink); }
 .game-splendor .spl-rules-ref { font-size: 13px; line-height: 1.45; border: 1px solid var(--spl-line); border-radius: 9px; padding: 8px 11px; background: var(--spl-panel-2); color: var(--spl-ink); }
 .game-splendor .spl-rules-ref summary { cursor: pointer; font-weight: 600; color: var(--spl-gold); min-height: 28px; display: flex; align-items: center; }
-.game-splendor .spl-rules-ref ul { margin: 6px 0 0 18px; display: flex; flex-direction: column; gap: 5px; }
+.game-splendor .spl-rules-ref ul { margin: 6px 0 0 18px; list-style: disc; display: flex; flex-direction: column; gap: 5px; }
