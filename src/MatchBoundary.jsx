@@ -188,14 +188,16 @@ export default function MatchBoundary({ game, decode, loadLegacy, beforeReplace,
   // abandon something it protects.
   const gate = (dropped, next, go) => {
     const pending = beforeReplace?.({ dropped: dropped.filter(Boolean), next: next || null });
-    if (!pending) { go(); return; }
+    if (!pending) { go(); return; }  // no commit: nothing to book
     setReplacing({ ...pending, go });
   };
   const choose = useLocal => {
     if (!conflict || running.current) return;
-    gate([useLocal ? conflict.remote : conflict.local], useLocal ? conflict.local : conflict.remote, () => applyChoice(useLocal));
+    gate([useLocal ? conflict.remote : conflict.local], useLocal ? conflict.local : conflict.remote, commit => applyChoice(useLocal, commit));
   };
-  const applyChoice = async useLocal => {
+  // `commit` (the game's bookkeeping for what is being abandoned) runs only once
+  // the replacement is safely stored, so a failed replacement books nothing.
+  const applyChoice = async (useLocal, commit) => {
     if (!conflict || running.current) return;
     running.current = true;
     try {
@@ -208,6 +210,7 @@ export default function MatchBoundary({ game, decode, loadLegacy, beforeReplace,
         store.acknowledge(saved.revision, chosen);
       } else if (conflict.kind === 'cloud') store.acknowledge(conflict.revision, chosen);
       store.resolve(chosen);
+      commit?.();
       remount(chosen);
       conflicted.current = false;
       setConflict(null);
@@ -230,13 +233,14 @@ export default function MatchBoundary({ game, decode, loadLegacy, beforeReplace,
   };
   const restore = snapshot => {
     if (running.current) return;
-    gate(conflict ? [conflict.local, conflict.remote] : [latest.current], snapshot, () => applyRestore(snapshot));
+    gate(conflict ? [conflict.local, conflict.remote] : [latest.current], snapshot, commit => applyRestore(snapshot, commit));
   };
-  const applyRestore = snapshot => {
+  const applyRestore = (snapshot, commit) => {
     if (running.current) return;
     try {
       if (snapshot) decode(snapshot);
       store.resolve(snapshot, conflict ? [conflict.local, conflict.remote] : []);
+      commit?.();
       remount(snapshot);
       conflicted.current = false;
       setConflict(null);
@@ -314,7 +318,7 @@ export default function MatchBoundary({ game, decode, loadLegacy, beforeReplace,
       body={replacing.body}
       confirmLabel={replacing.confirmLabel}
       onCancel={() => setReplacing(null)}
-      onConfirm={() => { const { commit, go } = replacing; setReplacing(null); commit?.(); go(); }}
+      onConfirm={() => { const { commit, go } = replacing; setReplacing(null); go(commit); }}
       classes={{ overlay: 'match-modal', panel: 'match-modal-panel', title: 'match-modal-title', actions: 'match-modal-actions' }}
     />}
     {!ready && !initial.invalid && <p>Loading saved match…</p>}

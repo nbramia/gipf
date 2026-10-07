@@ -652,9 +652,20 @@ function ChessGame() {
 
   // A rated game can be restarted for free only until both sides have moved
   // (the abort window). After that, leaving it is a forfeit.
-  const ratedGameLive = rated && !puzzleMode && !drill.active && !gameOver && !ratedAppliedRef.current;
+  // The scored-id store is authoritative: another path (the match boundary) may
+  // have booked this match since the refs were set.
+  const syncScored = () => {
+    if (!isScored(savedMatch?.matchId?.())) return false;
+    ratedAppliedRef.current = true;
+    historyAppliedRef.current = true;
+    gameLoggedRef.current = true;
+    return true;
+  };
+  const ratedGameLive = rated && !puzzleMode && !drill.active && !gameOver && !ratedAppliedRef.current &&
+    !isScored(savedMatch?.matchId?.());
   const ratedAbortable = movesPlayedCount < 2;
   const forfeitRatedGame = () => {
+    if (syncScored()) return;
     scoreRatedGame('loss');
     recordHistory('loss');
     logGame('loss');

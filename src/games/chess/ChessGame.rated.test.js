@@ -149,3 +149,35 @@ describe('tabs and dialog keyboard behaviour', () => {
     expect(ratedGames()).toBe(0);
   });
 });
+
+describe('a failed replacement books nothing', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  test.each(['invalid backup', 'recovery storage full'])('%s leaves the live match and its score intact', async (reason) => {
+    seed(snap('live', '1. d4 d5'));
+    const backup = reason === 'invalid backup' ? { unreadable: 'damaged saved match' } : snap('backup', '1. e4');
+    localStorage.setItem('chessMatchRecovery:v1', JSON.stringify({ v: 1, alternatives: [backup] }));
+    const utils = mount();
+    await press(utils, 'Match recovery');
+    if (reason === 'recovery storage full') {
+      const original = Storage.prototype.setItem;
+      jest.spyOn(Storage.prototype, 'setItem').mockImplementation(function (k, v) {
+        if (k === 'chessMatchRecovery:v1') throw new DOMException('full', 'QuotaExceededError');
+        return original.call(this, k, v);
+      });
+    }
+    await press(utils, 'Restore backup 1');
+    if (utils.queryByRole('button', { name: 'Forfeit and continue' })) await press(utils, 'Forfeit and continue');
+    expect(utils.container.textContent).toContain('That backup is unsupported or storage is full.');
+    expect(JSON.parse(localStorage.getItem('chessMatch:v1')).id).toBe('live');
+    expect(ratedGames()).toBe(0);
+    expect(rating()).toBe(1000);
+    expect(localStorage.getItem('chessRatedScored')).toBeNull();
+    jest.restoreAllMocks();
+    await press(utils, 'Close recovery');
+    await press(utils, 'New Rated Game');
+    await press(utils, 'Forfeit and continue');
+    expect(ratedGames()).toBe(1);
+    expect(JSON.parse(localStorage.getItem('chessOppHistory')).rated['1000'].l).toBe(1);
+  });
+});
