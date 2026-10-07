@@ -300,6 +300,70 @@ describe('Splendor buying', () => {
     board.players[me].reserved = [{ cardId: 't3-20', hidden: true }];
     expect(board.buyCard('t3-20', { fromReserve: true })).toBe(false);
   });
+
+  describe('chosen payment (gold in place of a held gem)', () => {
+    // t1-08 costs 4 green; the player holds 4 green and 2 gold.
+    const setup = () => {
+      const board = newGame();
+      const me = board.currentPlayer;
+      board.players[me].reserved = [{ cardId: 't1-08', hidden: true }];
+      board.players[me].tokens.green = 4;
+      board.players[me].tokens[GOLD] = 2;
+      return { board, me };
+    };
+
+    test('gold may stand in for a gem the player holds', () => {
+      const { board, me } = setup();
+      const bank = { ...board.bank };
+      expect(board.hasPaymentChoice(me, CARDS_BY_ID['t1-08'].cost)).toBe(true);
+      expect(board.buyCard('t1-08', { fromReserve: true, payment: { green: 2, [GOLD]: 2 } })).toBe(true);
+      expect(board.players[me].tokens.green).toBe(2);
+      expect(board.players[me].tokens[GOLD]).toBe(0);
+      expect(board.bank.green).toBe(bank.green + 2);
+      expect(board.bank[GOLD]).toBe(bank[GOLD] + 2);
+    });
+
+    test('no payment given keeps the automatic minimum-gold allocation', () => {
+      const { board, me } = setup();
+      expect(board.getAutoPayment(me, CARDS_BY_ID['t1-08'].cost)).toEqual({ white: 0, blue: 0, green: 4, red: 0, black: 0, gold: 0 });
+      expect(board.applyMove({ type: 'buy', cardId: 't1-08', fromReserve: true })).toBe(true);
+      expect(board.players[me].tokens.green).toBe(0);
+      expect(board.players[me].tokens[GOLD]).toBe(2);
+    });
+
+    test('the chooser is not offered when gold cannot replace a held gem', () => {
+      const { board, me } = setup();
+      board.players[me].tokens[GOLD] = 0;
+      expect(board.hasPaymentChoice(me, CARDS_BY_ID['t1-08'].cost)).toBe(false);
+      board.players[me].tokens.green = 0;
+      board.players[me].tokens[GOLD] = 4; // gold already covers everything
+      expect(board.hasPaymentChoice(me, CARDS_BY_ID['t1-08'].cost)).toBe(false);
+    });
+
+    test.each([
+      ['overpaying colored tokens', { green: 5, [GOLD]: 0 }],
+      ['underpaying', { green: 2, [GOLD]: 1 }],
+      ['overpaying with gold', { green: 4, [GOLD]: 1 }],
+      ['spending a gem the card does not need', { green: 3, red: 1, [GOLD]: 0 }],
+      ['spending tokens the player lacks', { green: 1, [GOLD]: 3 }],
+      ['negative amounts', { green: 5, [GOLD]: -1 }],
+      ['fractional amounts', { green: 3.5, [GOLD]: 0.5 }],
+      ['unknown token keys', { green: 4, pearl: 1 }],
+    ])('rejects %s without changing state', (_label, payment) => {
+      const { board, me } = setup();
+      const before = JSON.stringify([board.players[me], board.bank]);
+      expect(board.buyCard('t1-08', { fromReserve: true, payment })).toBe(false);
+      expect(JSON.stringify([board.players[me], board.bank])).toBe(before);
+      expect(board.players[me].reserved).toHaveLength(1);
+    });
+
+    test('a payment must account for bonus discounts', () => {
+      const { board, me } = setup();
+      board.players[me].bonuses.green = 1; // card now costs 3 green
+      expect(board.buyCard('t1-08', { fromReserve: true, payment: { green: 4, [GOLD]: 0 } })).toBe(false);
+      expect(board.buyCard('t1-08', { fromReserve: true, payment: { green: 2, [GOLD]: 1 } })).toBe(true);
+    });
+  });
 });
 
 describe('Splendor token limit (discard sub-phase)', () => {

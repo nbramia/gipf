@@ -41,7 +41,7 @@ staging. Match alternatives use content-derived outer IDs and retain inner IDs.
 | `chess-repertoire` | `chessRepertoire` | `{version:1,white,black}`; each at most 100,000 names; free text bounded by the 5 MiB envelope |
 | `chess-log` | `chessGameLog` or content-derived alternative | The bounded finished-game entry schema from `server/chessLogValidation.js`, at most 200 entries / 100,000 bytes; exact nested counts |
 | `diplomacy-save` | `diplomacyGameState` | The version-1 envelope: `version,savedAt,board,uiPhase,controllers,personas,conversations,diplomaticState,uiState`; bounded by the enclosing 5 MiB export, including its metadata; closed progress-only schemas described below |
-| `chess-match`, `yinsh-match`, `zertz-match`, `catan-match` | Inner ID or content-derived alternative | Full version-1 snapshot, authoritative game decoder plus migration's closed nested field validation; see `resumable-matches.md` |
+| `chess-match`, `yinsh-match`, `zertz-match`, `catan-match`, `splendor-match` | Inner ID or content-derived alternative | Full version-1 snapshot, authoritative game decoder plus migration's closed nested field validation; see `resumable-matches.md` |
 
 Preference allowlist is the actual game-local inventory, excluding secrets:
 
@@ -64,7 +64,7 @@ Preference allowlist is the actual game-local inventory, excluding secrets:
   power one of seven countries, difficulty easy/normal/hard, spice 0–1,
   integer maxYears 1901–2000.
 
-Splendor has no persistent match. Diplomacy's permissive loader
+Diplomacy's permissive loader
 is supplemented by a migration-only closed validator.
 Its board fields are exactly those from `DiplomacyBoard.serializeState()`.
 Winter uses the engine's `winter-build` phase, including inside undo history.
@@ -123,7 +123,7 @@ as retained, non-exported content, not silently erased.
 Active-account match recovery arrays and Chess statistics alternatives are
 decoded into separate validated progress records. Encrypted recovery is read
 only for the captured active account, using the `decryptApiKey` format;
-only the documented four match keys, finished-game log and their alternatives
+only the documented five match keys, finished-game log and their alternatives
 are consumed from it. Other known retained progress that differs from the current
 device is reported as excluded from this recovery interface. Unknown/damaged
 alternatives are surfaced. Neither raw
@@ -216,7 +216,7 @@ repair. No other identity's stage or arbitrary localStorage is downloaded.
 The server revalidates the complete file, record digests and selected destinations.
 `migration-preview` returns a token over exact Redis snapshots. `migration-activate`
 uses one Lua transaction to compare the receipt, lifetime counter, byte budget, settings,
-profile, all four matches and extra-progress record, then commit selected domains,
+profile, all five matches and extra-progress record, then commit selected domains,
 revisions and ownership together. Ordinary settings/profile/match writers use those
 same keys and revisions, so a stale writer conflicts. A stale preview returns 409
 without mutating destination domains or ownership. Arrays are encoded
@@ -243,7 +243,7 @@ Recovery/replay remain available after either budget is exhausted. A preexisting
 nonzero activation count with a missing byte ledger blocks new activations rather
 than treating prior storage as free. Split export files have independent IDs.
 
-Settings/statistics, Chess rating/history/puzzles/mistakes and the four matches
+Settings/statistics, Chess rating/history/puzzles/mistakes and the five matches
 activate in their cloud domains. Other supported preferences, repertoire
 and Diplomacy saves are durably retained in `play:migration-extra:v1:<account>` and
 activated in the destination browser; this does not add automatic cross-device
@@ -306,7 +306,7 @@ Portable export/staging accepts 5 MiB per file, but every server migration actio
 request**, 128 bundled records, and 64 selected records with distinct destinations.
 All records retain envelope/shape, depth/secret-key and digest verification; only
 selected records undergo domain validation and game replay. Selection permits at
-most four matches (one per game). Before chess.js runs, selected Chess PGN is
+most five matches (one per game). Before chess.js runs, selected Chess PGN is
 limited to 8,192 UTF-8 bytes and 1,024 alphanumeric tokens, conservatively counting
 move numbers, comments and headers as well as moves. This bounds replay work even
 for malformed or densely packed PGN; it is not a promise to accept 1,024 plies.
@@ -346,7 +346,7 @@ exportability or successful staging does not guarantee server activation.
 | Chess puzzles | `recordPuzzleResult` adds an entry per ID without a cap. 100,000-entry safety ceiling plus 5 MiB budget; a regression writes 501 real results. |
 | Chess repertoire | `pinOpening` has no list/name cap. 100,000 names per color plus envelope budget; a regression uses 201 writer-generated names. |
 | Chess history, mistakes and log | UI opponent keys come from five tiers/rating ladder (within 32 per bucket). `captureMistake` and `recordGame` cap at 200. Log's 100,000-byte limit follows the server boundary. Counts, FEN and string restrictions are explicit migration validation; the permissive game loaders are not compatibility guarantees. |
-| Four match writers | The authoritative decoders enforce 240,000-byte snapshots and UI arrays up to 2,000. Yinsh rows require engine `fullLineLength` (5–11); seeded legal play covers row removal and recovery alternatives through game end. Chess free coaching text may use the snapshot byte budget; threads allow 10,000 entries, bounded by snapshot bytes. Other game geometry, resources and fields keep their closed typed schemas. |
+| Five match writers | The authoritative decoders enforce 240,000-byte snapshots and UI arrays up to 2,000. Yinsh rows require engine `fullLineLength` (5–11); seeded legal play covers row removal and recovery alternatives through game end. Chess free coaching text may use the snapshot byte budget; threads allow 10,000 entries, bounded by snapshot bytes. Other game geometry, resources and fields keep their closed typed schemas. |
 | Diplomacy board | 80 undo snapshots, 12 order-history entries per board; 400 KB is only a writer soft cap. Regression adjudicates 45 phases including a real winter build and saves beyond 1910 and 400 KB. No engine or persistence writer changed. |
 | Diplomacy negotiation | `appendMessage`/scratchpad storage have no text cap; text uses the envelope budget. Messages, agreements and promises have a 100,000-entry safety ceiling; summaries keep the writer's 200-character cap. Deal locations, targets and scratchpads follow the endpoint `validateDeal` / client `validateScratchpad` contracts (see above), covered by writer-driven fixtures through `recordAgreement`, `runNegotiationPhase` with an injected agent, `setScratchpad` and `updateScratchpad`. No live LLM/provider verification. Agreement/promise fields, power sets, ID/turn/persona bounds apply. |
 | Recovery stores | Match alternatives and log recovery accept at most eight entries, using their decoders/bounds. Only the captured account's documented match/log encrypted recovery interface is consumed; other known content is visibly excluded. |

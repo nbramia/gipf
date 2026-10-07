@@ -53,7 +53,7 @@ return 1`;
 const snapshot = raw => raw == null ? '0' : `1${raw}`;
 const parse = raw => raw == null ? { revision: 0, profile: {} } : JSON.parse(raw);
 const id = r => `${r.kind}/${r.id}`;
-const games = ['chess','yinsh','zertz','catan'];
+const games = ['chess','yinsh','zertz','catan','splendor'];
 
 export async function migrationActivation(body, res, settingKeys, deadline) {
   const store = (...args) => {

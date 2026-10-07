@@ -170,7 +170,7 @@ id, so a tab still showing another account cannot write into this one.
   revision returns 409 without changing data. Chess domains are `rating`,
   `history`, `puzzles`, and `mistakes`, each with its own validator.
 - `scope:"settings"`: separate revision and record, with `domains.preferences`
-  containing allowlisted localStorage string values. Covers the four named games'
+  containing allowlisted localStorage string values. Covers the named games'
   existing preferences, Yinsh wins, and Chess finished-game statistics
   (`chessGameLog`). Non-null values normally have a 2,048-character limit;
   `chessGameLog` instead uses `server/chessLogValidation.js` to validate its JSON
@@ -178,7 +178,7 @@ id, so a tab still showing another account cannot write into this one.
   use their own scope below. Unsupported keys
   (including credentials) are rejected. Startup conflicts offer explicit choices;
   changes are checked every five seconds. Network failures leave local play usable.
-- `scope:"match"`: `read`/`write` for `game:"chess"|"yinsh"|"zertz"|"catan"`,
+- `scope:"match"`: `read`/`write` for `game:"chess"|"yinsh"|"zertz"|"catan"|"splendor"`,
   stored at `play:match:v1:<dataId>:<game>` with a separate account/game CAS
   revision. Writes use `domains.match` (a validated snapshot or null to clear);
   stale revisions return 409. See
@@ -234,8 +234,8 @@ callbacks. Other tabs reload on the session storage event. Deferred profile writ
 capture the old identity and reject if the active account changed; read
 responses perform the same check. Recovery copies are not ordinary exports.
 
-Splendor and Diplomacy progress stays local within the active account and is
-protected during switching; neither has cloud persistence. The progress allowlist
+Diplomacy progress stays local within the active account and is
+protected during switching; it has no cloud persistence. The progress allowlist
 and authenticated contract cover versioned match snapshots and engine-safe
 restoration; see [resumable matches](resumable-matches.md). Public IDs never grant
 access, and a pending save is never merged into the next account.
@@ -252,7 +252,7 @@ the Lichess explorer proxy is 60/minute per network. Counters store hashed ident
 Auth0's own attack protection covers the sign-in itself.
 New identities are capped at 5 per network and 50 across all networks per fixed
 24-hour window (it starts at the window's first creation); returning sign-ins spend
-neither. Each account can hold several megabytes (settings, profile, four matches,
+neither. Each account can hold several megabytes (settings, profile, five matches,
 migration receipts), so identity creation is the store's growth bound. The global cap
 means a flood can pause new sign-ups for a day; existing accounts are unaffected. It
 bounds, rather than eliminates, aggregate storage abuse on the free Upstash store: keep

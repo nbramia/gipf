@@ -247,21 +247,53 @@ export default class SplendorBoard {
     return this.canAfford(playerId, this.getCard(cardId).cost);
   }
 
-  // Spend tokens for a card: colored tokens first, gold only for the shortfall
-  // (gold is more flexible, so min-gold payment is always optimal). Spent tokens
-  // return to the bank.
-  _payCard(playerId, cost) {
+  // Default payment: colored tokens first, gold only for the shortfall (the
+  // minimum-gold allocation the AI always uses). Returns the number of each
+  // token spent, including gold.
+  getAutoPayment(playerId, cost) {
     const player = this.players[playerId];
+    const payment = emptyTokens();
     for (const gem of GEMS) {
       const need = Math.max(0, (cost[gem] || 0) - player.bonuses[gem]);
-      const fromColor = Math.min(player.tokens[gem], need);
-      player.tokens[gem] -= fromColor;
-      this.bank[gem] += fromColor;
-      const shortfall = need - fromColor;
-      if (shortfall > 0) {
-        player.tokens[GOLD] -= shortfall;
-        this.bank[GOLD] += shortfall;
-      }
+      payment[gem] = Math.min(player.tokens[gem], need);
+      payment[GOLD] += need - payment[gem];
+    }
+    return payment;
+  }
+
+  // A payment is legal when it covers every discounted cost exactly: no colored
+  // token beyond what its gem needs, gold filling the rest of each gem's need
+  // (the rules let gold stand in even for a gem the player holds), and nothing
+  // spent that the player does not have.
+  isValidPayment(playerId, cost, payment) {
+    const player = this.players[playerId];
+    if (!payment || typeof payment !== 'object' || Array.isArray(payment)) return false;
+    if (Object.keys(payment).some(k => !ALL_TOKENS.includes(k))) return false;
+    const spent = token => payment[token] ?? 0;
+    if (!ALL_TOKENS.every(t => Number.isInteger(spent(t)) && spent(t) >= 0 && spent(t) <= player.tokens[t])) return false;
+    let goldNeeded = 0;
+    for (const gem of GEMS) {
+      const need = Math.max(0, (cost[gem] || 0) - player.bonuses[gem]);
+      if (spent(gem) > need) return false;
+      goldNeeded += need - spent(gem);
+    }
+    return goldNeeded === spent(GOLD);
+  }
+
+  // True when the player could pay with gold in place of a colored token they
+  // hold, so the choice is worth asking about.
+  hasPaymentChoice(playerId, cost) {
+    const auto = this.getAutoPayment(playerId, cost);
+    return this.players[playerId].tokens[GOLD] > auto[GOLD] && GEMS.some(gem => auto[gem] > 0);
+  }
+
+  // Spend an already-validated payment; spent tokens return to the bank.
+  _payCard(playerId, payment) {
+    const player = this.players[playerId];
+    for (const token of ALL_TOKENS) {
+      const n = payment[token] || 0;
+      player.tokens[token] -= n;
+      this.bank[token] += n;
     }
   }
 
@@ -347,7 +379,7 @@ export default class SplendorBoard {
       case 'reserve':
         return this.reserveCard(move);
       case 'buy':
-        return this.buyCard(move.cardId, { fromReserve: !!move.fromReserve });
+        return this.buyCard(move.cardId, { fromReserve: !!move.fromReserve, payment: move.payment });
       case 'discard-token':
         return this.discardToken(move.token);
       case 'choose-noble':
@@ -417,7 +449,7 @@ export default class SplendorBoard {
     return this._finishAction();
   }
 
-  buyCard(cardId, { fromReserve = false } = {}) {
+  buyCard(cardId, { fromReserve = false, payment = null } = {}) {
     if (this.phase !== 'play') return false;
     const player = this.getCurrentPlayer();
     const card = this.getCard(cardId);
@@ -435,7 +467,9 @@ export default class SplendorBoard {
     }
 
     if (!this.canAfford(player.id, card.cost)) return false;
-    this._payCard(player.id, card.cost);
+    const spend = payment ?? this.getAutoPayment(player.id, card.cost);
+    if (!this.isValidPayment(player.id, card.cost, spend)) return false;
+    this._payCard(player.id, spend);
 
     player.cards.push(cardId);
     player.bonuses[card.bonus] += 1;

@@ -18,12 +18,13 @@ beforeEach(async()=>{
   tokens={owner:await signInAs('owner',u),other:await signInAs('other',other)};
 });
 // Match records have their own account/game CAS, leaving the chess profile intact.
-test('four match scopes authenticate and isolate concurrent devices without changing profile domains', async () => {
+test('five match scopes authenticate and isolate concurrent devices without changing profile domains', async () => {
   const { default: YinshBoard } = await import('../src/games/yinsh/YinshBoard.js');
   const { default: ZertzBoard } = await import('../src/games/zertz/ZertzBoard.js');
   const { default: CatanBoard } = await import('../src/games/catan/CatanBoard.js');
+  const { default: SplendorBoard } = await import('../src/games/splendor/SplendorBoard.js');
   const { default: ChessBoard } = await import('../src/games/chess/ChessBoard.js');
-  const boards = { chess: new ChessBoard(), yinsh: new YinshBoard(), zertz: new ZertzBoard(), catan: new CatanBoard({ seed: 1234 }) };
+  const boards = { chess: new ChessBoard(), yinsh: new YinshBoard(), zertz: new ZertzBoard(), catan: new CatanBoard({ seed: 1234 }), splendor: new SplendorBoard({ seed: 1234, playerCount: 3 }) };
   const old = { rating: { rating: 1400, ratedGames: 4 } };
   await call(profile, { action: 'write', u, revision: 0, domains: old });
   for (const [game, board] of Object.entries(boards)) {
