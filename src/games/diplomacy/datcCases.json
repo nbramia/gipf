@@ -1,0 +1,4556 @@
+{
+ "6.B.6": {
+  "units": [
+   "england F IRI",
+   "england F NAO",
+   "france F SPA/nc",
+   "france F MAO",
+   "italy F GOL"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "IRI",
+     "type": "support-move",
+     "from": "NAO",
+     "to": "MAO"
+    },
+    {
+     "unitLoc": "NAO",
+     "type": "move",
+     "to": "MAO"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "SPA/nc",
+     "type": "support-hold",
+     "target": "MAO"
+    },
+    {
+     "unitLoc": "MAO",
+     "type": "hold"
+    }
+   ],
+   "italy": [
+    {
+     "unitLoc": "GOL",
+     "type": "move",
+     "to": "SPA/sc"
+    }
+   ]
+  },
+  "moved": [
+   "NAO"
+  ],
+  "dislodged": [
+   "MAO"
+  ]
+ },
+ "6.B.13": {
+  "units": [
+   "turkey F BUL/sc",
+   "turkey F CON"
+  ],
+  "orders": {
+   "turkey": [
+    {
+     "unitLoc": "BUL/sc",
+     "type": "move",
+     "to": "CON"
+    },
+    {
+     "unitLoc": "CON",
+     "type": "move",
+     "to": "BUL/ec"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.C.4": {
+  "units": [
+   "austria A TRI",
+   "austria A SER",
+   "turkey A BUL",
+   "turkey F AEG",
+   "turkey F ION",
+   "turkey F ADR",
+   "italy F NAP"
+  ],
+  "orders": {
+   "austria": [
+    {
+     "unitLoc": "TRI",
+     "type": "move",
+     "to": "SER"
+    },
+    {
+     "unitLoc": "SER",
+     "type": "move",
+     "to": "BUL"
+    }
+   ],
+   "turkey": [
+    {
+     "unitLoc": "BUL",
+     "type": "move",
+     "to": "TRI"
+    },
+    {
+     "unitLoc": "AEG",
+     "type": "convoy",
+     "from": "BUL",
+     "to": "TRI"
+    },
+    {
+     "unitLoc": "ION",
+     "type": "convoy",
+     "from": "BUL",
+     "to": "TRI"
+    },
+    {
+     "unitLoc": "ADR",
+     "type": "convoy",
+     "from": "BUL",
+     "to": "TRI"
+    }
+   ],
+   "italy": [
+    {
+     "unitLoc": "NAP",
+     "type": "move",
+     "to": "ION"
+    }
+   ]
+  },
+  "moved": [
+   "BUL",
+   "SER",
+   "TRI"
+  ],
+  "dislodged": []
+ },
+ "6.C.5": {
+  "units": [
+   "austria A TRI",
+   "austria A SER",
+   "turkey A BUL",
+   "turkey F AEG",
+   "turkey F ION",
+   "turkey F ADR",
+   "italy F NAP",
+   "italy F TUN"
+  ],
+  "orders": {
+   "austria": [
+    {
+     "unitLoc": "TRI",
+     "type": "move",
+     "to": "SER"
+    },
+    {
+     "unitLoc": "SER",
+     "type": "move",
+     "to": "BUL"
+    }
+   ],
+   "turkey": [
+    {
+     "unitLoc": "BUL",
+     "type": "move",
+     "to": "TRI"
+    },
+    {
+     "unitLoc": "AEG",
+     "type": "convoy",
+     "from": "BUL",
+     "to": "TRI"
+    },
+    {
+     "unitLoc": "ION",
+     "type": "convoy",
+     "from": "BUL",
+     "to": "TRI"
+    },
+    {
+     "unitLoc": "ADR",
+     "type": "convoy",
+     "from": "BUL",
+     "to": "TRI"
+    }
+   ],
+   "italy": [
+    {
+     "unitLoc": "NAP",
+     "type": "move",
+     "to": "ION"
+    },
+    {
+     "unitLoc": "TUN",
+     "type": "support-move",
+     "from": "NAP",
+     "to": "ION"
+    }
+   ]
+  },
+  "moved": [
+   "NAP"
+  ],
+  "dislodged": [
+   "ION"
+  ]
+ },
+ "6.C.6": {
+  "units": [
+   "england F NTH",
+   "england A LON",
+   "france F ENG",
+   "france A BEL"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NTH",
+     "type": "convoy",
+     "from": "LON",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "LON",
+     "type": "move",
+     "to": "BEL"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "BEL",
+     "to": "LON"
+    },
+    {
+     "unitLoc": "BEL",
+     "type": "move",
+     "to": "LON"
+    }
+   ]
+  },
+  "moved": [
+   "BEL",
+   "LON"
+  ],
+  "dislodged": []
+ },
+ "6.C.7": {
+  "units": [
+   "england F NTH",
+   "england A LON",
+   "france F ENG",
+   "france A BEL",
+   "france A BUR"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NTH",
+     "type": "convoy",
+     "from": "LON",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "LON",
+     "type": "move",
+     "to": "BEL"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "BEL",
+     "to": "LON"
+    },
+    {
+     "unitLoc": "BEL",
+     "type": "move",
+     "to": "LON"
+    },
+    {
+     "unitLoc": "BUR",
+     "type": "move",
+     "to": "BEL"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.C.8": {
+  "units": [
+   "turkey F CON",
+   "turkey A BUL",
+   "turkey A SMY",
+   "russia F BLA",
+   "austria A SER"
+  ],
+  "orders": {
+   "turkey": [
+    {
+     "unitLoc": "CON",
+     "type": "move",
+     "to": "BLA"
+    },
+    {
+     "unitLoc": "BUL",
+     "type": "move",
+     "to": "CON"
+    },
+    {
+     "unitLoc": "SMY",
+     "type": "support-move",
+     "from": "BUL",
+     "to": "CON"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "BLA",
+     "type": "move",
+     "to": "BUL/ec"
+    }
+   ],
+   "austria": [
+    {
+     "unitLoc": "SER",
+     "type": "move",
+     "to": "BUL"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.C.9": {
+  "units": [
+   "turkey F CON",
+   "turkey A SMY",
+   "russia F BLA",
+   "austria A SER",
+   "austria A BUL"
+  ],
+  "orders": {
+   "turkey": [
+    {
+     "unitLoc": "CON",
+     "type": "move",
+     "to": "BLA"
+    },
+    {
+     "unitLoc": "SMY",
+     "type": "support-move",
+     "from": "BUL",
+     "to": "CON"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "BLA",
+     "type": "move",
+     "to": "BUL/ec"
+    }
+   ],
+   "austria": [
+    {
+     "unitLoc": "SER",
+     "type": "move",
+     "to": "BUL"
+    },
+    {
+     "unitLoc": "BUL",
+     "type": "move",
+     "to": "CON"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.D.8": {
+  "units": [
+   "austria F ION",
+   "austria A SER",
+   "austria A ALB",
+   "turkey A GRE",
+   "turkey A BUL"
+  ],
+  "orders": {
+   "austria": [
+    {
+     "unitLoc": "ION",
+     "type": "hold"
+    },
+    {
+     "unitLoc": "SER",
+     "type": "support-move",
+     "from": "ALB",
+     "to": "GRE"
+    },
+    {
+     "unitLoc": "ALB",
+     "type": "move",
+     "to": "GRE"
+    }
+   ],
+   "turkey": [
+    {
+     "unitLoc": "GRE",
+     "type": "move",
+     "to": "NAP"
+    },
+    {
+     "unitLoc": "BUL",
+     "type": "support-hold",
+     "target": "GRE"
+    }
+   ]
+  },
+  "moved": [
+   "ALB"
+  ],
+  "dislodged": [
+   "GRE"
+  ]
+ },
+ "6.D.12": {
+  "units": [
+   "austria F TRI",
+   "austria A VIE",
+   "italy A VEN"
+  ],
+  "orders": {
+   "austria": [
+    {
+     "unitLoc": "TRI",
+     "type": "hold"
+    },
+    {
+     "unitLoc": "VIE",
+     "type": "support-move",
+     "from": "VEN",
+     "to": "TRI"
+    }
+   ],
+   "italy": [
+    {
+     "unitLoc": "VEN",
+     "type": "move",
+     "to": "TRI"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.D.13": {
+  "units": [
+   "austria F TRI",
+   "austria A VIE",
+   "italy A VEN",
+   "italy F APU"
+  ],
+  "orders": {
+   "austria": [
+    {
+     "unitLoc": "TRI",
+     "type": "move",
+     "to": "ADR"
+    },
+    {
+     "unitLoc": "VIE",
+     "type": "support-move",
+     "from": "VEN",
+     "to": "TRI"
+    }
+   ],
+   "italy": [
+    {
+     "unitLoc": "VEN",
+     "type": "move",
+     "to": "TRI"
+    },
+    {
+     "unitLoc": "APU",
+     "type": "move",
+     "to": "ADR"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.D.14": {
+  "units": [
+   "austria F TRI",
+   "austria A VIE",
+   "italy A VEN",
+   "italy A TYR",
+   "italy F ADR"
+  ],
+  "orders": {
+   "austria": [
+    {
+     "unitLoc": "TRI",
+     "type": "hold"
+    },
+    {
+     "unitLoc": "VIE",
+     "type": "support-move",
+     "from": "VEN",
+     "to": "TRI"
+    }
+   ],
+   "italy": [
+    {
+     "unitLoc": "VEN",
+     "type": "move",
+     "to": "TRI"
+    },
+    {
+     "unitLoc": "TYR",
+     "type": "support-move",
+     "from": "VEN",
+     "to": "TRI"
+    },
+    {
+     "unitLoc": "ADR",
+     "type": "support-move",
+     "from": "VEN",
+     "to": "TRI"
+    }
+   ]
+  },
+  "moved": [
+   "VEN"
+  ],
+  "dislodged": [
+   "TRI"
+  ]
+ },
+ "6.D.15": {
+  "units": [
+   "russia F CON",
+   "russia F BLA",
+   "turkey F ANK"
+  ],
+  "orders": {
+   "russia": [
+    {
+     "unitLoc": "CON",
+     "type": "support-move",
+     "from": "BLA",
+     "to": "ANK"
+    },
+    {
+     "unitLoc": "BLA",
+     "type": "move",
+     "to": "ANK"
+    }
+   ],
+   "turkey": [
+    {
+     "unitLoc": "ANK",
+     "type": "move",
+     "to": "CON"
+    }
+   ]
+  },
+  "moved": [
+   "BLA"
+  ],
+  "dislodged": [
+   "ANK"
+  ]
+ },
+ "6.D.16": {
+  "units": [
+   "england A LON",
+   "england F NTH",
+   "france F ENG",
+   "france A BEL"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "LON",
+     "type": "hold"
+    },
+    {
+     "unitLoc": "NTH",
+     "type": "convoy",
+     "from": "BEL",
+     "to": "LON"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "ENG",
+     "type": "support-move",
+     "from": "BEL",
+     "to": "LON"
+    },
+    {
+     "unitLoc": "BEL",
+     "type": "move",
+     "to": "LON"
+    }
+   ]
+  },
+  "moved": [
+   "BEL"
+  ],
+  "dislodged": [
+   "LON"
+  ]
+ },
+ "6.D.17": {
+  "units": [
+   "russia F CON",
+   "russia F BLA",
+   "turkey F ANK",
+   "turkey A SMY",
+   "turkey A ARM"
+  ],
+  "orders": {
+   "russia": [
+    {
+     "unitLoc": "CON",
+     "type": "support-move",
+     "from": "BLA",
+     "to": "ANK"
+    },
+    {
+     "unitLoc": "BLA",
+     "type": "move",
+     "to": "ANK"
+    }
+   ],
+   "turkey": [
+    {
+     "unitLoc": "ANK",
+     "type": "move",
+     "to": "CON"
+    },
+    {
+     "unitLoc": "SMY",
+     "type": "support-move",
+     "from": "ANK",
+     "to": "CON"
+    },
+    {
+     "unitLoc": "ARM",
+     "type": "move",
+     "to": "ANK"
+    }
+   ]
+  },
+  "moved": [
+   "ANK"
+  ],
+  "dislodged": [
+   "CON"
+  ]
+ },
+ "6.D.18": {
+  "units": [
+   "russia F CON",
+   "russia F BLA",
+   "russia A BUL",
+   "turkey F ANK",
+   "turkey A SMY",
+   "turkey A ARM"
+  ],
+  "orders": {
+   "russia": [
+    {
+     "unitLoc": "CON",
+     "type": "support-move",
+     "from": "BLA",
+     "to": "ANK"
+    },
+    {
+     "unitLoc": "BLA",
+     "type": "move",
+     "to": "ANK"
+    },
+    {
+     "unitLoc": "BUL",
+     "type": "support-hold",
+     "target": "CON"
+    }
+   ],
+   "turkey": [
+    {
+     "unitLoc": "ANK",
+     "type": "move",
+     "to": "CON"
+    },
+    {
+     "unitLoc": "SMY",
+     "type": "support-move",
+     "from": "ANK",
+     "to": "CON"
+    },
+    {
+     "unitLoc": "ARM",
+     "type": "move",
+     "to": "ANK"
+    }
+   ]
+  },
+  "moved": [
+   "BLA"
+  ],
+  "dislodged": [
+   "ANK"
+  ]
+ },
+ "6.D.19": {
+  "units": [
+   "russia F CON",
+   "russia F BLA",
+   "russia A SMY",
+   "turkey F ANK"
+  ],
+  "orders": {
+   "russia": [
+    {
+     "unitLoc": "CON",
+     "type": "support-move",
+     "from": "BLA",
+     "to": "ANK"
+    },
+    {
+     "unitLoc": "BLA",
+     "type": "move",
+     "to": "ANK"
+    },
+    {
+     "unitLoc": "SMY",
+     "type": "support-move",
+     "from": "ANK",
+     "to": "CON"
+    }
+   ],
+   "turkey": [
+    {
+     "unitLoc": "ANK",
+     "type": "move",
+     "to": "CON"
+    }
+   ]
+  },
+  "moved": [
+   "BLA"
+  ],
+  "dislodged": [
+   "ANK"
+  ]
+ },
+ "6.D.20": {
+  "units": [
+   "england F LON",
+   "england F NTH",
+   "england A YOR",
+   "france F ENG"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "LON",
+     "type": "support-move",
+     "from": "NTH",
+     "to": "ENG"
+    },
+    {
+     "unitLoc": "NTH",
+     "type": "move",
+     "to": "ENG"
+    },
+    {
+     "unitLoc": "YOR",
+     "type": "move",
+     "to": "LON"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "ENG",
+     "type": "hold"
+    }
+   ]
+  },
+  "moved": [
+   "NTH"
+  ],
+  "dislodged": [
+   "ENG"
+  ]
+ },
+ "6.D.21": {
+  "units": [
+   "austria F TRI",
+   "italy A VEN",
+   "italy A TYR",
+   "germany A MUN",
+   "russia A SIL",
+   "russia A BER"
+  ],
+  "orders": {
+   "austria": [
+    {
+     "unitLoc": "TRI",
+     "type": "hold"
+    }
+   ],
+   "italy": [
+    {
+     "unitLoc": "VEN",
+     "type": "move",
+     "to": "TRI"
+    },
+    {
+     "unitLoc": "TYR",
+     "type": "support-move",
+     "from": "VEN",
+     "to": "TRI"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "MUN",
+     "type": "move",
+     "to": "TYR"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "SIL",
+     "type": "move",
+     "to": "MUN"
+    },
+    {
+     "unitLoc": "BER",
+     "type": "support-move",
+     "from": "SIL",
+     "to": "MUN"
+    }
+   ]
+  },
+  "moved": [
+   "SIL"
+  ],
+  "dislodged": [
+   "MUN"
+  ]
+ },
+ "6.D.22": {
+  "units": [
+   "germany F KIE",
+   "germany A BUR",
+   "russia A MUN",
+   "russia A BER"
+  ],
+  "orders": {
+   "germany": [
+    {
+     "unitLoc": "KIE",
+     "type": "move",
+     "to": "MUN"
+    },
+    {
+     "unitLoc": "BUR",
+     "type": "support-move",
+     "from": "KIE",
+     "to": "MUN"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "MUN",
+     "type": "move",
+     "to": "KIE"
+    },
+    {
+     "unitLoc": "BER",
+     "type": "support-move",
+     "from": "MUN",
+     "to": "KIE"
+    }
+   ]
+  },
+  "moved": [
+   "MUN"
+  ],
+  "dislodged": [
+   "KIE"
+  ]
+ },
+ "6.D.23": {
+  "units": [
+   "italy F GOL",
+   "italy F WES",
+   "france F SPA/nc",
+   "france F MAR"
+  ],
+  "orders": {
+   "italy": [
+    {
+     "unitLoc": "GOL",
+     "type": "move",
+     "to": "SPA/sc"
+    },
+    {
+     "unitLoc": "WES",
+     "type": "support-move",
+     "from": "GOL",
+     "to": "SPA/sc"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "SPA/nc",
+     "type": "move",
+     "to": "GOL"
+    },
+    {
+     "unitLoc": "MAR",
+     "type": "support-move",
+     "from": "SPA/nc",
+     "to": "GOL"
+    }
+   ]
+  },
+  "moved": [
+   "GOL"
+  ],
+  "dislodged": [
+   "SPA/nc"
+  ]
+ },
+ "6.D.24": {
+  "units": [
+   "france A MAR",
+   "france F SPA/sc",
+   "italy F GOL",
+   "turkey F TYS",
+   "turkey F WES"
+  ],
+  "orders": {
+   "france": [
+    {
+     "unitLoc": "MAR",
+     "type": "move",
+     "to": "GOL"
+    },
+    {
+     "unitLoc": "SPA/sc",
+     "type": "support-move",
+     "from": "MAR",
+     "to": "GOL"
+    }
+   ],
+   "italy": [
+    {
+     "unitLoc": "GOL",
+     "type": "hold"
+    }
+   ],
+   "turkey": [
+    {
+     "unitLoc": "TYS",
+     "type": "support-move",
+     "from": "WES",
+     "to": "GOL"
+    },
+    {
+     "unitLoc": "WES",
+     "type": "move",
+     "to": "GOL"
+    }
+   ]
+  },
+  "moved": [
+   "WES"
+  ],
+  "dislodged": [
+   "GOL"
+  ]
+ },
+ "6.D.25": {
+  "units": [
+   "germany A BER",
+   "germany F KIE",
+   "russia F BAL",
+   "russia A PRU"
+  ],
+  "orders": {
+   "germany": [
+    {
+     "unitLoc": "BER",
+     "type": "support-hold",
+     "target": "PRU"
+    },
+    {
+     "unitLoc": "KIE",
+     "type": "support-hold",
+     "target": "BER"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "BAL",
+     "type": "support-move",
+     "from": "PRU",
+     "to": "BER"
+    },
+    {
+     "unitLoc": "PRU",
+     "type": "move",
+     "to": "BER"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.D.26": {
+  "units": [
+   "germany A BER",
+   "germany F KIE",
+   "russia F BAL",
+   "russia A PRU"
+  ],
+  "orders": {
+   "germany": [
+    {
+     "unitLoc": "BER",
+     "type": "support-move",
+     "from": "PRU",
+     "to": "SIL"
+    },
+    {
+     "unitLoc": "KIE",
+     "type": "support-hold",
+     "target": "BER"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "BAL",
+     "type": "support-move",
+     "from": "PRU",
+     "to": "BER"
+    },
+    {
+     "unitLoc": "PRU",
+     "type": "move",
+     "to": "BER"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.D.27": {
+  "units": [
+   "england F SWE",
+   "england F DEN",
+   "germany A BER",
+   "russia F BAL",
+   "russia F PRU"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "SWE",
+     "type": "move",
+     "to": "BAL"
+    },
+    {
+     "unitLoc": "DEN",
+     "type": "support-move",
+     "from": "SWE",
+     "to": "BAL"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "BER",
+     "type": "hold"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "BAL",
+     "type": "convoy",
+     "from": "BER",
+     "to": "LVN"
+    },
+    {
+     "unitLoc": "PRU",
+     "type": "support-hold",
+     "target": "BAL"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.D.28": {
+  "units": [
+   "austria A BUD",
+   "russia F RUM",
+   "turkey F BLA",
+   "turkey A BUL"
+  ],
+  "orders": {
+   "austria": [
+    {
+     "unitLoc": "BUD",
+     "type": "support-hold",
+     "target": "RUM"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "RUM",
+     "type": "move",
+     "to": "HOL"
+    }
+   ],
+   "turkey": [
+    {
+     "unitLoc": "BLA",
+     "type": "move",
+     "to": "RUM"
+    },
+    {
+     "unitLoc": "BUL",
+     "type": "support-move",
+     "from": "BLA",
+     "to": "RUM"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.D.29": {
+  "units": [
+   "austria A BUD",
+   "russia F RUM",
+   "turkey F BLA",
+   "turkey A BUL"
+  ],
+  "orders": {
+   "austria": [
+    {
+     "unitLoc": "BUD",
+     "type": "support-hold",
+     "target": "RUM"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "RUM",
+     "type": "move",
+     "to": "BUL/sc"
+    }
+   ],
+   "turkey": [
+    {
+     "unitLoc": "BLA",
+     "type": "move",
+     "to": "RUM"
+    },
+    {
+     "unitLoc": "BUL",
+     "type": "support-move",
+     "from": "BLA",
+     "to": "RUM"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.D.30": {
+  "units": [
+   "italy F AEG",
+   "russia F CON",
+   "turkey F BLA",
+   "turkey A BUL"
+  ],
+  "orders": {
+   "italy": [
+    {
+     "unitLoc": "AEG",
+     "type": "support-hold",
+     "target": "CON"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "CON",
+     "type": "move",
+     "to": "BUL"
+    }
+   ],
+   "turkey": [
+    {
+     "unitLoc": "BLA",
+     "type": "move",
+     "to": "CON"
+    },
+    {
+     "unitLoc": "BUL",
+     "type": "support-move",
+     "from": "BLA",
+     "to": "CON"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.D.32": {
+  "units": [
+   "england F EDI",
+   "england A LVP",
+   "france F LON",
+   "germany A YOR"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "EDI",
+     "type": "support-move",
+     "from": "LVP",
+     "to": "YOR"
+    },
+    {
+     "unitLoc": "LVP",
+     "type": "move",
+     "to": "YOR"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "LON",
+     "type": "support-hold",
+     "target": "YOR"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "YOR",
+     "type": "move",
+     "to": "HOL"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.D.33": {
+  "units": [
+   "austria A SER",
+   "austria A VIE",
+   "russia A GAL",
+   "turkey A BUL"
+  ],
+  "orders": {
+   "austria": [
+    {
+     "unitLoc": "SER",
+     "type": "move",
+     "to": "BUD"
+    },
+    {
+     "unitLoc": "VIE",
+     "type": "move",
+     "to": "BUD"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "GAL",
+     "type": "support-move",
+     "from": "SER",
+     "to": "BUD"
+    }
+   ],
+   "turkey": [
+    {
+     "unitLoc": "BUL",
+     "type": "move",
+     "to": "SER"
+    }
+   ]
+  },
+  "moved": [
+   "BUL",
+   "SER"
+  ],
+  "dislodged": []
+ },
+ "6.D.34": {
+  "units": [
+   "germany A BER",
+   "germany A SIL",
+   "germany F BAL",
+   "italy A PRU",
+   "russia A WAR",
+   "russia A LVN"
+  ],
+  "orders": {
+   "germany": [
+    {
+     "unitLoc": "BER",
+     "type": "move",
+     "to": "PRU"
+    },
+    {
+     "unitLoc": "SIL",
+     "type": "support-move",
+     "from": "BER",
+     "to": "PRU"
+    },
+    {
+     "unitLoc": "BAL",
+     "type": "support-move",
+     "from": "BER",
+     "to": "PRU"
+    }
+   ],
+   "italy": [
+    {
+     "unitLoc": "PRU",
+     "type": "support-move",
+     "from": "LVN",
+     "to": "PRU"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "WAR",
+     "type": "support-move",
+     "from": "LVN",
+     "to": "PRU"
+    },
+    {
+     "unitLoc": "LVN",
+     "type": "move",
+     "to": "PRU"
+    }
+   ]
+  },
+  "moved": [
+   "BER"
+  ],
+  "dislodged": [
+   "PRU"
+  ]
+ },
+ "6.E.3": {
+  "units": [
+   "germany A BER",
+   "germany A MUN",
+   "england F KIE"
+  ],
+  "orders": {
+   "germany": [
+    {
+     "unitLoc": "BER",
+     "type": "move",
+     "to": "KIE"
+    },
+    {
+     "unitLoc": "MUN",
+     "type": "support-move",
+     "from": "KIE",
+     "to": "BER"
+    }
+   ],
+   "england": [
+    {
+     "unitLoc": "KIE",
+     "type": "move",
+     "to": "BER"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.E.4": {
+  "units": [
+   "germany F HOL",
+   "germany F HEL",
+   "germany F SKA",
+   "france F NTH",
+   "france F BEL",
+   "england F EDI",
+   "england F YOR",
+   "england F NWG",
+   "austria A KIE",
+   "austria A RUH"
+  ],
+  "orders": {
+   "germany": [
+    {
+     "unitLoc": "HOL",
+     "type": "move",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "HEL",
+     "type": "support-move",
+     "from": "HOL",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "SKA",
+     "type": "support-move",
+     "from": "HOL",
+     "to": "NTH"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "NTH",
+     "type": "move",
+     "to": "HOL"
+    },
+    {
+     "unitLoc": "BEL",
+     "type": "support-move",
+     "from": "NTH",
+     "to": "HOL"
+    }
+   ],
+   "england": [
+    {
+     "unitLoc": "EDI",
+     "type": "support-move",
+     "from": "NWG",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "YOR",
+     "type": "support-move",
+     "from": "NWG",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "NWG",
+     "type": "move",
+     "to": "NTH"
+    }
+   ],
+   "austria": [
+    {
+     "unitLoc": "KIE",
+     "type": "support-move",
+     "from": "RUH",
+     "to": "HOL"
+    },
+    {
+     "unitLoc": "RUH",
+     "type": "move",
+     "to": "HOL"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.E.5": {
+  "units": [
+   "germany F HOL",
+   "germany F HEL",
+   "germany F SKA",
+   "france F NTH",
+   "france F BEL",
+   "england F EDI",
+   "england F YOR",
+   "england F NWG",
+   "england F LON",
+   "austria A KIE",
+   "austria A RUH"
+  ],
+  "orders": {
+   "germany": [
+    {
+     "unitLoc": "HOL",
+     "type": "move",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "HEL",
+     "type": "support-move",
+     "from": "HOL",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "SKA",
+     "type": "support-move",
+     "from": "HOL",
+     "to": "NTH"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "NTH",
+     "type": "move",
+     "to": "HOL"
+    },
+    {
+     "unitLoc": "BEL",
+     "type": "support-move",
+     "from": "NTH",
+     "to": "HOL"
+    }
+   ],
+   "england": [
+    {
+     "unitLoc": "EDI",
+     "type": "support-move",
+     "from": "NWG",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "YOR",
+     "type": "support-move",
+     "from": "NWG",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "NWG",
+     "type": "move",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "LON",
+     "type": "support-move",
+     "from": "NWG",
+     "to": "NTH"
+    }
+   ],
+   "austria": [
+    {
+     "unitLoc": "KIE",
+     "type": "support-move",
+     "from": "RUH",
+     "to": "HOL"
+    },
+    {
+     "unitLoc": "RUH",
+     "type": "move",
+     "to": "HOL"
+    }
+   ]
+  },
+  "moved": [
+   "NWG"
+  ],
+  "dislodged": [
+   "NTH"
+  ]
+ },
+ "6.E.6": {
+  "units": [
+   "germany F HOL",
+   "germany F HEL",
+   "france F NTH",
+   "france F BEL",
+   "france F ENG",
+   "austria A KIE",
+   "austria A RUH"
+  ],
+  "orders": {
+   "germany": [
+    {
+     "unitLoc": "HOL",
+     "type": "move",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "HEL",
+     "type": "support-move",
+     "from": "HOL",
+     "to": "NTH"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "NTH",
+     "type": "move",
+     "to": "HOL"
+    },
+    {
+     "unitLoc": "BEL",
+     "type": "support-move",
+     "from": "NTH",
+     "to": "HOL"
+    },
+    {
+     "unitLoc": "ENG",
+     "type": "support-move",
+     "from": "HOL",
+     "to": "NTH"
+    }
+   ],
+   "austria": [
+    {
+     "unitLoc": "KIE",
+     "type": "support-move",
+     "from": "RUH",
+     "to": "HOL"
+    },
+    {
+     "unitLoc": "RUH",
+     "type": "move",
+     "to": "HOL"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.E.7": {
+  "units": [
+   "england F NTH",
+   "england F YOR",
+   "germany F HOL",
+   "germany F HEL",
+   "russia F SKA",
+   "russia F NWY"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NTH",
+     "type": "hold"
+    },
+    {
+     "unitLoc": "YOR",
+     "type": "support-move",
+     "from": "NWY",
+     "to": "NTH"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "HOL",
+     "type": "support-move",
+     "from": "HEL",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "HEL",
+     "type": "move",
+     "to": "NTH"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "SKA",
+     "type": "support-move",
+     "from": "NWY",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "NWY",
+     "type": "move",
+     "to": "NTH"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.E.8": {
+  "units": [
+   "england F NTH",
+   "england F YOR",
+   "germany F HOL",
+   "germany F HEL",
+   "russia F SKA",
+   "russia F NWY"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NTH",
+     "type": "move",
+     "to": "NWY"
+    },
+    {
+     "unitLoc": "YOR",
+     "type": "support-move",
+     "from": "NWY",
+     "to": "NTH"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "HOL",
+     "type": "support-move",
+     "from": "HEL",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "HEL",
+     "type": "move",
+     "to": "NTH"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "SKA",
+     "type": "support-move",
+     "from": "NWY",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "NWY",
+     "type": "move",
+     "to": "NTH"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.E.9": {
+  "units": [
+   "england F NTH",
+   "england F YOR",
+   "germany F HOL",
+   "germany F HEL",
+   "russia F SKA",
+   "russia F NWY"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NTH",
+     "type": "move",
+     "to": "NWG"
+    },
+    {
+     "unitLoc": "YOR",
+     "type": "support-move",
+     "from": "NWY",
+     "to": "NTH"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "HOL",
+     "type": "support-move",
+     "from": "HEL",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "HEL",
+     "type": "move",
+     "to": "NTH"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "SKA",
+     "type": "support-move",
+     "from": "NWY",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "NWY",
+     "type": "move",
+     "to": "NTH"
+    }
+   ]
+  },
+  "moved": [
+   "NTH",
+   "NWY"
+  ],
+  "dislodged": []
+ },
+ "6.E.10": {
+  "units": [
+   "england F NTH",
+   "england F YOR",
+   "germany F HOL",
+   "germany F HEL",
+   "germany F DEN",
+   "russia F SKA",
+   "russia F NWY"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NTH",
+     "type": "move",
+     "to": "DEN"
+    },
+    {
+     "unitLoc": "YOR",
+     "type": "support-move",
+     "from": "NWY",
+     "to": "NTH"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "HOL",
+     "type": "support-move",
+     "from": "HEL",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "HEL",
+     "type": "move",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "DEN",
+     "type": "move",
+     "to": "HEL"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "SKA",
+     "type": "support-move",
+     "from": "NWY",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "NWY",
+     "type": "move",
+     "to": "NTH"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.E.11": {
+  "units": [
+   "france A SPA",
+   "france F MAO",
+   "france F GOL",
+   "germany A MAR",
+   "germany A GAS",
+   "italy F POR",
+   "italy F WES"
+  ],
+  "orders": {
+   "france": [
+    {
+     "unitLoc": "SPA",
+     "type": "move",
+     "to": "POR",
+     "viaConvoy": true
+    },
+    {
+     "unitLoc": "MAO",
+     "type": "convoy",
+     "from": "SPA",
+     "to": "POR"
+    },
+    {
+     "unitLoc": "GOL",
+     "type": "support-move",
+     "from": "POR",
+     "to": "SPA"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "MAR",
+     "type": "support-move",
+     "from": "GAS",
+     "to": "SPA"
+    },
+    {
+     "unitLoc": "GAS",
+     "type": "move",
+     "to": "SPA"
+    }
+   ],
+   "italy": [
+    {
+     "unitLoc": "POR",
+     "type": "move",
+     "to": "SPA/nc"
+    },
+    {
+     "unitLoc": "WES",
+     "type": "support-move",
+     "from": "POR",
+     "to": "SPA"
+    }
+   ]
+  },
+  "moved": [
+   "POR",
+   "SPA"
+  ],
+  "dislodged": []
+ },
+ "6.E.12": {
+  "units": [
+   "austria A BUD",
+   "austria A SER",
+   "italy A VIE",
+   "russia A GAL",
+   "russia A RUM"
+  ],
+  "orders": {
+   "austria": [
+    {
+     "unitLoc": "BUD",
+     "type": "move",
+     "to": "RUM"
+    },
+    {
+     "unitLoc": "SER",
+     "type": "support-move",
+     "from": "VIE",
+     "to": "BUD"
+    }
+   ],
+   "italy": [
+    {
+     "unitLoc": "VIE",
+     "type": "move",
+     "to": "BUD"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "GAL",
+     "type": "move",
+     "to": "BUD"
+    },
+    {
+     "unitLoc": "RUM",
+     "type": "support-move",
+     "from": "GAL",
+     "to": "BUD"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.E.13": {
+  "units": [
+   "england F EDI",
+   "england F YOR",
+   "france F BEL",
+   "france F ENG",
+   "germany F NTH",
+   "russia F NWG",
+   "russia F NWY"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "EDI",
+     "type": "support-move",
+     "from": "YOR",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "YOR",
+     "type": "move",
+     "to": "NTH"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "BEL",
+     "type": "move",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "ENG",
+     "type": "support-move",
+     "from": "BEL",
+     "to": "NTH"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "NTH",
+     "type": "hold"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "NWG",
+     "type": "move",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "NWY",
+     "type": "support-move",
+     "from": "NWG",
+     "to": "NTH"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.E.14": {
+  "units": [
+   "england A LVP",
+   "russia F EDI"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "LVP",
+     "type": "move",
+     "to": "EDI"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "EDI",
+     "type": "move",
+     "to": "LVP"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.E.15": {
+  "units": [
+   "england F HOL",
+   "england A RUH",
+   "france A KIE",
+   "france A MUN",
+   "france A SIL",
+   "germany A BER",
+   "germany F DEN",
+   "germany F HEL",
+   "russia F BAL",
+   "russia A PRU"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "HOL",
+     "type": "support-move",
+     "from": "RUH",
+     "to": "KIE"
+    },
+    {
+     "unitLoc": "RUH",
+     "type": "move",
+     "to": "KIE"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "KIE",
+     "type": "move",
+     "to": "BER"
+    },
+    {
+     "unitLoc": "MUN",
+     "type": "support-move",
+     "from": "KIE",
+     "to": "BER"
+    },
+    {
+     "unitLoc": "SIL",
+     "type": "support-move",
+     "from": "KIE",
+     "to": "BER"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "BER",
+     "type": "move",
+     "to": "KIE"
+    },
+    {
+     "unitLoc": "DEN",
+     "type": "support-move",
+     "from": "BER",
+     "to": "KIE"
+    },
+    {
+     "unitLoc": "HEL",
+     "type": "support-move",
+     "from": "BER",
+     "to": "KIE"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "BAL",
+     "type": "support-move",
+     "from": "PRU",
+     "to": "BER"
+    },
+    {
+     "unitLoc": "PRU",
+     "type": "move",
+     "to": "BER"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.F.1": {
+  "units": [
+   "turkey A GRE",
+   "turkey F AEG",
+   "turkey F CON",
+   "turkey F BLA"
+  ],
+  "orders": {
+   "turkey": [
+    {
+     "unitLoc": "GRE",
+     "type": "move",
+     "to": "SEV"
+    },
+    {
+     "unitLoc": "AEG",
+     "type": "convoy",
+     "from": "GRE",
+     "to": "SEV"
+    },
+    {
+     "unitLoc": "CON",
+     "type": "convoy",
+     "from": "GRE",
+     "to": "SEV"
+    },
+    {
+     "unitLoc": "BLA",
+     "type": "convoy",
+     "from": "GRE",
+     "to": "SEV"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.F.2": {
+  "units": [
+   "england F ENG",
+   "england A LON",
+   "france A PAR"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "LON",
+     "to": "BRE"
+    },
+    {
+     "unitLoc": "LON",
+     "type": "move",
+     "to": "BRE"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "PAR",
+     "type": "move",
+     "to": "BRE"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.F.3": {
+  "units": [
+   "england F ENG",
+   "england A LON",
+   "england F MAO",
+   "france A PAR"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "LON",
+     "to": "BRE"
+    },
+    {
+     "unitLoc": "LON",
+     "type": "move",
+     "to": "BRE"
+    },
+    {
+     "unitLoc": "MAO",
+     "type": "support-move",
+     "from": "LON",
+     "to": "BRE"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "PAR",
+     "type": "move",
+     "to": "BRE"
+    }
+   ]
+  },
+  "moved": [
+   "LON"
+  ],
+  "dislodged": []
+ },
+ "6.F.4": {
+  "units": [
+   "england F NTH",
+   "england A LON",
+   "germany F SKA"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NTH",
+     "type": "convoy",
+     "from": "LON",
+     "to": "HOL"
+    },
+    {
+     "unitLoc": "LON",
+     "type": "move",
+     "to": "HOL"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "SKA",
+     "type": "move",
+     "to": "NTH"
+    }
+   ]
+  },
+  "moved": [
+   "LON"
+  ],
+  "dislodged": []
+ },
+ "6.F.5": {
+  "units": [
+   "england F NTH",
+   "england A LON",
+   "france F ENG",
+   "france F BEL",
+   "germany F SKA",
+   "germany F DEN"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NTH",
+     "type": "convoy",
+     "from": "LON",
+     "to": "HOL"
+    },
+    {
+     "unitLoc": "LON",
+     "type": "move",
+     "to": "HOL"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "ENG",
+     "type": "move",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "BEL",
+     "type": "support-move",
+     "from": "ENG",
+     "to": "NTH"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "SKA",
+     "type": "move",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "DEN",
+     "type": "support-move",
+     "from": "SKA",
+     "to": "NTH"
+    }
+   ]
+  },
+  "moved": [
+   "LON"
+  ],
+  "dislodged": []
+ },
+ "6.F.6": {
+  "units": [
+   "england F NTH",
+   "england A LON",
+   "germany A HOL",
+   "germany A BEL",
+   "germany F HEL",
+   "germany F SKA",
+   "france A PIC",
+   "france A BUR"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NTH",
+     "type": "convoy",
+     "from": "LON",
+     "to": "HOL"
+    },
+    {
+     "unitLoc": "LON",
+     "type": "move",
+     "to": "HOL"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "HOL",
+     "type": "support-hold",
+     "target": "BEL"
+    },
+    {
+     "unitLoc": "BEL",
+     "type": "support-hold",
+     "target": "HOL"
+    },
+    {
+     "unitLoc": "HEL",
+     "type": "support-move",
+     "from": "SKA",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "SKA",
+     "type": "move",
+     "to": "NTH"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "PIC",
+     "type": "move",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "BUR",
+     "type": "support-move",
+     "from": "PIC",
+     "to": "BEL"
+    }
+   ]
+  },
+  "moved": [
+   "SKA"
+  ],
+  "dislodged": [
+   "NTH"
+  ]
+ },
+ "6.F.7": {
+  "units": [
+   "england F NTH",
+   "england A LON",
+   "germany F HEL",
+   "germany F SKA"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NTH",
+     "type": "convoy",
+     "from": "LON",
+     "to": "HOL"
+    },
+    {
+     "unitLoc": "LON",
+     "type": "move",
+     "to": "HOL"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "HEL",
+     "type": "support-move",
+     "from": "SKA",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "SKA",
+     "type": "move",
+     "to": "NTH"
+    }
+   ]
+  },
+  "moved": [
+   "SKA"
+  ],
+  "dislodged": [
+   "NTH"
+  ]
+ },
+ "6.F.8": {
+  "units": [
+   "england F NTH",
+   "england A LON",
+   "germany F HEL",
+   "germany F SKA",
+   "germany A BEL"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NTH",
+     "type": "convoy",
+     "from": "LON",
+     "to": "HOL"
+    },
+    {
+     "unitLoc": "LON",
+     "type": "move",
+     "to": "HOL"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "HEL",
+     "type": "support-move",
+     "from": "SKA",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "SKA",
+     "type": "move",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "BEL",
+     "type": "move",
+     "to": "HOL"
+    }
+   ]
+  },
+  "moved": [
+   "BEL",
+   "SKA"
+  ],
+  "dislodged": [
+   "NTH"
+  ]
+ },
+ "6.F.9": {
+  "units": [
+   "england F ENG",
+   "england F NTH",
+   "england A LON",
+   "france F BRE",
+   "france F MAO"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "LON",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "NTH",
+     "type": "convoy",
+     "from": "LON",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "LON",
+     "type": "move",
+     "to": "BEL"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "BRE",
+     "type": "support-move",
+     "from": "MAO",
+     "to": "ENG"
+    },
+    {
+     "unitLoc": "MAO",
+     "type": "move",
+     "to": "ENG"
+    }
+   ]
+  },
+  "moved": [
+   "LON",
+   "MAO"
+  ],
+  "dislodged": [
+   "ENG"
+  ]
+ },
+ "6.F.10": {
+  "units": [
+   "england F NTH",
+   "england A LON",
+   "germany F ENG",
+   "france F BRE",
+   "france F MAO"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NTH",
+     "type": "convoy",
+     "from": "LON",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "LON",
+     "type": "move",
+     "to": "BEL"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "LON",
+     "to": "BEL"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "BRE",
+     "type": "support-move",
+     "from": "MAO",
+     "to": "ENG"
+    },
+    {
+     "unitLoc": "MAO",
+     "type": "move",
+     "to": "ENG"
+    }
+   ]
+  },
+  "moved": [
+   "LON",
+   "MAO"
+  ],
+  "dislodged": [
+   "ENG"
+  ]
+ },
+ "6.F.11": {
+  "units": [
+   "england A LON",
+   "germany F ENG",
+   "russia F NTH",
+   "france F BRE",
+   "france F MAO"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "LON",
+     "type": "move",
+     "to": "BEL"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "LON",
+     "to": "BEL"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "NTH",
+     "type": "convoy",
+     "from": "LON",
+     "to": "BEL"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "BRE",
+     "type": "support-move",
+     "from": "MAO",
+     "to": "ENG"
+    },
+    {
+     "unitLoc": "MAO",
+     "type": "move",
+     "to": "ENG"
+    }
+   ]
+  },
+  "moved": [
+   "LON",
+   "MAO"
+  ],
+  "dislodged": [
+   "ENG"
+  ]
+ },
+ "6.F.12": {
+  "units": [
+   "england F ENG",
+   "england A LON",
+   "england F IRI",
+   "france F NAO",
+   "france F MAO"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "LON",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "LON",
+     "type": "move",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "IRI",
+     "type": "convoy",
+     "from": "LON",
+     "to": "BEL"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "NAO",
+     "type": "support-move",
+     "from": "MAO",
+     "to": "IRI"
+    },
+    {
+     "unitLoc": "MAO",
+     "type": "move",
+     "to": "IRI"
+    }
+   ]
+  },
+  "moved": [
+   "LON",
+   "MAO"
+  ],
+  "dislodged": [
+   "IRI"
+  ]
+ },
+ "6.F.13": {
+  "units": [
+   "england A LON",
+   "england F NTH",
+   "france F ENG",
+   "germany F HOL",
+   "germany F DEN"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "LON",
+     "type": "move",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "NTH",
+     "type": "convoy",
+     "from": "LON",
+     "to": "BEL"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "LON",
+     "to": "BEL"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "HOL",
+     "type": "support-move",
+     "from": "DEN",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "DEN",
+     "type": "move",
+     "to": "NTH"
+    }
+   ]
+  },
+  "moved": [
+   "DEN",
+   "LON"
+  ],
+  "dislodged": [
+   "NTH"
+  ]
+ },
+ "6.F.14": {
+  "units": [
+   "england F LON",
+   "england F WAL",
+   "france A BRE",
+   "france F ENG"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "LON",
+     "type": "support-move",
+     "from": "WAL",
+     "to": "ENG"
+    },
+    {
+     "unitLoc": "WAL",
+     "type": "move",
+     "to": "ENG"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "BRE",
+     "type": "move",
+     "to": "LON"
+    },
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "BRE",
+     "to": "LON"
+    }
+   ]
+  },
+  "moved": [
+   "WAL"
+  ],
+  "dislodged": [
+   "ENG"
+  ]
+ },
+ "6.F.15": {
+  "units": [
+   "england F LON",
+   "england F WAL",
+   "france A BRE",
+   "france F ENG",
+   "italy F IRI",
+   "italy F MAO",
+   "italy A NAF"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "LON",
+     "type": "support-move",
+     "from": "WAL",
+     "to": "ENG"
+    },
+    {
+     "unitLoc": "WAL",
+     "type": "move",
+     "to": "ENG"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "BRE",
+     "type": "move",
+     "to": "LON"
+    },
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "BRE",
+     "to": "LON"
+    }
+   ],
+   "italy": [
+    {
+     "unitLoc": "IRI",
+     "type": "convoy",
+     "from": "NAF",
+     "to": "WAL"
+    },
+    {
+     "unitLoc": "MAO",
+     "type": "convoy",
+     "from": "NAF",
+     "to": "WAL"
+    },
+    {
+     "unitLoc": "NAF",
+     "type": "move",
+     "to": "WAL"
+    }
+   ]
+  },
+  "moved": [
+   "NAF",
+   "WAL"
+  ],
+  "dislodged": [
+   "ENG"
+  ]
+ },
+ "6.F.16": {
+  "units": [
+   "england F LON",
+   "england F WAL",
+   "france A BRE",
+   "france F ENG",
+   "germany F NTH",
+   "germany F BEL"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "LON",
+     "type": "support-move",
+     "from": "WAL",
+     "to": "ENG"
+    },
+    {
+     "unitLoc": "WAL",
+     "type": "move",
+     "to": "ENG"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "BRE",
+     "type": "move",
+     "to": "LON"
+    },
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "BRE",
+     "to": "LON"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "NTH",
+     "type": "support-move",
+     "from": "BEL",
+     "to": "ENG"
+    },
+    {
+     "unitLoc": "BEL",
+     "type": "move",
+     "to": "ENG"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.F.17": {
+  "units": [
+   "england F LON",
+   "england F WAL",
+   "france A BRE",
+   "france F ENG",
+   "france F YOR",
+   "germany F NTH",
+   "germany F BEL"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "LON",
+     "type": "support-move",
+     "from": "WAL",
+     "to": "ENG"
+    },
+    {
+     "unitLoc": "WAL",
+     "type": "move",
+     "to": "ENG"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "BRE",
+     "type": "move",
+     "to": "LON"
+    },
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "BRE",
+     "to": "LON"
+    },
+    {
+     "unitLoc": "YOR",
+     "type": "support-move",
+     "from": "BRE",
+     "to": "LON"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "NTH",
+     "type": "support-move",
+     "from": "BEL",
+     "to": "ENG"
+    },
+    {
+     "unitLoc": "BEL",
+     "type": "move",
+     "to": "ENG"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.F.18": {
+  "units": [
+   "england F NTH",
+   "england A LON",
+   "england F ENG",
+   "france F BEL",
+   "germany F HEL",
+   "germany F SKA"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NTH",
+     "type": "convoy",
+     "from": "LON",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "LON",
+     "type": "move",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "ENG",
+     "type": "support-move",
+     "from": "LON",
+     "to": "BEL"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "BEL",
+     "type": "support-hold",
+     "target": "NTH"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "HEL",
+     "type": "support-move",
+     "from": "SKA",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "SKA",
+     "type": "move",
+     "to": "NTH"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.F.19": {
+  "units": [
+   "france A TUN",
+   "france F TYS",
+   "france F ION",
+   "italy F NAP",
+   "italy F ROM"
+  ],
+  "orders": {
+   "france": [
+    {
+     "unitLoc": "TUN",
+     "type": "move",
+     "to": "NAP"
+    },
+    {
+     "unitLoc": "TYS",
+     "type": "convoy",
+     "from": "TUN",
+     "to": "NAP"
+    },
+    {
+     "unitLoc": "ION",
+     "type": "convoy",
+     "from": "TUN",
+     "to": "NAP"
+    }
+   ],
+   "italy": [
+    {
+     "unitLoc": "NAP",
+     "type": "support-move",
+     "from": "ROM",
+     "to": "TYS"
+    },
+    {
+     "unitLoc": "ROM",
+     "type": "move",
+     "to": "TYS"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.F.20": {
+  "units": [
+   "france A TUN",
+   "france F TYS",
+   "italy F NAP",
+   "italy F ION",
+   "turkey F AEG",
+   "turkey F EAS"
+  ],
+  "orders": {
+   "france": [
+    {
+     "unitLoc": "TUN",
+     "type": "move",
+     "to": "NAP"
+    },
+    {
+     "unitLoc": "TYS",
+     "type": "convoy",
+     "from": "TUN",
+     "to": "NAP"
+    }
+   ],
+   "italy": [
+    {
+     "unitLoc": "NAP",
+     "type": "support-hold",
+     "target": "ION"
+    },
+    {
+     "unitLoc": "ION",
+     "type": "convoy",
+     "from": "TUN",
+     "to": "NAP"
+    }
+   ],
+   "turkey": [
+    {
+     "unitLoc": "AEG",
+     "type": "support-move",
+     "from": "EAS",
+     "to": "ION"
+    },
+    {
+     "unitLoc": "EAS",
+     "type": "move",
+     "to": "ION"
+    }
+   ]
+  },
+  "moved": [
+   "EAS"
+  ],
+  "dislodged": [
+   "ION"
+  ]
+ },
+ "6.F.21": {
+  "units": [
+   "russia A EDI",
+   "russia F NWG",
+   "russia A NWY",
+   "france F IRI",
+   "france F MAO",
+   "england A LVP",
+   "england F NAO",
+   "england F CLY"
+  ],
+  "orders": {
+   "russia": [
+    {
+     "unitLoc": "EDI",
+     "type": "support-move",
+     "from": "NWY",
+     "to": "CLY"
+    },
+    {
+     "unitLoc": "NWG",
+     "type": "convoy",
+     "from": "NWY",
+     "to": "CLY"
+    },
+    {
+     "unitLoc": "NWY",
+     "type": "move",
+     "to": "CLY"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "IRI",
+     "type": "support-move",
+     "from": "MAO",
+     "to": "NAO"
+    },
+    {
+     "unitLoc": "MAO",
+     "type": "move",
+     "to": "NAO"
+    }
+   ],
+   "england": [
+    {
+     "unitLoc": "LVP",
+     "type": "move",
+     "to": "CLY",
+     "viaConvoy": true
+    },
+    {
+     "unitLoc": "NAO",
+     "type": "convoy",
+     "from": "LVP",
+     "to": "CLY"
+    },
+    {
+     "unitLoc": "CLY",
+     "type": "support-hold",
+     "target": "NAO"
+    }
+   ]
+  },
+  "moved": [
+   "MAO",
+   "NWY"
+  ],
+  "dislodged": [
+   "CLY",
+   "NAO"
+  ]
+ },
+ "6.F.22": {
+  "units": [
+   "england F EDI",
+   "england F LON",
+   "france A BRE",
+   "france F ENG",
+   "germany F BEL",
+   "germany F PIC",
+   "russia A NWY",
+   "russia F NTH"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "EDI",
+     "type": "move",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "LON",
+     "type": "support-move",
+     "from": "EDI",
+     "to": "NTH"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "BRE",
+     "type": "move",
+     "to": "LON"
+    },
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "BRE",
+     "to": "LON"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "BEL",
+     "type": "support-move",
+     "from": "PIC",
+     "to": "ENG"
+    },
+    {
+     "unitLoc": "PIC",
+     "type": "move",
+     "to": "ENG"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "NWY",
+     "type": "move",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "NTH",
+     "type": "convoy",
+     "from": "NWY",
+     "to": "BEL"
+    }
+   ]
+  },
+  "moved": [
+   "EDI",
+   "PIC"
+  ],
+  "dislodged": [
+   "ENG",
+   "NTH"
+  ]
+ },
+ "6.F.23": {
+  "units": [
+   "england F EDI",
+   "england F YOR",
+   "france A BRE",
+   "france F ENG",
+   "germany F BEL",
+   "germany F LON",
+   "italy F MAO",
+   "italy F IRI",
+   "russia A NWY",
+   "russia F NTH"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "EDI",
+     "type": "move",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "YOR",
+     "type": "support-move",
+     "from": "EDI",
+     "to": "NTH"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "BRE",
+     "type": "move",
+     "to": "LON"
+    },
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "BRE",
+     "to": "LON"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "BEL",
+     "type": "support-hold",
+     "target": "ENG"
+    },
+    {
+     "unitLoc": "LON",
+     "type": "support-hold",
+     "target": "NTH"
+    }
+   ],
+   "italy": [
+    {
+     "unitLoc": "MAO",
+     "type": "move",
+     "to": "ENG"
+    },
+    {
+     "unitLoc": "IRI",
+     "type": "support-move",
+     "from": "MAO",
+     "to": "ENG"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "NWY",
+     "type": "move",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "NTH",
+     "type": "convoy",
+     "from": "NWY",
+     "to": "BEL"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.F.24": {
+  "units": [
+   "england F EDI",
+   "england F LON",
+   "england F IRI",
+   "england F MAO",
+   "france A BRE",
+   "france F ENG",
+   "france F BEL",
+   "russia A NWY",
+   "russia F NTH"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "EDI",
+     "type": "move",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "LON",
+     "type": "support-move",
+     "from": "EDI",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "IRI",
+     "type": "move",
+     "to": "ENG"
+    },
+    {
+     "unitLoc": "MAO",
+     "type": "support-move",
+     "from": "IRI",
+     "to": "ENG"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "BRE",
+     "type": "move",
+     "to": "LON"
+    },
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "BRE",
+     "to": "LON"
+    },
+    {
+     "unitLoc": "BEL",
+     "type": "support-hold",
+     "target": "ENG"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "NWY",
+     "type": "move",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "NTH",
+     "type": "convoy",
+     "from": "NWY",
+     "to": "BEL"
+    }
+   ]
+  },
+  "moved": [
+   "EDI"
+  ],
+  "dislodged": [
+   "NTH"
+  ]
+ },
+ "6.F.25": {
+  "units": [
+   "germany A RUH",
+   "germany A HOL",
+   "germany A DEN",
+   "germany F SKA",
+   "germany A FIN",
+   "england A YOR",
+   "england F NTH",
+   "england F HEL",
+   "england A BEL",
+   "russia F NWG",
+   "russia F NWY",
+   "russia F SWE"
+  ],
+  "orders": {
+   "germany": [
+    {
+     "unitLoc": "RUH",
+     "type": "move",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "HOL",
+     "type": "support-move",
+     "from": "RUH",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "DEN",
+     "type": "move",
+     "to": "NWY"
+    },
+    {
+     "unitLoc": "SKA",
+     "type": "convoy",
+     "from": "DEN",
+     "to": "NWY"
+    },
+    {
+     "unitLoc": "FIN",
+     "type": "support-move",
+     "from": "DEN",
+     "to": "NWY"
+    }
+   ],
+   "england": [
+    {
+     "unitLoc": "YOR",
+     "type": "move",
+     "to": "HOL"
+    },
+    {
+     "unitLoc": "NTH",
+     "type": "convoy",
+     "from": "YOR",
+     "to": "HOL"
+    },
+    {
+     "unitLoc": "HEL",
+     "type": "support-move",
+     "from": "YOR",
+     "to": "HOL"
+    },
+    {
+     "unitLoc": "BEL",
+     "type": "hold"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "NWG",
+     "type": "move",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "NWY",
+     "type": "support-move",
+     "from": "NWG",
+     "to": "NTH"
+    },
+    {
+     "unitLoc": "SWE",
+     "type": "move",
+     "to": "SKA"
+    }
+   ]
+  },
+  "moved": [
+   "DEN",
+   "YOR"
+  ],
+  "dislodged": [
+   "HOL",
+   "NWY"
+  ]
+ },
+ "6.G.1": {
+  "units": [
+   "england A NWY",
+   "england F SKA",
+   "russia A SWE"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NWY",
+     "type": "move",
+     "to": "SWE",
+     "viaConvoy": true
+    },
+    {
+     "unitLoc": "SKA",
+     "type": "convoy",
+     "from": "NWY",
+     "to": "SWE"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "SWE",
+     "type": "move",
+     "to": "NWY"
+    }
+   ]
+  },
+  "moved": [
+   "NWY",
+   "SWE"
+  ],
+  "dislodged": []
+ },
+ "6.G.2": {
+  "units": [
+   "england A NWY",
+   "russia F SWE",
+   "germany F SKA"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NWY",
+     "type": "move",
+     "to": "SWE"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "SWE",
+     "type": "move",
+     "to": "NWY"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "SKA",
+     "type": "convoy",
+     "from": "NWY",
+     "to": "SWE"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.G.3": {
+  "units": [
+   "france F BRE",
+   "france A PIC",
+   "france A BUR",
+   "france F MAO",
+   "england F ENG"
+  ],
+  "orders": {
+   "france": [
+    {
+     "unitLoc": "BRE",
+     "type": "move",
+     "to": "ENG"
+    },
+    {
+     "unitLoc": "PIC",
+     "type": "move",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "BUR",
+     "type": "support-move",
+     "from": "PIC",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "MAO",
+     "type": "support-move",
+     "from": "BRE",
+     "to": "ENG"
+    }
+   ],
+   "england": [
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "PIC",
+     "to": "BEL"
+    }
+   ]
+  },
+  "moved": [
+   "BRE",
+   "PIC"
+  ],
+  "dislodged": [
+   "ENG"
+  ]
+ },
+ "6.G.4": {
+  "units": [
+   "france F BRE",
+   "france A PIC",
+   "france A BUR",
+   "france F MAO",
+   "england F ENG",
+   "england A BEL"
+  ],
+  "orders": {
+   "france": [
+    {
+     "unitLoc": "BRE",
+     "type": "move",
+     "to": "ENG"
+    },
+    {
+     "unitLoc": "PIC",
+     "type": "move",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "BUR",
+     "type": "support-move",
+     "from": "PIC",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "MAO",
+     "type": "support-move",
+     "from": "BRE",
+     "to": "ENG"
+    }
+   ],
+   "england": [
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "PIC",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "BEL",
+     "type": "move",
+     "to": "PIC"
+    }
+   ]
+  },
+  "moved": [
+   "BRE",
+   "PIC"
+  ],
+  "dislodged": [
+   "BEL",
+   "ENG"
+  ]
+ },
+ "6.G.5": {
+  "units": [
+   "italy A ROM",
+   "italy F TYS",
+   "turkey A APU",
+   "turkey F ION"
+  ],
+  "orders": {
+   "italy": [
+    {
+     "unitLoc": "ROM",
+     "type": "move",
+     "to": "APU"
+    },
+    {
+     "unitLoc": "TYS",
+     "type": "convoy",
+     "from": "APU",
+     "to": "ROM"
+    }
+   ],
+   "turkey": [
+    {
+     "unitLoc": "APU",
+     "type": "move",
+     "to": "ROM",
+     "viaConvoy": true
+    },
+    {
+     "unitLoc": "ION",
+     "type": "convoy",
+     "from": "APU",
+     "to": "ROM"
+    }
+   ]
+  },
+  "moved": [
+   "APU",
+   "ROM"
+  ],
+  "dislodged": []
+ },
+ "6.G.6": {
+  "units": [
+   "england A LVP",
+   "england F ENG",
+   "germany A EDI",
+   "france F IRI",
+   "france F NTH",
+   "russia F NWG",
+   "russia F NAO"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "LVP",
+     "type": "move",
+     "to": "EDI",
+     "viaConvoy": true
+    },
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "LVP",
+     "to": "EDI"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "EDI",
+     "type": "move",
+     "to": "LVP"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "IRI",
+     "type": "hold"
+    },
+    {
+     "unitLoc": "NTH",
+     "type": "hold"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "NWG",
+     "type": "convoy",
+     "from": "LVP",
+     "to": "EDI"
+    },
+    {
+     "unitLoc": "NAO",
+     "type": "convoy",
+     "from": "LVP",
+     "to": "EDI"
+    }
+   ]
+  },
+  "moved": [
+   "EDI",
+   "LVP"
+  ],
+  "dislodged": []
+ },
+ "6.G.7": {
+  "units": [
+   "england F SKA",
+   "england F NWY",
+   "russia A SWE",
+   "russia F BOT"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "SKA",
+     "type": "convoy",
+     "from": "SWE",
+     "to": "NWY"
+    },
+    {
+     "unitLoc": "NWY",
+     "type": "move",
+     "to": "SWE"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "SWE",
+     "type": "move",
+     "to": "NWY"
+    },
+    {
+     "unitLoc": "BOT",
+     "type": "convoy",
+     "from": "SWE",
+     "to": "NWY"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.G.8": {
+  "units": [
+   "france A BEL",
+   "england F NTH",
+   "england A HOL"
+  ],
+  "orders": {
+   "france": [
+    {
+     "unitLoc": "BEL",
+     "type": "move",
+     "to": "HOL",
+     "viaConvoy": true
+    }
+   ],
+   "england": [
+    {
+     "unitLoc": "NTH",
+     "type": "move",
+     "to": "HEL"
+    },
+    {
+     "unitLoc": "HOL",
+     "type": "move",
+     "to": "KIE"
+    }
+   ]
+  },
+  "moved": [
+   "HOL",
+   "NTH"
+  ],
+  "dislodged": []
+ },
+ "6.G.9": {
+  "units": [
+   "england A NWY",
+   "england F SKA",
+   "england F FIN",
+   "russia A SWE"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NWY",
+     "type": "move",
+     "to": "SWE",
+     "viaConvoy": true
+    },
+    {
+     "unitLoc": "SKA",
+     "type": "convoy",
+     "from": "NWY",
+     "to": "SWE"
+    },
+    {
+     "unitLoc": "FIN",
+     "type": "support-move",
+     "from": "NWY",
+     "to": "SWE"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "SWE",
+     "type": "move",
+     "to": "NWY"
+    }
+   ]
+  },
+  "moved": [
+   "NWY",
+   "SWE"
+  ],
+  "dislodged": []
+ },
+ "6.G.10": {
+  "units": [
+   "england A NWY",
+   "england F DEN",
+   "england F FIN",
+   "germany F SKA",
+   "russia A SWE",
+   "russia F BAR",
+   "france F NWG",
+   "france F NTH"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NWY",
+     "type": "move",
+     "to": "SWE",
+     "viaConvoy": true
+    },
+    {
+     "unitLoc": "DEN",
+     "type": "support-move",
+     "from": "NWY",
+     "to": "SWE"
+    },
+    {
+     "unitLoc": "FIN",
+     "type": "support-move",
+     "from": "NWY",
+     "to": "SWE"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "SKA",
+     "type": "convoy",
+     "from": "NWY",
+     "to": "SWE"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "SWE",
+     "type": "move",
+     "to": "NWY"
+    },
+    {
+     "unitLoc": "BAR",
+     "type": "support-move",
+     "from": "SWE",
+     "to": "NWY"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "NWG",
+     "type": "move",
+     "to": "NWY"
+    },
+    {
+     "unitLoc": "NTH",
+     "type": "support-move",
+     "from": "NWG",
+     "to": "NWY"
+    }
+   ]
+  },
+  "moved": [
+   "NWY"
+  ],
+  "dislodged": [
+   "SWE"
+  ]
+ },
+ "6.G.11": {
+  "units": [
+   "england F NWY",
+   "england F NTH",
+   "russia A SWE",
+   "russia F SKA",
+   "russia F BAR"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NWY",
+     "type": "support-move",
+     "from": "NTH",
+     "to": "SKA"
+    },
+    {
+     "unitLoc": "NTH",
+     "type": "move",
+     "to": "SKA"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "SWE",
+     "type": "move",
+     "to": "NWY",
+     "viaConvoy": true
+    },
+    {
+     "unitLoc": "SKA",
+     "type": "convoy",
+     "from": "SWE",
+     "to": "NWY"
+    },
+    {
+     "unitLoc": "BAR",
+     "type": "support-move",
+     "from": "SWE",
+     "to": "NWY"
+    }
+   ]
+  },
+  "moved": [
+   "NTH"
+  ],
+  "dislodged": [
+   "SKA"
+  ]
+ },
+ "6.G.12": {
+  "units": [
+   "england A LVP",
+   "england F NAO",
+   "england F NWG",
+   "germany A EDI",
+   "germany F NTH",
+   "germany F ENG",
+   "germany F IRI"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "LVP",
+     "type": "move",
+     "to": "EDI",
+     "viaConvoy": true
+    },
+    {
+     "unitLoc": "NAO",
+     "type": "convoy",
+     "from": "LVP",
+     "to": "EDI"
+    },
+    {
+     "unitLoc": "NWG",
+     "type": "convoy",
+     "from": "LVP",
+     "to": "EDI"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "EDI",
+     "type": "move",
+     "to": "LVP",
+     "viaConvoy": true
+    },
+    {
+     "unitLoc": "NTH",
+     "type": "convoy",
+     "from": "EDI",
+     "to": "LVP"
+    },
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "EDI",
+     "to": "LVP"
+    },
+    {
+     "unitLoc": "IRI",
+     "type": "convoy",
+     "from": "EDI",
+     "to": "LVP"
+    }
+   ]
+  },
+  "moved": [
+   "EDI",
+   "LVP"
+  ],
+  "dislodged": []
+ },
+ "6.G.13": {
+  "units": [
+   "austria F ADR",
+   "austria A TRI",
+   "italy A VEN",
+   "italy F ALB"
+  ],
+  "orders": {
+   "austria": [
+    {
+     "unitLoc": "ADR",
+     "type": "convoy",
+     "from": "TRI",
+     "to": "VEN"
+    },
+    {
+     "unitLoc": "TRI",
+     "type": "move",
+     "to": "VEN",
+     "viaConvoy": true
+    }
+   ],
+   "italy": [
+    {
+     "unitLoc": "VEN",
+     "type": "support-move",
+     "from": "ALB",
+     "to": "TRI"
+    },
+    {
+     "unitLoc": "ALB",
+     "type": "move",
+     "to": "TRI"
+    }
+   ]
+  },
+  "moved": [
+   "ALB"
+  ],
+  "dislodged": [
+   "TRI"
+  ]
+ },
+ "6.G.14": {
+  "units": [
+   "england A NWY",
+   "england F DEN",
+   "england F FIN",
+   "france F NWG",
+   "france F NTH",
+   "germany F SKA",
+   "russia A SWE",
+   "russia F BAR"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NWY",
+     "type": "move",
+     "to": "SWE"
+    },
+    {
+     "unitLoc": "DEN",
+     "type": "support-move",
+     "from": "NWY",
+     "to": "SWE"
+    },
+    {
+     "unitLoc": "FIN",
+     "type": "support-move",
+     "from": "NWY",
+     "to": "SWE"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "NWG",
+     "type": "move",
+     "to": "NWY"
+    },
+    {
+     "unitLoc": "NTH",
+     "type": "support-move",
+     "from": "NWG",
+     "to": "NWY"
+    }
+   ],
+   "germany": [
+    {
+     "unitLoc": "SKA",
+     "type": "convoy",
+     "from": "SWE",
+     "to": "NWY"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "SWE",
+     "type": "move",
+     "to": "NWY",
+     "viaConvoy": true
+    },
+    {
+     "unitLoc": "BAR",
+     "type": "support-move",
+     "from": "SWE",
+     "to": "NWY"
+    }
+   ]
+  },
+  "moved": [
+   "NWY"
+  ],
+  "dislodged": [
+   "SWE"
+  ]
+ },
+ "6.G.15": {
+  "units": [
+   "england F NTH",
+   "england A HOL",
+   "england A YOR",
+   "england A LON",
+   "france F ENG",
+   "france A BEL"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NTH",
+     "type": "convoy",
+     "from": "LON",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "HOL",
+     "type": "support-move",
+     "from": "LON",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "YOR",
+     "type": "move",
+     "to": "LON"
+    },
+    {
+     "unitLoc": "LON",
+     "type": "move",
+     "to": "BEL",
+     "viaConvoy": true
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "BEL",
+     "to": "LON"
+    },
+    {
+     "unitLoc": "BEL",
+     "type": "move",
+     "to": "LON",
+     "viaConvoy": true
+    }
+   ]
+  },
+  "moved": [
+   "LON"
+  ],
+  "dislodged": [
+   "BEL"
+  ]
+ },
+ "6.G.16": {
+  "units": [
+   "england A NWY",
+   "england A DEN",
+   "england F BAL",
+   "england F NTH",
+   "russia A SWE",
+   "russia F SKA",
+   "russia F NWG"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NWY",
+     "type": "move",
+     "to": "SWE"
+    },
+    {
+     "unitLoc": "DEN",
+     "type": "support-move",
+     "from": "NWY",
+     "to": "SWE"
+    },
+    {
+     "unitLoc": "BAL",
+     "type": "support-move",
+     "from": "NWY",
+     "to": "SWE"
+    },
+    {
+     "unitLoc": "NTH",
+     "type": "move",
+     "to": "NWY"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "SWE",
+     "type": "move",
+     "to": "NWY",
+     "viaConvoy": true
+    },
+    {
+     "unitLoc": "SKA",
+     "type": "convoy",
+     "from": "SWE",
+     "to": "NWY"
+    },
+    {
+     "unitLoc": "NWG",
+     "type": "support-move",
+     "from": "SWE",
+     "to": "NWY"
+    }
+   ]
+  },
+  "moved": [
+   "NWY",
+   "SWE"
+  ],
+  "dislodged": []
+ },
+ "6.G.17": {
+  "units": [
+   "england A NWY",
+   "england A DEN",
+   "england F BAL",
+   "england F SKA",
+   "england F NTH",
+   "russia A SWE",
+   "russia F NWG"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NWY",
+     "type": "move",
+     "to": "SWE",
+     "viaConvoy": true
+    },
+    {
+     "unitLoc": "DEN",
+     "type": "support-move",
+     "from": "NWY",
+     "to": "SWE"
+    },
+    {
+     "unitLoc": "BAL",
+     "type": "support-move",
+     "from": "NWY",
+     "to": "SWE"
+    },
+    {
+     "unitLoc": "SKA",
+     "type": "convoy",
+     "from": "NWY",
+     "to": "SWE"
+    },
+    {
+     "unitLoc": "NTH",
+     "type": "move",
+     "to": "NWY"
+    }
+   ],
+   "russia": [
+    {
+     "unitLoc": "SWE",
+     "type": "move",
+     "to": "NWY"
+    },
+    {
+     "unitLoc": "NWG",
+     "type": "support-move",
+     "from": "SWE",
+     "to": "NWY"
+    }
+   ]
+  },
+  "moved": [
+   "NWY",
+   "SWE"
+  ],
+  "dislodged": []
+ },
+ "6.G.18": {
+  "units": [
+   "england F NTH",
+   "england A HOL",
+   "england A YOR",
+   "england A LON",
+   "england A RUH",
+   "france F ENG",
+   "france A BEL",
+   "france A WAL"
+  ],
+  "orders": {
+   "england": [
+    {
+     "unitLoc": "NTH",
+     "type": "convoy",
+     "from": "LON",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "HOL",
+     "type": "support-move",
+     "from": "LON",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "YOR",
+     "type": "move",
+     "to": "LON"
+    },
+    {
+     "unitLoc": "LON",
+     "type": "move",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "RUH",
+     "type": "support-move",
+     "from": "LON",
+     "to": "BEL"
+    }
+   ],
+   "france": [
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "BEL",
+     "to": "LON"
+    },
+    {
+     "unitLoc": "BEL",
+     "type": "move",
+     "to": "LON"
+    },
+    {
+     "unitLoc": "WAL",
+     "type": "support-move",
+     "from": "BEL",
+     "to": "LON"
+    }
+   ]
+  },
+  "moved": [
+   "BEL",
+   "LON"
+  ],
+  "dislodged": []
+ },
+ "6.G.19": {
+  "units": [
+   "france A MAR",
+   "france F WES",
+   "italy F GOL",
+   "italy A SPA"
+  ],
+  "orders": {
+   "france": [
+    {
+     "unitLoc": "MAR",
+     "type": "move",
+     "to": "SPA"
+    },
+    {
+     "unitLoc": "WES",
+     "type": "convoy",
+     "from": "MAR",
+     "to": "SPA"
+    }
+   ],
+   "italy": [
+    {
+     "unitLoc": "GOL",
+     "type": "convoy",
+     "from": "MAR",
+     "to": "SPA"
+    },
+    {
+     "unitLoc": "SPA",
+     "type": "move",
+     "to": "MAR"
+    }
+   ]
+  },
+  "moved": [],
+  "dislodged": []
+ },
+ "6.G.20": {
+  "units": [
+   "france F BRE",
+   "france A PIC",
+   "france A BUR",
+   "france F MAO",
+   "england F ENG"
+  ],
+  "orders": {
+   "france": [
+    {
+     "unitLoc": "BRE",
+     "type": "move",
+     "to": "ENG"
+    },
+    {
+     "unitLoc": "PIC",
+     "type": "move",
+     "to": "BEL",
+     "viaConvoy": true
+    },
+    {
+     "unitLoc": "BUR",
+     "type": "support-move",
+     "from": "PIC",
+     "to": "BEL"
+    },
+    {
+     "unitLoc": "MAO",
+     "type": "support-move",
+     "from": "BRE",
+     "to": "ENG"
+    }
+   ],
+   "england": [
+    {
+     "unitLoc": "ENG",
+     "type": "convoy",
+     "from": "PIC",
+     "to": "BEL"
+    }
+   ]
+  },
+  "moved": [
+   "BRE"
+  ],
+  "dislodged": [
+   "ENG"
+  ]
+ }
+}

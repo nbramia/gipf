@@ -1,14 +1,14 @@
-// Adjudication conformance tests, derived from the Diplomacy Adjudicator Test
-// Cases (DATC v3). Case numbers cite that document; expected outcomes are the
-// DATC's. Options the engine does not implement are noted where a case would
-// need them:
-//   - Illegal orders (non-adjacent move, convoy with no fleets, ...) are
-//     replaced by a hold when orders are normalized (DATC 4.A option), so DATC
-//     cases whose answer depends on an order being "void but not a hold"
-//     (e.g. 6.D.8) are not encoded.
-//   - Convoy paradoxes use the Szykman rule (DATC 4.A.2 option).
-//   - Cases about build/retreat phases, coast-specific orders and
-//     convoy-to-own-area are outside this file.
+// Hand-written adjudication tests. Numbered cases follow the Diplomacy
+// Adjudicator Test Cases (DATC v3.0) positions and outcomes; tests marked
+// "adapted" use a reduced or modified position and say so. The full
+// data-driven DATC suite lives in DiplomacyDatc.test.js.
+//
+// Engine options relevant to the DATC: an order that cannot possibly be legal
+// (non-adjacent move, support of an impossible move, ...) is replaced by a hold
+// when orders are normalized (DATC 4.E.1 option); a convoy whose route may
+// exist is kept as a move and simply fails if the fleets do not convoy (so
+// DATC 6.D.8 is a failed convoy, which is encoded in the data-driven suite).
+// Convoy paradoxes use the Szykman rule.
 
 import DiplomacyBoard from './DiplomacyBoard.js';
 
@@ -144,7 +144,7 @@ describe('DATC 6.D supports and dislodges', () => {
     expect(r.dislodged).toEqual([]);
   });
 
-  test('6.D.13 supporting a foreign unit to dislodge your own unit is prohibited', () => {
+  test('6.D.12 supporting a foreign unit to dislodge your own unit is prohibited', () => {
     const r = run(['austria F TRI', 'austria A VIE', 'italy A VEN'], {
       austria: [sm('VIE', 'VEN', 'TRI')], italy: [mv('VEN', 'TRI')],
     });
@@ -152,7 +152,7 @@ describe('DATC 6.D supports and dislodges', () => {
     expect(r.dislodged).toEqual([]);
   });
 
-  test('6.D.14 supporting a foreign unit to dislodge a returning own unit is prohibited', () => {
+  test('6.D.13 supporting a foreign unit to dislodge a returning own unit is prohibited', () => {
     const r = run(['austria F TRI', 'austria A VIE', 'italy A VEN', 'italy F APU'], {
       austria: [mv('TRI', 'ADR'), sm('VIE', 'VEN', 'TRI')], italy: [mv('VEN', 'TRI'), mv('APU', 'ADR')],
     });
@@ -160,7 +160,7 @@ describe('DATC 6.D supports and dislodges', () => {
     expect(r.dislodged).toEqual([]);
   });
 
-  test('6.D.16 a defender cannot cut support for an attack on itself', () => {
+  test('6.D.15 (adapted: ANK is an army) a defender cannot cut support for an attack on itself', () => {
     const r = run(['russia F CON', 'russia F BLA', 'turkey A ANK'], {
       russia: [sm('CON', 'BLA', 'ANK'), mv('BLA', 'ANK')], turkey: [mv('ANK', 'CON')],
     });
@@ -169,14 +169,16 @@ describe('DATC 6.D supports and dislodges', () => {
   });
 
   test('6.D.17 dislodgement cuts supports', () => {
-    const r = run(['russia F CON', 'russia F BLA', 'turkey F ANK', 'turkey A SMY'], {
-      russia: [sm('CON', 'BLA', 'ANK'), mv('BLA', 'ANK')], turkey: [mv('ANK', 'CON'), sm('SMY', 'ANK', 'CON')],
+    const r = run(['russia F CON', 'russia F BLA', 'turkey F ANK', 'turkey A SMY', 'turkey A ARM'], {
+      russia: [sm('CON', 'BLA', 'ANK'), mv('BLA', 'ANK')],
+      turkey: [mv('ANK', 'CON'), sm('SMY', 'ANK', 'CON'), mv('ARM', 'ANK')],
     });
-    expect(r.moved).toEqual(['ANK', 'BLA']);
+    // CON is dislodged, so its support is void: BLA and ARM tie over ANK.
+    expect(r.moved).toEqual(['ANK']);
     expect(r.dislodged).toEqual(['CON']);
   });
 
-  test('a unit cannot cut the support of its own country', () => {
+  test('6.D.20 a unit cannot cut the support of its own country', () => {
     const r = run(['england F LON', 'england F NTH', 'england A YOR', 'france F ENG'], {
       england: [sm('LON', 'NTH', 'ENG'), mv('NTH', 'ENG'), mv('YOR', 'LON')],
     });
@@ -242,7 +244,7 @@ describe('DATC 6.F convoys', () => {
     expect(r.moved).toEqual(['YOR']);
   });
 
-  test('6.F.3 an army being convoyed can receive support', () => {
+  test('6.F.3 (adapted: LON-BEL against a holding BEL) an army being convoyed can receive support', () => {
     const r = run(['england F NTH', 'england A LON', 'england F ENG', 'france A BEL'], {
       england: [cv('NTH', 'LON', 'BEL'), mv('LON', 'BEL', true), sm('ENG', 'LON', 'BEL')],
     });
@@ -305,7 +307,7 @@ describe('DATC 6.F convoys', () => {
 });
 
 describe('DATC 6.G convoys to adjacent places', () => {
-  test('6.G.1 two units can swap places by convoy', () => {
+  test('6.G.1 (adapted: explicit convoy flag) two units can swap places by convoy', () => {
     const r = run(['england A NWY', 'england F SKA', 'russia A SWE'], {
       england: [mv('NWY', 'SWE', true), cv('SKA', 'NWY', 'SWE')], russia: [mv('SWE', 'NWY')],
     });
@@ -321,6 +323,17 @@ describe('legal order generation', () => {
       expect(orders).toContainEqual({ type: 'convoy', unitLoc: fleet, from: 'YOR', to: 'BRE' });
     }
     expect(board.getLegalOrdersForUnit('YOR')).toContainEqual({ type: 'move', unitLoc: 'YOR', to: 'BRE', viaConvoy: true });
+  });
+
+  test('a convoy order is not offered to a connected fleet that is off every route (DATC 6.F.12, 6.G.19)', () => {
+    const board = boardWith(['england A YOR', 'england F NTH', 'england F ENG', 'england F IRI']);
+    expect(board.getLegalOrdersForUnit('IRI').filter(o => o.type === 'convoy' && o.to === 'BRE')).toEqual([]);
+    expect(board.getLegalOrdersForUnit('NTH')).toContainEqual({ type: 'convoy', unitLoc: 'NTH', from: 'YOR', to: 'BRE' });
+  });
+
+  test('a fleet cannot support a convoyed move that needs that same fleet (DATC 6.D.31)', () => {
+    const board = boardWith(['austria A RUM', 'turkey F BLA']);
+    expect(board.getLegalOrdersForUnit('BLA').filter(o => o.type === 'support-move' && o.from === 'RUM' && o.to === 'ARM')).toEqual([]);
   });
 
   test('a foreign-fleet convoy route is offered to the army', () => {

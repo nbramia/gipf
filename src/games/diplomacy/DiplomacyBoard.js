@@ -882,21 +882,52 @@ export default class DiplomacyBoard {
   // True when `fleetLoc` lies in a chain of sea fleets (any power) that carries an
   // army from `from` to `to`.
   _convoyRouteIncludes(from, to, fleetLoc) {
-    const fleetSeas = new Set(Object.entries(this.units)
+    const seas = Object.entries(this.units)
       .filter(([loc, u]) => u.type === 'fleet' && isSea(loc))
-      .map(([loc]) => loc));
-    if (!fleetSeas.has(fleetLoc)) return false;
-    const component = new Set([fleetLoc]);
-    const queue = [fleetLoc];
-    while (queue.length) {
-      const sea = queue.shift();
+      .map(([loc]) => loc);
+    if (!seas.includes(fleetLoc)) return false;
+    const fleetSet = new Set(seas);
+    const fromBase = baseProvince(from);
+    // The fleet lies on a simple route iff two paths that share only the fleet
+    // run from it to the army's origin side and to the destination side. That is
+    // a unit-capacity max-flow of 2 over a node-split graph.
+    const cap = new Map();
+    const edge = (a, b) => {
+      if (!cap.has(a)) cap.set(a, new Map());
+      if (!cap.has(b)) cap.set(b, new Map());
+      cap.get(a).set(b, (cap.get(a).get(b) || 0) + 1);
+      if (!cap.get(b).has(a)) cap.get(b).set(a, 0);
+    };
+    for (const sea of seas) {
+      edge(`${sea}:in`, `${sea}:out`);
       for (const next of FLEET_ADJACENCY[sea] || []) {
-        if (fleetSeas.has(next) && !component.has(next)) { component.add(next); queue.push(next); }
+        if (fleetSet.has(next)) edge(`${sea}:out`, `${next}:in`);
       }
+      if (FLEET_ADJACENCY[sea]?.includes(fromBase)) edge(`${sea}:out`, 'origin');
+      if (FLEET_ADJACENCY[sea]?.includes(to)) edge(`${sea}:out`, 'goal');
     }
-    const seas = [...component];
-    return seas.some(sea => FLEET_ADJACENCY[sea]?.includes(baseProvince(from)))
-      && seas.some(sea => FLEET_ADJACENCY[sea]?.includes(to));
+    edge('origin', 'sink');
+    edge('goal', 'sink');
+    const source = `${fleetLoc}:out`;
+    let flow = 0;
+    while (flow < 2) {
+      const prev = new Map([[source, null]]);
+      const queue = [source];
+      while (queue.length && !prev.has('sink')) {
+        const node = queue.shift();
+        for (const [next, c] of cap.get(node) || []) {
+          if (c > 0 && !prev.has(next)) { prev.set(next, node); queue.push(next); }
+        }
+      }
+      if (!prev.has('sink')) break;
+      for (let node = 'sink'; prev.get(node) !== null; node = prev.get(node)) {
+        const back = prev.get(node);
+        cap.get(back).set(node, cap.get(back).get(node) - 1);
+        cap.get(node).set(back, cap.get(node).get(back) + 1);
+      }
+      flow++;
+    }
+    return flow === 2;
   }
 
   getConvoyTargets(armyLoc, { ownFleetsOnly = false } = {}) {
@@ -937,10 +968,10 @@ export default class DiplomacyBoard {
     return sorted(uniq(targets));
   }
 
-  hasConvoyPath(from, to, ordersByLoc = null) {
+  hasConvoyPath(from, to, ordersByLoc = null, excludeLoc = null) {
     if (!PROVINCES[from] || !PROVINCES[to] || PROVINCES[from].type !== 'coast' || PROVINCES[to].type !== 'coast') return false;
     const convoyFleets = Object.entries(this.units)
-      .filter(([loc, unit]) => unit.type === 'fleet' && isSea(loc))
+      .filter(([loc, unit]) => unit.type === 'fleet' && isSea(loc) && loc !== excludeLoc)
       .filter(([loc]) => {
         if (!ordersByLoc) return true;
         const order = ordersByLoc[loc];
@@ -1001,6 +1032,9 @@ export default class DiplomacyBoard {
         const toBase = baseProvince(to);
         if (toBase === baseProvince(from) || !this.canSupport(unit.type, loc, toBase)) continue;
         if (!this.canUnitMove(movingUnit.type, from, to, { viaConvoy: movingUnit.type === 'army' })) continue;
+        // A fleet cannot both support and convoy: a convoyed move that needs this
+        // very fleet cannot be supported by it (DATC 6.D.31).
+        if (movingUnit.type === 'army' && !adjacencyFor('army', from).includes(toBase) && !this.hasConvoyPath(baseProvince(from), toBase, null, loc)) continue;
         const key = `${from}|${toBase}`;
         if (seenSupport.has(key)) continue;
         seenSupport.add(key);
