@@ -557,8 +557,9 @@ playAccount  # cached account session {v:3, username, usernameId, sid}: no
 
 Never rename or restructure these without migration logic. `src/storageRename.js` is the
 pattern: imported first by `src/index.js`, it moves the legacy `gipf*` / `gipf:*` keys in
-localStorage and sessionStorage, and the `gipf-account` IndexedDB database, to their `play`
-names, idempotently, keeping any value already under the new name.
+localStorage and sessionStorage to their `play` names, idempotently, keeping any value
+already under the new name. The `gipf-account` IndexedDB database moves to `play-account`
+the first time `src/account.js` opens the key store, not at startup.
 
 The server's Redis keys share the `play:` prefix. Domain-separation strings fed to hashes
 and encryption (`gipf-games-identity:v1` in `server/identity.js`, `gipf-games-key:v1` in
