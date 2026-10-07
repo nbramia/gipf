@@ -469,6 +469,8 @@
   .game-splendor .spl-header-right { gap: 6px; }
   .game-splendor .spl-status { margin: 0 -12px 8px; padding: 6px 12px; }
   .game-splendor .spl-status-text { font-size: 16px; }
+  .game-splendor .spl-status { flex-wrap: wrap; gap: 4px 12px; }
+  .game-splendor .spl-mini { flex: 1 1 100%; flex-wrap: wrap; margin-left: 0; }
   .game-splendor .spl-market { padding: 8px; gap: 10px; }
   .game-splendor .spl-row { flex-direction: column; align-items: stretch; gap: 6px; }
   .game-splendor .spl-deck { flex-direction: row; justify-content: space-between; align-items: center; }
