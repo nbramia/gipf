@@ -6,7 +6,7 @@ Players alternate placing five rings each. During play, leave a marker inside a 
 
 Five adjacent, collinear markers of one color score a row. Remove those five markers, then one ring of that color. Repeat for surviving disjoint rows. For longer lines, choose any consecutive five; intersecting rows cease to qualify when their shared markers disappear. Resolve the mover's rows before the opponent's rows. The opponent then takes the next ordinary turn.
 
-The third removed ring ends the game immediately, including when both players could otherwise score their third ring on the same move. The official rules also specify a marker-exhaustion ending; the engine does not implement that separate rule.
+The third removed ring ends the game immediately, including when both players could otherwise score their third ring on the same move. The 51 markers are a shared pool. When a move places the last marker and completes no row, the game ends at once: the player with more removed rings wins, and equal counts are a draw (`gamePhase` is `game-over` with `winner` null; `isDraw()` is true). Search treats a draw as terminal with value 0, and snapshot restore rejects more than 51 markers or a `game-over` position with no winner that is not a full-pool tie.
 
 ## Engine contract
 

@@ -576,6 +576,7 @@ export default class MCTS {
       const startingPlayer = board.getCurrentPlayer();
       return winner === startingPlayer ? 10000 : -10000;
     }
+    if (board.isDraw()) return 0;
     // Use evaluatePosition (value only) — policy is fetched separately at root
     const value = await this.valueNetwork.evaluatePosition(board);
     // Scale to match existing score range used by backpropagate
@@ -594,6 +595,7 @@ export default class MCTS {
       if (winner) {
         return winner === startingPlayer ? 10000 : -10000;
       }
+      if (board.isDraw()) return 0;
 
       // Get legal moves
       const moves = this._getLegalMovesForSimulation(board);
@@ -738,6 +740,7 @@ export default class MCTS {
   _getOpponentResponsePenalty(board, opponent) {
     const winner = board.isGameOver();
     if (winner) return winner === opponent ? 10000 : 0;
+    if (board.isDraw()) return 0;
 
     const phase = board.getGamePhase();
     if (phase === 'remove-row' || phase === 'remove-ring') {
@@ -1340,6 +1343,7 @@ export default class MCTS {
   _evaluatePlayoutResult(board, startingPlayer) {
     const winner = board.isGameOver();
     if (winner) return winner === startingPlayer ? 10000 : -10000;
+    if (board.isDraw()) return 0;
     const evaluation = this.evaluatePosition(board, startingPlayer);
     let score = 0;
 
@@ -1470,7 +1474,7 @@ export default class MCTS {
     if (!board) {
       return null;
     }
-    if (board.isGameOver()) {
+    if (board.isGameOver() || board.isDraw()) {
       return null;
     }
 

@@ -18,6 +18,9 @@ export function decodeMatch(snapshot) {
   }
   if (!record(s.notation) || !Array.isArray(s.notation.moveHistory) || !count(s.notation.currentMoveNumber, 100000) ||
       s.notation.moveHistory.some(m => !record(m) || typeof m.notation !== 'string' || !player(m.player))) throw new Error('invalid_snapshot');
+  const markers = Object.values(s.boardState).filter(piece => piece?.type === 'marker').length;
+  if (markers > YinshBoard.MARKER_POOL || (s.winner !== null && s.winner !== undefined && !player(s.winner)) ||
+      (s.gamePhase === 'game-over' && !s.winner && !(s.scores[1] === s.scores[2] && markers >= YinshBoard.MARKER_POOL))) throw new Error('invalid_snapshot');
   board.notation.moveHistory = JSON.parse(JSON.stringify(s.notation.moveHistory));
   board.notation.currentMoveNumber = s.notation.currentMoveNumber;
   const coordinate = v => Array.isArray(v) && v.length === 2 && v.every(Number.isInteger) && board._isInBounds(v[0],v[1]);

@@ -47,18 +47,7 @@ export function applyAIMove(board, move) {
   } else {
     // Regular move (play phase)
     // Capture flipped marker positions before the move executes
-    const boardState = board.getBoardState();
-    const dq = Math.sign(to[0] - from[0]);
-    const dr = Math.sign(to[1] - from[1]);
-    let pq = from[0] + dq, pr = from[1] + dr;
-    while (pq !== to[0] || pr !== to[1]) {
-      const piece = boardState[`${pq},${pr}`];
-      if (piece?.type === 'marker') {
-        flipped.push([pq, pr]);
-      }
-      pq += dq;
-      pr += dr;
-    }
+    flipped = board.getFlippedAlongPath(from, to);
 
     board.handleClick(from[0], from[1]);
     board.handleClick(to[0], to[1]);
