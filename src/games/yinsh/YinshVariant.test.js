@@ -5,6 +5,7 @@ import YinshBoard from './YinshBoard.js';
 import { encodeBoard, decodeMatch } from './matchSnapshot.js';
 import MCTS from './engine/mcts.js';
 import Game from './YinshGame';
+import { createBoardWithSetup, placeMarkers } from './testHelpers.js';
 
 let mockSaved = null;
 jest.mock('../../MatchBoundary.jsx', () => ({
@@ -79,6 +80,33 @@ describe('Blitz variant', () => {
     expect(board.gamePhase).toBe('game-over');
     expect(board.winner).toBe(1);
   });
+});
+
+describe('Blitz search', () => {
+  test('getBestMove completes the row that wins a Blitz game, then removes a ring', async () => {
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    const board = createBoardWithSetup([
+      { player: 1, positions: [[4, 0], [-3, -2], [-2, -3], [-1, -4], [0, -4]] },
+      { player: 2, positions: [[-4, 1], [-3, 2], [-2, 3], [-1, 4], [0, 4]] }
+    ]);
+    placeMarkers(board, [[0, 0], [1, 0], [2, 0], [3, 0]], 1);
+    board.currentPlayer = 1;
+    board.ringsToWin = 1;
+    const engine = new MCTS();
+    const play = await engine.getBestMove(board, 20);
+    expect(play.move).toEqual([4, 0]);
+    board.handleClick(4, 0);
+    board.handleClick(...play.destination);
+    expect(board.gamePhase).toBe('remove-row');
+    const row = await engine.getBestMove(board, 20);
+    engine._applyMove(board, row);
+    expect(board.gamePhase).toBe('remove-ring');
+    const ring = await engine.getBestMove(board, 20);
+    board.handleClick(...ring.move);
+    expect(board.gamePhase).toBe('game-over');
+    expect(board.winner).toBe(1);
+    console.log.mockRestore();
+  }, 30000);
 });
 
 describe('row removal choice', () => {

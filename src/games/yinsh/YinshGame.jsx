@@ -826,7 +826,7 @@ const YinshGame = () => {
             ))}
           </div>
         </div>
-        <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+        <p className="text-xs mt-1" style={{ color: 'var(--color-text-note)' }}>
           Standard: first to remove 3 rings. Blitz: first to remove 1 ring. Applies to the next New Game
           {' '}(this game: {yinshBoard.ringsToWin === 1 ? 'Blitz' : 'Standard'}).
         </p>
