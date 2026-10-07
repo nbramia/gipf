@@ -5,9 +5,10 @@ import { getDefaultScenario, getMapProfile, getRuleset, normalizePlayerCount, re
 
 const SQRT3 = Math.sqrt(3);
 const HEX_RADIUS = 2;
-// Generous round cap; normal games end well before this. Only triggers on a
-// board whose reachable VP ceiling sits below the (clamped) target.
-const MAX_GAME_TURNS = 100;
+// Live games have no round limit: play continues until someone reaches the
+// target. Simulation harnesses (self-play, tournaments, the ruleset audit) opt in
+// to a round cap through CatanBoard.roundLimit so a pathological board whose
+// reachable VP ceiling sits below the target still terminates.
 
 const RESOURCES = ['brick', 'lumber', 'wool', 'grain', 'ore'];
 const COSTS = {
@@ -24,6 +25,20 @@ const DEV_DECK = [
   ...Array(2).fill('yearOfPlenty'),
   ...Array(2).fill('monopoly'),
 ];
+
+// Official 5-6 player extension component list: 9 extra development cards
+// (6 knights, 1 road building, 1 year of plenty, 1 monopoly) for 34 in total.
+const EXTENSION_DEV_DECK = [
+  ...DEV_DECK,
+  ...Array(6).fill('knight'),
+  'roadBuilding',
+  'yearOfPlenty',
+  'monopoly',
+];
+
+// The AI proposes at most this many player trades per turn (bounds search and
+// keeps AI-vs-AI games finite). Human negotiation is not limited.
+const AI_TRADE_PROPOSALS_PER_TURN = 4;
 
 const PLAYER_NAMES = {
   1: 'You',
@@ -314,6 +329,9 @@ export default class CatanBoard {
   static COSTS = COSTS;
   static PLAYER_NAMES = PLAYER_NAMES;
   static PLAYER_COLORS = PLAYER_COLORS;
+  // Opt-in round cap for simulations (null = none). When set, the VP leader wins
+  // once the round count passes it. Never set by the live game.
+  static roundLimit = null;
 
   constructor({
     seed = 1,
@@ -375,7 +393,7 @@ export default class CatanBoard {
 
     const bankSize = this.mapProfile.bankSize || 19;
     this.bank = { brick: bankSize, lumber: bankSize, wool: bankSize, grain: bankSize, ore: bankSize };
-    this.devDeck = shuffle(DEV_DECK, mulberry32(seed + 31));
+    this.devDeck = shuffle(this.mapProfileId === 'extended' ? EXTENSION_DEV_DECK : DEV_DECK, mulberry32(seed + 31));
     this.discardLog = [];
     // Randomize who goes first (seed-derived, so the human isn't always first).
     // The setup snake and the round order both start from this player.
@@ -398,7 +416,7 @@ export default class CatanBoard {
     this.specialBuildQueue = [];
     this.pendingTrade = null;
     this.tradeProposalsThisTurn = 0;
-    this.maxTradeProposalsPerTurn = 4;
+    this.maxTradeProposalsPerTurn = AI_TRADE_PROPOSALS_PER_TURN;
     this.longestRoadHolder = null;
     this.largestArmyHolder = null;
     this.winner = null;
@@ -593,6 +611,9 @@ export default class CatanBoard {
 
   rollDice(total = null) {
     if (this.phase !== 'roll') return false;
+    // A pre-roll Road Building card must be resolved before rolling.
+    if (this.freeRoadsRemaining > 0 && this.getValidRoadEdges(this.currentPlayer, true).length > 0) return false;
+    this.freeRoadsRemaining = 0;
     this.primaryTurnPlayer = this.currentPlayer;
     const diceTotal = total || (1 + Math.floor(this._random() * 6)) + (1 + Math.floor(this._random() * 6));
     this.dice = diceTotal;
@@ -742,7 +763,9 @@ export default class CatanBoard {
   }
 
   buildRoad(edgeId, { free = false } = {}) {
-    if (!this._isActionPhase()) return false;
+    // Before the roll only the free roads of a Road Building card can be placed.
+    const preRollFree = this.phase === 'roll' && this.freeRoadsRemaining > 0;
+    if (!this._isActionPhase() && !preRollFree) return false;
     if (!this.edges[edgeId] || this.edges[edgeId].owner) return false;
     if (!this.getValidRoadEdges(this.currentPlayer, free || this.freeRoadsRemaining > 0).includes(edgeId)) return false;
 
@@ -828,8 +851,14 @@ export default class CatanBoard {
     return true;
   }
 
+  // A development card may be played any time during your own turn, before or
+  // after the roll (never in the Special Building Phase); only one per turn.
+  _canPlayDevPhase() {
+    return this.phase === 'action' || this.phase === 'roll';
+  }
+
   playYearOfPlenty(resourceA, resourceB) {
-    if (this.phase !== 'action') return false;
+    if (!this._canPlayDevPhase()) return false;
     const player = this.getCurrentPlayer();
     if (player.playedDevThisTurn || player.devCards.yearOfPlenty <= 0) return false;
     if (!RESOURCES.includes(resourceA) || !RESOURCES.includes(resourceB)) return false;
@@ -845,7 +874,7 @@ export default class CatanBoard {
   }
 
   playMonopoly(resource) {
-    if (this.phase !== 'action') return false;
+    if (!this._canPlayDevPhase()) return false;
     const player = this.getCurrentPlayer();
     if (player.playedDevThisTurn || player.devCards.monopoly <= 0) return false;
     if (!RESOURCES.includes(resource)) return false;
@@ -866,7 +895,7 @@ export default class CatanBoard {
   }
 
   playRoadBuilding() {
-    if (this.phase !== 'action') return false;
+    if (!this._canPlayDevPhase()) return false;
     const player = this.getCurrentPlayer();
     if (player.playedDevThisTurn || player.devCards.roadBuilding <= 0) return false;
     // The card is unplayable with no road pieces left — it must not be wasted.
@@ -927,7 +956,6 @@ export default class CatanBoard {
     // which the trading rules forbid) — mirrors the bank-trade check.
     if (RESOURCES.some(resource => (give[resource] || 0) > 0 && (receive[resource] || 0) > 0)) return false;
     if (!this._hasBundle(proposer, give)) return false;
-    if (this.tradeProposalsThisTurn >= this.maxTradeProposalsPerTurn) return false;
 
     this.tradeProposalsThisTurn++;
     this.pendingTrade = {
@@ -1060,10 +1088,9 @@ export default class CatanBoard {
       return true;
     }
 
-    // Safety net: a board's reachable VP ceiling can sit below the target (no
-    // expansion VP sources), which would never end. After an unreasonable number
-    // of rounds, award the win to the VP leader so every game terminates.
-    if (this.turnNumber > MAX_GAME_TURNS) {
+    // Opt-in simulation cap (see CatanBoard.roundLimit): award the win to the
+    // VP leader so harness games always terminate.
+    if (CatanBoard.roundLimit && this.turnNumber > CatanBoard.roundLimit) {
       const ids = this.getPlayerIds();
       const leader = ids.reduce((best, p) => (this.getVictoryPoints(p) > this.getVictoryPoints(best) ? p : best), ids[0]);
       this.phase = 'game-over';
@@ -1119,11 +1146,11 @@ export default class CatanBoard {
     }
 
     if (this.phase === 'roll') {
-      const moves = [{ type: 'roll' }];
-      const roller = this.getCurrentPlayer();
-      if (!roller.playedDevThisTurn && roller.devCards.knight > 0) {
-        moves.push({ type: 'play-knight' });
-      }
+      const moves = [];
+      const roadEdges = this.freeRoadsRemaining > 0 ? this.getValidRoadEdges(this.currentPlayer, true) : [];
+      roadEdges.forEach(edgeId => moves.push({ type: 'build-road', edgeId, free: true }));
+      this._devCardMoves().forEach(move => moves.push(move));
+      if (roadEdges.length === 0) moves.push({ type: 'roll' });
       return moves;
     }
 
@@ -1177,21 +1204,7 @@ export default class CatanBoard {
       return moves;
     }
 
-    const player = this.getCurrentPlayer();
-    if (!player.playedDevThisTurn) {
-      if (player.devCards.knight > 0) moves.push({ type: 'play-knight' });
-      if (player.devCards.roadBuilding > 0 && player.roads.length < this.pieceLimits.roads) moves.push({ type: 'play-road-building' });
-      if (player.devCards.yearOfPlenty > 0) {
-        for (const [resourceA, resourceB] of this._yearOfPlentyPairs()) {
-          moves.push({ type: 'play-year-of-plenty', resourceA, resourceB });
-        }
-      }
-      if (player.devCards.monopoly > 0) {
-        for (const resource of RESOURCES) {
-          moves.push({ type: 'play-monopoly', resource });
-        }
-      }
-    }
+    this._devCardMoves().forEach(move => moves.push(move));
 
     // In rollout (cheap) mode, skip the expensive full bank-trade and
     // propose-trade enumeration: keep only a few highest-need bank trades and no
@@ -1204,6 +1217,26 @@ export default class CatanBoard {
       this._proposeTradeOptions(this.currentPlayer).forEach(move => moves.push(move));
     }
     if (this.freeRoadsRemaining === 0 || roadEdges.length === 0) moves.push({ type: 'end-turn' });
+    return moves;
+  }
+
+  // Playable development-card moves for the current player (one per turn).
+  _devCardMoves() {
+    const moves = [];
+    const player = this.getCurrentPlayer();
+    if (player.playedDevThisTurn) return moves;
+    if (player.devCards.knight > 0) moves.push({ type: 'play-knight' });
+    if (player.devCards.roadBuilding > 0 && player.roads.length < this.pieceLimits.roads) moves.push({ type: 'play-road-building' });
+    if (player.devCards.yearOfPlenty > 0) {
+      for (const [resourceA, resourceB] of this._yearOfPlentyPairs()) {
+        moves.push({ type: 'play-year-of-plenty', resourceA, resourceB });
+      }
+    }
+    if (player.devCards.monopoly > 0) {
+      for (const resource of RESOURCES) {
+        moves.push({ type: 'play-monopoly', resource });
+      }
+    }
     return moves;
   }
 
@@ -1233,7 +1266,7 @@ export default class CatanBoard {
     const player = this.players[playerId];
     const opponents = this.getPlayerIds().filter(id => id !== playerId);
     if (opponents.length === 0) return [];
-    if ((this.tradeProposalsThisTurn || 0) >= this.maxTradeProposalsPerTurn) return [];
+    if ((this.tradeProposalsThisTurn || 0) >= AI_TRADE_PROPOSALS_PER_TURN) return [];
 
     const surplus = RESOURCES.filter(resource => player.resources[resource] > 0);
     const needs = this._mostNeededResources(playerId)

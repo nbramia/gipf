@@ -392,7 +392,7 @@ describe('Catan complete action space', () => {
     expect(board.players[1].resources.brick).toBe(1);
   });
 
-  test('trade proposals are capped per turn to keep the action space finite', () => {
+  test('the human may keep negotiating: no per-turn proposal cap on the engine', () => {
     const board = new CatanBoard({ seed: 29, skipInitialHistory: true });
     board.phase = 'action';
     board.currentPlayer = 1;
@@ -400,13 +400,21 @@ describe('Catan complete action space', () => {
     giveResources(board, 1, { brick: 6 });
     giveResources(board, 2, { ore: 1 }); // player 2 can afford, so the proposal is asked
 
-    // Up to maxTradeProposalsPerTurn (4) proposals are allowed.
-    for (let i = 0; i < board.maxTradeProposalsPerTurn; i++) {
+    for (let i = 0; i < 10; i++) {
       expect(board.proposeTrade({ brick: 1 }, { ore: 1 }, [2])).toBe(true);
       expect(board.respondTrade(false)).toBe(true);
     }
-    // The next proposal exceeds the per-turn cap.
-    expect(board.proposeTrade({ brick: 1 }, { ore: 1 }, [2])).toBe(false);
+  });
+
+  test('the AI enumeration still stops proposing after its per-turn bound', () => {
+    const board = new CatanBoard({ seed: 29, skipInitialHistory: true });
+    board.phase = 'action';
+    board.currentPlayer = 1;
+    board.primaryTurnPlayer = 1;
+    giveResources(board, 1, { brick: 6 });
+    giveResources(board, 2, { ore: 1 });
+    board.tradeProposalsThisTurn = board.maxTradeProposalsPerTurn;
+    expect(board.getLegalMoves().some(move => move.type === 'propose-trade')).toBe(false);
   });
 });
 

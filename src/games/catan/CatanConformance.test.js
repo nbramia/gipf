@@ -120,6 +120,10 @@ function assertInvariants(board, bankSize) {
 }
 
 describe('Self-play invariant soak', () => {
+  // Simulations opt in to the round cap; live games never have one.
+  beforeAll(() => { CatanBoard.roundLimit = 100; });
+  afterAll(() => { CatanBoard.roundLimit = null; });
+
   async function soakGame({ playerCount, rulesetId, seed }) {
     const board = new CatanBoard({ seed, playerCount, rulesetId });
     const bankSize = board.mapProfile.bankSize || 19;
@@ -480,5 +484,131 @@ describe('Winning only on your own turn', () => {
     expect(board.endTurn()).toBe(true);
     expect(board.phase).toBe('game-over');
     expect(board.winner).toBe(3);
+  });
+});
+
+describe('Pre-roll progress cards', () => {
+  function preRoll(seed) {
+    const board = new CatanBoard({ seed, skipInitialHistory: true });
+    board.phase = 'roll';
+    board.currentPlayer = 1;
+    board.primaryTurnPlayer = 1;
+    return board;
+  }
+
+  test('year of plenty and monopoly can be played before rolling, then the player rolls', () => {
+    const board = preRoll(70);
+    board.players[1].devCards.yearOfPlenty = 1;
+    board.players[2].resources.ore = 3;
+    expect(board.getLegalMoves().some(move => move.type === 'play-year-of-plenty')).toBe(true);
+    expect(board.applyMove({ type: 'play-year-of-plenty', resourceA: 'ore', resourceB: 'grain' })).toBe(true);
+    expect(board.phase).toBe('roll');
+    expect(board.players[1].resources.ore).toBe(1);
+    expect(board.getLegalMoves().map(move => move.type)).toEqual(['roll']);
+
+    const mono = preRoll(71);
+    mono.players[1].devCards.monopoly = 1;
+    mono.players[2].resources.ore = 3;
+    expect(mono.applyMove({ type: 'play-monopoly', resource: 'ore' })).toBe(true);
+    expect(mono.players[1].resources.ore).toBe(3);
+    expect(mono.phase).toBe('roll');
+  });
+
+  test('a card bought this turn is never playable, pre-roll or not', () => {
+    const board = preRoll(72);
+    board.players[1].newDevCards.monopoly = 1;
+    expect(board.playMonopoly('ore')).toBe(false);
+    expect(board.getLegalMoves().some(move => move.type === 'play-monopoly')).toBe(false);
+  });
+
+  test('road building before the roll places its free roads, then the player must still roll', () => {
+    const board = preRoll(73);
+    board.players[1].devCards.roadBuilding = 1;
+    buildChain(board, 1, 2);
+    expect(board.applyMove({ type: 'play-road-building' })).toBe(true);
+    expect(board.phase).toBe('roll');
+    expect(board.freeRoadsRemaining).toBe(2);
+    // Must resolve the roads before rolling.
+    expect(board.rollDice(6)).toBe(false);
+    expect(board.getLegalMoves().some(move => move.type === 'roll')).toBe(false);
+    const road = board.getLegalMoves().find(move => move.type === 'build-road');
+    expect(board.applyMove(road)).toBe(true);
+    expect(board.applyMove(board.getLegalMoves().find(move => move.type === 'build-road'))).toBe(true);
+    expect(board.phase).toBe('roll');
+    expect(board.freeRoadsRemaining).toBe(0);
+    expect(board.getLegalMoves().map(move => move.type)).toEqual(['roll']);
+    expect(board.rollDice(6)).toBe(true);
+  });
+
+  test('only one development card per turn across the roll', () => {
+    const board = preRoll(74);
+    board.players[1].devCards.monopoly = 1;
+    board.players[1].devCards.yearOfPlenty = 1;
+    expect(board.playMonopoly('ore')).toBe(true);
+    expect(board.rollDice(6)).toBe(true);
+    expect(board.playYearOfPlenty('ore', 'grain')).toBe(false);
+  });
+
+  test('other players cannot build free roads before the roll without the card', () => {
+    const board = preRoll(75);
+    buildChain(board, 1, 1);
+    const edge = board.getValidRoadEdges(1, true)[0];
+    expect(board.buildRoad(edge, { free: true })).toBe(false);
+  });
+});
+
+describe('5-6 player extension development deck', () => {
+  const count = (deck, card) => deck.filter(entry => entry === card).length;
+
+  test('5 and 6 players use the official 34-card extension deck', () => {
+    for (const playerCount of [5, 6]) {
+      const board = new CatanBoard({ seed: 5, rulesetId: 'base-5-6', playerCount });
+      expect(board.devDeck).toHaveLength(34);
+      expect(count(board.devDeck, 'knight')).toBe(20);
+      expect(count(board.devDeck, 'victoryPoint')).toBe(5);
+      expect(count(board.devDeck, 'roadBuilding')).toBe(3);
+      expect(count(board.devDeck, 'yearOfPlenty')).toBe(3);
+      expect(count(board.devDeck, 'monopoly')).toBe(3);
+    }
+  });
+
+  test('the base game keeps the 25-card deck', () => {
+    expect(new CatanBoard({ seed: 5, playerCount: 4 }).devDeck).toHaveLength(25);
+  });
+});
+
+describe('No live round cap', () => {
+  function endRounds(board, rounds) {
+    for (let i = 0; i < rounds * board.playerCount; i++) {
+      board.phase = 'action';
+      board.currentPlayer = board.primaryTurnPlayer;
+      if (!board.endTurn()) throw new Error('cannot end turn');
+      if (board.phase === 'game-over') return;
+    }
+  }
+
+  test('a game past round 100 is not decided on points', () => {
+    const board = new CatanBoard({ seed: 80, skipInitialHistory: true });
+    board.firstPlayer = 1;
+    board.primaryTurnPlayer = 1;
+    board.currentPlayer = 1;
+    endRounds(board, 105);
+    expect(board.turnNumber).toBeGreaterThan(100);
+    expect(board.phase).toBe('roll');
+    expect(board.winner).toBe(null);
+  });
+
+  test('the opt-in simulation cap still ends the game for the VP leader', () => {
+    CatanBoard.roundLimit = 100;
+    try {
+      const board = new CatanBoard({ seed: 80, skipInitialHistory: true });
+      board.firstPlayer = 1;
+      board.primaryTurnPlayer = 1;
+      board.currentPlayer = 1;
+      endRounds(board, 105);
+      expect(board.phase).toBe('game-over');
+    } finally {
+      CatanBoard.roundLimit = null;
+    }
   });
 });

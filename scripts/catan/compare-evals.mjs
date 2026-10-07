@@ -11,6 +11,9 @@ import CatanBoard from '../../src/games/catan/CatanBoard.js';
 import { MCTS as Challenger, applyMove } from '../../src/games/catan/engine/mcts.js';
 import { MCTS as Champion } from '../../src/games/catan/engine/_mcts_champion.js';
 
+// Simulations opt in to the engine's round cap so every game terminates.
+CatanBoard.roundLimit = 100;
+
 const args = process.argv.slice(2);
 const getArg = (n, d) => { const i = args.indexOf(`--${n}`); return i >= 0 && args[i + 1] ? args[i + 1] : d; };
 const getInt = (n, d) => parseInt(getArg(n, String(d)), 10);

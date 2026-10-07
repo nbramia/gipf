@@ -42,6 +42,7 @@ function winnerSeatFor(board, player) {
 
 async function main() {
   const { default: CatanBoard } = await import(resolve(projectDir, 'src/games/catan/CatanBoard.js'));
+  CatanBoard.roundLimit = 100; // simulations opt in to the round cap
   const { MCTS, NNEvaluator, applyMove, evaluatePosition } = await import(resolve(projectDir, 'src/games/catan/engine/mcts.js'));
   const { extractFeatures, extractPolicyTarget } = await import(resolve(projectDir, 'src/games/catan/engine/features.js'));
 

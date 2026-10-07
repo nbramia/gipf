@@ -13,8 +13,8 @@ Implemented:
 - Dice production with settlement/city payouts and bank limits (a shortage voids the payout only when it affects multiple players; a single affected player receives the remaining stock)
 - Robber on 7, automatic discard for players above seven cards, robber steal
 - Roads, settlements, cities, bank trades, 3:1 and 2:1 ports
-- Development cards: knight, victory point, road building, year of plenty, monopoly
-- A knight may be played before rolling (the robber detour returns to the roll)
+- Development cards: knight, victory point, road building, year of plenty, monopoly (25-card deck; the 5-6 player extension adds 9 for 34: 6 knights, 1 each of road building, year of plenty, monopoly)
+- One development card per turn, never one bought that turn, playable before or after the roll. A knight's robber detour returns to the roll; a pre-roll Road Building must have its free roads placed before rolling
 - Road Building is unplayable at the road piece limit, grants one road with one piece left, and must be resolved before the turn can end
 - Largest army and longest road awards, including road severing: an opponent settlement that cuts the holder's road re-evaluates the award — a unique longer road takes the card, a tie sets it aside, and the incumbent keeps it on mere ties
 - Victory only on your own turn: a player pushed to the target off-turn (severing transfer, special build) wins at the start of their next turn
@@ -28,7 +28,7 @@ Also implemented (the action space is complete and faithful so the AI learns eve
 - Manual discard selection when a 7 is rolled (a real `discard` phase, one chosen card at a time, sequenced across every player over seven cards)
 - Robber steal-target choice (one move per tile×victim) and a random steal (you don't get to pick the victim's best card)
 - Year of Plenty / Monopoly resource choice; fully enumerated bank trades
-- Player-to-player trades: offer a multi-resource give bundle for a multi-resource receive bundle to one, several, or all opponents; targets respond in order and the first able accepter completes it (up to 4 proposals per turn). Targets who can't afford the ask are auto-skipped. Human UI: VP indicator, move-log feed, and pickers for discard / monopoly / Year of Plenty / robber victim / trade offers and responses.
+- Player-to-player trades: offer a multi-resource give bundle for a multi-resource receive bundle to one, several, or all opponents; targets respond in order and the first able accepter completes it (no cap on the human's proposals). Targets who can't afford the ask are auto-skipped. Human UI: VP indicator, move-log feed, a full give/receive bank-trade picker, and pickers for discard / monopoly / Year of Plenty / robber victim / trade offers (validated inline) and responses.
 
 Intentionally omitted:
 
@@ -40,14 +40,13 @@ Intentionally omitted:
 
 ### Victory targets and termination
 
-Every ruleset × scenario × player-count combination is exercised by `scripts/catan/audit-rulesets.mjs` (construction + full-game termination). Because the playable engine is base-game rules, it has no expansion VP sources (gold fields, metropolises, mission VP), so a catalog scenario's headline target (up to 17) can exceed what's actually reachable — and an unreachable target would never end. Two guards keep every game finite:
+Every ruleset × scenario × player-count combination is exercised by `scripts/catan/audit-rulesets.mjs` (construction + full-game termination). Because the playable engine is base-game rules, it has no expansion VP sources (gold fields, metropolises, mission VP), so a catalog scenario's headline target (up to 17) can exceed what's actually reachable. The **reachable-target clamp** (`reachableTarget` in `catanRulesets.js`, the single source of truth for both engine and setup UI) caps the victory target to what the leader can plausibly amass given settlement-spot contention: 15/14/13/12 VP at 2/3/4-5/6 players. The setup screen shows the clamped value (with a `*` note) so the picker and board agree.
 
-- **Reachable-target clamp** (`reachableTarget` in `catanRulesets.js`, the single source of truth for both engine and setup UI): the victory target is capped to what the leader can plausibly amass given settlement-spot contention — 15/14/13/12 VP at 2/3/4-5/6 players. The setup screen shows the clamped value (with a `*` note) so the picker and board agree.
-- **Game-length safety net**: on a pathological board whose reachable ceiling still sits below the clamped target, the game ends after `MAX_GAME_TURNS` (100) rounds and the VP leader wins, so it always terminates.
+Live games have no round limit: play continues until someone reaches the target on their own turn. Simulation harnesses (self-play, tournaments, the ruleset audit, the conformance soak) opt in to a round cap with `CatanBoard.roundLimit = 100`; the VP leader then wins once the round count passes it. They also bound each game with a move cap.
 
 ### Trade discipline
 
-The AI's `propose-trade` prior carries diminishing returns within a turn (`mcts.js`): the first offer is scored normally, each further one is penalized, so the AI makes its best deals and moves on instead of spamming the per-turn cap — fewer trade modals for the human, slightly shorter games. The penalty is deliberately gentle so clearly beneficial repeat trades still go through and AI-vs-AI strength is unchanged; a harder penalty shortens games further but costs strength. The human's own 4-proposals-per-turn cap is unaffected.
+The AI's `propose-trade` prior carries diminishing returns within a turn (`mcts.js`): the first offer is scored normally, each further one is penalized, so the AI makes its best deals and moves on instead of spamming the per-turn cap — fewer trade modals for the human, slightly shorter games. The penalty is deliberately gentle so clearly beneficial repeat trades still go through and AI-vs-AI strength is unchanged; a harder penalty shortens games further but costs strength. The AI enumerates at most 4 proposals per turn (`maxTradeProposalsPerTurn`); the human is not limited.
 
 ### Rules assistant (bring-your-own key)
 
