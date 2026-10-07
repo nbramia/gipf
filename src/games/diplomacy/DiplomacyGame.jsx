@@ -337,6 +337,8 @@ export default function DiplomacyGame() {
 
   const phaseLabel = board.getPhaseLabel();
   const leader = board.getLeader();
+  const winners = board.getWinners();
+  const winnerNames = winners.map((power) => POWER_SHORT_NAMES[power]).join(' and ');
   const activeUnits = useMemo(() => board.getUnits(humanPower), [board, humanPower]);
 
   // ----- order construction (human power only; options from the engine) -----
@@ -702,11 +704,13 @@ export default function DiplomacyGame() {
             {board.phase === 'game-over' && (
               <div className="dip-panel p-4">
                 <div className="dip-gameover-banner">
-                  {board.winner ? `${POWER_SHORT_NAMES[board.winner]} wins` : 'Game over'}
+                  {winners.length > 1
+                    ? `${winnerNames} share the victory`
+                    : winners.length === 1 ? `${winnerNames} wins` : 'Game over'}
                 </div>
                 <p className="mt-2 text-sm" style={{ color: 'var(--dip-text-muted)' }}>
-                  {board.winner
-                    ? `${POWER_SHORT_NAMES[board.winner]} controls ${board.winningCenters} supply centers.`
+                  {winners.length > 0
+                    ? `${winners.length > 1 ? 'Each controls' : 'Controls'} ${board.winningCenters} supply centers.`
                     : 'No decisive winner.'}
                 </p>
                 <button className="dip-primary-btn mt-4 w-full" onClick={() => setConfirmNew(true)}>New Game</button>
