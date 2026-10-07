@@ -13,7 +13,7 @@
   /* Text */
   --color-text-primary: #111827;
   --color-text-secondary: #4B5563;
-  --color-text-muted: #6B7280;
+  --color-text-muted: #5B6472;
 
   /* Accent */
   --color-accent: #051682;
@@ -44,7 +44,8 @@
   --color-jump-target-stroke: #16A34A;
   --color-jumpable-marble: #D97706;
   --color-last-move: #8B5CF6;
-  --color-capture-progress-empty: #dedede;
+  --color-capture-progress-empty: #E5E7EB;
+  --color-capture-progress-border: #6B7280;
   --color-player-active: #051682;
 
   /* Chrome */
@@ -61,14 +62,14 @@
   --color-bg-page: #1A1A1A;
   --color-bg-board: #374251;
   --color-bg-panel: #1F2937;
-  --color-bg-modal: #4B5563;
+  --color-bg-modal: #1F2937;
   --color-bg-tray: #1F2937;
   --color-bg-hover: #374151;
   --color-bg-accent: rgba(147, 197, 253, 0.1);
 
   --color-text-primary: #FFFFFF;
-  --color-text-secondary: #9CA3AF;
-  --color-text-muted: #6B7280;
+  --color-text-secondary: #D1D5DB;
+  --color-text-muted: #A3AAB7;
 
   --color-accent: #93C5FD;
   --color-accent-hover: #BFDBFE;
@@ -95,13 +96,14 @@
   --color-jump-target-stroke: #22C55E;
   --color-jumpable-marble: #F59E0B;
   --color-last-move: #A78BFA;
-  --color-capture-progress-empty: #3D3632;
+  --color-capture-progress-empty: #374151;
+  --color-capture-progress-border: #9CA3AF;
   --color-player-active: #93C5FD;
 
   --color-border-panel: #4B5563;
   --color-border-button: #93C5FD;
   --color-toggle-active: #051682;
-  --color-toggle-inactive: #4B5563;
+  --color-toggle-inactive: #6B7280;
   --color-toggle-knob: #FFFFFF;
   --color-btn-primary-bg: #051682;
   --color-btn-primary-text: #FFFFFF;
