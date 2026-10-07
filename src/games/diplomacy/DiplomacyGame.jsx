@@ -67,8 +67,8 @@ const VIEW = (() => {
   return { x, y, w, h };
 })();
 
-// The no-key notice stays collapsed for the rest of the browser session once the
-// player collapses it (module state: survives remounts, no storage key needed).
+// The no-key notice stays collapsed once the player collapses it, until the page
+// is reloaded (module state: survives remounts, no storage key needed).
 let keyNoticeCollapsed = false;
 
 // A pointer moving further than this (CSS px) is a drag, not a click.
@@ -910,7 +910,7 @@ export default function DiplomacyGame() {
               <div className="dip-panel p-4">
                 <div className="dip-gameover-banner">
                   {board.endReason === 'turn-limit'
-                    ? board.lastAction.replace(/\.$/, '')
+                    ? `Turn limit reached \u2014 ${winnerNames || 'No power'} ${winners.length > 1 ? 'share the lead with' : 'leads with'} ${board.winningCenters} supply centers`
                     : winners.length > 1
                       ? `${winnerNames} share the victory`
                       : winners.length === 1 ? `${winnerNames} wins` : 'Game over'}

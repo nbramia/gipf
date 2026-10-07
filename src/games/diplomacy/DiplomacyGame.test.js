@@ -9,7 +9,7 @@ import { MemoryRouter } from 'react-router-dom';
 
 import DiplomacyGame from './DiplomacyGame';
 import DiplomacyBoard from './DiplomacyBoard.js';
-import { saveGame } from './diplomacyPersistence.js';
+import { saveGame, loadGame } from './diplomacyPersistence.js';
 import { setApiKey } from './agents/agentClient.js';
 
 // Stub the agent layer: no key, empty negotiation, deterministic.
@@ -172,7 +172,7 @@ describe('DiplomacyGame — no-key notice (Q3)', () => {
     expect(container.textContent).toContain('Playing without an Anthropic API key');
   });
 
-  test('stays collapsed when the game is mounted again in the same session', () => {
+  test('stays collapsed when the game is mounted again without a reload', () => {
     const first = render(<MemoryRouter><DiplomacyGame /></MemoryRouter>);
     startNewGame();
     fireEvent.click(screen.getByRole('button', { name: 'Collapse' }));
@@ -200,6 +200,21 @@ describe('DiplomacyGame — turn-limit result (Q4)', () => {
     expect(container.textContent).not.toContain('Russia wins');
   });
 
+  test('a legacy finished save (no endReason) gets the new wording and its center count', () => {
+    const board = new DiplomacyBoard({ maxYears: 1905 });
+    board.supplyCenters = { ...board.supplyCenters, BEL: 'germany', WAR: null };
+    board.phase = 'game-over';
+    board.winner = 'germany';
+    board.winningCenters = 4;
+    board.lastAction = 'Germany leads after 5 years.';
+    const state = board.serializeState();
+    delete state.endReason;
+    board.serializeState = () => state;
+    saveGame({ board, uiPhase: 'game-over', controllers: AI_ONLY_CONTROLLERS });
+    const { container } = render(<MemoryRouter><DiplomacyGame /></MemoryRouter>);
+    expect(container.querySelector('.dip-gameover-banner').textContent).toBe('Turn limit reached \u2014 Germany leads with 4 supply centers');
+  });
+
   test('an 18-center game still reads as a win', () => {
     const board = new DiplomacyBoard({ maxYears: 1905 });
     board.supplyCenters = { ...board.supplyCenters };
@@ -223,7 +238,8 @@ describe('DiplomacyGame — retreats with nothing to decide (Q2)', () => {
     delete board.units[loc];
     board.season = 'fall';
     board.phase = 'fall-retreats';
-    board.pendingRetreats = [{ unitLoc: loc, unit: { power, type: 'army' }, options: [] }];
+    // Real options: a legal retreat to an empty neighbouring province.
+    board.pendingRetreats = [{ unitLoc: loc, unit: { power, type: 'army' }, options: [power === 'austria' ? 'GAL' : 'WAL'] }];
     return board;
   }
 
@@ -234,6 +250,9 @@ describe('DiplomacyGame — retreats with nothing to decide (Q2)', () => {
       expect(container.textContent).not.toContain('Fall 1901 retreats');
     });
     expect(container.textContent).not.toContain('Submit Retreats');
+    // The AI unit retreated to its option rather than being disbanded.
+    const saved = loadGame().board;
+    expect(saved.units.GAL).toEqual({ power: 'austria', type: 'army' });
   });
 
   test('a human unit that must retreat still waits for the player', async () => {

@@ -396,7 +396,12 @@ export default function useDiplomacyTurn({
   // intents). Keyed by phase so a failed attempt can't loop.
   const autoRetreatRef = useRef(null);
   useEffect(() => {
-    if (uiPhase !== 'retreats' || !board.isRetreatPhase() || busyRef.current) return;
+    // Leaving the retreat phase (including starting a new game) re-arms the guard.
+    if (!board.isRetreatPhase()) {
+      autoRetreatRef.current = null;
+      return;
+    }
+    if (uiPhase !== 'retreats' || busyRef.current) return;
     if (board.pendingRetreats.some((entry) => controllers[entry.unit.power] === 'human')) return;
     const sig = `${board.year}|${board.phase}|${board.turnNumber}`;
     if (autoRetreatRef.current === sig) return;

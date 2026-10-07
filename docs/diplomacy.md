@@ -142,7 +142,7 @@ still scrolls the page), a two-finger pinch, and drag-to-pan once zoomed; `mapVi
 the pure zoom/clamp math and keeps the view inside the map. A drag is never treated as a
 click, so order entry by tapping provinces still works, and the order-list buttons remain.
 The selected (or last tapped) province's full name is shown on the map. The no-key notice is
-collapsible, and stays collapsed for the rest of the browser session.
+collapsible, and stays collapsed until the page is reloaded.
 
 ## Conversational AI — bring-your-own key + privacy/security
 
