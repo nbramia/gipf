@@ -1191,12 +1191,13 @@ describe('Diplomacy split-coast regression guards', () => {
 });
 
 describe('Diplomacy convoy coherence (AI orders)', () => {
-  test('getConvoyTargets only routes through the army owner\'s own fleets', () => {
+  test('getConvoyTargets { ownFleetsOnly } routes only through the army owner\'s own fleets', () => {
     const board = emptyBoard();
     setUnits(board, { DEN: { power: 'germany', type: 'army' }, NTH: { power: 'england', type: 'fleet' } });
-    expect(board.getConvoyTargets('DEN')).not.toContain('LON'); // England's fleet won't carry it
+    expect(board.getConvoyTargets('DEN', { ownFleetsOnly: true })).not.toContain('LON'); // England's fleet is not ours to order
+    expect(board.getConvoyTargets('DEN')).toContain('LON'); // but the move may still be ordered via it
     setUnits(board, { DEN: { power: 'germany', type: 'army' }, NTH: { power: 'germany', type: 'fleet' } });
-    expect(board.getConvoyTargets('DEN')).toContain('LON'); // own fleet carries it
+    expect(board.getConvoyTargets('DEN', { ownFleetsOnly: true })).toContain('LON'); // own fleet carries it
   });
 
   test('makeOrdersCoherent demotes a convoy move that no fleet is carrying', () => {
