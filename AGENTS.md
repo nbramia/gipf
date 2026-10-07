@@ -579,7 +579,7 @@ node --test tests/public-security.test.mjs tests/ai-security.test.mjs tests/test
 # Server suites against real Redis: a disposable play-test-* container only (they FLUSHDB it), one file at a time.
 export PLAY_TEST_REDIS_CONTAINER=play-test-local
 docker run --rm -d --name "$PLAY_TEST_REDIS_CONTAINER" redis:7-alpine
-node --test --test-concurrency=1 tests/auth-oidc-redis.test.mjs tests/account-redis.test.mjs tests/session-redis.test.mjs tests/match-redis.test.mjs tests/profile-arrays-redis.test.mjs tests/migration-activation-redis.test.mjs tests/legacy-prefix-redis.test.mjs
+node --test --test-concurrency=1 tests/auth-oidc-redis.test.mjs tests/account-redis.test.mjs tests/session-redis.test.mjs tests/match-redis.test.mjs tests/profile-arrays-redis.test.mjs tests/migration-activation-redis.test.mjs
 
 # Real sign-in in Chromium against a synthetic provider (needs the build and Playwright's index.mjs).
 npm run build
