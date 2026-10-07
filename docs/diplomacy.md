@@ -6,7 +6,9 @@ plays it against the other six, each driven by an independent AI. Every season y
 orders for your armies and fleets, all powers' orders resolve simultaneously, and the
 board advances. The goal is a **solo victory**: control **18 of the 34 supply centers**.
 If no power reaches 18 by the configured final year, the game ends and the power leading
-on supply-center count is declared the leader (a timeout result, not a negotiated draw).
+on supply-center count is declared the leader (a timeout result, not a negotiated draw). The
+result then reads "Turn limit reached — <Power> leads with N supply centers", distinct from
+an 18-center win.
 
 What makes this version distinct is the conversational layer: each AI power has its own
 persona and will talk to you — and, behind your back, to each other — forming alliances,
@@ -43,9 +45,11 @@ variant). Implemented:
   ahead, **disbands** when behind.
 - **Supply-center ownership** changes at the end of fall (occupy a center to capture it),
   feeding the winter build/disband math.
-- **Solo victory at 18 centers** is checked after each adjudication; reaching the configured
-  `maxYears` ends the game with the center leader, and tied leaders share the victory
-  (`getWinners()`; `winner` is null for a shared result).
+- **Solo victory at 18 centers** is checked after each adjudication (`endReason: 'victory'`).
+  The configured `maxYears` ends the game (`endReason: 'turn-limit'`) straight after that
+  year's Fall adjudication, with centers counted then and the final year's winter skipped
+  (builds and disbands cannot change ownership). The center leader is reported, and tied
+  leaders share the result (`getWinners()`; `winner` is null for a shared result).
 - **Save / restore** via `serializeState` / `fromSerializedState` (a `clone()` round-trips
   through serialization), so an in-progress game survives a reload.
 
@@ -73,6 +77,7 @@ agent layers touch the board only through `clone()` / `applyMove()` and read-onl
 |------|---------|
 | `src/games/diplomacy/DiplomacyBoard.js` | Pure rules/state engine — map, adjacency, order generation, simultaneous adjudication, retreats, winter adjustments, victory check, serialize/restore (no React) |
 | `src/games/diplomacy/DiplomacyGame.jsx` | React UI — SVG map, order entry, negotiation/chat panel, settings, the playable turn loop, save/resume wiring |
+| `src/games/diplomacy/mapView.js` | Pure map zoom/pan math (scale limits, clamping to the map, zoom about a point) |
 | `src/games/diplomacy/DiplomacySetup.jsx` | New-game setup screen — choose power, difficulty, persona spice, final year |
 | `src/games/diplomacy/diplomacy.css` | Scoped `.game-diplomacy` (+ `.dark`) variables and styling |
 | `src/games/diplomacy/engine/aiPlayer.js` | Tactical order AI — best-response / iterative-best-response search over board clones (no turn-based MCTS, since Diplomacy is simultaneous-move) |
@@ -123,10 +128,21 @@ agent layers touch the board only through `clone()` / `applyMove()` and read-onl
 - **Negotiation loop** — `useDiplomacyTurn` ties everything into one playable cycle:
   `negotiation → orders → resolving → retreats → winter → (next) negotiation`. The
   negotiation phase is **UI-only** and precedes each engine orders phase; `DiplomacyBoard`
-  itself is never given a negotiation phase.
+  itself is never given a negotiation phase. With no API key the negotiation step is skipped
+  and each season opens straight on order entry (a save parked in `negotiation` resumes the
+  same way), and retreats resolve automatically when none of the human's units must retreat.
 - **Persistence** — one versioned save object under `diplomacyGameState` carries the board
   snapshot (`serializeState`), the UI phase, per-power controllers, and the diplomatic
   state, so reloading mid-game restores the in-progress game.
+
+## Map view
+
+The map zooms 1x–6x with the +/−/Fit buttons, the mouse wheel (scrolling down at fit scale
+still scrolls the page), a two-finger pinch, and drag-to-pan once zoomed; `mapView.js` holds
+the pure zoom/clamp math and keeps the view inside the map. A drag is never treated as a
+click, so order entry by tapping provinces still works, and the order-list buttons remain.
+The selected (or last tapped) province's full name is shown on the map. The no-key notice is
+collapsible, and stays collapsed for the rest of the browser session.
 
 ## Conversational AI — bring-your-own key + privacy/security
 
@@ -182,7 +198,12 @@ Each of the seven powers has a **fixed persona** (`agents/personas.js`): a tempe
 (trust / aggression knobs) and a set of opening dispositions toward the other powers. The
 persona seeds the system prompt and the per-power scratchpad, but the **live board state
 drives actual choices** — a persona is flavor and a starting bias, not a script. A
-`personaSpice` setting (0 = plain, 1 = spicy) biases how flavorful the personas play.
+`personaSpice` setting (0 = restrained, 1 = vivid and volatile) is applied by
+`buildPersonas(spice)`: it scales how far each temperament knob sits from neutral (0.2x at 0,
+1x at 0.5, 1.8x at 1), travels on the persona as `spice`, becomes a TONE instruction in the
+agent system prompt (`api/diplomacyAgent.js`; none at 0.4–0.6), and scales the betrayal
+model's honor-vs-break margin (1.5x at 0, 0.5x at 1). A save whose personas predate spice is
+rebuilt from the saved setting on resume (`ensureSpice`).
 
 Diplomacy's defining feature is that **words are not binding**. The agents are explicitly
 allowed to promise anything and to lie, mislead, or break a deal when it serves their power
@@ -238,9 +259,10 @@ Settings are chosen on the new-game setup screen (`DiplomacySetup.jsx`) and pers
   controls how widely the engine searches plans and opponent responses (`engine/aiPlayer.js`'s
   own `DIFFICULTY` table: `maxPlans` / `oppPlans` / `oppSamples` / `brRounds`) — there's no
   Monte Carlo rollout.
-- **Persona spice** — `personaSpice` in `[0, 1]`, how flavorful the AI personas play.
-- **Final year** — `maxYears` (1901–2000); if no power solos by then the game ends with the
-  center leader.
+- **Persona spice** — `personaSpice` in `[0, 1]`: 0 = restrained, 1 = vivid and volatile
+  personalities (see Personas, negotiation, and betrayal).
+- **Final year** — `maxYears` (1901–2000); if no power solos by then the game ends after that
+  year's Fall with the center leader.
 - **Dark mode** and **show orders** are toggled in-game.
 
 ## localStorage keys

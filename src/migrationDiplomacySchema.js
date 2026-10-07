@@ -30,7 +30,7 @@ function boardSchema(value, allowHistory = true) {
       if (!allowHistory || !text(400000)(raw)) return false;
       try { const v = JSON.parse(raw); return safeTree(v) && boardSchema(v,false); } catch (_) { return false; }
     },allowHistory ? 80 : 0),historyIndex:integer(-1,79),maxHistoryLength:integer(1,80),
-  });
+  },{endReason:nullable(one('victory','turn-limit'))});
   if (!schema(value)) return false;
   return Object.entries(value.units).every(([loc,u]) => province(loc) && unitCanOccupy(u.type,loc)) &&
     Object.keys(value.supplyCenters).every(province) && value.historyIndex < value.stateHistory.length;
@@ -46,7 +46,7 @@ const openShape = (required, maxExtra = 256) => v => obj(v) &&
   Object.keys(v).filter(k => !Object.hasOwn(required,k)).length <= maxExtra && Object.keys(v).every(k => k.length <= 4096);
 const disposition = openShape({trust:number(-1,1),stance,intent:progressText});
 const scratchpad = openShape({self:v => progressText(v) && v.length > 0,dispositions:v => obj(v) && Object.keys(v).length <= 256 && Object.entries(v).every(([k,d]) => k.length <= 4096 && disposition(d)),confidence:number(0,1)});
-const persona = shape({name:text(256),temperament:shape({trust:number(0,1),aggression:number(0,1)}),openingDisposition:countryMap(stance),blurb:text(10000)});
+const persona = shape({name:text(256),temperament:shape({trust:number(0,1),aggression:number(0,1)}),openingDisposition:countryMap(stance),blurb:text(10000)},{spice:number(0,1)});
 const conversations = shape({threads:countryMap(shape({power,messages:array(shape({role:one('user','assistant'),content:progressText,turn:short}),100000),scratchpad:nullable(scratchpad),updatedAt:timestamp}))});
 const relationKey = new RegExp(`^(?:${powers.join('|')})>(?:${powers.join('|')})$`);
 const channelKey = new RegExp(`^(?:${powers.join('|')})~(?:${powers.join('|')})$`);
