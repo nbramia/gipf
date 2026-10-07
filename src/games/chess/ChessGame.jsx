@@ -1,5 +1,7 @@
 import MatchBoundary, { useSavedMatch } from '../../MatchBoundary.jsx';
 import { encodeBoard, decodeMatch, fromLegacy } from './matchSnapshot.js';
+import ConfirmDialog from '../../ConfirmDialog.jsx';
+import { beforeReplace as beforeReplaceRatedMatch, isScored, markScored } from './ratedMatches.js';
 // ChessGame.jsx — React UI for the Chess game.
 //
 // Interactive react-chessboard wired to ChessBoard.js via the suite's
@@ -215,8 +217,10 @@ function ChessGame() {
   useEffect(() => { soundRef.current = soundOn; }, [soundOn]);
   const ratedRef = useRef(rated); // latest value usable inside coachOnMove
   useEffect(() => { ratedRef.current = rated; }, [rated]);
-  const ratedAppliedRef = useRef(restored?.ratedApplied || false); // guard: score each rated game exactly once
-  const historyAppliedRef = useRef(restored?.historyApplied || false); // guard: record opponent history once per game (casual + rated)
+  // A match id that was already scored (even via another retained snapshot of it) never scores again.
+  const alreadyScored = useRef(isScored(savedMatch?.matchId?.())).current;
+  const ratedAppliedRef = useRef(restored?.ratedApplied || alreadyScored); // guard: score each rated game exactly once
+  const historyAppliedRef = useRef(restored?.historyApplied || alreadyScored); // guard: record opponent history once per game (casual + rated)
   const ratingRef = useRef(rating); // latest rating/games for the sync-pull closure
   const ratedGamesRef = useRef(ratedGames);
   useEffect(() => { ratingRef.current = rating; }, [rating]);
@@ -287,6 +291,19 @@ function ChessGame() {
   const [gameTab, setGameTab] = useState(() => {
     try { return localStorage.getItem('chessGameTab') === 'train' ? 'train' : 'play'; } catch (_) { return 'play'; }
   });
+  const gameTabs = ['play', 'train'];
+  const onGameTabKey = (e) => {
+    const i = gameTabs.indexOf(gameTab);
+    const next = e.key === 'ArrowRight' ? (i + 1) % gameTabs.length
+      : e.key === 'ArrowLeft' ? (i + gameTabs.length - 1) % gameTabs.length
+        : e.key === 'Home' ? 0 : e.key === 'End' ? gameTabs.length - 1 : -1;
+    if (next < 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    selectGameTab(gameTabs[next]);
+    const el = document.getElementById(`chess-tab-${gameTabs[next]}`);
+    if (el) el.focus();
+  };
   const selectGameTab = (tab) => {
     setGameTab(tab);
     try { localStorage.setItem('chessGameTab', tab); } catch (_) { /* storage unavailable */ }
@@ -467,6 +484,8 @@ function ChessGame() {
   useEffect(() => {
     const onKey = (e) => {
       if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+      // Keys aimed at a tab list or a dialog belong to it, not to history.
+      if (e.defaultPrevented || (e.target && e.target.closest && e.target.closest('[role="tablist"], [role="dialog"]'))) return;
       const total = board.positions.length - 1;
       if (e.key === 'ArrowLeft') {
         setReviewPly((p) => Math.max(0, (p == null ? total : p) - 1));
@@ -563,6 +582,7 @@ function ChessGame() {
   const scoreRatedGame = (result) => {
     if (ratedAppliedRef.current) return;
     ratedAppliedRef.current = true;
+    markScored(savedMatch?.matchId?.());
     const opp = ratedRung.rating;
     const { rating: next, delta } = updateRating(rating, opp, scoreFor(result), ratedGames);
     setRating(next);
@@ -597,7 +617,7 @@ function ChessGame() {
   // for `coaching` to settle: the last move's analysis is still in flight when
   // the result lands, and recording early would bank an accuracy figure that
   // misses it. Guarded to fire exactly once per game.
-  const gameLoggedRef = useRef(restored?.gameLogged || false);
+  const gameLoggedRef = useRef(restored?.gameLogged || alreadyScored);
   const logGame = (result) => {
     if (gameLoggedRef.current) return;
     if (moveStats.length === 0) return; // nothing analysed — nothing to say
@@ -2637,13 +2657,14 @@ function ChessGame() {
                 <div className="space-y-3 mt-3">
                 {/* Play / Train: playing a game and training on puzzles or mistakes
                     live in separate tabs so the panel stays short. */}
-                <div role="tablist" aria-label="Game panel" className="flex gap-2">
+                <div role="tablist" aria-label="Game panel" className="flex gap-2" onKeyDown={onGameTabKey}>
                   {[['play', 'Play'], ['train', 'Train']].map(([key, label]) => (
                     <button
                       key={key}
                       role="tab"
                       id={`chess-tab-${key}`}
                       aria-selected={gameTab === key}
+                      tabIndex={gameTab === key ? 0 : -1}
                       aria-controls="chess-tabpanel"
                       onClick={() => selectGameTab(key)}
                       className={`flex-1 px-3 py-2 rounded-lg font-body text-sm panel tap-target${
@@ -3078,44 +3099,27 @@ function ChessGame() {
 
       {/* Confirmation for anything that destroys state the user can't recover */}
       {confirmPrompt && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center modal-safe-area"
-          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
-          onClick={() => setConfirmPrompt(null)}
-          role="dialog"
-          aria-modal="true"
-          aria-label={confirmPrompt.title}
-        >
-          <div
-            className="panel rounded-2xl w-full max-w-sm p-5 modal-safe-bottom"
-            onClick={(ev) => ev.stopPropagation()}
-          >
-            <h3 className="font-heading text-sm font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>
-              {confirmPrompt.title}
-            </h3>
-            <p className="font-body text-sm mb-4" style={{ color: 'var(--color-text-secondary)' }}>
-              {confirmPrompt.body}
-            </p>
-            <div className="flex gap-2 justify-end">
-              <button
-                onClick={() => setConfirmPrompt(null)}
-                className="px-4 py-2 rounded-lg font-body text-sm panel tap-target"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  const { onConfirm } = confirmPrompt;
-                  setConfirmPrompt(null);
-                  onConfirm();
-                }}
-                className="px-4 py-2 rounded-lg font-body text-sm btn-primary tap-target"
-              >
-                {confirmPrompt.confirmLabel}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title={confirmPrompt.title}
+          body={confirmPrompt.body}
+          confirmLabel={confirmPrompt.confirmLabel}
+          onCancel={() => setConfirmPrompt(null)}
+          onConfirm={() => {
+            const { onConfirm } = confirmPrompt;
+            setConfirmPrompt(null);
+            onConfirm();
+          }}
+          overlayStyle={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+          classes={{
+            overlay: 'fixed inset-0 z-50 flex items-center justify-center modal-safe-area',
+            panel: 'panel rounded-2xl w-full max-w-sm p-5 modal-safe-bottom',
+            title: 'font-heading text-sm font-semibold mb-2 confirm-title',
+            body: 'font-body text-sm mb-4 confirm-body',
+            actions: 'flex gap-2 justify-end',
+            cancel: 'px-4 py-2 rounded-lg font-body text-sm panel tap-target',
+            confirm: 'px-4 py-2 rounded-lg font-body text-sm btn-primary tap-target',
+          }}
+        />
       )}
 
       {/* Move-thread Q&A modal (tool-use, Stockfish-grounded) */}
@@ -3213,4 +3217,4 @@ function ChessGame() {
   );
 }
 
-export default function ResumableChessGame() { return <MatchBoundary game="chess" decode={decodeMatch} loadLegacy={loadLegacyMatch}><ChessGame /></MatchBoundary>; }
+export default function ResumableChessGame() { return <MatchBoundary game="chess" decode={decodeMatch} loadLegacy={loadLegacyMatch} beforeReplace={beforeReplaceRatedMatch}><ChessGame /></MatchBoundary>; }

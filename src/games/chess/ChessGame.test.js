@@ -282,9 +282,9 @@ describe('ChessGame — Game panel tabs', () => {
 
   test('the Train tab stays locked in rated mode', async () => {
     localStorage.setItem('chessRated', 'true');
-    localStorage.setItem('chessGameTab', 'train');
     const utils = mount();
-    expect(utils.container.textContent).toContain('off during rated games');
+    await act(async () => { fireEvent.click(utils.getByRole('tab', { name: 'Train' })); });
+    expect(utils.getByRole('tabpanel').textContent).toContain('off during rated games');
     expect(utils.container.textContent).not.toContain('Puzzle themes');
   });
 });

@@ -154,7 +154,10 @@ The Game panel has two tabs. **Play** holds rated mode (with its rating card),
 opponent strength, the clock and the colour choice. **Train** holds the puzzle
 theme filter, repertoire pins and the mistake-drill opening filter; the Puzzles
 and Train my mistakes buttons stay with the game controls. Rated games lock the
-Train tab. The last tab is remembered on the device in `chessGameTab`.
+Train tab. The last tab is remembered on the device in `chessGameTab`. The tabs follow the
+WAI-ARIA pattern: only the active tab is in the Tab order, Left/Right/Home/End
+move between tabs, and those keys do not step through move history. The
+confirmation dialog moves focus in, traps Tab, closes on Escape and returns focus.
 
 ## Learning modes
 
@@ -261,6 +264,17 @@ tier:
   asks first and books a loss through the same writers as Resign (rating,
   rated-game count, opponent history, game log). Each writer is guarded once per
   game, so a finished or resigned game is never scored again.
+- **Replacement through the match boundary:** choosing the other tab's or the
+  cloud's match in a conflict, restoring a recovery backup, or "Keep backup and
+  start new game" replaces the saved match without the game's buttons.
+  `ChessGame` passes `ratedMatches.beforeReplace` to `MatchBoundary`, which
+  confirms and then books the forfeit from the saved snapshot alone. Restoring an
+  earlier snapshot of the same match id is a rewind and counts as abandoning the
+  further-along state.
+- **Scored match ids:** every scored match id (resign, finish, forfeit) is kept in
+  `chessRatedScored` (last 200, device-local, not synced). A snapshot whose id is
+  listed starts with its rated, history and log guards already set, so no
+  retained copy of a scored match can score again.
 
 ## Player profile & cross-device sync
 
@@ -335,7 +349,7 @@ authenticated cloud sync; see [resumable matches](resumable-matches.md).
 chessDarkMode, chessShowMoves, chessDifficulty, chessLearningGoal,
 chessShowEvalBar, chessSound, chessLichessToken, chessRated, chessRating,
 chessRatedGames, chessMistakes, chessOppHistory, chessPuzzleProgress,
-chessGameTab,
+chessGameTab, chessRatedScored,
 chessMatch:v1, chessMatchSync:v1, chessMatchRecovery:v1, chessStatsRecovery:v1
 
 playApiKey  # shared app-wide (all games), not chess-prefixed

@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { createMatchStore, matchKey } from './matchStore.js';
 import { describeSnapshot, gameLabel } from './matchSummary.js';
+import ConfirmDialog from './ConfirmDialog.jsx';
 import './matchBoundary.css';
 
 const MatchContext = createContext(null);
@@ -11,7 +12,12 @@ export function useSavedMatch() { return useContext(MatchContext); }
 
 // One boundary per mounted game: cloud hydration and conflict decisions happen
 // before the engine mounts. Replacing a snapshot unmounts all AI/clock callbacks.
-export default function MatchBoundary({ game, decode, loadLegacy, children }) {
+// `beforeReplace({ dropped, next })` is optional. A game passes it to be asked
+// before saved matches stop being current (use the other copy, restore a backup,
+// start over). It returns null, or { title, body, confirmLabel, commit } for the
+// boundary to confirm; `commit()` runs once, on confirmation, before the
+// replacement. Without it nothing changes.
+export default function MatchBoundary({ game, decode, loadLegacy, beforeReplace, children }) {
   const [store, setStore] = useState(() => createMatchStore(game));
   const [initial, setInitial] = useState(() => {
     try { let snapshot = store.load(); if (!store.hasCurrent() && loadLegacy) { snapshot = loadLegacy(); if (snapshot) store.save(snapshot); } return { snapshot, decoded: snapshot ? decode(snapshot) : null }; }
@@ -26,6 +32,7 @@ export default function MatchBoundary({ game, decode, loadLegacy, children }) {
   const [recoveryCheck, setRecoveryCheck] = useState(0);
   const [blocked, setBlocked] = useState(false);
   const [recovery, setRecovery] = useState(null);
+  const [replacing, setReplacing] = useState(null);
   const [dark, setTheme] = useState(() => localStorage.getItem(`${game}DarkMode`) === 'true');
   const latest = useRef(initial.snapshot || null);
   const nextId = useRef(null);
@@ -177,7 +184,18 @@ export default function MatchBoundary({ game, decode, loadLegacy, children }) {
     return () => { disposed = true; clearInterval(interval); window.removeEventListener('online', wake); window.removeEventListener('play-match-saved', wake); };
   }, [game, store, decode, initial.invalid, remount, showConflict]);
 
-  const choose = async useLocal => {
+  // Run `go` now, or after the game's confirmation when the replacement would
+  // abandon something it protects.
+  const gate = (dropped, next, go) => {
+    const pending = beforeReplace?.({ dropped: dropped.filter(Boolean), next: next || null });
+    if (!pending) { go(); return; }
+    setReplacing({ ...pending, go });
+  };
+  const choose = useLocal => {
+    if (!conflict || running.current) return;
+    gate([useLocal ? conflict.remote : conflict.local], useLocal ? conflict.local : conflict.remote, () => applyChoice(useLocal));
+  };
+  const applyChoice = async useLocal => {
     if (!conflict || running.current) return;
     running.current = true;
     try {
@@ -212,6 +230,10 @@ export default function MatchBoundary({ game, decode, loadLegacy, children }) {
   };
   const restore = snapshot => {
     if (running.current) return;
+    gate(conflict ? [conflict.local, conflict.remote] : [latest.current], snapshot, () => applyRestore(snapshot));
+  };
+  const applyRestore = snapshot => {
+    if (running.current) return;
     try {
       if (snapshot) decode(snapshot);
       store.resolve(snapshot, conflict ? [conflict.local, conflict.remote] : []);
@@ -244,7 +266,8 @@ export default function MatchBoundary({ game, decode, loadLegacy, children }) {
   const message = notice?.text || (newerInRecovery ? 'A newer copy of this match is saved in recovery on this device.' : '');
   const recoveryButton = <button className="m-2 underline" onClick={openRecovery}>Match recovery</button>;
   const context = useMemo(() => ({ restored: initial.decoded, persist, assertOwner: store.assertOwner, isCurrent, setTheme,
-    startNew: () => { nextId.current = newId(); } }), [initial.decoded, persist, store, isCurrent]);
+    startNew: () => { nextId.current = newId(); },
+    matchId: () => nextId.current || latest.current?.id || null }), [initial.decoded, persist, store, isCurrent]);
   if (blocked) return <p className={`match-chrome${dark ? ' dark' : ''}`} role="status">Account changed. Reload to continue safely.</p>;
   return <>
     <section className={`match-chrome${dark ? ' dark' : ''}`} aria-label="Saved match">
@@ -286,6 +309,14 @@ export default function MatchBoundary({ game, decode, loadLegacy, children }) {
       </ul>
       {recoveryButton}
     </div>}
+    {replacing && <ConfirmDialog
+      title={replacing.title}
+      body={replacing.body}
+      confirmLabel={replacing.confirmLabel}
+      onCancel={() => setReplacing(null)}
+      onConfirm={() => { const { commit, go } = replacing; setReplacing(null); commit?.(); go(); }}
+      classes={{ overlay: 'match-modal', panel: 'match-modal-panel', title: 'match-modal-title', actions: 'match-modal-actions' }}
+    />}
     {!ready && !initial.invalid && <p>Loading saved match…</p>}
     </section>
     {ready && !conflict && !initial.invalid && <MatchContext.Provider key={generation.current} value={context}>

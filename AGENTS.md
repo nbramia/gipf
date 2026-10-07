@@ -226,7 +226,8 @@ Before modifying game logic for either game:
 | `src/loginReturn.js` | `/login?return=` allowlist (exact `games-registry.js` paths, else `/`) and `loginHref()`, which games use for their "Sign in / add key" link |
 | `src/landing.css` | Scoped catalogue and optional account presentation styles |
 | `src/account.js` | The one account module: Auth0 sign-in completion, sign-out, account keys, recovery sealing, and the startup drop of an unreadable stored session (chess's `engine/account.js` re-exports it) |
-| `src/MatchBoundary.jsx` | Match hydration, persistence context, conflict choices, and recovery UI |
+| `src/MatchBoundary.jsx` | Match hydration, persistence context, conflict choices, and recovery UI; an optional `beforeReplace({dropped,next})` prop lets a game confirm (and book) before saved matches are replaced |
+| `src/ConfirmDialog.jsx` | Accessible confirmation dialog (focus in, Tab trap, Escape, focus return) |
 | `src/matchStore.js` | Account-bound local match storage, recovery alternatives, and cloud CAS requests |
 | `src/matchSchema.js` | Shared versioned match envelope and size/field validation |
 | `src/snapshotValidation.js` | Shared snapshot state/UI validation helpers for game adapters |
@@ -515,6 +516,7 @@ chessTimeControl,                          # Optional clock: off | 3+2 | 5+0 | 1
 chessPuzzleShowTheme,                      # Opt in to seeing the puzzle theme/mate-in-N before solving
 chessIntroSeen, chessKeyNudgeDismissed     # One-time onboarding banner + BYO-key nudge dismissals
 chessGameTab                               # Game panel tab: play | train
+chessRatedScored                           # Device-local: last 200 scored rated match ids (a retained snapshot of a scored match never scores again)
 ```
 
 **Catan:**

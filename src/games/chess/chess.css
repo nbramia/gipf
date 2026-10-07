@@ -354,3 +354,6 @@
 @media (min-width: 768px) and (min-height: 600px) {
   .game-chess .board-cap { max-width: min(680px, max(360px, calc(100vh - 360px))); }
 }
+
+.game-chess .confirm-title { color: var(--color-text-primary); }
+.game-chess .confirm-body { color: var(--color-text-secondary); }
