@@ -106,7 +106,7 @@ export function decodeMatch(snapshot) {
     check(s.currentPlayer === seats[(seats.indexOf(s.firstPlayer) + n - 1) % n]);
   } else {
     check(s.winners.length === 0 && s.winner === null && s.winningPoints === 0);
-    check(s.endTriggered || seats.every(id => id === s.currentPlayer || s.players[id].points < VICTORY_POINTS));
+    check(s.endTriggered ? seats.some(id => s.players[id].points >= VICTORY_POINTS) : seats.every(id => id === s.currentPlayer || s.players[id].points < VICTORY_POINTS));
   }
 
   const board = SplendorBoard.fromSerializedState(JSON.parse(JSON.stringify(s)));

@@ -145,6 +145,7 @@ describe('Splendor snapshot rejection', () => {
     ['a game over nobody won', s => { s.state.phase = 'game-over'; s.state.winners = [1]; s.state.winner = 1; s.state.winningPoints = 99; }],
     ['a game over with the wrong winner', s => { s.state.phase = 'game-over'; s.state.endTriggered = true; s.state.winners = [2]; s.state.winner = 2; s.state.winningPoints = 15; s.state.players[1].points = 15; }],
     ['eleven tokens held in the play phase', s => { const p = s.state.players[s.state.currentPlayer]; const take = 11 - Object.values(p.tokens).reduce((a, b) => a + b, 0); p.tokens.white += take; s.state.bank.white -= take; }],
+    ['a triggered final round nobody earned', s => { s.state.endTriggered = true; }],
     ['a final round that was never triggered but has a 15-point leader', s => { s.state.players[2].points = 15; }],
   ])('rejects %s', (_label, change) => {
     expect(() => decodeMatch(mutate(change))).toThrow('invalid_snapshot');
