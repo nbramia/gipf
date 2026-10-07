@@ -95,9 +95,15 @@ export function hintLeaksSolution(text, solution) {
 
 // Deterministic fail explanation: the engine's refutation of the attempt,
 // never the solution. `refutationPv` is SAN from the position AFTER the move.
-export function describePuzzleFail({ movePlayed, refutationPv, theme }) {
+export function describePuzzleFail({ movePlayed, refutationPv, theme, mateBudget }) {
   const san = movePlayed && movePlayed.san ? movePlayed.san : 'That move';
   const line = (refutationPv || []).slice(0, 3).join(' ');
+  // A mate puzzle is judged on its move budget: a failed attempt may still be
+  // winning, it just doesn't mate within the required number of moves.
+  if (mateBudget) {
+    const lineNote = line ? ` The engine's best reply is ${line}.` : '';
+    return `${san} doesn't mate within the required number of moves.${lineNote} Look for a faster forced mate.`;
+  }
   const punish = line ? ` — after ${line} the chance is gone` : '';
   const themePart = theme ? ` The ${theme.toLowerCase()} idea is still there; look again.` : ' Look again.';
   return `${san} doesn't work${punish}.${themePart}`;
@@ -116,5 +122,6 @@ export function buildFailPayload({ puzzle, fen, fenAfter, playedSan, analysisAft
     movePlayed: { san: playedSan },
     refutationPv,
     theme: puzzle.theme || 'tactic',
+    ...(puzzle.kind !== 'solution' && puzzle.mateIn ? { mateBudget: true } : {}),
   };
 }

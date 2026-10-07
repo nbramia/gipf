@@ -205,3 +205,49 @@ describe('resumable game history', () => {
     expect(restored.positions).toEqual(b.positions);
   });
 });
+
+describe('ChessBoard.canWinOnTime', () => {
+  test.each([
+    ['7k/8/8/8/8/8/R7/K7 w - - 0 1', 'b', false], // bare king
+    ['7k/8/8/8/8/8/R7/K7 w - - 0 1', 'w', true],
+    ['7k/8/8/8/8/8/Q7/K5n1 w - - 0 1', 'b', false], // lone knight vs queen only
+    ['7k/8/8/8/8/8/Q7/K5n1 w - - 0 1', 'w', true],
+    ['7k/8/8/8/8/8/R7/K5n1 w - - 0 1', 'b', true], // knight vs rook can be helped
+    ['7k/p7/8/8/8/8/N7/K7 w - - 0 1', 'w', true], // knight, opponent pawn
+    ['7k/8/8/8/8/8/N7/K7 w - - 0 1', 'w', false],
+    ['7k/8/8/8/8/8/NN6/K7 w - - 0 1', 'w', true],
+    ['7k/8/8/8/8/8/B7/K7 w - - 0 1', 'w', false], // lone bishop
+    ['7k/p7/8/8/8/8/B7/K7 w - - 0 1', 'w', true], // opponent pawn
+    ['7k/n7/8/8/8/8/B7/K7 w - - 0 1', 'w', true], // opponent knight
+    ['7k/8/8/8/8/8/B7/K5b1 w - - 0 1', 'w', true], // a2 dark vs g1 dark? see below
+    ['7k/8/8/8/8/8/B7/K4b2 w - - 0 1', 'w', false], // f1 is the same colour as a2
+    ['7k/8/8/8/8/8/1B6/K5r1 w - - 0 1', 'w', false], // rook does not help a bishop
+    ['7k/8/8/8/8/8/BB6/K7 w - - 0 1', 'w', true], // bishops on both colours
+    ['7k/8/8/8/8/8/N7/K5b1 w - - 0 1', 'w', true], // knight + opponent bishop
+    ['7k/8/8/8/8/8/P7/K7 w - - 0 1', 'w', true],
+  ])('%s as %s -> %s', (fen, color, expected) => {
+    expect(new ChessBoard(fen).canWinOnTime(color)).toBe(expected);
+  });
+});
+
+describe('ChessBoard declared result', () => {
+  test('survives pgn(), reload via loadPgn, and clone; undo clears it', () => {
+    const a = new ChessBoard();
+    expect(a.loadPgn('[Result "1-0"]\n\n1. e4 1-0')).toBe(true);
+    expect(a.declared).toBe('white');
+    expect(a.pgn()).toContain('[Result "1-0"]');
+    const b = new ChessBoard();
+    expect(b.loadPgn(a.pgn())).toBe(true);
+    expect(b.declared).toBe('white');
+    expect(b.clone().declared).toBe('white');
+    b.undo();
+    expect(b.declared).toBeNull();
+  });
+
+  test('an unfinished result declares nothing', () => {
+    const a = new ChessBoard();
+    a.loadPgn('[Result "*"]\n\n1. e4 *');
+    expect(a.declared).toBeNull();
+    expect(a.pgn()).toContain('[Result "*"]');
+  });
+});
