@@ -1,5 +1,6 @@
 import MatchBoundary, { useSavedMatch } from '../../MatchBoundary.jsx';
-import { encodeBoard, decodeMatch } from './matchSnapshot.js';
+import { encodeBoard, decodeMatch, persistableMove } from './matchSnapshot.js';
+import Dialog, { CloseButton } from './Dialog.jsx';
 // CatanGame.jsx - React UI + SVG rendering for Catan.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -51,6 +52,68 @@ function formatCost(cost) {
   return Object.entries(cost)
     .map(([resource, amount]) => `${amount} ${RESOURCE_LABELS[resource]}`)
     .join(', ');
+}
+
+// Hit areas keep a 24+ CSS px target on a phone-sized board (the SVG scales to
+// about 0.47 CSS px per unit at 390px wide) without enlarging the drawn pieces.
+const VERTEX_HIT_RADIUS = 26;
+
+const tileName = tile => (tile.resource === 'desert' ? 'Desert' : `${RESOURCE_LABELS[tile.resource]} ${tile.number}`);
+
+// Accessible activation shared by every board target: pointer, Enter and Space.
+function activate(handler) {
+  return {
+    onClick: handler,
+    onKeyDown: (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        handler();
+      }
+    },
+  };
+}
+
+// Tiny resource glyphs for harbor tokens, drawn in a 14x14 box centred on 0,0.
+function PortIcon({ resource }) {
+  const ink = '#FFFFFF';
+  switch (resource) {
+    case 'lumber':
+      return <polygon points="0,-5.4 -4,0.6 -1.6,0.6 -4.4,4 4.4,4 1.6,0.6 4,0.6" fill={ink} />;
+    case 'brick':
+      return (
+        <g fill={ink}>
+          <rect x="-5" y="-4.2" width="4.4" height="3" rx="0.4" />
+          <rect x="0.6" y="-4.2" width="4.4" height="3" rx="0.4" />
+          <rect x="-2.6" y="-0.4" width="5.2" height="3" rx="0.4" />
+          <rect x="-5" y="2.4" width="4.4" height="2.2" rx="0.4" />
+          <rect x="0.6" y="2.4" width="4.4" height="2.2" rx="0.4" />
+        </g>
+      );
+    case 'wool':
+      return (
+        <g fill={ink}>
+          <ellipse cx="0" cy="0.4" rx="4.6" ry="3.4" />
+          <circle cx="-4.4" cy="-1.4" r="1.9" />
+          <rect x="-2.4" y="2.8" width="1.2" height="2.4" />
+          <rect x="1.4" y="2.8" width="1.2" height="2.4" />
+        </g>
+      );
+    case 'grain':
+      return (
+        <g fill={ink} stroke={ink}>
+          <line x1="0" y1="5.2" x2="0" y2="-4" strokeWidth="1.1" />
+          <ellipse cx="-2.2" cy="-1.6" rx="1.2" ry="2.1" stroke="none" transform="rotate(-25 -2.2 -1.6)" />
+          <ellipse cx="2.2" cy="-1.6" rx="1.2" ry="2.1" stroke="none" transform="rotate(25 2.2 -1.6)" />
+          <ellipse cx="-2.2" cy="1.8" rx="1.2" ry="2.1" stroke="none" transform="rotate(-25 -2.2 1.8)" />
+          <ellipse cx="2.2" cy="1.8" rx="1.2" ry="2.1" stroke="none" transform="rotate(25 2.2 1.8)" />
+          <ellipse cx="0" cy="-4.4" rx="1.1" ry="1.9" stroke="none" />
+        </g>
+      );
+    case 'ore':
+      return <polygon points="-5.4,4.4 -1.8,-3.8 0.6,0.2 2.6,-2.4 5.4,4.4" fill={ink} />;
+    default:
+      return null;
+  }
 }
 
 function getStoredRulesetId() {
@@ -240,10 +303,10 @@ function DieFace({ value, size = 40 }) {
 }
 
 // ----- Resource / dev card stack (the player's visible hand) -----
-function CardStack({ variant, count, label }) {
+function CardStack({ variant, count, label, title }) {
   const layers = Math.min(Math.max(count - 1, 0), 2);
   return (
-    <div className="catan-card-stack" title={`${count} ${label}`}>
+    <div className="catan-card-stack" title={title || `${count} ${label}`}>
       {Array.from({ length: layers }).map((_, i) => (
         <div key={i} className={`catan-card catan-card-layer catan-card-l${i + 1} card-${variant}`} aria-hidden="true" />
       ))}
@@ -263,6 +326,7 @@ function Toggle({ label, checked, onChange }) {
         type="button"
         onClick={onChange}
         role="switch"
+        aria-label={label}
         aria-checked={checked}
         className="relative h-6 w-10 rounded-full transition-colors"
         style={{ backgroundColor: checked ? 'var(--color-toggle-active)' : 'var(--color-toggle-inactive)' }}
@@ -294,9 +358,12 @@ function CatanGame() {
   const [showModal, setShowModal] = useState(() => savedUI.showModal ?? true);
   const [showSettings, setShowSettings] = useState(false);
   const [showRules, setShowRules] = useState(false);
-  const [lastMove, setLastMove] = useState(() => savedUI.lastMove ?? null);
+  const [lastMove, setLastMoveState] = useState(() => persistableMove(savedUI.lastMove));
+  const setLastMove = useCallback(move => setLastMoveState(persistableMove(move)), []);
   const [showTradeBuilder, setShowTradeBuilder] = useState(() => savedUI.showTradeBuilder ?? false);
-  const [confirmNew, setConfirmNew] = useState(false);
+  const [confirmNew, setConfirmNew] = useState(null);
+  const [bankGive, setBankGive] = useState(null);
+  const [bankReceive, setBankReceive] = useState(null);
   const [tradeGive, setTradeGive] = useState(() => savedUI.tradeGive ?? { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 });
   const [tradeReceive, setTradeReceive] = useState(() => savedUI.tradeReceive ?? { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 });
   const [tradeTargets, setTradeTargets] = useState(() => savedUI.tradeTargets ?? []);
@@ -445,15 +512,29 @@ function CatanGame() {
     setShowTradeBuilder(true);
   }, [playerIds]);
 
+  // One validation source for the offer form: the first problem found, with
+  // `blocking` marking a rule violation (versus a missing choice).
+  const tradeProblem = useMemo(() => {
+    const overlap = RESOURCES.filter(resource => tradeGive[resource] > 0 && tradeReceive[resource] > 0);
+    if (overlap.length > 0) {
+      const names = overlap.map(resource => RESOURCE_LABELS[resource]).join(', ');
+      return { blocking: true, message: `You can't offer and request the same resource (${names}). Remove it from one side.` };
+    }
+    if (resourceTotal(tradeGive) === 0) return { blocking: false, message: 'Choose at least one resource to give.' };
+    if (resourceTotal(tradeReceive) === 0) return { blocking: false, message: 'Choose at least one resource to receive.' };
+    if (tradeTargets.filter(id => id !== HUMAN_PLAYER).length === 0) return { blocking: false, message: 'Choose at least one player to offer to.' };
+    return null;
+  }, [tradeGive, tradeReceive, tradeTargets]);
+
   const submitTrade = useCallback(() => {
+    if (tradeProblem) return;
     const give = Object.fromEntries(Object.entries(tradeGive).filter(([, amount]) => amount > 0));
     const receive = Object.fromEntries(Object.entries(tradeReceive).filter(([, amount]) => amount > 0));
     const targets = tradeTargets.filter(id => id !== HUMAN_PLAYER);
-    if (Object.keys(give).length === 0 || Object.keys(receive).length === 0 || targets.length === 0) return;
     if (applyMove({ type: 'propose-trade', give, receive, targets })) {
       setShowTradeBuilder(false);
     }
-  }, [applyMove, tradeGive, tradeReceive, tradeTargets]);
+  }, [applyMove, tradeGive, tradeProblem, tradeReceive, tradeTargets]);
 
   const submitMonopoly = useCallback((resource) => {
     if (applyMove({ type: 'play-monopoly', resource })) {
@@ -563,25 +644,36 @@ function CatanGame() {
     };
   }, [board.currentPlayer, board.phase, board.setupIndex, computeAIMove, isAiThinking, isHumanTurn, showModal]);
 
-  const validVertices = useMemo(() => {
-    if (!showPossibleMoves || !isHumanTurn) return [];
+  // Targets the human can act on right now. These drive pointer and keyboard
+  // activation; "Show Legal Moves" only controls whether they are highlighted.
+  const freeRoadPending = isHumanTurn && board.freeRoadsRemaining > 0 && (board.phase === 'roll' || board.phase === 'action');
+  // Building is open in the normal action phase and the 5-6 player Special Building Phase.
+  const buildPhase = board.phase === 'action' || board.phase === 'paired-action';
+  const actionableVertices = useMemo(() => {
+    if (!isHumanTurn) return [];
     if (board.phase === 'setup-settlement') return board.getValidSettlementVertices(HUMAN_PLAYER, true);
+    if (!buildPhase) return [];
     if (selectedAction === 'settlement') return board.getValidSettlementVertices(HUMAN_PLAYER, false);
     if (selectedAction === 'city') return board.getValidCityVertices(HUMAN_PLAYER);
     return [];
-  }, [board, isHumanTurn, selectedAction, showPossibleMoves]);
+  }, [board, buildPhase, isHumanTurn, selectedAction]);
 
-  const validEdges = useMemo(() => {
-    if (!showPossibleMoves || !isHumanTurn) return [];
+  const actionableEdges = useMemo(() => {
+    if (!isHumanTurn) return [];
     if (board.phase === 'setup-road') return board.getValidSetupRoadEdges(board.pendingSetupSettlement, HUMAN_PLAYER);
-    if (selectedAction === 'road') return board.getValidRoadEdges(HUMAN_PLAYER, board.freeRoadsRemaining > 0);
+    if (freeRoadPending) return board.getValidRoadEdges(HUMAN_PLAYER, true);
+    if (buildPhase && selectedAction === 'road') return board.getValidRoadEdges(HUMAN_PLAYER, false);
     return [];
-  }, [board, isHumanTurn, selectedAction, showPossibleMoves]);
+  }, [board, buildPhase, freeRoadPending, isHumanTurn, selectedAction]);
 
-  const validRobberTiles = useMemo(() => {
-    if (!showPossibleMoves || !isHumanTurn || board.phase !== 'robber') return [];
+  const actionableTiles = useMemo(() => {
+    if (!isHumanTurn || board.phase !== 'robber') return [];
     return board.tiles.filter(tile => tile.id !== board.robberTileId).map(tile => tile.id);
-  }, [board, isHumanTurn, showPossibleMoves]);
+  }, [board, isHumanTurn]);
+
+  const validVertices = showPossibleMoves ? actionableVertices : [];
+  const validEdges = showPossibleMoves ? actionableEdges : [];
+  const validRobberTiles = showPossibleMoves ? actionableTiles : [];
 
   const handleVertexClick = (vertexId) => {
     if (!isHumanTurn) return;
@@ -604,7 +696,7 @@ function CatanGame() {
       applyMove({ type: 'setup-road', edgeId });
       return;
     }
-    if (selectedAction === 'road') {
+    if (freeRoadPending || selectedAction === 'road') {
       applyMove({ type: 'build-road', edgeId, free: board.freeRoadsRemaining > 0 });
     }
   };
@@ -645,8 +737,22 @@ function CatanGame() {
     setGameConfig((previous) => ({ ...previous, scenarioId }));
   };
 
+  // Replacing a match in progress always goes through one confirmation.
+  const matchInProgress = board.phase !== 'game-over' && !(board.setupIndex === 0 && board.phase === 'setup-settlement');
+  const requestNewGame = (config) => {
+    if (matchInProgress) setConfirmNew({ config });
+    else newGame(config);
+  };
+
   const newGame = (nextConfig = gameConfig) => {
     savedMatch?.startNew();
+    setShowSettings(false);
+    setShowTradeBuilder(false);
+    setShowMonopolyPicker(false);
+    setShowYopPicker(false);
+    setRobberVictimPicker(null);
+    setBankGive(null);
+    setBankReceive(null);
     const resolvedConfig = nextConfig?.rulesetId ? nextConfig : gameConfig;
     const next = new CatanBoard({ seed: Date.now(), ...resolvedConfig });
     setBoard(next);
@@ -671,6 +777,80 @@ function CatanGame() {
     return `${currentPlayer.name}: build or trade`;
   };
 
+  // Visible count of free Road Building roads still to place.
+  const renderFreeRoadBanner = () => {
+    if (!freeRoadPending) return null;
+    const left = board.freeRoadsRemaining;
+    const placeable = board.getValidRoadEdges(HUMAN_PLAYER, true).length > 0;
+    return (
+      <div className="catan-banner" role="status">
+        {placeable
+          ? (left === 1 ? 'Road Building: place 1 more free road' : `Road Building: place ${left} free roads`)
+          : 'Road Building: no legal spot left for a free road'}
+      </div>
+    );
+  };
+
+  // Playable development-card buttons plus the reason none may be playable.
+  const renderDevCards = (legalTypes, whenLabel) => {
+    const playableDev = [
+      legalTypes.has('play-knight') && { key: 'knight', label: 'Knight', onClick: () => applyMove({ type: 'play-knight' }) },
+      legalTypes.has('play-road-building') && { key: 'roadBuilding', label: 'Road Building', onClick: () => applyMove({ type: 'play-road-building' }) },
+      legalTypes.has('play-year-of-plenty') && { key: 'yearOfPlenty', label: 'Year of Plenty', onClick: openYopPicker },
+      legalTypes.has('play-monopoly') && { key: 'monopoly', label: 'Monopoly', onClick: () => setShowMonopolyPicker(true) },
+    ].filter(Boolean);
+    const sumCards = cards => Object.entries(cards).filter(([card]) => card !== 'victoryPoint').reduce((sum, [, count]) => sum + count, 0);
+    const newCards = sumCards(human.newDevCards);
+    const oldCards = sumCards(human.devCards);
+    let note = null;
+    if (human.playedDevThisTurn && oldCards + newCards > 0) note = 'You have already played a development card this turn.';
+    else if (playableDev.length === 0 && newCards > 0 && oldCards === 0) note = `${newCards} new development ${newCards === 1 ? 'card' : 'cards'} can be played next turn.`;
+    return (
+      <>
+        {playableDev.length > 0 && (
+          <div>
+            <div className="catan-panel-label mb-2">Play a development card{whenLabel ? ` ${whenLabel}` : ''}</div>
+            <div className="grid grid-cols-2 gap-2">
+              {playableDev.map(card => (
+                <button key={card.key} className="catan-tool-btn" onClick={card.onClick}>
+                  {card.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {note && <p className="text-xs leading-relaxed" style={{ color: 'var(--color-text-muted)' }}>{note}</p>}
+      </>
+    );
+  };
+
+  // Phone-only bar pinned to the bottom: the primary turn controls stay
+  // reachable while the board is on screen.
+  const renderMobileStrip = () => {
+    if (!isHumanTurn || !['roll', 'action', 'paired-action'].includes(board.phase)) return null;
+    const types = new Set(board.getLegalMoves().map(move => move.type));
+    const mode = ACTIONS.find(action => action.id === selectedAction);
+    return (
+      <div className="catan-mobile-strip" role="region" aria-label="Turn controls">
+        {freeRoadPending && (
+          <span className="catan-mobile-strip-note">
+            {board.freeRoadsRemaining === 1 ? '1 free road left' : `${board.freeRoadsRemaining} free roads left`}
+          </span>
+        )}
+        {mode && (
+          <button className="catan-tool-btn" onClick={() => setSelectedAction(null)}>Cancel {mode.label}</button>
+        )}
+        {board.phase === 'roll' ? (
+          <button className="catan-primary-btn flex-1" disabled={!types.has('roll')} onClick={() => applyMove({ type: 'roll' })}>Roll Dice</button>
+        ) : (
+          <button className="catan-primary-btn flex-1" disabled={!types.has('end-turn')} onClick={() => applyMove({ type: 'end-turn' })}>
+            {board.phase === 'paired-action' ? 'Finish Special Build' : 'End Turn'}
+          </button>
+        )}
+      </div>
+    );
+  };
+
   const renderActionButtons = () => {
     if (!isHumanTurn) {
       return <p className="text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>{board.lastAction}</p>;
@@ -685,17 +865,14 @@ function CatanGame() {
     }
 
     if (board.phase === 'roll') {
-      const canPreRollKnight = board.getLegalMoves().some(move => move.type === 'play-knight');
+      const rollTypes = new Set(board.getLegalMoves().map(move => move.type));
       return (
-        <div className="space-y-2">
-          <button className="catan-primary-btn w-full" onClick={() => applyMove({ type: 'roll' })}>
+        <div className="space-y-3">
+          {renderFreeRoadBanner()}
+          <button className="catan-primary-btn w-full" disabled={!rollTypes.has('roll')} onClick={() => applyMove({ type: 'roll' })}>
             Roll Dice
           </button>
-          {canPreRollKnight && (
-            <button className="catan-tool-btn w-full" onClick={() => applyMove({ type: 'play-knight' })}>
-              Play Knight Before Rolling
-            </button>
-          )}
+          {renderDevCards(rollTypes, 'before rolling')}
         </div>
       );
     }
@@ -783,81 +960,140 @@ function CatanGame() {
     // Every button is a projection of the engine's legal moves, so the human
     // can never be offered an action the engine (and the AI) would reject.
     const legalTypes = new Set(board.getLegalMoves().map(move => move.type));
-    const trades = board.phase === 'action' ? board.getStrategicTradeOptions(HUMAN_PLAYER, 8) : [];
-    const playableDev = [
-      legalTypes.has('play-knight') && { key: 'knight', label: 'Knight', onClick: () => applyMove({ type: 'play-knight' }) },
-      legalTypes.has('play-road-building') && { key: 'roadBuilding', label: 'Road Building', onClick: () => applyMove({ type: 'play-road-building' }) },
-      legalTypes.has('play-year-of-plenty') && { key: 'yearOfPlenty', label: 'Year of Plenty', onClick: openYopPicker },
-      legalTypes.has('play-monopoly') && { key: 'monopoly', label: 'Monopoly', onClick: () => setShowMonopolyPicker(true) },
-    ].filter(Boolean);
+    const freeRoads = board.freeRoadsRemaining > 0;
+    const missingFor = cost => RESOURCES
+      .filter(resource => (cost[resource] || 0) > human.resources[resource])
+      .map(resource => `${cost[resource] - human.resources[resource]} ${RESOURCE_LABELS[resource]}`);
+    const buildStatus = (action) => {
+      if (action.id === 'road') {
+        if (human.roads.length >= board.pieceLimits.roads) return { ok: false, reason: 'No road pieces left' };
+        if (!freeRoads && missingFor(action.cost).length > 0) return { ok: false, reason: `Need ${missingFor(action.cost).join(', ')}` };
+        if (board.getValidRoadEdges(HUMAN_PLAYER, freeRoads).length === 0) return { ok: false, reason: 'No legal spot' };
+        return { ok: true, note: freeRoads ? 'Free' : formatCost(action.cost) };
+      }
+      if (action.id === 'settlement') {
+        if (human.settlements.length >= board.pieceLimits.settlements) return { ok: false, reason: 'No settlements left' };
+        if (missingFor(action.cost).length > 0) return { ok: false, reason: `Need ${missingFor(action.cost).join(', ')}` };
+        if (board.getValidSettlementVertices(HUMAN_PLAYER, false).length === 0) return { ok: false, reason: 'No legal spot' };
+        return { ok: true, note: formatCost(action.cost) };
+      }
+      if (human.cities.length >= board.pieceLimits.cities) return { ok: false, reason: 'No cities left' };
+      if (human.settlements.length === 0) return { ok: false, reason: 'No settlement to upgrade' };
+      if (missingFor(action.cost).length > 0) return { ok: false, reason: `Need ${missingFor(action.cost).join(', ')}` };
+      return { ok: true, note: formatCost(action.cost) };
+    };
+    const devStatus = legalTypes.has('buy-dev')
+      ? { ok: true, note: formatCost(COSTS.dev) }
+      : board.devDeck.length === 0
+        ? { ok: false, reason: 'Deck is empty' }
+        : { ok: false, reason: `Need ${missingFor(COSTS.dev).join(', ')}` };
+    const bankRatio = resource => board.getTradeRatio(HUMAN_PLAYER, resource);
+    const canBankTrade = bankGive && bankReceive && bankGive !== bankReceive
+      && human.resources[bankGive] >= bankRatio(bankGive) && board.bank[bankReceive] >= 1;
 
     return (
       <div className="space-y-4">
-        <div className="grid grid-cols-3 gap-2">
+        {renderFreeRoadBanner()}
+        <div className="grid gap-2">
           {ACTIONS.map(action => {
-            const disabled =
-              action.id === 'road'
-                ? board.getValidRoadEdges(HUMAN_PLAYER, board.freeRoadsRemaining > 0).length === 0
-                : action.id === 'settlement'
-                  ? board.getValidSettlementVertices(HUMAN_PLAYER, false).length === 0
-                  : board.getValidCityVertices(HUMAN_PLAYER).length === 0;
+            const status = buildStatus(action);
             return (
               <button
                 key={action.id}
-                className={`catan-tool-btn ${selectedAction === action.id ? 'active' : ''}`}
-                disabled={disabled}
+                className={`catan-tool-btn catan-build-btn ${selectedAction === action.id ? 'active' : ''}`}
+                disabled={!status.ok}
                 title={formatCost(action.cost)}
+                aria-pressed={selectedAction === action.id}
                 onClick={() => setSelectedAction(selectedAction === action.id ? null : action.id)}
               >
-                {action.label}
+                <span>{action.label}</span>
+                <small>{status.ok ? status.note : status.reason}</small>
               </button>
             );
           })}
+          <button
+            className="catan-tool-btn catan-build-btn"
+            disabled={!devStatus.ok}
+            title={formatCost(COSTS.dev)}
+            onClick={() => applyMove({ type: 'buy-dev' })}
+          >
+            <span>Buy Development</span>
+            <small>{devStatus.ok ? devStatus.note : devStatus.reason}</small>
+          </button>
         </div>
 
-        <button
-          className="catan-tool-btn w-full"
-          disabled={!legalTypes.has('buy-dev')}
-          title={formatCost(COSTS.dev)}
-          onClick={() => applyMove({ type: 'buy-dev' })}
-        >
-          Buy Development
-        </button>
-
-        {playableDev.length > 0 && (
-          <div className="grid grid-cols-2 gap-2">
-            {playableDev.map(card => (
-              <button key={card.key} className="catan-tool-btn" onClick={card.onClick}>
-                {card.label}
-              </button>
-            ))}
-          </div>
-        )}
+        {renderDevCards(legalTypes, null)}
 
         {board.phase === 'action' && (
           <button
             className="catan-tool-btn w-full"
-            disabled={resourceTotal(human.resources) === 0 || board.tradeProposalsThisTurn >= board.maxTradeProposalsPerTurn}
+            disabled={resourceTotal(human.resources) === 0}
             onClick={openTradeBuilder}
           >
             Propose Trade to Players
           </button>
         )}
 
-        {trades.length > 0 && (
+        {board.phase === 'action' && (
           <div>
-            <div className="catan-panel-label mb-2">Bank Trades</div>
-            <div className="grid grid-cols-2 gap-2">
-              {trades.map((trade, index) => (
-                <button
-                  key={`${trade.give}-${trade.receive}-${index}`}
-                  className="catan-trade-btn"
-                  onClick={() => applyMove(trade)}
-                >
-                  {trade.ratio} {trade.give} &rarr; {trade.receive}
-                </button>
-              ))}
+            <div className="catan-panel-label mb-2">Bank Trade</div>
+            <div className="catan-bank-label">Give</div>
+            <div className="catan-bank-grid">
+              {RESOURCES.map(resource => {
+                const ratio = bankRatio(resource);
+                const affordable = human.resources[resource] >= ratio;
+                return (
+                  <button
+                    key={resource}
+                    type="button"
+                    className={`catan-resource-pill resource-${resource} catan-bank-pill ${bankGive === resource ? 'selected' : ''}`}
+                    disabled={!affordable}
+                    aria-pressed={bankGive === resource}
+                    title={affordable ? `Give ${ratio} ${RESOURCE_LABELS[resource]}` : `Need ${ratio} ${RESOURCE_LABELS[resource]} to trade`}
+                    onClick={() => { setBankGive(bankGive === resource ? null : resource); if (bankReceive === resource) setBankReceive(null); }}
+                  >
+                    <span>{RESOURCE_LABELS[resource]}</span>
+                    <strong>{ratio}:1</strong>
+                  </button>
+                );
+              })}
             </div>
+            <div className="catan-bank-label">Receive</div>
+            <div className="catan-bank-grid">
+              {RESOURCES.map(resource => {
+                const available = board.bank[resource] >= 1 && resource !== bankGive;
+                return (
+                  <button
+                    key={resource}
+                    type="button"
+                    className={`catan-resource-pill resource-${resource} catan-bank-pill ${bankReceive === resource ? 'selected' : ''}`}
+                    disabled={!available}
+                    aria-pressed={bankReceive === resource}
+                    title={board.bank[resource] < 1 ? `The bank has no ${RESOURCE_LABELS[resource]}` : `Receive 1 ${RESOURCE_LABELS[resource]}`}
+                    onClick={() => setBankReceive(bankReceive === resource ? null : resource)}
+                  >
+                    <span>{RESOURCE_LABELS[resource]}</span>
+                    <strong>1</strong>
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              className="catan-tool-btn mt-2 w-full"
+              disabled={!canBankTrade}
+              onClick={() => {
+                if (applyMove({ type: 'trade', give: bankGive, receive: bankReceive, ratio: bankRatio(bankGive) })) {
+                  setBankGive(null);
+                  setBankReceive(null);
+                }
+              }}
+            >
+              {bankGive && bankReceive
+                ? (canBankTrade
+                  ? `Trade ${bankRatio(bankGive)} ${RESOURCE_LABELS[bankGive]} for 1 ${RESOURCE_LABELS[bankReceive]}`
+                  : `Can't trade ${RESOURCE_LABELS[bankGive]} for ${RESOURCE_LABELS[bankReceive]}`)
+                : 'Choose what to give and receive'}
+            </button>
           </div>
         )}
 
@@ -931,12 +1167,17 @@ function CatanGame() {
               ))}
             </div>
             <div className="mt-2 grid grid-cols-5 gap-1">
-              {Object.keys(DEV_LABELS).map(card => (
-                <div key={card} className="catan-dev-pill">
-                  <span>{DEV_LABELS[card]}</span>
-                  <strong>{player.devCards[card] + player.newDevCards[card]}</strong>
-                </div>
-              ))}
+              {Object.keys(DEV_LABELS).map(card => {
+                const fresh = card === 'victoryPoint' ? 0 : player.newDevCards[card];
+                const owned = card === 'victoryPoint' ? player.devCards[card] + player.newDevCards[card] : player.devCards[card];
+                return (
+                  <div key={card} className="catan-dev-pill" title={fresh > 0 ? `${owned} playable, ${fresh} bought this turn (playable next turn)` : undefined}>
+                    <span>{DEV_LABELS[card]}</span>
+                    <strong>{owned}</strong>
+                    {fresh > 0 && <em className="catan-dev-new">+{fresh} new</em>}
+                  </div>
+                );
+              })}
             </div>
           </>
         ) : (
@@ -1017,14 +1258,20 @@ function CatanGame() {
         </div>
       )}
 
-      <button className="catan-primary-btn w-full" onClick={() => newGame(gameConfig)}>
+      <button className="catan-primary-btn w-full" onClick={() => requestNewGame(gameConfig)}>
         Start {selectedRuleset.name}
       </button>
     </div>
   );
 
+  // Plain-language location for a board target: the adjacent tiles by resource and number.
+  const vertexName = vertex => `next to ${vertex.tileIds.map(id => tileName(board.getTile(id))).join(', ')}`;
+  const edgeName = edge => (edge.tileIds.length > 1
+    ? `between ${edge.tileIds.map(id => tileName(board.getTile(id))).join(' and ')}`
+    : `on the coast of ${tileName(board.getTile(edge.tileIds[0]))}`);
+
   const renderBoard = () => (
-    <svg className="catan-board-svg" viewBox={`0 0 ${BOARD_VIEWBOX.width} ${BOARD_VIEWBOX.height}`} role="img" aria-label="Catan board">
+    <svg className="catan-board-svg" viewBox={`0 0 ${BOARD_VIEWBOX.width} ${BOARD_VIEWBOX.height}`} role="group" aria-label="Catan board">
       <defs>
         <filter id="catan-piece-shadow" x="-40%" y="-40%" width="180%" height="180%">
           <feDropShadow dx="0" dy="2" stdDeviation="2" floodOpacity="0.22" />
@@ -1058,7 +1305,7 @@ function CatanGame() {
         const hot = tile.number === 6 || tile.number === 8;
         // Token radius and pip dots scale with probability: a 5-pip (6/8) disc is
         // noticeably larger than a 1-pip (2/12) disc.
-        const tokenR = 11 + pips * 2.2;
+        const tokenR = 15 + pips * 2.4;
         const dotR = Math.max(1.6, tokenR * 0.092);
         const dotGap = dotR * 2.7;
         const dotsY = center.y + tokenR * 0.5;
@@ -1066,9 +1313,9 @@ function CatanGame() {
         return (
           <g
             key={tile.id}
-            role={board.phase === 'robber' && isHumanTurn ? 'button' : undefined}
-            tabIndex={board.phase === 'robber' && isHumanTurn ? 0 : undefined}
-            onClick={() => handleTileClick(tile.id)}
+            {...(actionableTiles.includes(tile.id)
+              ? { role: 'button', tabIndex: 0, 'aria-label': `Move the robber to ${tileName(tile)}`, ...activate(() => handleTileClick(tile.id)) }
+              : {})}
             className={isRobberTarget ? 'catan-clickable' : ''}
           >
             <clipPath id={`catan-clip-${tile.id}`}>
@@ -1097,7 +1344,7 @@ function CatanGame() {
                   textAnchor="middle"
                   dominantBaseline="central"
                   className={`catan-number ${hot ? 'hot' : ''}`}
-                  style={{ fontSize: `${10 + pips * 1.5}px` }}
+                  style={{ fontSize: `${19 + pips * 1.8}px` }}
                 >
                   {tile.number}
                 </text>
@@ -1145,11 +1392,18 @@ function CatanGame() {
       {Object.values(board.edges).map(edge => {
         const [a, b] = edge.vertices.map(vertexId => screenPoint(board.vertices[vertexId]));
         const isValid = validEdges.includes(edge.id);
+        const actionable = actionableEdges.includes(edge.id);
         const isLast = lastMove?.edgeId === edge.id;
         const owned = Boolean(edge.owner);
         return (
-          <g key={edge.id} role="button" tabIndex={0} onClick={() => handleEdgeClick(edge.id)} className={isValid ? 'catan-clickable' : ''}>
-            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="catan-edge-hit" />
+          <g
+            key={edge.id}
+            {...(actionable
+              ? { role: 'button', tabIndex: 0, 'aria-label': `${board.phase === 'setup-road' ? 'Place' : 'Build'} a road ${edgeName(edge)}`, ...activate(() => handleEdgeClick(edge.id)) }
+              : {})}
+            className={actionable ? 'catan-clickable' : 'catan-inert'}
+          >
+            {actionable && <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} className="catan-edge-hit" />}
             {owned && (
               <line
                 x1={a.x}
@@ -1167,58 +1421,78 @@ function CatanGame() {
               className={`catan-road ${isValid ? 'valid' : ''} ${isLast ? 'last' : ''}`}
               style={{ stroke: edge.owner ? board.players[edge.owner].color : undefined }}
             />
-            {edge.port && (() => {
+          </g>
+        );
+      })}
+
+      {/* Harbors are their own layer so they stay inspectable regardless of road actionability. */}
+      {Object.values(board.edges).filter(edge => edge.port).map(edge => {
+        const [a, b] = edge.vertices.map(vertexId => screenPoint(board.vertices[vertexId]));
               const mx = (a.x + b.x) / 2;
               const my = (a.y + b.y) / 2;
               const dirX = mx - BOARD_VIEWBOX.width / 2;
               const dirY = my - BOARD_VIEWBOX.height / 2;
               const len = Math.hypot(dirX, dirY) || 1;
-              const bx = mx + (dirX / len) * 24;
-              const by = my + (dirY / len) * 24;
+              const bx = mx + (dirX / len) * 28;
+              const by = my + (dirY / len) * 28;
               const isAny = edge.port === 'any';
+              const portName = isAny ? 'Any resource, 3:1 harbor' : `${RESOURCE_LABELS[edge.port]}, 2:1 harbor`;
               return (
-                <g className="catan-port-group">
+                <React.Fragment key={`port-${edge.id}`}>
+                <g className="catan-port-group" role="img" aria-label={portName}>
+                  <title>{portName}</title>
                   <line x1={a.x} y1={a.y} x2={bx} y2={by} className="catan-port-pier" />
                   <line x1={b.x} y1={b.y} x2={bx} y2={by} className="catan-port-pier" />
                   <g filter="url(#catan-piece-shadow)">
                     {/* round wooden harbor token */}
-                    <circle cx={bx} cy={by} r="14" className="catan-port-disc" />
-                    <circle cx={bx} cy={by} r="14" className="catan-port-rim" />
+                    <circle cx={bx} cy={by} r="17" className="catan-port-disc" />
+                    <circle cx={bx} cy={by} r="17" className="catan-port-rim" />
                     {isAny ? (
-                      /* generic 3:1 harbor — a little anchor */
-                      <g className="catan-port-anchor" transform={`translate(${bx}, ${by - 4.5})`}>
+                      /* generic 3:1 harbor: a little anchor */
+                      <g className="catan-port-anchor" transform={`translate(${bx}, ${by - 5})`}>
                         <circle cx="0" cy="-4.4" r="1.7" />
                         <line x1="0" y1="-2.7" x2="0" y2="5.6" />
                         <line x1="-3.6" y1="-0.6" x2="3.6" y2="-0.6" />
                         <path d="M-4.6 2.6 C-4.6 5.6 -2.2 7.2 0 7.2 C2.2 7.2 4.6 5.6 4.6 2.6" />
                       </g>
                     ) : (
-                      /* 2:1 resource harbor — a resource chip */
-                      <circle cx={bx} cy={by - 4.6} r="5.6" className={`catan-port-chip port-${edge.port}`} />
+                      /* 2:1 resource harbor: the resource's own icon */
+                      <g transform={`translate(${bx}, ${by - 5.5})`}>
+                        <circle cx="0" cy="0" r="7.4" className={`catan-port-chip port-${edge.port}`} />
+                        <PortIcon resource={edge.port} />
+                      </g>
                     )}
-                    <text x={bx} y={by + (isAny ? 9.4 : 6.8)} textAnchor="middle" dominantBaseline="central" className="catan-port-ratio">
+                    <text x={bx} y={by + (isAny ? 10.6 : 9.6)} textAnchor="middle" dominantBaseline="central" className="catan-port-ratio">
                       {isAny ? '3:1' : '2:1'}
                     </text>
                   </g>
                 </g>
+                </React.Fragment>
               );
-            })()}
-          </g>
-        );
+
       })}
 
       {Object.values(board.vertices).map(vertex => {
         const point = screenPoint(vertex);
         const building = vertex.building;
         const isValid = validVertices.includes(vertex.id);
+        const actionable = actionableVertices.includes(vertex.id);
         const isPending = board.pendingSetupSettlement === vertex.id;
         const isLast = lastMove?.vertexId === vertex.id;
+        const verb = board.phase === 'setup-settlement' ? 'Place a settlement' : selectedAction === 'city' ? 'Upgrade to a city' : 'Build a settlement';
         return (
-          <g key={vertex.id} role="button" tabIndex={0} onClick={() => handleVertexClick(vertex.id)} className={isValid ? 'catan-clickable' : ''}>
+          <g
+            key={vertex.id}
+            {...(actionable
+              ? { role: 'button', tabIndex: 0, 'aria-label': `${verb} ${vertexName(vertex)}`, ...activate(() => handleVertexClick(vertex.id)) }
+              : {})}
+            className={actionable ? 'catan-clickable' : 'catan-inert'}
+          >
+            {actionable && <circle cx={point.x} cy={point.y} r={VERTEX_HIT_RADIUS} className="catan-vertex-hit" />}
             <circle
               cx={point.x}
               cy={point.y}
-              r={isValid ? 11 : 6}
+              r={isValid ? 13 : 6}
               className={`catan-vertex ${isValid ? 'valid' : ''} ${isPending ? 'pending' : ''} ${isLast ? 'last' : ''}`}
             />
             {building && (
@@ -1251,8 +1525,7 @@ function CatanGame() {
   return (
     <div className={`game-catan min-h-screen bg-[var(--color-bg-page)] font-body ${darkMode ? 'dark' : ''}`}>
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={(e) => { if (e.target === e.currentTarget) setShowModal(false); }}>
-          <div className="catan-modal max-h-[90vh] w-full max-w-3xl overflow-y-auto p-7">
+        <Dialog label={board.phase === 'game-over' ? 'Game over' : 'New game'} onClose={() => setShowModal(false)} overlayClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" panelClassName="catan-modal max-h-[90vh] w-full max-w-3xl overflow-y-auto p-7">
             <h2 className="text-2xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
               {board.phase === 'game-over' ? `${board.players[board.winner]?.name} wins` : 'CATAN'}
             </h2>
@@ -1273,18 +1546,21 @@ function CatanGame() {
               <Toggle label="Show Legal Moves" checked={showPossibleMoves} onChange={() => setShowPossibleMoves(!showPossibleMoves)} />
               <button className="catan-tool-btn w-full" onClick={() => setShowRules(true)}>Rules</button>
             </div>
-          </div>
-        </div>
+        </Dialog>
       )}
 
       {showSettings && (
-        <div className="fixed inset-0 z-50 bg-black/50" onClick={(e) => { if (e.target === e.currentTarget) setShowSettings(false); }}>
-          <div className="settings-panel fixed bottom-0 right-0 top-0 w-full max-w-sm overflow-y-auto border-l bg-[var(--color-bg-panel)] p-6">
-            <div className="mb-6 flex items-center justify-between">
-              <h2 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>Settings</h2>
-              <button className="text-2xl" style={{ color: 'var(--color-text-secondary)' }} onClick={() => setShowSettings(false)}>&times;</button>
-            </div>
-            <div className="space-y-5">
+        <Dialog
+          label="Settings"
+          onClose={() => setShowSettings(false)}
+          overlayClassName="fixed inset-0 z-50 bg-black/50"
+          panelClassName="settings-panel fixed bottom-0 right-0 top-0 flex w-full max-w-sm flex-col border-l bg-[var(--color-bg-panel)]"
+        >
+          <div className="catan-dialog-head">
+            <h2 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>Settings</h2>
+            <CloseButton label="Close settings" onClick={() => setShowSettings(false)} />
+          </div>
+            <div className="catan-dialog-body space-y-5">
               <div>
                 <div className="catan-panel-label mb-2">AI Strength</div>
                 <div className="grid grid-cols-3 gap-2">
@@ -1304,16 +1580,14 @@ function CatanGame() {
               <Toggle label="Show Legal Moves" checked={showPossibleMoves} onChange={() => setShowPossibleMoves(!showPossibleMoves)} />
               <button className="catan-tool-btn w-full" onClick={() => setShowRules(true)}>Rules</button>
             </div>
-          </div>
-        </div>
+        </Dialog>
       )}
 
       {showRules && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4" onClick={(e) => { if (e.target === e.currentTarget) setShowRules(false); }}>
-          <div className="catan-modal max-h-[82vh] w-full max-w-2xl overflow-y-auto p-6">
+        <Dialog label="Rules" onClose={() => setShowRules(false)} overlayClassName="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4" panelClassName="catan-modal max-h-[82vh] w-full max-w-2xl overflow-y-auto p-6">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>Rules</h2>
-              <button className="text-2xl" style={{ color: 'var(--color-text-secondary)' }} onClick={() => setShowRules(false)}>&times;</button>
+              <CloseButton label="Close rules" onClick={() => setShowRules(false)} />
             </div>
             <div className="space-y-4 text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
               <p>Active game: {activeRuleset.name}, {activeScenario?.name || 'Random Island'}, {board.playerCount} players, {board.victoryTarget} VP target.</p>
@@ -1334,34 +1608,30 @@ function CatanGame() {
                 ))}
               </div>
             </div>
-          </div>
-        </div>
+        </Dialog>
       )}
 
       {confirmNew && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-4" onClick={(e) => { if (e.target === e.currentTarget) setConfirmNew(false); }}>
-          <div className="catan-modal w-full max-w-sm p-6">
+        <Dialog label="Start a new game?" onClose={() => setConfirmNew(null)} overlayClassName="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-4" panelClassName="catan-modal w-full max-w-sm p-6">
             <h2 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>Start a new game?</h2>
             <p className="mt-2 text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
               Your current game will be lost.
             </p>
             <div className="mt-6 flex gap-3">
-              <button className="catan-primary-btn flex-1" onClick={() => { setConfirmNew(false); newGame(); }}>New Game</button>
-              <button className="catan-tool-btn flex-1" onClick={() => setConfirmNew(false)}>Cancel</button>
+              <button className="catan-primary-btn flex-1" onClick={() => { const config = confirmNew?.config; setConfirmNew(null); newGame(config); }}>New Game</button>
+              <button className="catan-tool-btn flex-1" onClick={() => setConfirmNew(null)}>Cancel</button>
             </div>
-          </div>
-        </div>
+        </Dialog>
       )}
 
       {showTradeBuilder && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4" onClick={(e) => { if (e.target === e.currentTarget) setShowTradeBuilder(false); }}>
-          <div className="catan-modal max-h-[88vh] w-full max-w-lg overflow-y-auto p-6">
-            <div className="mb-4 flex items-center justify-between">
+        <Dialog label="Propose trade" onClose={() => setShowTradeBuilder(false)} overlayClassName="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4" panelClassName="catan-modal flex max-h-[88vh] w-full max-w-lg flex-col">
+            <div className="catan-dialog-head">
               <h2 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>Propose Trade</h2>
-              <button className="text-2xl" style={{ color: 'var(--color-text-secondary)' }} onClick={() => setShowTradeBuilder(false)}>&times;</button>
+              <CloseButton label="Close trade offer" onClick={() => setShowTradeBuilder(false)} />
             </div>
 
-            <div className="space-y-5">
+            <div className="catan-dialog-body space-y-5">
               <div>
                 <div className="catan-panel-label mb-2">You give (you have)</div>
                 <div className="catan-trade-rows">
@@ -1456,29 +1726,34 @@ function CatanGame() {
                   </button>
                 </div>
               </div>
-
+            </div>
+            <div className="catan-dialog-foot">
+              {tradeProblem && (
+                <p
+                  id="catan-trade-problem"
+                  role={tradeProblem.blocking ? 'alert' : undefined}
+                  className={`catan-trade-problem ${tradeProblem.blocking ? 'is-error' : ''}`}
+                >
+                  {tradeProblem.message}
+                </p>
+              )}
               <button
                 className="catan-primary-btn w-full"
-                disabled={
-                  resourceTotal(tradeGive) === 0 ||
-                  resourceTotal(tradeReceive) === 0 ||
-                  tradeTargets.filter(id => id !== HUMAN_PLAYER).length === 0
-                }
+                disabled={Boolean(tradeProblem)}
+                aria-describedby={tradeProblem ? 'catan-trade-problem' : undefined}
                 onClick={submitTrade}
               >
                 Send Offer
               </button>
             </div>
-          </div>
-        </div>
+        </Dialog>
       )}
 
       {showMonopolyPicker && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4" onClick={(e) => { if (e.target === e.currentTarget) setShowMonopolyPicker(false); }}>
-          <div className="catan-modal w-full max-w-sm p-6">
+        <Dialog label="Monopoly" onClose={() => setShowMonopolyPicker(false)} overlayClassName="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4" panelClassName="catan-modal w-full max-w-sm p-6">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>Monopoly</h2>
-              <button className="text-2xl" style={{ color: 'var(--color-text-secondary)' }} onClick={() => setShowMonopolyPicker(false)}>&times;</button>
+              <CloseButton label="Close monopoly" onClick={() => setShowMonopolyPicker(false)} />
             </div>
             <p className="mb-4 text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
               Choose a resource. Every opponent gives you all of theirs.
@@ -1495,16 +1770,14 @@ function CatanGame() {
                 </button>
               ))}
             </div>
-          </div>
-        </div>
+        </Dialog>
       )}
 
       {showYopPicker && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4" onClick={(e) => { if (e.target === e.currentTarget) setShowYopPicker(false); }}>
-          <div className="catan-modal w-full max-w-sm p-6">
+        <Dialog label="Year of Plenty" onClose={() => setShowYopPicker(false)} overlayClassName="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4" panelClassName="catan-modal w-full max-w-sm p-6">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>Year of Plenty</h2>
-              <button className="text-2xl" style={{ color: 'var(--color-text-secondary)' }} onClick={() => setShowYopPicker(false)}>&times;</button>
+              <CloseButton label="Close year of plenty" onClick={() => setShowYopPicker(false)} />
             </div>
             <p className="mb-4 text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
               Take two resources from the bank. Pick the same one twice for a double.
@@ -1543,16 +1816,14 @@ function CatanGame() {
                 Take Resources
               </button>
             </div>
-          </div>
-        </div>
+        </Dialog>
       )}
 
       {robberVictimPicker && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4" onClick={(e) => { if (e.target === e.currentTarget) setRobberVictimPicker(null); }}>
-          <div className="catan-modal w-full max-w-sm p-6">
+        <Dialog label="Steal from" onClose={() => setRobberVictimPicker(null)} overlayClassName="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4" panelClassName="catan-modal w-full max-w-sm p-6">
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>Steal From</h2>
-              <button className="text-2xl" style={{ color: 'var(--color-text-secondary)' }} onClick={() => setRobberVictimPicker(null)}>&times;</button>
+              <CloseButton label="Close steal picker" onClick={() => setRobberVictimPicker(null)} />
             </div>
             <p className="mb-4 text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
               More than one opponent borders this tile. Choose whom to rob.
@@ -1576,24 +1847,23 @@ function CatanGame() {
                 );
               })}
             </div>
-          </div>
-        </div>
+        </Dialog>
       )}
 
-      <div className="mx-auto flex min-h-screen w-full max-w-[1500px] flex-col gap-4 px-4 py-4 lg:flex-row lg:px-6">
-        <aside className="order-2 flex w-full flex-col gap-3 lg:order-1 lg:w-[330px]">
-          <div className="catan-panel p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <Link to="/" className="catan-panel-label hover:opacity-80">Games</Link>
-                <h1 className="mt-1 font-display text-3xl font-bold" style={{ color: 'var(--color-text-primary)' }}>CATAN</h1>
-                <p className="mt-1 text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                  {activeRuleset.name} / {board.mapName}
-                </p>
-              </div>
+      <div className="mx-auto flex min-h-screen w-full max-w-[1500px] flex-col gap-3 px-4 pb-24 pt-3 lg:flex-row lg:gap-4 lg:px-6 lg:py-4">
+        <div className="contents lg:order-1 lg:flex lg:w-[330px] lg:flex-col lg:gap-3">
+          <div className="catan-panel order-1 p-3 lg:p-4">
+            <div className="flex items-center justify-between gap-3">
+              <Link to="/" className="catan-home-link">&larr; Games</Link>
               <button className="catan-tool-btn px-3" onClick={() => setShowSettings(true)}>Settings</button>
             </div>
-            <div className="mt-4 rounded-lg px-3 py-2" style={{ backgroundColor: 'var(--color-bg-soft)' }}>
+            <div className="mt-1 flex flex-wrap items-baseline gap-x-3">
+              <h1 className="font-display text-2xl font-bold lg:text-3xl" style={{ color: 'var(--color-text-primary)' }}>CATAN</h1>
+              <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                {activeRuleset.name} / {board.mapName}
+              </p>
+            </div>
+            <div className="mt-3 rounded-lg px-3 py-2" style={{ backgroundColor: 'var(--color-bg-soft)' }}>
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>{statusText()}</div>
@@ -1613,10 +1883,12 @@ function CatanGame() {
             </div>
           </div>
 
-          {playerIds.map(renderPlayerPanel)}
-        </aside>
+          <div className="order-5 flex flex-col gap-3">
+            {playerIds.map(renderPlayerPanel)}
+          </div>
+        </div>
 
-        <main className="order-1 flex min-h-[520px] flex-1 flex-col items-center justify-center gap-4 lg:order-2">
+        <main className="order-2 flex flex-1 flex-col items-center justify-start gap-3 lg:sticky lg:top-4 lg:self-start">
           <div className="catan-board-shell">
             {renderBoard()}
           </div>
@@ -1629,17 +1901,18 @@ function CatanGame() {
               {(() => {
                 const devTotal = Object.values(human.devCards).reduce((a, b) => a + b, 0)
                   + Object.values(human.newDevCards).reduce((a, b) => a + b, 0);
-                return devTotal > 0 ? <CardStack variant="dev" count={devTotal} label="Dev" /> : null;
+                const devNew = Object.entries(human.newDevCards).filter(([card]) => card !== 'victoryPoint').reduce((sum, [, count]) => sum + count, 0);
+                return devTotal > 0 ? <CardStack variant="dev" count={devTotal} label="Dev" title={devNew > 0 ? `${devTotal} development cards (${devNew} bought this turn, playable next turn)` : `${devTotal} development cards`} /> : null;
               })()}
             </div>
           </div>
         </main>
 
-        <aside className="order-3 flex w-full flex-col gap-3 lg:w-[330px]">
-          <div className="catan-panel p-4">
+        <div className="contents lg:order-3 lg:flex lg:w-[330px] lg:flex-col lg:gap-3">
+          <div className="catan-panel order-3 p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <h2 className="text-lg font-bold" style={{ color: 'var(--color-text-primary)' }}>Actions</h2>
-              <button className="catan-tool-btn px-3" onClick={() => setConfirmNew(true)}>New</button>
+              <button className="catan-tool-btn px-3" onClick={() => setConfirmNew({ config: undefined })}>New</button>
             </div>
             <div className="catan-vp-indicator mb-3">
               <span className="catan-vp-label">Your VP</span>
@@ -1652,6 +1925,7 @@ function CatanGame() {
             {renderActionButtons()}
           </div>
 
+          <div className="order-6 flex flex-col gap-3">
           <div className="catan-panel p-4">
             <div className="catan-panel-label mb-2">Game Log</div>
             <div className="catan-log-feed" ref={logEndRef}>
@@ -1772,8 +2046,10 @@ function CatanGame() {
               </div>
             )}
           </div>
-        </aside>
+          </div>
+        </div>
       </div>
+      {renderMobileStrip()}
     </div>
   );
 }

@@ -17,3 +17,9 @@ export function decodeMatch(snapshot) {
   board.getLegalMoves();
   return { board, ui: snapshot.ui };
 }
+// A saved move keeps only gameplay fields: AI search results carry training
+// metadata (underscore-prefixed, e.g. _rootVisits/_legalMoves) that is neither
+// part of the portable match format nor needed to resume.
+export const persistableMove = move => move && typeof move === 'object'
+  ? Object.fromEntries(Object.entries(move).filter(([key]) => !key.startsWith('_')))
+  : move ?? null;

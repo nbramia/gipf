@@ -9,8 +9,11 @@ import CatanBoard from '../../src/games/catan/CatanBoard.js';
 import { CATAN_RULESETS } from '../../src/games/catan/catanRulesets.js';
 import { MCTS, applyMove } from '../../src/games/catan/engine/mcts.js';
 
+// Simulations opt in to the engine's round cap so every game terminates.
+CatanBoard.roundLimit = 100;
+
 const SIMS = 24;
-// High enough to let the engine's MAX_GAME_TURNS (100) safety net fire even in
+// High enough to let the opt-in round cap (CatanBoard.roundLimit, 100) fire even in
 // move-heavy 5-6 player games (~50 moves/turn) before this cap is hit, so the
 // audit reflects real termination rather than a premature move-cap cutoff.
 const CAP = 6000;

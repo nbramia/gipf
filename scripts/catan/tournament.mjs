@@ -15,6 +15,9 @@ import { resolve } from 'node:path';
 import CatanBoard from '../../src/games/catan/CatanBoard.js';
 import { MCTS, NNEvaluator, applyMove } from '../../src/games/catan/engine/mcts.js';
 
+// Simulations opt in to the engine's round cap so every game terminates.
+CatanBoard.roundLimit = 100;
+
 // Build an NN evaluator from a model path (e.g. --a-model public/models/catan-value-v1.onnx).
 // onnxruntime-node is imported lazily so a heuristic-only run never loads it.
 async function loadEvaluator(modelPath) {
