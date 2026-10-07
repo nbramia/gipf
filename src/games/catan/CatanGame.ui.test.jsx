@@ -116,3 +116,41 @@ test('a human setup placement can be undone, and the control disappears afterwar
   expect(current().state.players['1'].settlements).toHaveLength(0);
   expect(screen.queryByRole('button', { name: /^Undo/ })).toBeNull();
 });
+
+describe('legacy expansion saves', () => {
+  test('keep their progress but only claim the enforced base rules', async () => {
+    const board = new CatanBoard({ seed: 3, rulesetId: 'seafarers', playerCount: 6, scenarioId: 'new-shores' });
+    seed(board);
+    mount(); await settle();
+    expect(current().state.rulesetId).toBe('seafarers');
+    expect(current().state.playerCount).toBe(6);
+    const panel = screen.getByText('Rules In Play').parentElement;
+    expect(panel.textContent).not.toMatch(/Ships|Gold fields|Pirate ship|Fog/);
+    expect(panel.textContent).toMatch(/Robber on 7/);
+    expect(panel.textContent).toMatch(/preview catalogue entry/);
+    expect(panel.textContent).toMatch(/not played/);
+  });
+});
+
+test('a drag that ends on a target at 1x does not place a piece', async () => {
+  let board;
+  for (let n = 1; n < 60 && !board; n++) {
+    const candidate = new CatanBoard({ seed: n });
+    if (candidate.currentPlayer === 1) board = candidate;
+  }
+  seed(board);
+  mount(); await settle();
+  const target = screen.getAllByRole('button', { name: /^Place a settlement/ })[0];
+  fireEvent.pointerDown(target, { pointerId: 1, pointerType: 'mouse', button: 0, clientX: 100, clientY: 100 });
+  fireEvent.pointerMove(target, { pointerId: 1, pointerType: 'mouse', clientX: 116, clientY: 100 });
+  fireEvent.pointerUp(target, { pointerId: 1, pointerType: 'mouse', clientX: 116, clientY: 100 });
+  fireEvent.click(target);
+  await settle();
+  expect(current().state.phase).toBe('setup-settlement');
+  // A plain tap still places.
+  fireEvent.pointerDown(target, { pointerId: 2, pointerType: 'mouse', button: 0, clientX: 100, clientY: 100 });
+  fireEvent.pointerUp(target, { pointerId: 2, pointerType: 'mouse', clientX: 100, clientY: 100 });
+  fireEvent.click(target);
+  await settle();
+  expect(current().state.phase).toBe('setup-road');
+});

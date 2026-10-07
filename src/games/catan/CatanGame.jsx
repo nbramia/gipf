@@ -472,19 +472,24 @@ function CatanGame() {
   const selectedScenario = selectedRuleset.scenarios?.find(scenario => scenario.id === gameConfig.scenarioId) || getDefaultScenario(selectedRuleset);
   const activeRuleset = getRuleset(board.rulesetId);
   const activeScenario = activeRuleset.scenarios?.find(scenario => scenario.id === board.scenarioId) || getDefaultScenario(activeRuleset);
+  // A match saved from a preview-catalogue entry keeps its players and progress, but only the base
+  // rules are enforced; "Rules In Play" and Rules Help describe what the engine really plays.
+  const legacyCatalog = !isPlayable(activeRuleset);
+  const enforcedRuleset = legacyCatalog ? getRuleset(board.pairedPlayers ? 'base-5-6' : 'base-classic') : activeRuleset;
+  const enforcedScenario = legacyCatalog ? getDefaultScenario(enforcedRuleset) : activeScenario;
 
   // Context handed to the rules assistant so its answers are specific to the
   // ruleset/scenario actually in play.
   const rulesContext = useMemo(() => ({
-    rulesetName: activeRuleset.name,
-    edition: activeRuleset.edition,
-    group: activeRuleset.group,
-    modules: activeRuleset.modules,
-    scenarioName: activeScenario?.name || 'Random Island',
+    rulesetName: enforcedRuleset.name,
+    edition: enforcedRuleset.edition,
+    group: enforcedRuleset.group,
+    modules: enforcedRuleset.modules,
+    scenarioName: enforcedScenario?.name || 'Random Island',
     mapName: board.mapName,
     players: board.playerCount,
     victoryTarget: board.victoryTarget,
-  }), [activeRuleset, activeScenario, board.mapName, board.playerCount, board.victoryTarget]);
+  }), [enforcedRuleset, enforcedScenario, board.mapName, board.playerCount, board.victoryTarget]);
 
   const sendRulesQuestion = useCallback(async () => {
     const question = rulesInput.trim();
@@ -625,11 +630,14 @@ function CatanGame() {
       }, rect.width, rect.height));
       return;
     }
-    if (g.pointers.size === 1 && g.startView && g.startView.k > 1) {
+    if (g.pointers.size === 1 && g.startView) {
       const dx = event.clientX - g.startPoint.x;
       const dy = event.clientY - g.startPoint.y;
+      // A drag at any zoom is not a tap; only a zoomed board also pans.
       if (!g.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
-      if (!g.moved) { g.moved = true; try { el.setPointerCapture(event.pointerId); } catch { /* not capturable */ } }
+      g.moved = true;
+      if (g.startView.k <= 1) return;
+      try { el.setPointerCapture(event.pointerId); } catch { /* not capturable */ }
       setView(clampView({ k: g.startView.k, x: g.startView.x + dx, y: g.startView.y + dy }, rect.width, rect.height));
     }
   };
@@ -2178,10 +2186,15 @@ function CatanGame() {
           <div className="catan-panel p-4">
             <div className="catan-panel-label mb-2">Rules In Play</div>
             <div className="catan-module-list">
-              {activeRuleset.modules.map(module => (
+              {enforcedRuleset.modules.map(module => (
                 <span key={module}>{module}</span>
               ))}
             </div>
+            {legacyCatalog && (
+              <p className="catan-config-note mt-2" role="note">
+                This match was started from a preview catalogue entry ({activeRuleset.name}). Its expansion mechanics are not played; only the rules above are enforced.
+              </p>
+            )}
           </div>
 
           <div className="catan-panel p-4">
@@ -2199,7 +2212,7 @@ function CatanGame() {
             {rulesOpen && (
               <div className="catan-rules-chat mt-2">
                 <p className="catan-rules-context">
-                  Answering about <strong>{activeRuleset.name}</strong> — {activeScenario?.name || 'Random Island'}, {board.playerCount}p, to {board.victoryTarget} VP.
+                  Answering about <strong>{enforcedRuleset.name}</strong> — {enforcedScenario?.name || 'Random Island'}, {board.playerCount}p, to {board.victoryTarget} VP.
                 </p>
                 <div className="catan-rules-transcript" ref={rulesEndRef}>
                   {rulesMessages.length === 0 ? (
