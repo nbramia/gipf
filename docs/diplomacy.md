@@ -26,10 +26,15 @@ variant). Implemented:
 - **All four order types**: hold, move, support (support-hold and support-move), and
   convoy. Armies move across water along a chain of convoying fleets (`hasConvoyPath`
   validates a real fleet chain between origin and destination).
-- **Simultaneous adjudication** of a whole season's orders at once: support strength is
-  tallied, **standoffs** (equal strength) bounce both movers, **support is cut** by an
-  attack on the supporting unit, and a unit moving with superior strength **dislodges** the
-  occupant.
+- **Simultaneous adjudication** of a whole season's orders at once, by Kruijswijk's
+  guess-and-check resolver (`adjudicateMovement`): attack, hold, defend and prevent
+  strengths decide every move; **support is cut** by a foreign attack on the supporter (not
+  by its own power, nor by the unit it is attacking) and is lost when the supporter is
+  dislodged; a unit can never be dislodged with its own power's support. Head-to-head
+  battles, circular movement (any rotation succeeds when unopposed) and convoy chains of any
+  length through fleets of any power are supported; convoy paradoxes follow the Szykman rule.
+  Hold support applies only to units that are not moving. Conformance tests derived from
+  the DATC live in `DiplomacyAdjudication.test.js`.
 - **Dislodgement + retreats** as a distinct phase: a dislodged unit must retreat to an
   empty, adjacent, uncontested province or be disbanded; spring and fall each have their
   own retreat phase.
@@ -39,7 +44,8 @@ variant). Implemented:
 - **Supply-center ownership** changes at the end of fall (occupy a center to capture it),
   feeding the winter build/disband math.
 - **Solo victory at 18 centers** is checked after each adjudication; reaching the configured
-  `maxYears` ends the game with the center leader.
+  `maxYears` ends the game with the center leader, and tied leaders share the victory
+  (`getWinners()`; `winner` is null for a shared result).
 - **Save / restore** via `serializeState` / `fromSerializedState` (a `clone()` round-trips
   through serialization), so an in-progress game survives a reload.
 

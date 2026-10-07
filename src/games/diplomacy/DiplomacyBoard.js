@@ -427,6 +427,261 @@ function phaseAfterMovement(season) {
   return season === 'spring' ? 'fall-orders' : 'winter-build';
 }
 
+// ---------------------------------------------------------------------------
+// Movement adjudication.
+//
+// Implements Lucas Kruijswijk's "guess and check" resolver (The Math of
+// Adjudication): every order's outcome is resolved on demand through strength
+// comparisons (attack / hold / defend / prevent), and a dependency cycle is
+// settled by guessing an outcome, checking it for consistency, and applying the
+// backup rule when no unique consistent outcome exists. Circular movement is
+// the backup rule for cycles of plain moves; convoy paradoxes follow the Szykman
+// rule (the paradoxical convoyed moves fail).
+//
+// `units` maps loc -> {power, type}; `orders` maps loc -> a sanitized order
+// (every unit has one, defaulting to hold). Provinces are compared by base id so
+// split-coast variants contest the same node.
+// ---------------------------------------------------------------------------
+function adjudicateMovement(units, orders) {
+  const locs = Object.keys(units);
+  const locOfProv = {};
+  for (const loc of locs) locOfProv[baseProvince(loc)] = loc;
+  const attackersTo = {};
+  for (const loc of locs) {
+    if (orders[loc].type !== 'move') continue;
+    const prov = baseProvince(orders[loc].to);
+    if (!attackersTo[prov]) attackersTo[prov] = [];
+    attackersTo[prov].push(loc);
+  }
+
+  const UNRESOLVED = 0;
+  const GUESSING = 1;
+  const RESOLVED = 2;
+  const state = {};
+  const result = {};
+  const depList = [];
+
+  const powerOf = loc => units[loc].power;
+
+  function supportersOfMove(loc) {
+    const to = baseProvince(orders[loc].to);
+    return locs.filter(other => {
+      const s = orders[other];
+      return other !== loc && s.type === 'support-move' && baseProvince(s.from) === baseProvince(loc) && baseProvince(s.to) === to;
+    });
+  }
+
+  function supportersOfHold(loc) {
+    return locs.filter(other => {
+      const s = orders[other];
+      return other !== loc && s.type === 'support-hold' && baseProvince(s.target) === baseProvince(loc);
+    });
+  }
+
+  function countSupport(list, excludePower) {
+    return list.filter(l => powerOf(l) !== excludePower && resolve(`s:${l}`)).length;
+  }
+
+  // Fleets that ordered exactly this move's convoy (any power).
+  function convoyFleetsFor(loc) {
+    const from = baseProvince(loc);
+    const to = baseProvince(orders[loc].to);
+    return locs.filter(l => {
+      const c = orders[l];
+      return c.type === 'convoy' && units[l].type === 'fleet' && baseProvince(c.from) === from && baseProvince(c.to) === to;
+    });
+  }
+
+  function chainExists(fleets, from, to) {
+    const fleetSet = new Set(fleets.map(baseProvince));
+    const starts = [...fleetSet].filter(sea => FLEET_ADJACENCY[sea]?.includes(from));
+    const seen = new Set(starts);
+    const queue = [...starts];
+    while (queue.length) {
+      const sea = queue.shift();
+      if (FLEET_ADJACENCY[sea]?.includes(to)) return true;
+      for (const next of FLEET_ADJACENCY[sea] || []) {
+        if (!fleetSet.has(next) || seen.has(next)) continue;
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+    return false;
+  }
+
+  function pathOk(loc) {
+    const order = orders[loc];
+    if (!order.viaConvoy) return true;
+    const from = baseProvince(loc);
+    const to = baseProvince(order.to);
+    const candidates = convoyFleetsFor(loc);
+    if (!chainExists(candidates, from, to)) return false;
+    return chainExists(candidates.filter(l => resolve(`c:${l}`)), from, to);
+  }
+
+  function isHeadToHead(loc, other) {
+    const a = orders[loc];
+    const b = orders[other];
+    return b.type === 'move' && baseProvince(b.to) === baseProvince(loc) && !a.viaConvoy && !b.viaConvoy;
+  }
+
+  function dislodger(loc) {
+    if (orders[loc].type === 'move' && resolve(`m:${loc}`)) return null;
+    for (const n of attackersTo[baseProvince(loc)] || []) {
+      if (n !== loc && resolve(`m:${n}`)) return n;
+    }
+    return null;
+  }
+
+  function isCut(loc) {
+    const order = orders[loc];
+    for (const n of attackersTo[baseProvince(loc)] || []) {
+      if (powerOf(n) === powerOf(loc)) continue;
+      if (order.type === 'support-move' && baseProvince(n) === baseProvince(order.to)) continue;
+      if (!pathOk(n)) continue;
+      return true;
+    }
+    return false;
+  }
+
+  function attackStrength(loc) {
+    const order = orders[loc];
+    if (!pathOk(loc)) return 0;
+    const supporters = supportersOfMove(loc);
+    const d = locOfProv[baseProvince(order.to)];
+    if (d === undefined) return 1 + countSupport(supporters, null);
+    if (orders[d].type === 'move' && !isHeadToHead(loc, d) && resolve(`m:${d}`)) return 1 + countSupport(supporters, null);
+    if (powerOf(d) === powerOf(loc)) return 0;
+    return 1 + countSupport(supporters, powerOf(d));
+  }
+
+  function holdStrength(prov) {
+    const d = locOfProv[prov];
+    if (d === undefined) return 0;
+    if (orders[d].type === 'move') return resolve(`m:${d}`) ? 0 : 1;
+    return 1 + countSupport(supportersOfHold(d), null);
+  }
+
+  function defendStrength(loc) {
+    return 1 + countSupport(supportersOfMove(loc), null);
+  }
+
+  function preventStrength(loc) {
+    const order = orders[loc];
+    if (!pathOk(loc)) return 0;
+    const d = locOfProv[baseProvince(order.to)];
+    if (d !== undefined && isHeadToHead(loc, d) && resolve(`m:${d}`)) return 0;
+    return 1 + countSupport(supportersOfMove(loc), null);
+  }
+
+  function adjudicateMove(loc) {
+    const order = orders[loc];
+    if (!pathOk(loc)) return false;
+    const attack = attackStrength(loc);
+    if (attack === 0) return false;
+    const toProv = baseProvince(order.to);
+    const d = locOfProv[toProv];
+    if (d !== undefined && isHeadToHead(loc, d)) {
+      if (!(attack > defendStrength(d))) return false;
+    } else if (!(attack > holdStrength(toProv))) {
+      return false;
+    }
+    for (const n of attackersTo[toProv] || []) {
+      if (n !== loc && !(attack > preventStrength(n))) return false;
+    }
+    return true;
+  }
+
+  function adjudicate(key) {
+    const loc = key.slice(2);
+    switch (key[0]) {
+      case 'm': return adjudicateMove(loc);
+      case 's': return !isCut(loc) && dislodger(loc) === null;
+      default: return dislodger(loc) === null; // 'c': a convoy holds while its fleet is not dislodged
+    }
+  }
+
+  // Backup rule for a dependency cycle with no unique consistent outcome.
+  // Returns true when it settled at least one order.
+  function backupRule(start) {
+    const cycle = [...new Set(depList.slice(start))];
+    for (const key of cycle) state[key] = UNRESOLVED;
+    depList.length = start;
+    const isConvoyedMove = key => key[0] === 'm' && orders[key.slice(2)].viaConvoy;
+    if (cycle.every(key => key[0] === 'm')) {
+      for (const key of cycle) { state[key] = RESOLVED; result[key] = true; } // circular movement
+      return true;
+    }
+    let any = false;
+    for (const key of cycle) { // Szykman: convoys caught in the paradox fail
+      if (isConvoyedMove(key) || key[0] === 'c') { state[key] = RESOLVED; result[key] = false; any = true; }
+    }
+    return any;
+  }
+
+  function resolve(key) {
+    if (state[key] === RESOLVED) return result[key];
+    if (state[key] === GUESSING) {
+      depList.push(key);
+      return result[key];
+    }
+    const oldDeps = depList.length;
+    result[key] = false;
+    state[key] = GUESSING;
+    const firstResult = adjudicate(key);
+    if (depList.length === oldDeps) {
+      if (state[key] !== RESOLVED) { result[key] = firstResult; state[key] = RESOLVED; }
+      return result[key];
+    }
+    if (depList[oldDeps] !== key) {
+      // Depends on another order's guess: keep a provisional answer only.
+      depList.push(key);
+      result[key] = firstResult;
+      state[key] = UNRESOLVED;
+      return firstResult;
+    }
+    // Depends on its own guess: test the opposite guess.
+    for (const dep of depList.slice(oldDeps)) state[dep] = UNRESOLVED;
+    depList.length = oldDeps;
+    result[key] = true;
+    state[key] = GUESSING;
+    const secondResult = adjudicate(key);
+    if (firstResult === secondResult) {
+      for (const dep of depList.slice(oldDeps)) state[dep] = UNRESOLVED;
+      depList.length = oldDeps;
+      result[key] = firstResult;
+      state[key] = RESOLVED;
+      return firstResult;
+    }
+    const settled = backupRule(oldDeps);
+    if (!settled) {
+      state[key] = RESOLVED; // cannot happen for legal orders; guarantees termination
+      result[key] = firstResult;
+      return firstResult;
+    }
+    if (state[key] === RESOLVED) return result[key];
+    state[key] = UNRESOLVED;
+    return resolve(key);
+  }
+
+  const moveSuccess = {};
+  const dislodged = [];
+  const strengths = { move: {}, defense: {} };
+  const cutSupports = [];
+  for (const loc of locs) {
+    if (orders[loc].type === 'move') moveSuccess[loc] = resolve(`m:${loc}`);
+  }
+  for (const loc of locs) {
+    const order = orders[loc];
+    if ((order.type === 'support-hold' || order.type === 'support-move') && isCut(loc)) cutSupports.push(loc);
+    const attacker = dislodger(loc);
+    if (attacker !== null) dislodged.push({ unitLoc: loc, unit: { ...units[loc] }, attackerFrom: attacker });
+    if (order.type === 'move') strengths.move[loc] = attackStrength(loc);
+    strengths.defense[loc] = order.type === 'move' ? 1 : holdStrength(baseProvince(loc));
+  }
+  return { moveSuccess, dislodged, cutSupports, strengths };
+}
+
 export default class DiplomacyBoard {
   static POWERS = POWERS;
   static POWER_NAMES = POWER_NAMES;
@@ -537,6 +792,20 @@ export default class DiplomacyBoard {
       .sort((a, b) => b.centers - a.centers || b.units - a.units || a.power.localeCompare(b.power))[0];
   }
 
+  // Every power tied for the most supply centers (a year-limit tie is shared).
+  getLeaders() {
+    const top = this.getLeader();
+    if (!top) return [];
+    return this.powers.filter(power => this.getSupplyCount(power) === top.centers);
+  }
+
+  // The power(s) that won once the game is over: a single power at 18 centers,
+  // or every tied center leader at the year limit.
+  getWinners() {
+    if (this.phase !== 'game-over' || !this.winningCenters) return [];
+    return this.powers.filter(power => this.getSupplyCount(power) === this.winningCenters);
+  }
+
   isOrdersPhase() {
     return this.phase === 'spring-orders' || this.phase === 'fall-orders';
   }
@@ -610,14 +879,65 @@ export default class DiplomacyBoard {
     return sorted(uniq([...direct, ...convoyTargets]));
   }
 
-  getConvoyTargets(armyLoc) {
+  // True when `fleetLoc` lies in a chain of sea fleets (any power) that carries an
+  // army from `from` to `to`.
+  _convoyRouteIncludes(from, to, fleetLoc) {
+    const seas = Object.entries(this.units)
+      .filter(([loc, u]) => u.type === 'fleet' && isSea(loc))
+      .map(([loc]) => loc);
+    if (!seas.includes(fleetLoc)) return false;
+    const fleetSet = new Set(seas);
+    const fromBase = baseProvince(from);
+    // The fleet lies on a simple route iff two paths that share only the fleet
+    // run from it to the army's origin side and to the destination side. That is
+    // a unit-capacity max-flow of 2 over a node-split graph.
+    const cap = new Map();
+    const edge = (a, b) => {
+      if (!cap.has(a)) cap.set(a, new Map());
+      if (!cap.has(b)) cap.set(b, new Map());
+      cap.get(a).set(b, (cap.get(a).get(b) || 0) + 1);
+      if (!cap.get(b).has(a)) cap.get(b).set(a, 0);
+    };
+    for (const sea of seas) {
+      edge(`${sea}:in`, `${sea}:out`);
+      for (const next of FLEET_ADJACENCY[sea] || []) {
+        if (fleetSet.has(next)) edge(`${sea}:out`, `${next}:in`);
+      }
+      if (FLEET_ADJACENCY[sea]?.includes(fromBase)) edge(`${sea}:out`, 'origin');
+      if (FLEET_ADJACENCY[sea]?.includes(to)) edge(`${sea}:out`, 'goal');
+    }
+    edge('origin', 'sink');
+    edge('goal', 'sink');
+    const source = `${fleetLoc}:out`;
+    let flow = 0;
+    while (flow < 2) {
+      const prev = new Map([[source, null]]);
+      const queue = [source];
+      while (queue.length && !prev.has('sink')) {
+        const node = queue.shift();
+        for (const [next, c] of cap.get(node) || []) {
+          if (c > 0 && !prev.has(next)) { prev.set(next, node); queue.push(next); }
+        }
+      }
+      if (!prev.has('sink')) break;
+      for (let node = 'sink'; prev.get(node) !== null; node = prev.get(node)) {
+        const back = prev.get(node);
+        cap.get(back).set(node, cap.get(back).get(node) - 1);
+        cap.get(node).set(back, cap.get(node).get(back) + 1);
+      }
+      flow++;
+    }
+    return flow === 2;
+  }
+
+  getConvoyTargets(armyLoc, { ownFleetsOnly = false } = {}) {
     const unit = this.units[armyLoc];
     if (!unit || unit.type !== 'army' || !PROVINCES[armyLoc] || PROVINCES[armyLoc].type !== 'coast') return [];
-    // Only the army's OWN fleets can be relied on to convoy it — you can't order
-    // an enemy's (or an uncommitted neutral's) fleet to carry your army, so a
-    // convoy route through someone else's fleet isn't a move this power can make.
+    // Any power's fleets can form a route (a foreign fleet may be ordered to
+    // convoy, though it need not cooperate); `ownFleetsOnly` restricts it to
+    // routes the army's own power fully controls.
     const fleetSeas = Object.entries(this.units)
-      .filter(([, candidate]) => candidate.type === 'fleet' && candidate.power === unit.power)
+      .filter(([, candidate]) => candidate.type === 'fleet' && (!ownFleetsOnly || candidate.power === unit.power))
       .map(([loc]) => loc)
       .filter(isSea);
     if (fleetSeas.length === 0) return [];
@@ -648,10 +968,10 @@ export default class DiplomacyBoard {
     return sorted(uniq(targets));
   }
 
-  hasConvoyPath(from, to, ordersByLoc = null) {
+  hasConvoyPath(from, to, ordersByLoc = null, excludeLoc = null) {
     if (!PROVINCES[from] || !PROVINCES[to] || PROVINCES[from].type !== 'coast' || PROVINCES[to].type !== 'coast') return false;
     const convoyFleets = Object.entries(this.units)
-      .filter(([loc, unit]) => unit.type === 'fleet' && isSea(loc))
+      .filter(([loc, unit]) => unit.type === 'fleet' && isSea(loc) && loc !== excludeLoc)
       .filter(([loc]) => {
         if (!ordersByLoc) return true;
         const order = ordersByLoc[loc];
@@ -689,7 +1009,7 @@ export default class DiplomacyBoard {
     }
     if (!includeSupport) return orders;
 
-    const adjacentOccupied = sorted(Object.keys(this.units).filter(target => target !== loc && this.canSupport(unit.type, loc, target)));
+    const adjacentOccupied = sorted(Object.keys(this.units).filter(target => target !== loc && this.canSupport(unit.type, loc, baseProvince(target))));
     for (const target of adjacentOccupied) {
       orders.push({ type: 'support-hold', unitLoc: loc, target });
     }
@@ -707,10 +1027,14 @@ export default class DiplomacyBoard {
     const seenSupport = new Set();
     for (const [from, movingUnit] of Object.entries(this.units)) {
       if (from === loc) continue;
-      for (const to of this.getMoveTargets(from, { includeConvoys: false })) {
+      // A convoyed army may be supported into its destination too.
+      for (const to of this.getMoveTargets(from, { includeConvoys: true })) {
         const toBase = baseProvince(to);
         if (toBase === baseProvince(from) || !this.canSupport(unit.type, loc, toBase)) continue;
-        if (!this.canUnitMove(movingUnit.type, from, to)) continue;
+        if (!this.canUnitMove(movingUnit.type, from, to, { viaConvoy: movingUnit.type === 'army' })) continue;
+        // A fleet cannot both support and convoy: a convoyed move that needs this
+        // very fleet cannot be supported by it (DATC 6.D.31).
+        if (movingUnit.type === 'army' && !adjacencyFor('army', from).includes(toBase) && !this.hasConvoyPath(baseProvince(from), toBase, null, loc)) continue;
         const key = `${from}|${toBase}`;
         if (seenSupport.has(key)) continue;
         seenSupport.add(key);
@@ -719,11 +1043,12 @@ export default class DiplomacyBoard {
     }
 
     if (unit.type === 'fleet' && isSea(loc) && includeConvoys) {
+      // A fleet may convoy any army whose route (through fleets of any power)
+      // passes through this sea, however many fleets the route spans.
       for (const [from, movingUnit] of Object.entries(this.units)) {
-        if (movingUnit.type !== 'army' || !FLEET_ADJACENCY[loc]?.includes(from)) continue;
-        for (const to of ALL_PROVINCES) {
-          if (to === from || !isLandOrCoast(to) || !FLEET_ADJACENCY[loc]?.includes(to)) continue;
-          orders.push({ type: 'convoy', unitLoc: loc, from, to });
+        if (movingUnit.type !== 'army') continue;
+        for (const to of this.getConvoyTargets(from)) {
+          if (this._convoyRouteIncludes(from, to, loc)) orders.push({ type: 'convoy', unitLoc: loc, from, to });
         }
       }
     }
@@ -974,7 +1299,7 @@ export default class DiplomacyBoard {
     const plans = [];
     for (const armyLoc of this.getUnitLocations(power)) {
       if (this.units[armyLoc].type !== 'army') continue;
-      for (const t of this.getConvoyTargets(armyLoc)) {
+      for (const t of this.getConvoyTargets(armyLoc, { ownFleetsOnly: true })) {
         if (plans.length >= maxPlans) break;
         const base = baseProvince(t);
         if (!PROVINCES[base]?.supply || this.supplyCenters[base] === power) continue;
@@ -1360,9 +1685,12 @@ export default class DiplomacyBoard {
         if (!this.canUnitMove(unit.type, order.unitLoc, to, { viaConvoy })) return null;
         return { type: 'move', unitLoc: order.unitLoc, to, viaConvoy };
       }
-      case 'support-hold':
-        if (!this.units[order.target] || !this.canSupport(unit.type, order.unitLoc, order.target)) return null;
-        return { type: 'support-hold', unitLoc: order.unitLoc, target: order.target };
+      case 'support-hold': {
+        // Support depends on reaching the province, not on the occupied coast.
+        const targetLoc = this.unitLocAt(baseProvince(order.target));
+        if (!targetLoc || targetLoc === order.unitLoc || !this.canSupport(unit.type, order.unitLoc, baseProvince(targetLoc))) return null;
+        return { type: 'support-hold', unitLoc: order.unitLoc, target: targetLoc };
+      }
       case 'support-move': {
         const mover = this.units[order.from];
         if (!mover || !this.canSupport(unit.type, order.unitLoc, order.to)) return null;
@@ -1371,39 +1699,13 @@ export default class DiplomacyBoard {
       }
       case 'convoy':
         if (unit.type !== 'fleet' || !isSea(order.unitLoc) || !this.units[order.from] || this.units[order.from].type !== 'army') return null;
-        if (!FLEET_ADJACENCY[order.unitLoc]?.includes(order.from) || !isLandOrCoast(order.to)) return null;
+        // A convoy may span several fleets, so the fleet need not border either
+        // endpoint; the move only succeeds if a complete chain of fleets orders it.
+        if (PROVINCES[order.from]?.type !== 'coast' || PROVINCES[order.to]?.type !== 'coast' || order.to === order.from) return null;
         return { type: 'convoy', unitLoc: order.unitLoc, from: order.from, to: order.to };
       default:
         return null;
     }
-  }
-
-  // BFS a convoy route from `from` to `to` using only fleets that ordered this
-  // exact convoy and survived adjudication (not in `dislodgedLocs`). Used to
-  // fail a convoyed move whose convoying fleet(s) were dislodged.
-  _convoyPathSurvives(from, to, validOrders, dislodgedLocs) {
-    const convoyFleets = Object.entries(this.units)
-      .filter(([loc, unit]) => unit.type === 'fleet' && isSea(loc) && !dislodgedLocs.has(loc))
-      .filter(([loc]) => {
-        const order = validOrders[loc];
-        return order?.type === 'convoy' && order.from === from && order.to === to;
-      })
-      .map(([loc]) => loc);
-    const fleetSet = new Set(convoyFleets);
-    const starts = convoyFleets.filter(sea => FLEET_ADJACENCY[sea]?.includes(from));
-    if (starts.length === 0) return false;
-    const seen = new Set(starts);
-    const queue = [...starts];
-    while (queue.length) {
-      const sea = queue.shift();
-      if (FLEET_ADJACENCY[sea]?.includes(to)) return true;
-      for (const next of FLEET_ADJACENCY[sea] || []) {
-        if (!fleetSet.has(next) || seen.has(next)) continue;
-        seen.add(next);
-        queue.push(next);
-      }
-    }
-    return false;
   }
 
   // Coast-aware adjacency expansion for retreat option generation. Mirrors the
@@ -1427,160 +1729,14 @@ export default class DiplomacyBoard {
 
   _adjudicate(ordersByLoc) {
     const validOrders = { ...ordersByLoc };
-    for (const [loc, order] of Object.entries(validOrders)) {
-      if (order.type === 'move' && order.viaConvoy && !this.hasConvoyPath(order.unitLoc, order.to, validOrders)) {
-        validOrders[loc] = { type: 'hold', unitLoc: loc, failedConvoy: true };
-      }
-    }
+    const { moveSuccess, dislodged, cutSupports, strengths } = adjudicateMovement(this.units, validOrders);
 
-    // Conflicts resolve per base province: two fleets aiming at different coasts
-    // of the same split province still contest the one node. Targets are grouped
-    // by base id; occupant lookups go through unitAt/unitLocAt.
-    const attacksByTarget = {};
-    for (const [loc, order] of Object.entries(validOrders)) {
-      if (order.type !== 'move') continue;
-      const targetBase = baseProvince(order.to);
-      if (!attacksByTarget[targetBase]) attacksByTarget[targetBase] = [];
-      attacksByTarget[targetBase].push(loc);
-    }
-
-    const cutSupports = new Set();
-    for (const [loc, order] of Object.entries(validOrders)) {
-      if (order.type !== 'support-hold' && order.type !== 'support-move') continue;
-      const attacks = attacksByTarget[baseProvince(loc)] || [];
-      for (const attackerLoc of attacks) {
-        const attack = validOrders[attackerLoc];
-        if (!attack) continue;
-        if (order.type === 'support-move' && baseProvince(attackerLoc) === baseProvince(order.to)) continue;
-        cutSupports.add(loc);
-      }
-    }
-
-    const moveStrength = {};
-    const defenseStrength = {};
-    for (const [loc, unit] of Object.entries(this.units)) {
-      defenseStrength[loc] = 1;
-      if (validOrders[loc]?.type === 'move') moveStrength[loc] = 1;
-    }
-
-    for (const [loc, order] of Object.entries(validOrders)) {
-      if (cutSupports.has(loc)) continue;
-      if (order.type === 'support-hold' && this.units[order.target]) {
-        defenseStrength[order.target] = (defenseStrength[order.target] || 1) + 1;
-      }
-      if (order.type === 'support-move' && this.units[order.from] && validOrders[order.from]?.type === 'move'
-        && baseProvince(validOrders[order.from].to) === baseProvince(order.to)) {
-        moveStrength[order.from] = (moveStrength[order.from] || 1) + 1;
-      }
-    }
-
-    const moveSuccess = {};
-    const handledHeadToHead = new Set();
-    for (const [loc, order] of Object.entries(validOrders)) {
-      if (order.type !== 'move') continue;
-      moveSuccess[loc] = false;
-    }
-
-    for (const [loc, order] of Object.entries(validOrders)) {
-      if (order.type !== 'move' || handledHeadToHead.has(loc)) continue;
-      const oppLoc = this.unitLocAt(baseProvince(order.to));
-      const opposing = oppLoc ? validOrders[oppLoc] : null;
-      if (opposing?.type === 'move' && baseProvince(opposing.to) === baseProvince(loc) && !order.viaConvoy && !opposing.viaConvoy) {
-        handledHeadToHead.add(loc);
-        handledHeadToHead.add(oppLoc);
-        const aUnit = this.units[loc];
-        const bUnit = this.units[oppLoc];
-        const a = moveStrength[loc] || 1;
-        const b = moveStrength[oppLoc] || 1;
-        if (a > b && aUnit.power !== bUnit.power) moveSuccess[loc] = true;
-        if (b > a && bUnit.power !== aUnit.power) moveSuccess[oppLoc] = true;
-      }
-    }
-
-    let changed = true;
-    let guard = 0;
-    while (changed && guard < 12) {
-      changed = false;
-      guard++;
-      for (const [target, attackers] of Object.entries(attacksByTarget)) {
-        const active = attackers.filter(loc => !handledHeadToHead.has(loc));
-        if (active.length === 0) continue;
-        const ranked = active
-          .map(loc => ({ loc, strength: moveStrength[loc] || 1 }))
-          .sort((a, b) => b.strength - a.strength);
-        const best = ranked[0];
-        if (!best || (ranked[1] && ranked[1].strength === best.strength)) {
-          for (const attacker of active) {
-            if (moveSuccess[attacker] !== false) {
-              moveSuccess[attacker] = false;
-              changed = true;
-            }
-          }
-          continue;
-        }
-
-        const occupantLoc = this.unitLocAt(target);
-        const occupant = occupantLoc ? this.units[occupantLoc] : undefined;
-        let succeeds = false;
-        if (!occupant) {
-          succeeds = true;
-        } else {
-          const occupantOrder = validOrders[occupantLoc];
-          const occupantLeaves = occupantOrder?.type === 'move' && moveSuccess[occupantLoc] === true;
-          const attackerPower = this.units[best.loc].power;
-          if (occupant.power === attackerPower) {
-            succeeds = occupantLeaves;
-          } else if (occupantLeaves) {
-            succeeds = true;
-          } else {
-            succeeds = best.strength > (defenseStrength[occupantLoc] || 1);
-          }
-        }
-
-        for (const attacker of active) {
-          const next = attacker === best.loc ? succeeds : false;
-          if (moveSuccess[attacker] !== next) {
-            moveSuccess[attacker] = next;
-            changed = true;
-          }
-        }
-      }
-    }
-
-    // Convoy disruption: a convoyed move only succeeds if a convoy path survives
-    // through fleets that ordered the convoy AND are not themselves dislodged.
-    // _adjudicate's up-front hasConvoyPath check (above) uses all ordered fleets,
-    // so re-check here against the fleets that survive adjudication and fail any
-    // convoyed move whose route is now broken. The army falls back to a hold.
-    const dislodgedLocs = new Set();
-    for (const [loc, unit] of Object.entries(this.units)) {
-      const order = validOrders[loc];
-      if (order?.type === 'move' && moveSuccess[loc]) continue;
-      const attacked = Object.entries(validOrders)
-        .some(([from, attack]) => attack.type === 'move' && baseProvince(attack.to) === baseProvince(loc) && moveSuccess[from] && this.units[from].power !== unit.power);
-      if (attacked) dislodgedLocs.add(loc);
-    }
-    for (const [loc, order] of Object.entries(validOrders)) {
-      if (order.type !== 'move' || !order.viaConvoy || !moveSuccess[loc]) continue;
-      if (!this._convoyPathSurvives(order.unitLoc, order.to, validOrders, dislodgedLocs)) {
-        moveSuccess[loc] = false;
-      }
-    }
-
-    const dislodged = [];
+    const dislodgedLocs = new Set(dislodged.map(entry => entry.unitLoc));
     const newUnits = {};
     for (const [loc, unit] of Object.entries(this.units)) {
-      const order = validOrders[loc];
-      if (order?.type === 'move' && moveSuccess[loc]) continue;
-      const attackLoc = Object.entries(validOrders)
-        .find(([from, attack]) => attack.type === 'move' && baseProvince(attack.to) === baseProvince(loc) && moveSuccess[from] && this.units[from].power !== unit.power)?.[0];
-      if (attackLoc) {
-        dislodged.push({ unitLoc: loc, unit: { ...unit }, attackerFrom: attackLoc });
-      } else {
-        newUnits[loc] = { ...unit };
-      }
+      if (validOrders[loc]?.type === 'move' && moveSuccess[loc]) continue;
+      if (!dislodgedLocs.has(loc)) newUnits[loc] = { ...unit };
     }
-
     for (const [loc, order] of Object.entries(validOrders)) {
       if (order.type === 'move' && moveSuccess[loc]) {
         newUnits[order.to] = { ...this.units[loc] };
@@ -1615,7 +1771,7 @@ export default class DiplomacyBoard {
         moveSuccess: { ...moveSuccess },
         cutSupports: [...cutSupports],
         dislodged,
-        strengths: { move: moveStrength, defense: defenseStrength },
+        strengths,
       },
     };
   }
@@ -1670,10 +1826,14 @@ export default class DiplomacyBoard {
       return;
     }
     if (this.year > this.maxYears) {
+      const leaders = this.getLeaders();
       this.phase = 'game-over';
-      this.winner = leader?.power || null;
+      this.winner = leaders.length === 1 ? leaders[0] : null;
       this.winningCenters = leader?.centers || 0;
-      this.lastAction = `${POWER_SHORT_NAMES[this.winner] || 'No power'} leads after ${this.maxYears - 1900} years.`;
+      const names = leaders.map(power => POWER_SHORT_NAMES[power]);
+      this.lastAction = leaders.length > 1
+        ? `${names.join(' and ')} share the lead after ${this.maxYears - 1900} years.`
+        : `${names[0] || 'No power'} leads after ${this.maxYears - 1900} years.`;
     }
   }
 
