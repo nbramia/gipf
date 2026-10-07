@@ -19,6 +19,11 @@ const expectQuiet = () => {
   expect(notice().textContent).toBe('');
   expect(screen.queryByText('Match recovery')).toBeNull();
 };
+// No notice, but retained alternatives keep the quiet recovery entry.
+const expectQuietWithRecovery = () => {
+  expect(notice().textContent).toBe('');
+  expect(screen.getByText('Match recovery')).toBeTruthy();
+};
 test('a normal guest save shows no status or recovery control', () => {
   mount(); expectQuiet();
   fireEvent.click(screen.getByText('Move'));
@@ -46,7 +51,7 @@ test('a normal signed-in save and sync shows no status or recovery control', asy
   expect(JSON.parse(localStorage.getItem('yinshMatchSync:v1')).baseline.state.turn).toBe(9);
   // Every write stages older positions in recovery; that history is not offered.
   expect(JSON.parse(localStorage.getItem('yinshMatchRecovery:v1')).alternatives).toContainEqual(sample(1));
-  expectQuiet();
+  expectQuietWithRecovery();
 });
 test('a conflict exposes the recovery dialog alongside the choice', () => {
   localStorage.setItem('yinshMatch:v1', JSON.stringify(sample(1)));
@@ -155,7 +160,7 @@ test('storage conflict pauses the game and exposes the other tab choice', async 
   await screen.findByText('Turn 2');
   expect(notice().textContent).toMatch(/Choice saved/);
   fireEvent.click(screen.getByText('Move'));
-  expectQuiet();
+  expectQuietWithRecovery();
 });
 test('offline edits retry from persisted account baseline', async () => {
   jest.useFakeTimers();
@@ -277,7 +282,7 @@ test('non-JSON 502 backs off, including edit/reconnect events, then recovers', a
   global.fetch.mockImplementation((_url, init) => ok(JSON.parse(init.body).action === 'read' ? { revision: 0, profile: {} } : { revision: 1 }));
   await advance(1000);
   expect(requests('write')).toHaveLength(1);
-  expectQuiet();
+  expectQuietWithRecovery();
 });
 
 test('unsupported cloud is retained, pauses automatic reads, and requires explicit replacement', async () => {
@@ -342,7 +347,7 @@ test('a newer recovery copy is offered, restored, queued and synced with the exi
   await waitFor(() => expect(requests('write')).toHaveLength(1));
   expect(requests('write')[0].domains.match).toEqual(newer);
   await screen.findByText('Turn 2');
-  expectQuiet();
+  expectQuietWithRecovery();
 });
 
 test('corrupt recovery can be repaired by a conflict choice without losing its raw bytes', async () => {
@@ -405,4 +410,12 @@ test.each(['chess', 'yinsh', 'zertz', 'catan'])('%s chrome follows stored and li
   localStorage.setItem(`${game}Match:v1`, '{broken');
   render(<MatchBoundary game={game} decode={decode}><Theme /></MatchBoundary>);
   expect(screen.getByRole('alert').closest('.match-chrome.dark')).toBeTruthy();
+});
+test('retained recovery alternatives keep a quiet Match recovery entry with no notice', () => {
+  localStorage.setItem('yinshMatch:v1', JSON.stringify(sample(1)));
+  localStorage.setItem('yinshMatchRecovery:v1', JSON.stringify({ v: 1, alternatives: [sample(0)] }));
+  mount();
+  expectQuietWithRecovery();
+  fireEvent.click(screen.getByText('Match recovery'));
+  expect(screen.getByRole('dialog', { name: 'Match recovery' })).toBeTruthy();
 });
