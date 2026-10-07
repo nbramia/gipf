@@ -64,9 +64,9 @@ test('thread system prompt knows who moved and the legal moves', () => {
 
 test('prompt states the captured piece and who owned it', () => {
   const p = buildPrompt({ ...base, movePlayed: { san: 'Nxe4' }, kind: 'ai-move', mover: 'engine', playerColor: 'w', captured: 'pawn' });
-  assert.match(p, /This move captured the student's pawn on e4\./);
+  assert.match(p, /This move captured the student's pawn\./);
   const q = buildPrompt({ ...base, movePlayed: { san: 'Nxe4' }, kind: 'player-move', mover: 'user', playerColor: 'b', captured: 'knight' });
-  assert.match(q, /captured the engine's knight on e4\./);
+  assert.match(q, /captured the engine's knight\./);
 });
 
 test('prompt says nothing was captured only for a non-capture SAN', () => {
@@ -82,5 +82,5 @@ test('invalid captured values are ignored', () => {
 
 test('thread facts include the captured piece', () => {
   const s = buildThreadSystem({ movePlayed: 'Nxe4', mover: 'engine', playerColor: 'w', captured: 'pawn' });
-  assert.match(s, /captured the student's pawn on e4/);
+  assert.match(s, /captured the student's pawn/);
 });

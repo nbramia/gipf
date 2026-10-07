@@ -84,11 +84,10 @@ function captureNote({ mover, playerColor, captured, promotion, san }) {
   const piece = MATERIAL.includes(captured) ? captured : null;
   const promo = MATERIAL.includes(promotion) ? promotion : null;
   const out = [];
-  const sq = typeof san === 'string' ? (san.match(/x([a-h][1-8])/) || [])[1] : null;
   if (piece) {
     const owner =
       mover === 'engine' ? "the student's" : mover === 'user' ? "the engine's" : "the opponent's";
-    out.push(`This move captured ${owner} ${piece}${sq ? ` on ${sq}` : ''}.`);
+    out.push(`This move captured ${owner} ${piece}.`);
   } else if (typeof san === 'string' && san && !san.includes('x')) {
     out.push('This move captured nothing.');
   }
