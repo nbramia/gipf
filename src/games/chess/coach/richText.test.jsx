@@ -37,4 +37,17 @@ describe('CoachText', () => {
     expect(html('2 * 3 is fine')).toContain('2 * 3 is fine');
     expect(html('')).toBe('');
   });
+
+  test('nested emphasis', () => {
+    expect(html('**A *strong* move**')).toBe('<div><strong>A <em>strong</em> move</strong></div>');
+    expect(html('***x***')).toBe('<div><strong><em>x</em></strong></div>');
+    expect(html('__bold *italic*__')).toBe('<div><strong>bold <em>italic</em></strong></div>');
+    expect(html('**open *never closed**')).not.toContain('<img');
+    expect(html('*a **b** c*')).toContain('<strong>b</strong>');
+  });
+
+  test('HTML inside nested emphasis stays text', () => {
+    const { container } = render(<CoachText text={'**a *<img src=x onerror=1>* b**'} />);
+    expect(container.querySelector('img')).toBeNull();
+  });
 });

@@ -46,4 +46,9 @@ describe('movedPieceNextMoves', () => {
     expect(moves.join(' ')).not.toMatch(/Ne5|Nh5|Nh4/);
     moves.forEach((m) => expect(m.startsWith('N')).toBe(true));
   });
+
+  test('returns no moves after a checking move (no king capture)', () => {
+    const before = 'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/8/PPPP1PPP/RNBQK1NR w KQkq - 2 3';
+    expect(movedPieceNextMoves(before, 'Bxf7+')).toEqual([]);
+  });
 });

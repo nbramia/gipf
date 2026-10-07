@@ -2537,7 +2537,7 @@ function ChessGame() {
                             style={{ color: 'var(--color-text-muted)' }}
                             title="Show this position"
                           >
-                            {Math.ceil(e.ply / 2)}.{e.kind === 'ai-move' ? '..' : ''} {e.san}
+                            {Math.ceil(e.ply / 2)}.{e.ply % 2 === 0 ? '..' : ''} {e.san}
                           </button>
                           {e.label && e.label !== 'engine' && (
                             <span className={`text-xs font-semibold ${TONE_CLASS[e.tone] || ''}`}>
@@ -3054,7 +3054,7 @@ function ChessGame() {
             <div className="flex items-start justify-between p-4 border-b" style={{ borderColor: 'var(--color-border)' }}>
               <div>
                 <h3 className="font-heading text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-                  {Math.ceil(threadEntry.ply / 2)}.{threadEntry.kind === 'ai-move' ? '..' : ''} {threadEntry.san}
+                  {Math.ceil(threadEntry.ply / 2)}.{threadEntry.ply % 2 === 0 ? '..' : ''} {threadEntry.san}
                 </h3>
                 <p className="font-body text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
                   Ask follow-ups — answers are checked against Stockfish live.

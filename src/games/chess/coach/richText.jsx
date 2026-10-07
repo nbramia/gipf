@@ -5,21 +5,52 @@
 
 import React from 'react';
 
-const INLINE = /(\*\*[^*]+\*\*|__[^_]+__|\*[^*\s][^*]*\*|`[^`]+`)/g;
+// Recursive inline parser: `code` (literal), ***both***, **bold** / __bold__,
+// *italic*. Emphasis nests; an unclosed marker stays literal text.
+function loneStar(text, from) {
+  for (let j = from; j < text.length; j += 1) {
+    if (text[j] === '*' && text[j - 1] !== '*' && text[j + 1] !== '*' && !/\s/.test(text[j - 1] || ' ')) return j;
+  }
+  return -1;
+}
 
 function inline(text, keyBase) {
-  return text
-    .split(INLINE)
-    .filter((p) => p !== '')
-    .map((part, i) => {
-      const key = `${keyBase}-${i}`;
-      if (/^\*\*[^*]+\*\*$/.test(part) || /^__[^_]+__$/.test(part)) {
-        return <strong key={key}>{part.slice(2, -2)}</strong>;
-      }
-      if (/^\*[^*\s][^*]*\*$/.test(part)) return <em key={key}>{part.slice(1, -1)}</em>;
-      if (/^`[^`]+`$/.test(part)) return <code key={key}>{part.slice(1, -1)}</code>;
-      return part;
-    });
+  const out = [];
+  let buf = '';
+  let n = 0;
+  const flush = () => {
+    if (buf) out.push(buf);
+    buf = '';
+  };
+  const push = (node) => {
+    flush();
+    out.push(node);
+    n += 1;
+  };
+  let i = 0;
+  while (i < text.length) {
+    const rest = text.slice(i);
+    const key = `${keyBase}-${n}`;
+    let close;
+    if (rest[0] === '`' && (close = text.indexOf('`', i + 1)) > i + 1) {
+      push(<code key={key}>{text.slice(i + 1, close)}</code>);
+      i = close + 1;
+    } else if (rest.startsWith('***') && (close = text.indexOf('***', i + 3)) > i + 3) {
+      push(<strong key={key}><em>{inline(text.slice(i + 3, close), key)}</em></strong>);
+      i = close + 3;
+    } else if ((rest.startsWith('**') || rest.startsWith('__')) && (close = text.indexOf(rest.slice(0, 2), i + 2)) > i + 2) {
+      push(<strong key={key}>{inline(text.slice(i + 2, close), key)}</strong>);
+      i = close + 2;
+    } else if (rest[0] === '*' && rest[1] && !/[\s*]/.test(rest[1]) && (close = loneStar(text, i + 2)) > 0) {
+      push(<em key={key}>{inline(text.slice(i + 1, close), key)}</em>);
+      i = close + 1;
+    } else {
+      buf += text[i];
+      i += 1;
+    }
+  }
+  flush();
+  return out;
 }
 
 const BULLET = /^\s*[-*•]\s+(.*)$/;

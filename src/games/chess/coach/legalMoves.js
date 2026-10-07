@@ -19,12 +19,14 @@ export function movedPieceNextMoves(fenBefore, san) {
   try {
     const game = new Chess(fenBefore);
     const mv = game.move(san);
+    // Handing the move back after a check would let the mover capture the king.
+    if (game.isCheck()) return [];
     const parts = game.fen().split(' ');
     parts[1] = mv.color;
     parts[3] = '-';
     return new Chess(parts.join(' '))
       .moves({ verbose: true })
-      .filter((m) => m.from === mv.to)
+      .filter((m) => m.from === mv.to && m.captured !== 'k')
       .map((m) => m.san);
   } catch (_) {
     return [];

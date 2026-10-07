@@ -23,12 +23,15 @@ const DEFAULT_MODEL = 'claude-haiku-4-5-20251001'; // fast + inexpensive for per
 // ran, minus a margin so we can still answer before the platform kills us.
 const MAX_DURATION_MS = 20000; // keep in sync with vercel.json
 const DEADLINE_MARGIN_MS = 1500;
-const MIN_UPSTREAM_MS = 3000;
 export function upstreamTimeoutMs(startedAt, now = Date.now()) {
-  return Math.max(MIN_UPSTREAM_MS, MAX_DURATION_MS - DEADLINE_MARGIN_MS - (now - startedAt));
+  return MAX_DURATION_MS - DEADLINE_MARGIN_MS - (now - startedAt);
 }
+// When the budget is already spent there is no safe upstream call to make:
+// fail as a timeout (-> 504) instead of scheduling past the platform deadline.
 function upstreamSignal(startedAt) {
-  return AbortSignal.timeout(upstreamTimeoutMs(startedAt));
+  const ms = upstreamTimeoutMs(startedAt);
+  if (ms <= 0) throw Object.assign(new Error('deadline exhausted'), { name: 'TimeoutError' });
+  return AbortSignal.timeout(ms);
 }
 
 const TIMEOUT_CODES = new Set(['UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT']);
@@ -153,7 +156,7 @@ export function buildPrompt(body) {
     );
   }
 
-  const hardNegative = classification === 'mistake' || classification === 'blunder';
+  const hardNegative = ['inaccuracy', 'mistake', 'blunder'].includes(classification);
   const openingNote = hardNegative
     ? ''
     : openingStats

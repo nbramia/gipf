@@ -25,7 +25,8 @@ test('upstream timeout is the remaining deadline with a floor', () => {
   const t0 = 1_000_000;
   assert.equal(upstreamTimeoutMs(t0, t0), 18500); // 20s function - 1.5s margin
   assert.equal(upstreamTimeoutMs(t0, t0 + 2000), 16500); // guard/key time is deducted
-  assert.equal(upstreamTimeoutMs(t0, t0 + 19000), 3000); // floor
+  assert.equal(upstreamTimeoutMs(t0, t0 + 17000), 1500); // never past the margin
+  assert.ok(upstreamTimeoutMs(t0, t0 + 19000) <= 0); // exhausted: caller must 504
 });
 
 const withFetch = (upstream) => async (url, opts) => {
@@ -59,4 +60,42 @@ test('thread upstream timeout returns 504; other failures stay 500', async () =>
   await chess(req({ apiKey: 'k', fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' }), o);
   assert.equal(o.statusCode, 500);
   assert.equal(o.body.error, 'server_error');
+});
+
+// Handler-level: the deadline starts at handler entry, so time spent in the
+// guard / key lookup is deducted from the upstream signal.
+async function runWithClock(guardMs) {
+  const realNow = Date.now;
+  const realTimeout = AbortSignal.timeout;
+  let clock = 5_000_000;
+  const timeouts = [];
+  Date.now = () => clock;
+  AbortSignal.timeout = (ms) => { timeouts.push(ms); return realTimeout.call(AbortSignal, 60000); };
+  let upstreamCalls = 0;
+  globalThis.fetch = async (url) => {
+    if (url === 'https://synthetic.invalid') { clock += guardMs; return { ok: true, json: async () => ({ result: 1 }) }; }
+    upstreamCalls += 1;
+    return { ok: true, json: async () => ({ content: [{ type: 'text', text: 'hi' }] }) };
+  };
+  try {
+    const r = res();
+    await chess(req({ apiKey: 'k', fen: 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1' }), r);
+    return { r, timeouts, upstreamCalls };
+  } finally {
+    Date.now = realNow;
+    AbortSignal.timeout = realTimeout;
+  }
+}
+
+test('upstream signal deducts guard time spent since handler entry', async () => {
+  const { r, timeouts } = await runWithClock(5000);
+  assert.equal(r.statusCode, 200);
+  assert.deepEqual(timeouts.slice(-1), [13500]); // 20000 - 1500 - 5000
+});
+
+test('exhausted budget returns 504 without calling the provider', async () => {
+  const { r, upstreamCalls } = await runWithClock(19000);
+  assert.equal(r.statusCode, 504);
+  assert.equal(r.body.error, 'upstream_timeout');
+  assert.equal(upstreamCalls, 0);
 });

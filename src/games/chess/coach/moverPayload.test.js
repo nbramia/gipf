@@ -24,12 +24,15 @@ describe('buildMovePayload — who moved and legal moves', () => {
     expect(p.playerColor).toBe('b');
   });
 
-  test('carries legal SAN moves for the position (no knight-to-e5 from e4)', () => {
-    const fen = 'rnbqkb1r/pppp1ppp/8/4p3/2B1n3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4';
-    const p = buildMovePayload({ ...args, fenBefore: fen, fenAfter: fen, moverColor: 'w', kind: 'player-move' });
-    expect(p.legalMoves).toContain('Nxe5');
-    expect(p.legalMoves).toContain('O-O');
-    expect(p.legalMovesAfter.length).toBeGreaterThan(0);
+  test('legal moves come from the matching before / after positions', () => {
+    const before = 'rnbqkb1r/pppp1ppp/5n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 0 3';
+    const after = 'rnbqkb1r/pppp1ppp/8/4p3/2B1n3/5N2/PPPP1PPP/RNBQK2R w KQkq - 0 4';
+    const p = buildMovePayload({ ...args, fenBefore: before, fenAfter: after, movePlayedSan: 'Nxe4', moverColor: 'b', kind: 'ai-move' });
+    expect(p.legalMoves).toContain('Nxe4'); // Black to move before
+    expect(p.legalMoves).not.toContain('O-O');
+    expect(p.legalMovesAfter).toContain('O-O'); // White to move after
+    expect(p.legalMovesAfter).toContain('Nxe5');
+    expect(p.legalMovesAfter).not.toContain('Nxe4');
   });
 
   test('keyless templates are unchanged by the extra fields', () => {
