@@ -20,8 +20,10 @@ const Toggle = ({ label, checked, onChange }) => (
   <div className="flex items-center justify-between">
     <span style={{ color: 'var(--color-text-primary)' }}>{label}</span>
     <button
+      type="button"
       onClick={onChange}
       role="switch"
+      aria-label={label}
       aria-checked={checked}
       className="w-10 h-6 rounded-full transition-colors relative"
       style={{ backgroundColor: checked ? 'var(--color-toggle-active)' : 'var(--color-toggle-inactive)' }}
@@ -33,6 +35,68 @@ const Toggle = ({ label, checked, onChange }) => (
     </button>
   </div>
 );
+
+const FOCUSABLE = 'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+// Accessible modal: dialog semantics, initial focus, Tab containment, Escape,
+// inert background, and focus restoration to the opener.
+const Dialog = ({ label, onClose, overlayClass, panelClass, panelStyle, children }) => {
+  const overlayRef = useRef(null);
+  const panelRef = useRef(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
+  useEffect(() => {
+    const overlay = overlayRef.current;
+    const opener = document.activeElement;
+    const siblings = [...overlay.parentNode.children].filter(el => el !== overlay);
+    const saved = siblings.map(el => [el, el.hasAttribute('inert'), el.getAttribute('aria-hidden')]);
+    siblings.forEach(el => { el.setAttribute('inert', ''); el.setAttribute('aria-hidden', 'true'); });
+    const panel = panelRef.current;
+    const first = panel.querySelector(FOCUSABLE);
+    (first || panel).focus();
+    return () => {
+      saved.forEach(([el, hadInert, hidden]) => {
+        if (!hadInert) el.removeAttribute('inert');
+        if (hidden === null) el.removeAttribute('aria-hidden'); else el.setAttribute('aria-hidden', hidden);
+      });
+      if (opener && opener.isConnected && typeof opener.focus === 'function') opener.focus();
+    };
+  }, []);
+
+  const onKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      closeRef.current();
+      return;
+    }
+    if (e.key !== 'Tab') return;
+    const items = [...panelRef.current.querySelectorAll(FOCUSABLE)];
+    if (items.length === 0) { e.preventDefault(); return; }
+    const firstEl = items[0];
+    const lastEl = items[items.length - 1];
+    if (e.shiftKey && (document.activeElement === firstEl || document.activeElement === panelRef.current)) {
+      e.preventDefault(); lastEl.focus();
+    } else if (!e.shiftKey && document.activeElement === lastEl) {
+      e.preventDefault(); firstEl.focus();
+    }
+  };
+
+  return (
+    <div
+      ref={overlayRef}
+      className={overlayClass}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onKeyDown={onKeyDown}
+    >
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-label={label} tabIndex={-1} className={panelClass} style={panelStyle}>
+        {children}
+      </div>
+    </div>
+  );
+};
+
+const closeButtonClass = 'text-2xl font-bold leading-none min-w-[44px] min-h-[44px] flex items-center justify-center';
 
 // --- SVG Helpers ---
 
@@ -119,22 +183,36 @@ const ZertzGame = () => {
     localStorage.setItem('zertzDifficulty', difficulty);
   }, [difficulty]);
 
+  // Undo/redo against the AI moves to the nearest human decision point and
+  // holds AI autoplay there until the human acts, so history is not replayed.
+  const [aiPaused, setAiPaused] = useState(false);
+  const navigateHistory = useCallback((direction) => {
+    const can = () => (direction < 0 ? board.canUndo() : board.canRedo());
+    if (!can()) return;
+    do {
+      if (direction < 0) board.undo(); else board.redo();
+    } while (!twoPlayerMode && board.currentPlayer !== humanPlayer && can());
+    setBoard(board.clone());
+    setAiPaused(!twoPlayerMode && board.currentPlayer !== humanPlayer && board.canRedo());
+    setLastMoveKeys([]);
+  }, [board, twoPlayerMode, humanPlayer, setBoard]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
-        if (board.canUndo()) { board.undo(); setBoard(board.clone()); }
+        navigateHistory(-1);
       }
       if (((e.ctrlKey || e.metaKey) && e.key === 'y') ||
           ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'z')) {
         e.preventDefault();
-        if (board.canRedo()) { board.redo(); setBoard(board.clone()); }
+        navigateHistory(1);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [board]);
+  }, [navigateHistory]);
 
   // --- AI Logic ---
 
@@ -144,6 +222,7 @@ const ZertzGame = () => {
 
     const config = DIFFICULTY_CONFIG[difficulty] || DIFFICULTY_CONFIG.advanced;
     const version = ++stateVersion.current;
+    if (autoPlay) setAiPaused(false);
     setIsAiThinking(true);
     setAiSuggestion(null);
 
@@ -198,6 +277,7 @@ const ZertzGame = () => {
     if (board.gamePhase === 'game-over') return;
     if (isAiThinking) return;
     if (showModal) return;
+    if (aiPaused) return;
     if (board.currentPlayer === humanPlayer) return;
 
     aiTimerRef.current = setTimeout(() => {
@@ -207,7 +287,7 @@ const ZertzGame = () => {
     return () => {
       if (aiTimerRef.current) clearTimeout(aiTimerRef.current);
     };
-  }, [board.gamePhase, board.currentPlayer, twoPlayerMode, humanPlayer, isAiThinking, showModal, getAISuggestion]);
+  }, [board.gamePhase, board.currentPlayer, twoPlayerMode, humanPlayer, isAiThinking, showModal, aiPaused, getAISuggestion]);
 
   // --- Derived state ---
   const {
@@ -233,28 +313,60 @@ const ZertzGame = () => {
     aiSuggestion.type === 'capture' ? aiSuggestion.toKey : null
   ) : null;
 
+  const suggestionFromKey = aiSuggestion && aiSuggestion.type === 'capture' ? aiSuggestion.fromKey : null;
+  const suggestionColor = aiSuggestion && aiSuggestion.type === 'place-marble' ? aiSuggestion.color : null;
+  const describeSquare = (key) => {
+    const [q, r] = key.split(',');
+    return `(${q},${r})`;
+  };
+  const suggestionText = (() => {
+    if (!aiSuggestion) return '';
+    if (aiSuggestion.type === 'place-marble') return `AI suggests: place ${MARBLE_LABEL[aiSuggestion.color]} on ${describeSquare(`${aiSuggestion.q},${aiSuggestion.r}`)}`;
+    if (aiSuggestion.type === 'remove-ring') return `AI suggests: remove the ring at ${describeSquare(`${aiSuggestion.q},${aiSuggestion.r}`)}`;
+    if (aiSuggestion.type === 'capture') return `AI suggests: jump the marble at ${describeSquare(aiSuggestion.fromKey)} to ${describeSquare(aiSuggestion.toKey)}`;
+    return '';
+  })();
+
+  const tileLabel = (key, marble, isFreeRing, isPlacement, isJumpTarget, isJumpableMarble) => {
+    const parts = [`Ring ${describeSquare(key)}`, marble ? `${MARBLE_LABEL[marble]} marble` : 'empty'];
+    if (isFreeRing) parts.push('can be removed');
+    if (isPlacement && !marble) parts.push('can be placed on');
+    if (isJumpTarget && !marble) parts.push('jump destination');
+    if (isJumpableMarble) parts.push('can jump');
+    if (jumpingMarble === key) parts.push('selected');
+    return parts.join(', ');
+  };
+
   // --- Handlers ---
 
   const handleHexClick = useCallback((q, r) => {
     if (gamePhase === 'game-over') return;
     if (!isHumanTurn) return; // Block clicks during AI turn
-    setAiSuggestion(null);
+    setAiPaused(false);
     setLastMoveKeys([]);
     board.handleClick(q, r);
     setBoard(board.clone());
+    // Keep a capture hint while its source marble is being selected.
+    if (aiSuggestion && aiSuggestion.type === 'capture' && board.jumpingMarble === aiSuggestion.fromKey && !board.captureStarted) {
+      setAiSuggestion(aiSuggestion);
+    }
     if (board.gamePhase === 'game-over') setShowModal(true);
-  }, [board, gamePhase, isHumanTurn]);
+  }, [board, gamePhase, isHumanTurn, aiSuggestion]);
 
   const handleColorSelect = useCallback((color) => {
     if (!isHumanTurn) return;
-    setAiSuggestion(null);
+    setAiPaused(false);
     setLastMoveKeys([]);
     board.selectMarbleColor(color);
     setBoard(board.clone());
-  }, [board, isHumanTurn]);
+    // Keep a placement hint when the recommended color is chosen.
+    if (aiSuggestion && aiSuggestion.type === 'place-marble' && aiSuggestion.color === color) {
+      setAiSuggestion(aiSuggestion);
+    }
+  }, [board, isHumanTurn, aiSuggestion]);
 
-  const handleUndo = () => { if (board.canUndo()) { board.undo(); setBoard(board.clone()); setLastMoveKeys([]); } };
-  const handleRedo = () => { if (board.canRedo()) { board.redo(); setBoard(board.clone()); setLastMoveKeys([]); } };
+  const handleUndo = () => navigateHistory(-1);
+  const handleRedo = () => navigateHistory(1);
 
   const startNewGame = () => {
     savedMatch?.startNew();
@@ -263,6 +375,7 @@ const ZertzGame = () => {
     setShowModal(false);
     setAiSuggestion(null);
     setIsAiThinking(false);
+    setAiPaused(false);
     setLastMoveKeys([]);
     if (aiTimerRef.current) clearTimeout(aiTimerRef.current);
     if (!twoPlayerMode) {
@@ -317,10 +430,12 @@ const ZertzGame = () => {
         <span className="text-[10px] font-semibold uppercase tracking-widest block mb-2" style={{ color: 'var(--color-text-muted)' }}>
           AI Difficulty
         </span>
-        <div className="flex gap-1">
+        <div className="flex gap-1" role="group" aria-label="AI difficulty">
           {['easy', 'advanced', 'expert'].map(d => (
             <button
               key={d}
+              type="button"
+              aria-pressed={difficulty === d}
               onClick={() => { invalidateAI(); setAiFallback(false); setDifficulty(d); }}
               className="flex-1 py-1.5 px-2 rounded text-xs font-semibold capitalize transition-all"
               style={{
@@ -359,7 +474,7 @@ const ZertzGame = () => {
 
     return (
       <div
-        className="rounded-lg p-4 transition-all"
+        className="rounded-lg p-3 md:p-4 transition-all"
         style={{
           backgroundColor: 'var(--color-bg-panel)',
           border: isActive ? '2px solid var(--color-player-active)' : '1px solid var(--color-border-panel)',
@@ -438,7 +553,7 @@ const ZertzGame = () => {
                       className="w-[10px] h-[10px] rounded-full transition-colors"
                       style={{
                         backgroundColor: filled ? `var(--color-marble-${color})` : 'var(--color-capture-progress-empty)',
-                        border: filled ? `1px solid var(--color-marble-${color}-stroke)` : '1px solid transparent',
+                        border: filled ? `1px solid var(--color-marble-${color}-stroke)` : '1px solid var(--color-capture-progress-border)',
                       }}
                     />
                   ))}
@@ -473,7 +588,7 @@ const ZertzGame = () => {
             className="text-[10px] tabular-nums"
             style={{ color: 'var(--color-text-muted)', fontFamily: 'Outfit, sans-serif' }}
           >
-            {board.getPoolTotal()} remaining
+            {fromCaptures ? 'Pool empty · use your captures' : `${board.getPoolTotal()} remaining`}
           </span>
         </div>
         <div className="flex gap-2 justify-center">
@@ -492,7 +607,7 @@ const ZertzGame = () => {
                 }`}
                 style={{
                   backgroundColor: isSelected ? 'var(--color-bg-accent)' : 'transparent',
-                  border: isSelected ? '2px solid var(--color-player-active)' : '2px solid transparent',
+                  border: isSelected ? '2px solid var(--color-player-active)' : (suggestionColor === color ? '2px dashed var(--color-jump-target-stroke)' : '2px solid transparent'),
                 }}
               >
                 <svg width="28" height="28" viewBox="0 0 28 28">
@@ -538,13 +653,13 @@ const ZertzGame = () => {
 
       {/* ---- Modal ---- */}
       {showModal && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-          onClick={(e) => { if (e.target === e.currentTarget) setShowModal(false); }}
+        <Dialog
+          label={gamePhase === 'game-over' ? 'Game over' : 'Welcome to ZERTZ'}
+          onClose={() => setShowModal(false)}
+          overlayClass="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+          panelClass="p-8 rounded-lg shadow-2xl max-w-md w-full mx-4 border bg-[var(--color-bg-modal)] border-[var(--color-border-panel)] max-h-[92vh] overflow-y-auto"
         >
-          <div
-            className="p-8 rounded-lg shadow-2xl max-w-md w-full mx-4 border bg-[var(--color-bg-modal)] border-[var(--color-border-panel)]"
-          >
+          <div>
             <h2
               className="text-xl font-bold text-center mb-6"
               style={{ color: 'var(--color-text-primary)' }}
@@ -568,16 +683,18 @@ const ZertzGame = () => {
             </div>
             {renderSettingsToggles()}
           </div>
-        </div>
+        </Dialog>
       )}
 
       {/* ---- Settings Panel ---- */}
       {showSettings && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-50"
-          onClick={(e) => { if (e.target === e.currentTarget) setShowSettings(false); }}
+        <Dialog
+          label="Settings"
+          onClose={() => setShowSettings(false)}
+          overlayClass="fixed inset-0 bg-black bg-opacity-50 z-50"
+          panelClass="settings-panel fixed right-0 top-0 bottom-0 w-80 max-w-full shadow-2xl overflow-y-auto border-l bg-[var(--color-bg-panel)] border-[var(--color-border-panel)]"
         >
-          <div className="settings-panel fixed right-0 top-0 bottom-0 w-80 shadow-2xl overflow-y-auto border-l bg-[var(--color-bg-panel)] border-[var(--color-border-panel)]">
+          <div>
             <div
               className="flex items-center justify-between p-6 border-b"
               style={{ borderColor: 'var(--color-border-panel)' }}
@@ -589,8 +706,10 @@ const ZertzGame = () => {
                 Settings
               </h2>
               <button
+                type="button"
                 onClick={() => setShowSettings(false)}
-                className="text-2xl font-bold"
+                aria-label="Close settings"
+                className={closeButtonClass}
                 style={{ color: 'var(--color-text-secondary)' }}
               >
                 &times;
@@ -598,31 +717,32 @@ const ZertzGame = () => {
             </div>
             <div className="p-6">{renderSettingsToggles()}</div>
           </div>
-        </div>
+        </Dialog>
       )}
 
       {/* Rules Modal */}
       {showRules && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]"
-          onClick={(e) => { if (e.target === e.currentTarget) setShowRules(false); }}
+        <Dialog
+          label="How to Play ZERTZ"
+          onClose={() => setShowRules(false)}
+          overlayClass="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]"
+          panelClass="rounded-lg shadow-2xl max-w-2xl w-full mx-4 border max-h-[85vh] flex flex-col overflow-hidden bg-[var(--color-bg-modal)] border-[var(--color-border-panel)]"
         >
-          <div
-            className="p-6 rounded-lg shadow-2xl max-w-2xl w-full mx-4 border max-h-[85vh] overflow-y-auto bg-[var(--color-bg-modal)] border-[var(--color-border-panel)]"
-          >
-            <div className="flex items-center justify-between mb-5 sticky top-0 pb-3 -mt-1 -mx-1 px-1 pt-1" style={{ backgroundColor: 'var(--color-bg-modal)' }}>
+            <div className="flex items-center justify-between px-6 pt-4 pb-3 shrink-0 border-b" style={{ borderColor: 'var(--color-border-panel)' }}>
               <h2 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
                 How to Play ZERTZ
               </h2>
               <button
+                type="button"
                 onClick={() => setShowRules(false)}
-                className="text-2xl font-bold leading-none"
+                aria-label="Close rules"
+                className={closeButtonClass}
                 style={{ color: 'var(--color-text-secondary)' }}
               >
                 &times;
               </button>
             </div>
-            <div className="space-y-6 text-sm leading-relaxed" style={{ color: 'var(--color-text-secondary)' }}>
+            <div className="space-y-6 text-sm leading-relaxed overflow-y-auto px-6 pt-4 pb-6" style={{ color: 'var(--color-text-secondary)' }}>
 
               {/* Overview */}
               <div>
@@ -669,7 +789,7 @@ const ZertzGame = () => {
               {/* Placing a Marble */}
               <div>
                 <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Turn Option 1: Place a Marble</h3>
-                <p className="mb-3">If no captures are available (see below), you must place a marble. This has two steps:</p>
+                <p className="mb-3">If you have no jump available (see Forced Captures), you must place a marble. This has two steps:</p>
 
                 {/* Placing diagram */}
                 <div className="flex justify-center my-3">
@@ -706,7 +826,7 @@ const ZertzGame = () => {
 
                 <ol className="list-decimal pl-5 space-y-1">
                   <li><strong style={{ color: 'var(--color-text-primary)' }}>Choose a marble color</strong> from the shared pool and place it on any empty ring.</li>
-                  <li><strong style={{ color: 'var(--color-text-primary)' }}>Remove one unoccupied edge ring</strong> from the board. An edge ring is one that sits on the border of the board (connected to the void on at least one side) and has no marble on it.</li>
+                  <li><strong style={{ color: 'var(--color-text-primary)' }}>Remove one free ring</strong> from the board. A free ring has no marble on it and can slide out without moving any other ring: at least two adjacent sides of it must face the empty space outside the board. A ring with only one open side cannot be removed.</li>
                 </ol>
                 <p className="mt-2">This means the board gets smaller every turn. Choosing which ring to remove is as important as where you place your marble.</p>
               </div>
@@ -754,7 +874,7 @@ const ZertzGame = () => {
               {/* Multi-jump */}
               <div>
                 <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Multi-Jump Sequences</h3>
-                <p className="mb-3">After a marble lands from a jump, if it can jump again from its new position, it <strong style={{ color: 'var(--color-text-primary)' }}>may continue jumping</strong> in the same turn. Each jump captures another marble. The direction can change between jumps.</p>
+                <p className="mb-3">After a marble lands from a jump, if it can jump again from its new position, it <strong style={{ color: 'var(--color-text-primary)' }}>must continue jumping</strong> in the same turn. Each jump captures another marble. The direction can change between jumps.</p>
 
                 {/* Multi-jump diagram */}
                 <div className="flex justify-center my-3">
@@ -784,7 +904,7 @@ const ZertzGame = () => {
                   </svg>
                 </div>
 
-                <p>Multi-jumps are optional — you may stop after any jump. But if a forced capture is available (see below), you must make at least the first jump.</p>
+                <p>You cannot stop a sequence early: the turn ends only when the jumping marble has no further jump. Only the first jump involves a choice of which marble to move.</p>
               </div>
 
               {/* Forced Captures */}
@@ -793,13 +913,13 @@ const ZertzGame = () => {
                 <div className="rounded-lg p-3 my-2" style={{ backgroundColor: 'var(--color-bg-panel)', border: '1px solid var(--color-border-panel)' }}>
                   <p><strong style={{ color: 'var(--color-text-primary)' }}>Important:</strong> If any marble on the board can make a jump for you, you <strong style={{ color: 'var(--color-text-primary)' }}>must</strong> capture. You cannot choose to place a marble instead. This rule creates tactical depth — sometimes placing a marble sets up a forced capture for your opponent on their next turn.</p>
                 </div>
-                <p className="mt-2">After placing a marble and removing a ring, the game checks if the current player has any available jumps. If so, the player must jump before their turn ends.</p>
+                <p className="mt-2">When a player finishes placing a marble and removing a ring, the turn passes to the opponent. If the opponent has any jump available at the start of that turn, they must jump instead of placing a marble.</p>
               </div>
 
               {/* Isolated Rings */}
               <div>
                 <h3 className="font-bold text-base mb-2" style={{ color: 'var(--color-text-primary)' }}>Isolated Rings</h3>
-                <p className="mb-3">When removing a ring causes part of the board to become disconnected from the main group, all isolated rings are removed. Any marbles sitting on those isolated rings are <strong style={{ color: 'var(--color-text-primary)' }}>captured by the player who caused the isolation</strong>.</p>
+                <p className="mb-3">When removing a ring splits the board into separate groups, a group cut off from the main (largest) group is captured only if <strong style={{ color: 'var(--color-text-primary)' }}>every ring in it holds a marble</strong>. Its rings and marbles are then removed, and the marbles go to the player who made the move. A cut-off group that still has a vacant ring stays on the board; if you later place a marble on its last vacant ring, you capture the whole group.</p>
 
                 {/* Isolation diagram */}
                 <div className="flex justify-center my-3">
@@ -827,7 +947,7 @@ const ZertzGame = () => {
                     <text x="245" y="32" fill="var(--color-accent, #6366f1)" fontSize="14">&#8594;</text>
                   </svg>
                 </div>
-                <p>This can be a powerful tactic — strategically removing a ring to cut off a section of the board and claim all the marbles on it.</p>
+                <p>This can be a powerful tactic — strategically removing a ring to cut off a fully occupied section of the board and claim all the marbles on it.</p>
               </div>
 
               {/* Winning */}
@@ -898,8 +1018,7 @@ const ZertzGame = () => {
               </div>
 
             </div>
-          </div>
-        </div>
+        </Dialog>
       )}
 
       {aiFallback && <p role="status" className="text-sm px-4 py-2">
@@ -924,7 +1043,7 @@ const ZertzGame = () => {
       <div className="flex flex-col items-center pt-3 md:pt-5 shrink-0">
         <Link
           to="/"
-          className="text-[10px] font-semibold uppercase tracking-[0.2em] mb-1 opacity-40 hover:opacity-70 transition-opacity"
+          className="text-sm font-semibold uppercase tracking-[0.15em] whitespace-nowrap inline-flex items-center min-h-[44px] px-3 hover:underline"
           style={{ color: 'var(--color-text-secondary)' }}
         >
           &larr; Games
@@ -959,6 +1078,12 @@ const ZertzGame = () => {
         </div>
       </div>
 
+      {suggestionText && (
+        <p role="status" className="text-sm font-semibold px-4 text-center" style={{ color: 'var(--color-text-primary)' }}>
+          {suggestionText}
+        </p>
+      )}
+
       {/* ---- Main content: 3-column ---- */}
       <div className="flex-1 flex flex-col md:flex-row items-center md:items-start justify-center gap-3 md:gap-5 p-3 md:p-4 w-full max-w-[1200px]">
 
@@ -968,17 +1093,17 @@ const ZertzGame = () => {
         </div>
 
         {/* Center — Board + Pool + Controls */}
-        <div className="flex flex-col items-center gap-3 order-2">
+        <div className="flex flex-col items-center gap-3 order-2 w-full md:w-auto md:flex-1 md:min-w-0 md:max-w-[620px]">
 
           {/* Board container matching Yinsh pattern */}
           <div
-            className="p-3 md:p-5 lg:p-7 rounded-xl shadow-lg"
+            className="p-2 md:p-3 rounded-xl shadow-lg w-full"
             style={{ backgroundColor: 'var(--color-bg-board)' }}
           >
             <svg
-              viewBox={`0 0 ${SVG_SIZE} ${SVG_SIZE}`}
-              className="w-full max-w-[440px] md:max-w-[480px] lg:max-w-[500px]"
-              role="img"
+              viewBox="88 108 424 384"
+              className="w-full h-auto mx-auto block md:max-w-[600px]"
+              role="group"
               aria-label="Zertz game board"
             >
               <defs>
@@ -1031,14 +1156,15 @@ const ZertzGame = () => {
                 const [sx, sy] = axialToScreen(q, r);
                 const cx = CENTER + sx;
                 const cy = CENTER + sy;
-                const isFree = freeRings.includes(key);
+                const isFree = showPossibleMoves && freeRings.includes(key);
                 return (
                   <g
                     key={key}
                     role="button"
                     tabIndex={0}
+                    aria-label={tileLabel(key, marbles[key], freeRings.includes(key), validPlacements.includes(key), jumpTargets.includes(key), availableCaptures.includes(key))}
                     onClick={() => handleHexClick(q, r)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleHexClick(q, r); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleHexClick(q, r); } }}
                     style={{ cursor: 'pointer' }}
                   >
                     <polygon
@@ -1070,7 +1196,7 @@ const ZertzGame = () => {
                 const isJumpTarget = showPossibleMoves && jumpTargets.includes(key);
                 const isJumpable = showPossibleMoves && availableCaptures.includes(key);
                 const isJumping = jumpingMarble === key;
-                const isSuggestion = suggestionKey === key;
+                const isSuggestion = suggestionKey === key || suggestionFromKey === key;
                 const isLastMove = lastMoveKeys.includes(key);
 
                 return (
@@ -1178,8 +1304,8 @@ const ZertzGame = () => {
                 {isAiThinking ? 'Thinking...' : 'AI Suggest'}
               </button>
             )}
-            {/* AI Move — visible in 2-player mode only */}
-            {twoPlayerMode && gamePhase !== 'game-over' && (
+            {/* AI Move — in 2-player mode, or when undo/redo paused the AI's turn */}
+            {(twoPlayerMode || (aiPaused && !isHumanTurn)) && gamePhase !== 'game-over' && (
               <button
                 onClick={() => getAISuggestion(true)}
                 disabled={isAiThinking}
@@ -1198,8 +1324,8 @@ const ZertzGame = () => {
 
           {/* Mobile capture displays */}
           <div className="flex md:hidden gap-2 w-full">
-            <div className="flex-1">{renderCaptureDisplay(1)}</div>
-            <div className="flex-1">{renderCaptureDisplay(2)}</div>
+            <div className="flex-1 min-w-0">{renderCaptureDisplay(1)}</div>
+            <div className="flex-1 min-w-0">{renderCaptureDisplay(2)}</div>
           </div>
         </div>
 
