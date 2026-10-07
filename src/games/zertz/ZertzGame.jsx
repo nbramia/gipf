@@ -124,6 +124,8 @@ const ZertzGame = () => {
   const resumed = savedMatch?.restored;
   const savedUI = resumed?.ui || {};
   const [board, commitBoard] = useState(() => resumed?.board || new ZertzBoard());
+  // True while the board is the one restored from a saved match (undo history is not saved).
+  const [reopened, setReopened] = useState(() => !!resumed);
   const [darkMode, setDarkMode] = useState(() => {
     const saved = localStorage.getItem('zertzDarkMode');
     return saved ? JSON.parse(saved) : false;
@@ -373,6 +375,7 @@ const ZertzGame = () => {
 
   const startNewGame = () => {
     savedMatch?.startNew();
+    setReopened(false);
     board.startNewGame();
     setBoard(board.clone());
     setShowModal(false);
@@ -649,6 +652,8 @@ const ZertzGame = () => {
   };
 
   // Button style (mirrors Yinsh)
+  const undoHintShown = reopened && !board.canUndo() && !board.canRedo() && gamePhase !== 'game-over';
+
   const btnClass = `border-2 border-[var(--color-border-button)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] py-3 px-4 md:py-2 md:px-4 rounded-lg font-semibold transition-colors text-sm min-h-[44px]`;
 
   return (
@@ -1098,6 +1103,47 @@ const ZertzGame = () => {
         {/* Center — Board + Pool + Controls */}
         <div className="flex flex-col items-center gap-3 order-2 w-full md:w-auto md:flex-1 md:min-w-0 md:max-w-[620px]">
 
+          {/* Compact capture summary (phones only; detailed panels stay below) */}
+          <div className="flex md:hidden gap-2 w-full" data-testid="capture-summary">
+            {[1, 2].map(player => {
+              const isActive = currentPlayer === player && gamePhase !== 'game-over';
+              return (
+                <div
+                  key={player}
+                  className="flex-1 min-w-0 rounded-lg px-2 py-1.5 flex items-center justify-between gap-2"
+                  style={{
+                    backgroundColor: 'var(--color-bg-panel)',
+                    border: isActive ? '2px solid var(--color-player-active)' : '1px solid var(--color-border-panel)',
+                  }}
+                  aria-label={`${getPlayerLabel(player)} captures: ${captures[player].white} white, ${captures[player].grey} grey, ${captures[player].black} black`}
+                >
+                  <span
+                    className="text-[10px] font-semibold uppercase tracking-wider truncate"
+                    style={{ color: isActive ? 'var(--color-text-primary)' : 'var(--color-text-muted)' }}
+                  >
+                    {twoPlayerMode ? `P${player}` : getPlayerLabel(player)}
+                  </span>
+                  <span className="flex gap-1.5 shrink-0">
+                    {['white', 'grey', 'black'].map(color => (
+                      <span key={color} className="flex items-center gap-0.5">
+                        <svg width="12" height="12" viewBox="0 0 18 18" aria-hidden="true">
+                          <circle cx="9" cy="9" r="7.5"
+                            fill={`var(--color-marble-${color})`}
+                            stroke={`var(--color-marble-${color}-stroke)`}
+                            strokeWidth="1"
+                          />
+                        </svg>
+                        <span className="text-xs font-semibold tabular-nums" style={{ color: 'var(--color-text-primary)' }}>
+                          {captures[player][color]}
+                        </span>
+                      </span>
+                    ))}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
           {/* Board container matching Yinsh pattern */}
           <div
             className="p-2 md:p-3 rounded-xl shadow-lg w-full"
@@ -1291,7 +1337,7 @@ const ZertzGame = () => {
 
           {/* Controls row */}
           <div className="flex gap-2 items-center flex-wrap justify-center">
-            <button onClick={handleUndo} disabled={!board.canUndo()} className={`${btnClass} ${!board.canUndo() ? 'opacity-30 cursor-not-allowed' : ''}`} title="Undo (Ctrl+Z)">
+            <button onClick={handleUndo} disabled={!board.canUndo()} aria-describedby={undoHintShown ? 'zertz-undo-hint' : undefined} className={`${btnClass} ${!board.canUndo() ? 'opacity-30 cursor-not-allowed' : ''}`} title="Undo (Ctrl+Z)">
               Undo
             </button>
             <button onClick={handleRedo} disabled={!board.canRedo()} className={`${btnClass} ${!board.canRedo() ? 'opacity-30 cursor-not-allowed' : ''}`} title="Redo (Ctrl+Shift+Z)">
@@ -1324,6 +1370,12 @@ const ZertzGame = () => {
               New Game
             </button>
           </div>
+
+          {undoHintShown && (
+            <p id="zertz-undo-hint" className="text-xs text-center -mt-1" style={{ color: 'var(--color-text-muted)' }}>
+              Undo covers moves made since this match was reopened.
+            </p>
+          )}
 
           {/* Mobile capture displays */}
           <div className="flex md:hidden gap-2 w-full">

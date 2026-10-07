@@ -165,10 +165,17 @@ export default class ZertzBoard {
     this.selectedColor = null;
 
     // Check if placing on the last vacant ring of an isolated group triggers capture
-    const isolationCaptures = this._checkIsolationAfterPlace(key);
+    const isolationCaptures = this._checkIsolationAfterPlace();
     if (isolationCaptures.length > 0) {
       this._applyIsolationCaptures(isolationCaptures);
       if (this._checkWinCondition(this.currentPlayer)) {
+        this.gamePhase = 'game-over';
+        this.winner = this.currentPlayer;
+        this._captureState();
+        return true;
+      }
+      if (this.rings.size === 0) {
+        // Every remaining group was claimed at once: the last mover wins (official rules G.2)
         this.gamePhase = 'game-over';
         this.winner = this.currentPlayer;
         this._captureState();
@@ -277,6 +284,13 @@ export default class ZertzBoard {
     if (isolationCaptures.length > 0) {
       this._applyIsolationCaptures(isolationCaptures);
       if (this._checkWinCondition(this.currentPlayer)) {
+        this.gamePhase = 'game-over';
+        this.winner = this.currentPlayer;
+        this._captureState();
+        return true;
+      }
+      if (this.rings.size === 0) {
+        // Every remaining group was claimed at once: the last mover wins (official rules G.2)
         this.gamePhase = 'game-over';
         this.winner = this.currentPlayer;
         this._captureState();
@@ -452,27 +466,21 @@ export default class ZertzBoard {
   }
 
   /**
-   * Check isolation after ring removal.
+   * Find the islands to claim after the board changes.
+   * When the board has split, every disconnected group whose rings are ALL
+   * occupied is claimed by the current player, whatever its size (the official
+   * rules have no largest-group exemption). Groups with a vacant ring stay in
+   * play. A single connected board never isolates anything: a full board is the
+   * separate "all rings occupied" endgame.
    * Returns array of { keys: Set, marbles: Object } for islands to capture.
    */
   _checkIsolation() {
     const components = this._findConnectedComponents();
     if (components.length <= 1) return [];
 
-    // Find the largest component
-    let maxSize = 0;
-    for (const comp of components) {
-      if (comp.size > maxSize) maxSize = comp.size;
-    }
-
     const isolationCaptures = [];
 
     for (const comp of components) {
-      // For equal-size splits, evaluate both; for unequal, only non-largest
-      if (comp.size === maxSize && components.filter(c => c.size === maxSize).length === 1) {
-        continue; // This is the unique largest — skip it
-      }
-      // Check if ALL rings in this component have marbles
       let allOccupied = true;
       const capturedMarbles = {};
       for (const key of comp) {
@@ -491,58 +499,11 @@ export default class ZertzBoard {
   }
 
   /**
-   * Check isolation specifically after placing a marble.
-   * Placing on the last vacant ring of an isolated group triggers capture.
+   * Check isolation after placing a marble: filling the last vacant ring of an
+   * already isolated group claims it.
    */
-  _checkIsolationAfterPlace(placedKey) {
-    const components = this._findConnectedComponents();
-    if (components.length <= 1) {
-      // Single component -- check if it's fully occupied
-      const comp = components[0];
-      if (comp) {
-        let allOccupied = true;
-        const capturedMarbles = {};
-        for (const key of comp) {
-          if (!this.marbles[key]) {
-            allOccupied = false;
-            break;
-          }
-          capturedMarbles[key] = this.marbles[key];
-        }
-        // Don't capture the entire board just because it's full
-        // That's handled by _allRingsOccupied
-      }
-      return [];
-    }
-
-    // Multiple components exist — check non-main components for full occupation
-    let maxSize = 0;
-    for (const comp of components) {
-      if (comp.size > maxSize) maxSize = comp.size;
-    }
-
-    const isolationCaptures = [];
-
-    for (const comp of components) {
-      if (comp.size === maxSize && components.filter(c => c.size === maxSize).length === 1) {
-        continue;
-      }
-
-      let allOccupied = true;
-      const capturedMarbles = {};
-      for (const key of comp) {
-        if (!this.marbles[key]) {
-          allOccupied = false;
-          break;
-        }
-        capturedMarbles[key] = this.marbles[key];
-      }
-      if (allOccupied && comp.size > 0) {
-        isolationCaptures.push({ keys: comp, marbles: capturedMarbles });
-      }
-    }
-
-    return isolationCaptures;
+  _checkIsolationAfterPlace() {
+    return this._checkIsolation();
   }
 
   /**
@@ -605,10 +566,10 @@ export default class ZertzBoard {
     }
     this.marbles = {};
 
-    if (this._checkWinCondition(this.currentPlayer)) {
-      this.winner = this.currentPlayer;
-    }
-    // else: winner stays null → draw
+    // Official rules G.2: when every ring is occupied, the player who made the
+    // last move claims all remaining marbles and wins.
+    this._checkWinCondition(this.currentPlayer);
+    this.winner = this.currentPlayer;
   }
 
   // --- Main Click Handler ---
