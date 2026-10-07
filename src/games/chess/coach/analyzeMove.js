@@ -9,7 +9,7 @@
 
 import { Chess } from 'chess.js';
 import { classifyMove, centipawnLoss, formatEval } from './classify.js';
-import { legalSan } from './legalMoves.js';
+import { legalSan, moveMaterial } from './legalMoves.js';
 
 // Convert a UCI pv (array of long-algebraic moves) to SAN, replaying from `fen`.
 // Stops at the first illegal/unexpected move so a malformed pv can't crash us.
@@ -94,6 +94,7 @@ export function buildMovePayload({
     legalMoves: legalSan(fenBefore),
     legalMovesAfter: legalSan(fenAfter),
     movePlayed: { san: movePlayedSan },
+    ...moveMaterial(fenBefore, movePlayedSan),
     candidates,
     bestMove: bestLine
       ? { san: bestLine.san, eval: bestLine.eval, evalWhite: bestLine.evalWhite, pv: bestLine.pv }

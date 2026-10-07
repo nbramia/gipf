@@ -32,3 +32,20 @@ export function movedPieceNextMoves(fenBefore, san) {
     return [];
   }
 }
+
+const PIECE_NAMES = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen' };
+
+// The material the move changed, read from the position before it (chess.js
+// reports the captured piece even for en passant). Keys are omitted when they
+// do not apply, so a quiet move gives {}.
+export function moveMaterial(fenBefore, san) {
+  try {
+    const mv = new Chess(fenBefore).move(san);
+    return {
+      ...(mv.captured && PIECE_NAMES[mv.captured] ? { captured: PIECE_NAMES[mv.captured] } : {}),
+      ...(mv.promotion && PIECE_NAMES[mv.promotion] ? { promotion: PIECE_NAMES[mv.promotion] } : {}),
+    };
+  } catch (_) {
+    return {};
+  }
+}
