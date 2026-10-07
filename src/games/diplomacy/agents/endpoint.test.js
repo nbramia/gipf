@@ -322,6 +322,24 @@ describe('diplomacyAgent endpoint', () => {
     expect(systemText).toContain('lure into NTH');
   });
 
+  test('persona spice changes the tone instruction in the system prompt', async () => {
+    async function promptFor(persona) {
+      upstreamFetch = mockUpstreamText(JSON.stringify({ message: 'ok', scratchpad: VALID_SCRATCHPAD }));
+      await handler(
+        makeReq({ body: { apiKey: 'sk-test', power: 'france', persona, messages: [{ role: 'user', content: 'hi' }] } }),
+        makeRes()
+      );
+      return JSON.parse(upstreamFetch.mock.calls[0][1].body).system[0].text;
+    }
+    const calm = await promptFor({ spice: 0, temperament: { trust: 0.5, aggression: 0.5 } });
+    const base = await promptFor({ spice: 0.5, temperament: { trust: 0.5, aggression: 0.5 } });
+    const wild = await promptFor({ spice: 1, temperament: { trust: 0.5, aggression: 0.5 } });
+    expect(calm).toContain('TONE (restrained');
+    expect(wild).toContain('TONE (vivid');
+    expect(base).not.toContain('TONE (');
+    expect(calm).not.toBe(wild);
+  });
+
   test('a well-formed deal is returned; a malformed one becomes null', async () => {
     // Valid support deal surfaces.
     upstreamFetch = mockUpstreamText(JSON.stringify({ message: 'Agreed — I cover Belgium.', scratchpad: VALID_SCRATCHPAD, deal: { type: 'support', to: 'BEL' } }));

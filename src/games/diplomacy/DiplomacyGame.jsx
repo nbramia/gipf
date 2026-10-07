@@ -26,7 +26,7 @@ import ChatPanel from './agents/ChatPanel.jsx';
 import { loginHref } from '../../loginReturn.js';
 import { createMemory } from './agents/memory.js';
 import { createDiplomaticState, setScratchpad, recordAgreement } from './agents/diplomaticState.js';
-import { PERSONAS } from './agents/personas.js';
+import { buildPersonas, ensureSpice } from './agents/personas.js';
 import useHasApiKey from './hooks/useApiKey.js';
 import useAIWorker from './hooks/useAIWorker.js';
 import useDiplomacyTurn from './hooks/useDiplomacyTurn.js';
@@ -111,11 +111,6 @@ function describeOrder(order) {
   }
 }
 
-// Personas for every power (the persona shape persisted in the save).
-function defaultPersonas() {
-  return { ...PERSONAS };
-}
-
 export default function DiplomacyGame() {
   // ----- one-time mount restore: resume a saved game if one exists -----
   const restoredRef = useRef(null);
@@ -136,7 +131,9 @@ export default function DiplomacyGame() {
     restored && restored.controllers ? restored.controllers : buildControllers(settings.power)
   );
   const [personas, setPersonas] = useState(() =>
-    restored && restored.personas ? restored.personas : defaultPersonas()
+    restored && restored.personas
+      ? ensureSpice(restored.personas, settings.personaSpice)
+      : buildPersonas(settings.personaSpice)
   );
   // Human-VISIBLE conversation store (memory of the human↔AI chat threads).
   const [conversations, setConversations] = useState(() => {
@@ -514,7 +511,7 @@ export default function DiplomacyGame() {
     const ai = POWERS.filter((p) => p !== next.power);
     setBoardState(fresh);
     setControllers(ctrls);
-    setPersonas(defaultPersonas());
+    setPersonas(buildPersonas(next.personaSpice));
     setConversations(createMemory(ai));
     try {
       setDiplomaticState(createDiplomaticState({ board: fresh, humanPower: next.power }));
@@ -730,6 +727,7 @@ export default function DiplomacyGame() {
               onViewThread={markThreadRead}
               onScratchpad={foldScratchpadIntoState}
               onDeal={foldDealIntoState}
+              personas={personas}
             />
           </div>
           </div>

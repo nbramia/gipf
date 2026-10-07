@@ -32,6 +32,18 @@ const POWER_NAMES = {
   turkey: 'Turkey',
 };
 
+// Persona spice ([0,1], from the setup slider) as a tone instruction. Absent or
+// 0.5 yields no extra block, so a base persona prompt is unchanged.
+function spiceToneBlock(spice) {
+  if (typeof spice !== 'number' || !Number.isFinite(spice)) return '';
+  const s = Math.min(1, Math.max(0, spice));
+  if (s >= 0.4 && s <= 0.6) return '';
+  if (s < 0.4) {
+    return `TONE (restrained, ${Math.round(s * 100)}% spice): speak plainly and professionally, in measured, even-tempered diplomatic language. Keep your temperament understated: no theatrics, no dramatic threats or flourishes, and prefer steady, reasonable proposals.\n`;
+  }
+  return `TONE (vivid, ${Math.round(s * 100)}% spice): lean into your power's personality. Be colourful and dramatic, with strong opinions, memorable turns of phrase, open flattery, grudges and pointed threats. You are volatile: quick to take offence, quick to forgive, and willing to make bold, surprising offers. Still keep replies short.\n`;
+}
+
 const STANCES = ['ally', 'friendly', 'neutral', 'rival', 'enemy'];
 
 // Build a strong per-power system prompt: identity, board summary, Diplomacy
@@ -63,6 +75,8 @@ function buildSystemPrompt(body = {}) {
   const dispoLines = Object.entries(dispo)
     .map(([other, stance]) => `  - ${POWER_NAMES[other] || other}: ${stance}`)
     .join('\n');
+
+  const toneBlock = spiceToneBlock(persona.spice);
 
   const initiate = !!body.initiate;
   const board = serializeContextLines(context);
@@ -102,7 +116,7 @@ ${persona.blurb ? persona.blurb : `${name} pursues its national interest.`}
 Temperament knobs (0 = low, 1 = high): trust=${trust.toFixed(2)}, aggression=${aggression.toFixed(2)}. A low-trust power is suspicious of promises; a high-aggression power leans toward bold, expansionist moves and threats.
 Opening dispositions toward other powers:
 ${dispoLines || '  - (no fixed dispositions; judge each power on the board state)'}
-
+${toneBlock}
 CURRENT BOARD
 ${board}
 ${priorMemory}${pendingProposal}
