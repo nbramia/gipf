@@ -8,6 +8,7 @@ export default class YinshBoard {
   static RINGS_PER_PLAYER = 5;
   static MARKERS_IN_ROW = 5;
   static RINGS_TO_WIN = 3;
+  static MARKER_POOL = 51;
   static DIRECTIONS = [
     [1, 0],   // East
     [-1, 0],  // West
@@ -228,14 +229,18 @@ export default class YinshBoard {
     this.winner = null;
     this.selectedSetupRing = null;
 
-    // Clear move history
+    // Clear move history and notation
     this.clearHistory();
+    this.notation.clear();
 
     if (useRandomSetup) {
       this._placeRandomRings();
       this.gamePhase = 'play';
       this.currentPlayer = 1;
     }
+
+    // Capture the initial position so the first action can be undone
+    this._captureState();
   }
 
   _placeRandomRings() {
@@ -519,6 +524,12 @@ export default class YinshBoard {
   _flipMarkersAlongPath(selectedQ, selectedR, destQ, destR, boardState) {
     const flippedMarkers = [];
 
+    if (!YinshBoard._isStraightLine(selectedQ, selectedR, destQ, destR)) {
+      throw new Error(
+        `Invalid path: not a straight hexagonal line from (${selectedQ},${selectedR}) to (${destQ},${destR})`
+      );
+    }
+
     // Calculate direction
     const dq = Math.sign(destQ - selectedQ);
     const dr = Math.sign(destR - selectedR);
@@ -562,6 +573,31 @@ export default class YinshBoard {
     return flippedMarkers;
   }
 
+  /**
+   * True when the two distinct points lie on one of the three hex axes.
+   * Raw deltas are checked: signs alone would accept off-axis offsets whose
+   * path walk never reaches the destination.
+   */
+  static _isStraightLine(fromQ, fromR, toQ, toR) {
+    const dq = toQ - fromQ;
+    const dr = toR - fromR;
+    if (dq === 0 && dr === 0) return false;
+    return dq === 0 || dr === 0 || dq === -dr;
+  }
+
+  /**
+   * Marker positions a ring would flip travelling from -> to on the current
+   * board. Returns [] for anything that is not a straight hex line.
+   */
+  getFlippedAlongPath(from, to) {
+    if (!from || !to || !YinshBoard._isStraightLine(from[0], from[1], to[0], to[1])) return [];
+    return this._flipMarkersAlongPath(from[0], from[1], to[0], to[1], { ...this.boardState });
+  }
+
+  _countMarkers(boardState = this.boardState) {
+    return Object.values(boardState).filter(p => p.type === 'marker').length;
+  }
+
   removeMarkers(markers) {
     // Remove the given marker coordinates from this.boardState
     const newState = { ...this.boardState };
@@ -580,10 +616,31 @@ export default class YinshBoard {
     this.scores[ringPlayer] += 1;
   }
 
+  /** Winning player (1 or 2), or null when unfinished or drawn. */
   isGameOver() {
     if (this.scores[1] === YinshBoard.RINGS_TO_WIN) return 1; // White wins
     if (this.scores[2] === YinshBoard.RINGS_TO_WIN) return 2; // Black wins
-    return null; // Not finished
+    if (this.gamePhase === 'game-over' && this.winner) return this.winner;
+    return null; // Not finished, or drawn (see isDraw)
+  }
+
+  /** True when the marker pool ran out with equal rings removed. */
+  isDraw() {
+    return this.gamePhase === 'game-over' && !this.winner &&
+      this.scores[1] === this.scores[2] && this.scores[1] < YinshBoard.RINGS_TO_WIN;
+  }
+
+  /**
+   * Official end: the last marker has been placed and no row resulted. The
+   * player with more rings removed wins; equal counts draw (winner stays null).
+   */
+  _endByMarkerExhaustion() {
+    this.gamePhase = 'game-over';
+    this.winner = this.scores[1] === this.scores[2] ? null : (this.scores[1] > this.scores[2] ? 1 : 2);
+    this.rows = [];
+    this.rowResolutionQueue = [];
+    this.pendingRowsAfterRingRemoval = false;
+    this.nextTurnPlayer = null;
   }
 
   // --- The Big "Handle Click" method ---
@@ -631,6 +688,12 @@ export default class YinshBoard {
     }
 
     if (this.gamePhase === 'play') {
+      // An exhausted pool means the game is already decided; never place a 52nd marker.
+      if (this._countMarkers() >= YinshBoard.MARKER_POOL) {
+        this._endByMarkerExhaustion();
+        this._captureState();
+        return;
+      }
       const key = this._toKey(q, r);
       const piece = this.boardState[key];
 
@@ -680,15 +743,8 @@ export default class YinshBoard {
       // Move ring to new position
       newState[key] = { type: 'ring', player: this.currentPlayer };
 
-      // Count markers before flipping (for logging)
-      const markersBefore = Object.values(newState).filter(p => p.type === 'marker').length;
-
       // Flip markers along the path
-      this._flipMarkersAlongPath(selectedQ, selectedR, q, r, newState);
-
-      // Count markers after flipping
-      const markersAfter = Object.values(newState).filter(p => p.type === 'marker').length;
-      const markersFlipped = Math.abs(markersAfter - markersBefore);
+      const markersFlipped = this._flipMarkersAlongPath(selectedQ, selectedR, q, r, newState).length;
 
       // Check for completed rows
       const completedRows = this.checkForRows(newState);
@@ -733,6 +789,9 @@ export default class YinshBoard {
       } else {
         // No rows, just switch players
         this.currentPlayer = (this.currentPlayer === 1 ? 2 : 1);
+        if (this._countMarkers() >= YinshBoard.MARKER_POOL) {
+          this._endByMarkerExhaustion();
+        }
       }
 
       // Capture state for undo

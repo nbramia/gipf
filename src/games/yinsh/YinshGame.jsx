@@ -1,7 +1,7 @@
 import MatchBoundary, { useSavedMatch } from '../../MatchBoundary.jsx';
 import { encodeBoard, decodeMatch } from './matchSnapshot.js';
 // YinshGame.jsx - Build: 2025-01-23 v3 (UI Overhaul)
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useId } from 'react';
 import { Link } from 'react-router-dom';
 import './yinsh.css';
 import YinshBoard from './YinshBoard.js';
@@ -21,23 +21,78 @@ const DIFFICULTY_CONFIG = {
 };
 
 // Toggle component — extracted from repeated settings markup
-const Toggle = ({ label, checked, onChange }) => (
-  <div className="flex items-center justify-between">
-    <span style={{ color: 'var(--color-text-primary)' }}>{label}</span>
-    <button
-      onClick={onChange}
-      role="switch"
-      aria-checked={checked}
-      className="w-10 h-6 rounded-full transition-colors relative"
-      style={{ backgroundColor: checked ? 'var(--color-toggle-active)' : 'var(--color-toggle-inactive)' }}
+const Toggle = ({ label, checked, onChange }) => {
+  const labelId = useId();
+  return (
+    <div className="flex items-center justify-between">
+      <span id={labelId} style={{ color: 'var(--color-text-primary)' }}>{label}</span>
+      {/* The button is a 44px hit area; the compact visual switch is drawn inside it */}
+      <button
+        onClick={onChange}
+        role="switch"
+        aria-checked={checked}
+        aria-labelledby={labelId}
+        className="min-w-[44px] min-h-[44px] flex items-center justify-center"
+      >
+        <span
+          className="w-10 h-6 rounded-full transition-colors relative block"
+          style={{ backgroundColor: checked ? 'var(--color-toggle-active)' : 'var(--color-toggle-inactive)' }}
+        >
+          <span
+            className={`w-4 h-4 rounded-full absolute top-1 transition-transform block ${checked ? 'right-1' : 'left-1'}`}
+            style={{ backgroundColor: 'var(--color-toggle-knob)' }}
+          />
+        </span>
+      </button>
+    </div>
+  );
+};
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+// Dialog panel: dialog semantics, focus moves in on mount and returns to the
+// opener on unmount, Tab stays inside, Escape closes.
+const Dialog = ({ onClose, labelledBy, className, style, children }) => {
+  const ref = useRef(null);
+  useEffect(() => {
+    const opener = document.activeElement;
+    const first = ref.current?.querySelector(FOCUSABLE);
+    (first || ref.current)?.focus();
+    return () => {
+      if (opener && opener.isConnected && typeof opener.focus === 'function') opener.focus();
+    };
+  }, []);
+  const onKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      onClose();
+    } else if (e.key === 'Tab') {
+      const items = Array.from(ref.current.querySelectorAll(FOCUSABLE));
+      if (items.length === 0) { e.preventDefault(); return; }
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === ref.current)) {
+        e.preventDefault(); last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault(); first.focus();
+      }
+    }
+  };
+  return (
+    <div
+      ref={ref}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={labelledBy}
+      tabIndex={-1}
+      onKeyDown={onKeyDown}
+      className={className}
+      style={style}
     >
-      <div
-        className={`w-4 h-4 rounded-full absolute top-1 transition-transform ${checked ? 'right-1' : 'left-1'}`}
-        style={{ backgroundColor: 'var(--color-toggle-knob)' }}
-      />
-    </button>
-  </div>
-);
+      {children}
+    </div>
+  );
+};
 
 // PieceIcon — small inline SVG for move history
 const PieceIcon = ({ player }) => (
@@ -140,8 +195,22 @@ const YinshGame = () => {
   });
 
   const scoreApplied = useRef(savedUI.scoreApplied || false);
+  const prevResult = useRef({ phase: yinshBoard.gamePhase, winner: yinshBoard.winner });
   useEffect(() => {
-    if (yinshBoard.gamePhase !== 'game-over') scoreApplied.current = false;
+    if (yinshBoard.gamePhase !== 'game-over') {
+      // Undoing out of a counted result takes that win back so replaying it counts once
+      const prev = prevResult.current;
+      if (prev.phase === 'game-over' && scoreApplied.current && prev.winner) {
+        setWins(w => ({ ...w, [prev.winner]: Math.max(0, w[prev.winner] - 1) }));
+      }
+      scoreApplied.current = false;
+    } else if (prevResult.current.phase !== 'game-over' && keepScore && !scoreApplied.current) {
+      // Entering a finished position (including by redo) counts the result once
+      scoreApplied.current = true;
+      const winner = yinshBoard.winner;
+      if (winner) setWins(w => ({ ...w, [winner]: w[winner] + 1 }));
+    }
+    prevResult.current = { phase: yinshBoard.gamePhase, winner: yinshBoard.winner };
     savedMatch?.persist(encodeBoard(yinshBoard), { humanPlayer, twoPlayerMode, showModal, difficulty, selectedSetupRing, scoreApplied: scoreApplied.current });
   }, [yinshBoard, humanPlayer, twoPlayerMode, showModal, difficulty, selectedSetupRing, savedMatch]);
 
@@ -198,9 +267,12 @@ const YinshGame = () => {
     localStorage.setItem('yinshTwoPlayer', JSON.stringify(twoPlayerMode));
   }, [twoPlayerMode]);
 
+  const dialogOpen = showModal || showSettings || showRules;
+
   // Add keyboard shortcuts for undo/redo
   useEffect(() => {
     const handleKeyDown = (e) => {
+      if (dialogOpen) return;
       // Ctrl+Z or Cmd+Z for undo
       if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
@@ -222,7 +294,7 @@ const YinshGame = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [yinshBoard]);
+  }, [yinshBoard, dialogOpen]);
 
   // We can keep grid logic for rendering
   const generateGridPoints = () => {
@@ -259,11 +331,13 @@ const YinshGame = () => {
   const handleGameOver = () => {
     if (keepScore && yinshBoard.getGamePhase() === 'game-over' && !scoreApplied.current) {
       scoreApplied.current = true;
-      const winner = yinshBoard.getScores()[1] === 3 ? 1 : 2;
-      setWins(prev => ({
-        ...prev,
-        [winner]: prev[winner] + 1
-      }));
+      const winner = yinshBoard.getWinner();
+      if (winner) {
+        setWins(prev => ({
+          ...prev,
+          [winner]: prev[winner] + 1
+        }));
+      }
     }
     setShowModal(true);
   };
@@ -295,6 +369,7 @@ const YinshGame = () => {
       // If clicking the currently selected ring, deselect it
       if (selectedRing && q === selectedRing[0] && r === selectedRing[1]) {
         yinshBoard.selectedRing = null;
+        yinshBoard.validMoves = [];
         setYinshBoard(yinshBoard.clone());
         return;
       }
@@ -312,23 +387,15 @@ const YinshGame = () => {
       if (selectedRing) {
         const from = selectedRing;
         const to = [q, r];
-        const boardState = yinshBoard.getBoardState();
-        const dq = Math.sign(to[0] - from[0]);
-        const dr = Math.sign(to[1] - from[1]);
-        const flipped = [];
-        let pq = from[0] + dq, pr = from[1] + dr;
-        while (pq !== to[0] || pr !== to[1]) {
-          const p = boardState[`${pq},${pr}`];
-          if (p?.type === 'marker') flipped.push([pq, pr]);
-          pq += dq;
-          pr += dr;
-        }
+        // Only legal destinations are walked; anything else is rejected by the board
+        const isLegal = yinshBoard.getValidMoves().some(([vq, vr]) => vq === q && vr === r);
+        const flipped = isLegal ? yinshBoard.getFlippedAlongPath(from, to) : [];
 
         yinshBoard.handleClick(q, r);
         setYinshBoard(yinshBoard.clone());
 
         // If move succeeded (selectedRing was cleared), record the move
-        if (!yinshBoard.getSelectedRing()) {
+        if (isLegal && !yinshBoard.getSelectedRing()) {
           setLastMove({ from, to, flipped });
         }
 
@@ -357,6 +424,7 @@ const YinshGame = () => {
     if (!twoPlayerMode) {
       setHumanPlayer(Math.random() < 0.5 ? 1 : 2);
     }
+    scoreApplied.current = false; // a finished game's result stays counted
     yinshBoard.startNewGame(useRandomSetup);
     setYinshBoard(yinshBoard.clone());
     setShowModal(false);
@@ -443,12 +511,15 @@ const YinshGame = () => {
   }, [boardState]);
 
   // Auto-scroll move history
-  const moveHistoryRef = useRef(null);
+  // Desktop sidebar and mobile section each own a list, so each gets its own ref
+  const desktopHistoryRef = useRef(null);
+  const mobileHistoryRef = useRef(null);
 
   useEffect(() => {
-    if (moveHistoryRef.current) {
-      const currentEl = moveHistoryRef.current.querySelector('[data-current="true"]');
-      if (currentEl) {
+    for (const ref of [desktopHistoryRef, mobileHistoryRef]) {
+      const currentEl = ref.current?.querySelector('[data-current="true"]');
+      // Only the visible layout's list needs to follow the latest move
+      if (currentEl && ref.current.offsetParent !== null) {
         currentEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       }
     }
@@ -513,6 +584,7 @@ const YinshGame = () => {
   const renderSetupRingTray = (player) => {
     const ringsToPlace = 5 - ringsPlaced[player];
     const isCurrentPlayer = currentPlayer === player;
+    const colorName = player === 1 ? 'White' : 'Black';
 
     return Array.from({ length: ringsToPlace }).map((_, i) => {
       const isSelected = selectedSetupRing?.player === player && selectedSetupRing?.index === i;
@@ -523,11 +595,13 @@ const YinshGame = () => {
           key={i}
           onClick={() => handleSetupRingClick(player, i)}
           disabled={!isCurrentPlayer}
-          className={`p-1 rounded-full transition-all ${
+          aria-label={`${colorName} ring ${i + 1} of ${ringsToPlace}`}
+          aria-pressed={isSelected}
+          className={`p-1.5 rounded-full transition-all ${
             isCurrentPlayer ? 'cursor-pointer hover:scale-110' : 'opacity-40 cursor-default'
           } ${isSelected ? 'scale-110' : ''}`}
         >
-          <svg width="32" height="32" viewBox="0 0 40 40">
+          <svg width="32" height="32" viewBox="0 0 40 40" aria-hidden="true">
             <circle cx="20" cy="20" r="15" fill="var(--color-ring-bg)" />
             <circle cx="20" cy="20" r="15" fill="none" stroke="var(--color-ring-neutral)" strokeWidth={isSelected ? 10 : 6} />
             <circle cx="20" cy="20" r="15" fill="none" stroke={player === 1 ? 'var(--color-piece-white)' : 'var(--color-piece-black)'} strokeWidth={isSelected ? 8 : 4} />
@@ -539,6 +613,15 @@ const YinshGame = () => {
       );
     });
   };
+
+  const renderSetupTray = (player) => (
+    <div className="flex items-center gap-2">
+      <span className="text-sm font-semibold w-24 shrink-0" style={{ color: 'var(--color-text-secondary)' }}>
+        {player === 1 ? 'White' : 'Black'}: {5 - ringsPlaced[player]} left
+      </span>
+      <div className="flex items-center">{renderSetupRingTray(player)}</div>
+    </div>
+  );
 
   // Add useState for new states
   const [isThinking, setIsThinking] = useState(false);
@@ -695,7 +778,8 @@ const YinshGame = () => {
             <button
               key={level}
               onClick={() => { invalidateAI(); setAiFallback(false); setDifficulty(level); }}
-              className="px-2 py-1 rounded text-xs font-medium transition-colors"
+              aria-pressed={difficulty === level}
+              className="px-3 py-1 min-h-[44px] rounded text-xs font-medium transition-colors"
               style={{
                 backgroundColor: difficulty === level ? 'var(--color-toggle-active)' : 'var(--color-toggle-inactive)',
                 color: difficulty === level ? '#fff' : 'var(--color-text-primary)',
@@ -721,20 +805,20 @@ const YinshGame = () => {
   );
 
   // Move history content (shared between desktop sidebar and mobile section)
-  const renderMoveHistoryContent = () => (
+  const renderMoveHistoryContent = (listRef) => (
     <>
-      <div className="flex-1 overflow-y-auto p-4" ref={moveHistoryRef}>
+      <div className="flex-1 overflow-y-auto p-4" ref={listRef}>
         {yinshBoard.getMoveHistory().length === 0 ? (
           <p className="text-center" style={{ color: 'var(--color-text-muted)' }}>
             No moves yet
           </p>
         ) : (
           <div className="space-y-1">
-            {yinshBoard.getMoveHistory().map((move, index) => {
+            {yinshBoard.getNotation().getHistory().map((entry, index, all) => {
               const moveNumber = index + 1;
-              const player = Math.ceil(moveNumber / 2) % 2 === 1 ? 1 : 2;
-              const historyPos = yinshBoard.getHistoryPosition();
-              const isCurrentMove = index === historyPos.current - 2;
+              const move = entry.notation;
+              const player = entry.player;
+              const isCurrentMove = index === all.length - 1;
 
               return (
                 <div
@@ -787,17 +871,25 @@ const YinshGame = () => {
             }
           }}
         >
-          <div
-            className="p-8 rounded-lg shadow-2xl max-w-md w-full mx-4 border bg-[var(--color-bg-modal)] border-[var(--color-border-panel)]"
+          <Dialog
+            onClose={() => setShowModal(false)}
+            labelledBy="yinsh-modal-title"
+            className="p-8 rounded-lg shadow-2xl max-w-md w-full mx-4 border bg-[var(--color-bg-modal)] border-[var(--color-border-panel)] max-h-[95vh] overflow-y-auto"
           >
             <h2
+              id="yinsh-modal-title"
               className="text-xl font-bold text-center mb-6"
               style={{ color: 'var(--color-text-primary)' }}
             >
               {yinshBoard.getGamePhase() === 'game-over'
-                ? (yinshBoard.getScores()[1] === 3 ? 'White wins!' : 'Black wins!')
+                ? (yinshBoard.getWinner() ? `${yinshBoard.getWinner() === 1 ? 'White' : 'Black'} wins!` : 'Draw!')
                 : 'Welcome to YINSH!'}
             </h2>
+            {yinshBoard.getGamePhase() === 'game-over' && Math.max(scores[1], scores[2]) < 3 && (
+              <p className="text-center text-sm mb-6" style={{ color: 'var(--color-text-secondary)' }}>
+                All 51 markers are placed. Rings removed: White {scores[1]}, Black {scores[2]}.
+              </p>
+            )}
             <div className="flex justify-center mb-6">
               <button
                 onClick={startNewGame}
@@ -807,7 +899,7 @@ const YinshGame = () => {
               </button>
             </div>
             {renderSettingsToggles()}
-          </div>
+          </Dialog>
         </div>
       )}
 
@@ -821,12 +913,17 @@ const YinshGame = () => {
             }
           }}
         >
-          <div className="settings-panel fixed right-0 top-0 bottom-0 w-80 shadow-2xl overflow-y-auto border-l bg-[var(--color-bg-panel)] border-[var(--color-border-panel)]">
+          <Dialog
+            onClose={() => setShowSettings(false)}
+            labelledBy="yinsh-settings-title"
+            className="settings-panel fixed right-0 top-0 bottom-0 w-80 max-w-full shadow-2xl overflow-y-auto border-l bg-[var(--color-bg-panel)] border-[var(--color-border-panel)]"
+          >
             <div
               className="flex items-center justify-between p-6 border-b"
               style={{ borderColor: 'var(--color-border-panel)' }}
             >
               <h2
+                id="yinsh-settings-title"
                 className="text-xl font-bold"
                 style={{ color: 'var(--color-text-primary)' }}
               >
@@ -834,7 +931,8 @@ const YinshGame = () => {
               </h2>
               <button
                 onClick={() => setShowSettings(false)}
-                className="text-2xl font-bold"
+                aria-label="Close settings"
+                className="text-2xl font-bold min-w-[44px] min-h-[44px]"
                 style={{ color: 'var(--color-text-secondary)' }}
               >
                 ×
@@ -843,7 +941,7 @@ const YinshGame = () => {
             <div className="p-6">
               {renderSettingsToggles()}
             </div>
-          </div>
+          </Dialog>
         </div>
       )}
 
@@ -853,16 +951,19 @@ const YinshGame = () => {
           className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]"
           onClick={(e) => { if (e.target === e.currentTarget) setShowRules(false); }}
         >
-          <div
+          <Dialog
+            onClose={() => setShowRules(false)}
+            labelledBy="yinsh-rules-title"
             className="p-6 rounded-lg shadow-2xl max-w-2xl w-full mx-4 border max-h-[85vh] overflow-y-auto bg-[var(--color-bg-modal)] border-[var(--color-border-panel)]"
           >
             <div className="flex items-center justify-between mb-5 sticky top-0 pb-3 -mt-1 -mx-1 px-1 pt-1" style={{ backgroundColor: 'var(--color-bg-modal)' }}>
-              <h2 className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
+              <h2 id="yinsh-rules-title" className="text-xl font-bold" style={{ color: 'var(--color-text-primary)' }}>
                 How to Play YINSH
               </h2>
               <button
                 onClick={() => setShowRules(false)}
-                className="text-2xl font-bold leading-none"
+                aria-label="Close rules"
+                className="text-2xl font-bold leading-none min-w-[44px] min-h-[44px]"
                 style={{ color: 'var(--color-text-secondary)' }}
               >
                 &times;
@@ -1065,6 +1166,7 @@ const YinshGame = () => {
                   </svg>
                 </div>
                 <p>The first player to remove <strong style={{ color: 'var(--color-text-primary)' }}>3 of their rings</strong> from the board wins. Note that removing rings is both the scoring mechanism and a sacrifice — you have fewer rings to move with as you score points.</p>
+                <p className="mt-2">The 51 markers are a shared pool. If the last marker is placed and it completes no row, the game ends at once: the player who removed more rings wins, and equal counts are a draw.</p>
               </div>
 
               {/* Strategy Tips */}
@@ -1079,10 +1181,12 @@ const YinshGame = () => {
               </div>
 
             </div>
-          </div>
+          </Dialog>
         </div>
       )}
 
+      {/* Everything behind an open dialog is inert: no focus, no clicks, no shortcuts */}
+      <div inert={dialogOpen ? '' : undefined} className="w-full flex-1 flex flex-col items-center">
       {aiFallback && <p role="status" className="text-sm px-4 py-2">
         Neural model unavailable — using heuristic AI.
       </p>}
@@ -1108,8 +1212,8 @@ const YinshGame = () => {
       <div className="flex flex-col items-center pt-2 md:pt-4 shrink-0">
         <Link
           to="/"
-          className="text-[10px] font-semibold uppercase tracking-[0.2em] mb-1 opacity-40 hover:opacity-70 transition-opacity"
-          style={{ color: 'var(--color-text-secondary)' }}
+          className="inline-flex items-center justify-center min-h-[44px] px-3 text-sm font-semibold uppercase tracking-[0.15em] whitespace-nowrap hover:underline"
+          style={{ color: 'var(--color-text-primary)' }}
         >
           &larr; Games
         </Link>
@@ -1134,7 +1238,7 @@ const YinshGame = () => {
                       <span className="font-medium" style={{ color: 'var(--color-accent)' }}>
                         {playerLabel(currentPlayer)}
                       </span>
-                      : Place a ring
+                      : {!twoPlayerMode && currentPlayer !== humanPlayer ? 'Placing a ring' : selectedSetupRing ? 'Choose an empty intersection' : 'Select a ring below, then choose an empty intersection'}
                     </span>
                   )}
                   {gamePhase === 'play' && (
@@ -1170,10 +1274,14 @@ const YinshGame = () => {
                   )}
                   {gamePhase === 'game-over' && (
                     <span>
-                      <span className="font-medium" style={{ color: 'var(--color-accent)' }}>
-                        {playerLabel(yinshBoard.winner)}
-                      </span>
-                      {' '}wins!
+                      {yinshBoard.winner ? (
+                        <>
+                          <span className="font-medium" style={{ color: 'var(--color-accent)' }}>
+                            {playerLabel(yinshBoard.winner)}
+                          </span>
+                          {' '}wins!
+                        </>
+                      ) : 'Draw: the marker pool is empty'}
                     </span>
                   )}
                 </>
@@ -1203,13 +1311,14 @@ const YinshGame = () => {
               </h3>
               <button
                 onClick={() => setShowMoveHistory(false)}
-                className="font-bold text-xl"
+                aria-label="Hide move history"
+                className="font-bold text-xl min-w-[44px] min-h-[44px]"
                 style={{ color: 'var(--color-text-secondary)' }}
               >
                 ×
               </button>
             </div>
-            {renderMoveHistoryContent()}
+            {renderMoveHistoryContent(desktopHistoryRef)}
           </div>
         )}
         {!showMoveHistory && (
@@ -1513,14 +1622,9 @@ const YinshGame = () => {
 
           {/* Setup Ring Tray - outside SVG to avoid board overlap */}
           {gamePhase === 'setup' && (
-            <div className="flex justify-center items-center gap-4 py-2 mt-2 rounded-lg bg-[var(--color-bg-tray)]">
-              <div className="flex items-center gap-0.5">
-                {renderSetupRingTray(1)}
-              </div>
-              <div className="w-px h-8 bg-[var(--color-border-panel)]" />
-              <div className="flex items-center gap-0.5">
-                {renderSetupRingTray(2)}
-              </div>
+            <div className="flex flex-col items-center gap-1 py-2 px-2 mt-2 rounded-lg bg-[var(--color-bg-tray)]">
+              {renderSetupTray(1)}
+              {renderSetupTray(2)}
             </div>
           )}
         </div>
@@ -1592,7 +1696,7 @@ const YinshGame = () => {
               Move History ({yinshBoard.getMoveHistory().length})
             </summary>
             <div className="max-h-48 flex flex-col">
-              {renderMoveHistoryContent()}
+              {renderMoveHistoryContent(mobileHistoryRef)}
             </div>
           </details>
         </div>
@@ -1689,6 +1793,7 @@ const YinshGame = () => {
 
       {/* Invalid move flash - increased opacity for better visibility on mobile */}
       <div className={`fixed inset-0 bg-red-500 pointer-events-none transition-opacity duration-150 ${showInvalidFlash ? 'opacity-20' : 'opacity-0'}`} />
+      </div>
     </div>
   );
 };
