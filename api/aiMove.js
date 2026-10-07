@@ -5,7 +5,8 @@ import { calculateYinshMove } from '../server/yinshCalculation.js';
 export const config = { api: { bodyParser: { sizeLimit: '32kb' } } };
 const CACHE_SIZE_LIMIT = 15000;
 
-const SNAPSHOT_FIELDS = Object.keys(new YinshBoard().serializeState());
+// ringsToWin is optional: a request without it plays the Standard target.
+const SNAPSHOT_FIELDS = Object.keys(new YinshBoard().serializeState()).filter(field => field !== 'ringsToWin');
 const CORE_FIELDS = ['boardState', 'gamePhase', 'currentPlayer'];
 const BOARD_POINTS = new Set(YinshBoard.generateGridPoints().map(point => point.join(',')));
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -51,7 +52,10 @@ function restoreRequestBoard(body) {
     snapshot = { ...new YinshBoard().serializeState(), ...body, ringsPlaced: counts };
   }
 
-  for (const [field, max] of [['ringsPlaced', 5], ['scores', 3]]) {
+  requireSnapshot(snapshot.ringsToWin === undefined || [YinshBoard.RINGS_TO_WIN, YinshBoard.BLITZ_RINGS_TO_WIN].includes(snapshot.ringsToWin),
+    'ringsToWin must be 1 or 3');
+  const ringsToWin = snapshot.ringsToWin ?? YinshBoard.RINGS_TO_WIN;
+  for (const [field, max] of [['ringsPlaced', 5], ['scores', ringsToWin]]) {
     requireSnapshot(isObject(snapshot[field]) && Object.keys(snapshot[field]).length === 2 &&
       [1, 2].every(player => Number.isInteger(snapshot[field][player]) &&
         snapshot[field][player] >= 0 && snapshot[field][player] <= max),
@@ -70,8 +74,8 @@ function restoreRequestBoard(body) {
   requireSnapshot(typeof snapshot.pendingRowsAfterRingRemoval === 'boolean', 'Invalid pendingRowsAfterRingRemoval');
   requireSnapshot(snapshot.winner === null || isPlayer(snapshot.winner), 'Invalid winner');
   requireSnapshot(snapshot.gamePhase === 'game-over'
-    ? isPlayer(snapshot.winner) && snapshot.scores[snapshot.winner] === 3
-    : snapshot.winner === null && snapshot.scores[1] < 3 && snapshot.scores[2] < 3,
+    ? isPlayer(snapshot.winner) && snapshot.scores[snapshot.winner] === ringsToWin
+    : snapshot.winner === null && snapshot.scores[1] < ringsToWin && snapshot.scores[2] < ringsToWin,
   'winner and scores must agree with gamePhase');
   requireSnapshot(snapshot.selectedSetupRing === null || (isObject(snapshot.selectedSetupRing) &&
     isPlayer(snapshot.selectedSetupRing.player) && Number.isInteger(snapshot.selectedSetupRing.index) &&

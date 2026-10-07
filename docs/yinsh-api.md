@@ -23,15 +23,17 @@ All canonical fields are required together:
 | `gamePhase` | `setup`, `play`, `remove-row`, `remove-ring`, or `game-over` |
 | `currentPlayer` | `1` or `2` |
 | `ringsPlaced` | Player-keyed integer counts, 0–5 |
-| `scores` | Player-keyed integer scores, 0–3 |
+| `scores` | Player-keyed integer scores, 0 up to `ringsToWin` |
 | `selectedRing` | Valid coordinate pair or `null` |
 | `validMoves` | Array of valid coordinate pairs |
 | `rows` | Current row objects, each containing a player and five distinct marker coordinates matching a live row |
 | `nextTurnPlayer` | `null`, `1`, or `2`; must be explicitly `1` or `2` during scoring resolution |
 | `rowResolutionQueue` | Array of `{ player, rows }` entries whose rows belong to that player and match live markers |
 | `pendingRowsAfterRingRemoval` | Boolean |
-| `winner` | `null` until game-over, then the player with score 3 |
+| `winner` | `null` until game-over, then the player whose score equals `ringsToWin` |
 | `selectedSetupRing` | `null` or `{ player, index }`, where index is 0–4 |
+
+`ringsToWin` is optional: `3` (Standard, the default when absent) or `1` (Blitz); it is the one canonical field a request may omit.
 
 Resolution requires a ring belonging to the current player; `remove-row` also requires a current-player row. Validation checks the field types, ranges, geometry, live row references, winner/phase consistency, and essential resolution context. It does not reconstruct a game history or prove historical reachability.
 

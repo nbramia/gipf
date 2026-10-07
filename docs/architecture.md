@@ -119,12 +119,18 @@ y = r * 43.3 + 300
 
 **Six hexagonal directions:** `[1,0] [0,1] [-1,1] [-1,0] [0,-1] [1,-1]`
 
+### Variants and Notation
+
+A board carries its win target as `ringsToWin` (constructor option, `startNewGame(useRandomSetup, ringsToWin)`, `clone()`, `serializeState()`). Standard is 3 rings; the official Blitz variant is 1. The Settings choice applies to the next New Game and the running game keeps its own target. The match snapshot carries `ringsToWin`; a snapshot without it decodes as Standard. The AI, worker and `/api/aiMove` read the target from the board or snapshot.
+
+Hovering or focusing a move-history entry, or tapping it to pin the highlight, marks that move's points on the board (origin dashed, destination solid; a row removal marks its five markers). There are no permanent coordinate labels.
+
 ### Game Phase State Machine
 
 ```
 setup --> play --> remove-row --> remove-ring
              ^                       |
-             |         score 3 ------+--> game-over
+             |   reach win target ---+--> game-over
              |                       |
              +-- no rows -- recompute live rows
                                       |
@@ -135,9 +141,9 @@ setup --> play --> remove-row --> remove-ring
 
 **Play:** Select a ring, move it along a straight line. A marker is placed at the origin. Jumped markers flip. If rows of 5 form, phase transitions to `remove-row`.
 
-**Remove-row:** Remove exactly one currently legal five-marker row, then immediately enter `remove-ring` for that row's owner. AI actions pass the full row to `removeRow(markers)`, so overlapping five-marker windows are unambiguous; UI clicks still select a currently available row.
+**Remove-row:** Remove exactly one currently legal five-marker row, then immediately enter `remove-ring` for that row's owner. AI actions pass the full row to `removeRow(markers)`, so overlapping five-marker windows are unambiguous; UI clicks still select a currently available row, resolved by `getRowToRemove(q, r)`. The UI uses the same method to preview, on hover or focus of a marker, the exact five markers a click removes; a click removes them immediately.
 
-**Remove-ring:** Sacrifice one ring to score that row. Three points ends the game immediately; otherwise recompute remaining rows from the live board before selecting another row.
+**Remove-ring:** Sacrifice one ring to score that row. Reaching the win target (`board.ringsToWin`: 3 in Standard, 1 in the Blitz variant) ends the game immediately; otherwise recompute remaining rows from the live board before selecting another row.
 
 ### Row Resolution Queue
 
@@ -185,7 +191,8 @@ Both games tag worker requests and invalidate pending work on board changes, und
 
 ```
 yinshDarkMode, yinshShowMoves, yinshRandomSetup,
-yinshKeepScore, yinshWins, yinshShowMoveHistory, yinshEvaluationMode
+yinshKeepScore, yinshWins, yinshShowMoveHistory, yinshEvaluationMode,
+yinshVariant  # 'standard' | 'blitz': the variant of the next New Game (device-local)
 ```
 
 ---

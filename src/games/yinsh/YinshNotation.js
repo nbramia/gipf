@@ -20,7 +20,7 @@
  *
  * Ring Removal:
  *   -R[q,r]+     - Ring removed, +1 point
- *   -R[q,r]++    - Ring removed, game won (3 points total)
+ *   -R[q,r]++    - Ring removed, game won (target reached: 3 rings, or 1 in Blitz)
  *
  * Special Symbols:
  *   x  - Markers flipped (followed by count)

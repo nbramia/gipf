@@ -7,7 +7,8 @@ export default class YinshBoard {
   // Game constants
   static RINGS_PER_PLAYER = 5;
   static MARKERS_IN_ROW = 5;
-  static RINGS_TO_WIN = 3;
+  static RINGS_TO_WIN = 3;          // Standard target
+  static BLITZ_RINGS_TO_WIN = 1;    // Official Blitz variant: first ring removed wins
   static MARKER_POOL = 51;
   static DIRECTIONS = [
     [1, 0],   // East
@@ -27,8 +28,12 @@ export default class YinshBoard {
     player1Score = 0,
     player2Score = 0,
     useRandomSetup = false,
+    ringsToWin = YinshBoard.RINGS_TO_WIN,
     skipInitialHistory = false  // For test helpers that manually set up board state
   } = {}) {
+    // Rings a player must remove to win (3 Standard, 1 Blitz)
+    this.ringsToWin = ringsToWin;
+
     // Core game state
     this.boardState = { ...initialBoardState };
     this.gamePhase = initialPhase;
@@ -112,6 +117,7 @@ export default class YinshBoard {
       player2RingsPlaced: this.ringsPlaced[2],
       player1Score: this.scores[1],
       player2Score: this.scores[2],
+      ringsToWin: this.ringsToWin,
       skipInitialHistory: true
     });
     newBoard.selectedRing = this.selectedRing ? [...this.selectedRing] : null;
@@ -148,7 +154,8 @@ export default class YinshBoard {
       rowResolutionQueue: this.rowResolutionQueue,
       pendingRowsAfterRingRemoval: this.pendingRowsAfterRingRemoval,
       winner: this.winner,
-      selectedSetupRing: this.selectedSetupRing
+      selectedSetupRing: this.selectedSetupRing,
+      ringsToWin: this.ringsToWin
     };
   }
 
@@ -167,6 +174,7 @@ export default class YinshBoard {
       player2RingsPlaced: serialized.ringsPlaced[2],
       player1Score: serialized.scores[1],
       player2Score: serialized.scores[2],
+      ringsToWin: serialized.ringsToWin ?? YinshBoard.RINGS_TO_WIN,
       skipInitialHistory: true
     });
     board.selectedRing = serialized.selectedRing;
@@ -214,7 +222,8 @@ export default class YinshBoard {
 
   // --- Core Actions / State Updates ---
 
-  startNewGame(useRandomSetup) {
+  startNewGame(useRandomSetup, ringsToWin = this.ringsToWin) {
+    this.ringsToWin = ringsToWin;
     this.boardState = {};
     this.gamePhase = 'setup';
     this.currentPlayer = 1;
@@ -479,6 +488,17 @@ export default class YinshBoard {
     this.gamePhase = 'remove-row';
   }
 
+  /**
+   * The five-marker row a click on (q, r) removes during 'remove-row':
+   * the first current-player row containing that marker, else null.
+   */
+  getRowToRemove(q, r) {
+    if (this.gamePhase !== 'remove-row') return null;
+    return this.checkForRows().find(candidate =>
+      candidate.player === this.currentPlayer &&
+      candidate.markers.some(([mq, mr]) => mq === q && mr === r)) || null;
+  }
+
   /** Remove exactly one currently legal five-marker row, then its scoring ring. */
   removeRow(markers) {
     if (this.gamePhase !== 'remove-row' || !Array.isArray(markers) ||
@@ -618,8 +638,8 @@ export default class YinshBoard {
 
   /** Winning player (1 or 2), or null when unfinished or drawn. */
   isGameOver() {
-    if (this.scores[1] === YinshBoard.RINGS_TO_WIN) return 1; // White wins
-    if (this.scores[2] === YinshBoard.RINGS_TO_WIN) return 2; // Black wins
+    if (this.scores[1] === this.ringsToWin) return 1; // White wins
+    if (this.scores[2] === this.ringsToWin) return 2; // Black wins
     if (this.gamePhase === 'game-over' && this.winner) return this.winner;
     return null; // Not finished, or drawn (see isDraw)
   }
@@ -627,7 +647,7 @@ export default class YinshBoard {
   /** True when the marker pool ran out with equal rings removed. */
   isDraw() {
     return this.gamePhase === 'game-over' && !this.winner &&
-      this.scores[1] === this.scores[2] && this.scores[1] < YinshBoard.RINGS_TO_WIN;
+      this.scores[1] === this.scores[2] && this.scores[1] < this.ringsToWin;
   }
 
   /**
@@ -800,9 +820,7 @@ export default class YinshBoard {
 
     if (this.gamePhase === 'remove-row') {
       // Preserve click selection while validating against current markers.
-      const row = this.checkForRows().find(candidate =>
-        candidate.player === this.currentPlayer &&
-        candidate.markers.some(([mq, mr]) => mq === q && mr === r));
+      const row = this.getRowToRemove(q, r);
       if (row) this.removeRow(row.markers);
       return;
     }
@@ -819,7 +837,7 @@ export default class YinshBoard {
       this.scores[this.currentPlayer]++;
 
       // Check if game is over
-      const gameWon = this.scores[this.currentPlayer] === YinshBoard.RINGS_TO_WIN;
+      const gameWon = this.scores[this.currentPlayer] === this.ringsToWin;
 
       // Log the ring removal
       const notation = this.notation.recordRingRemoval(this.currentPlayer, q, r, gameWon);
