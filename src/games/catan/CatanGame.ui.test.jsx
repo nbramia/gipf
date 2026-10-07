@@ -57,3 +57,62 @@ test('an old save with AI search metadata in lastMove is rewritten without it', 
   mount(); await settle();
   expect(current().ui.lastMove).toEqual({ type: 'setup-settlement', vertexId: 'v1' });
 });
+
+describe('setup only offers playable rulesets', () => {
+  const rulesetButtons = () => screen.getAllByRole('button').filter(node => node.classList.contains('catan-ruleset-card'));
+
+  test('the picker lists the base game and its 5-6 extension, labelled with the Special Building Phase', async () => {
+    mount(); await settle();
+    const names = rulesetButtons().map(node => node.textContent);
+    expect(names).toHaveLength(2);
+    expect(names.some(text => text.includes('Seafarers') || text.includes('Cities'))).toBe(false);
+    expect(names.find(text => text.includes('Base Game Extension'))).toMatch(/Special Building Phase/);
+  });
+
+  test('a saved ruleset id that is no longer offered falls back to the base game', async () => {
+    localStorage.setItem('catanRulesetId', 'seafarers');
+    localStorage.setItem('catanPlayerCount', '6');
+    localStorage.setItem('catanScenarioId', 'new-shores');
+    mount(); await settle();
+    expect(rulesetButtons().find(node => node.classList.contains('active')).textContent).toMatch(/Base Game/);
+    expect(screen.getByRole('button', { name: /^Start Base Game$/ })).toBeTruthy();
+  });
+
+  test('a saved match setup naming an expansion is repaired', async () => {
+    const board = new CatanBoard({ seed: 5 });
+    seed(board, { gameConfig: { rulesetId: 'cities-knights', playerCount: 4, scenarioId: 'ck-classic' } });
+    mount(); await settle();
+    expect(current().ui.gameConfig).toEqual({ rulesetId: 'base-classic', playerCount: 4, scenarioId: 'random-island' });
+  });
+
+  test('expansions appear in the Rules panel only as a labelled reference section', async () => {
+    mount(); await settle();
+    fireEvent.click(screen.getByRole('button', { name: 'Rules' }));
+    const reference = screen.getByLabelText('Expansion reference');
+    expect(reference.textContent).toMatch(/Reference only/);
+    expect(reference.textContent).toMatch(/Seafarers/);
+    expect(reference.textContent).not.toMatch(/Base Game/);
+  });
+});
+
+test('a human setup placement can be undone, and the control disappears afterwards', async () => {
+  let board;
+  for (let s = 1; s < 60 && !board; s++) {
+    const candidate = new CatanBoard({ seed: s });
+    if (candidate.currentPlayer === 1) board = candidate;
+  }
+  expect(board).toBeTruthy();
+  seed(board);
+  mount(); await settle();
+  expect(screen.queryByRole('button', { name: /^Undo/ })).toBeNull();
+
+  const target = screen.getAllByRole('button', { name: /^Place a settlement/ })[0];
+  fireEvent.click(target);
+  await settle();
+  expect(current().state.phase).toBe('setup-road');
+  fireEvent.click(screen.getByRole('button', { name: /^Undo settlement/ }));
+  await settle();
+  expect(current().state.phase).toBe('setup-settlement');
+  expect(current().state.players['1'].settlements).toHaveLength(0);
+  expect(screen.queryByRole('button', { name: /^Undo/ })).toBeNull();
+});
