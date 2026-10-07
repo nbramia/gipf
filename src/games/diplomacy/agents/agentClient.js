@@ -20,7 +20,7 @@ import { accountKeys, ACCOUNT_KEYS_STORAGE, ACCOUNT_REQUEST_HEADERS } from '../.
 // Legacy per-game keys are migrated into the shared slot on first read. (Each
 // game keeps its OWN copy of this logic — the games stay independent, no
 // cross-game import.)
-const KEY_STORAGE = 'gipfApiKey';
+const KEY_STORAGE = 'playApiKey';
 const LEGACY_KEYS = ['chessApiKey', 'catanApiKey'];
 
 export function getApiKey() {
@@ -41,10 +41,10 @@ export function getApiKey() {
 }
 
 // Same-tab broadcast event name. The shared key lives in localStorage, so the
-// browser's native `storage` event already syncs OTHER tabs (and the other GIPF
+// browser's native `storage` event already syncs OTHER tabs (and the other
 // games) for free; this custom event covers same-tab listeners (the `storage`
 // event does NOT fire in the tab that made the change).
-const KEY_EVENT = 'gipf-apikey-change';
+const KEY_EVENT = 'play-apikey-change';
 
 export function setApiKey(key) {
   try {
@@ -72,7 +72,7 @@ export function hasApiKey() {
 }
 
 // Subscribe to key changes from anywhere: this tab (our KEY_EVENT, e.g. saving a
-// key in the Diplomacy chat) OR another tab / another GIPF game (the native
+// key in the Diplomacy chat) OR another tab / another game in this app (the native
 // `storage` event on the shared slot). Returns an unsubscribe fn.
 export function subscribeApiKey(callback) {
   if (typeof window === 'undefined') return () => {};

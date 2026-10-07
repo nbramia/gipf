@@ -16,7 +16,7 @@ const marker = s => s?.sid;
 async function requestProfile(session, action, fields = {}) {
   if (!session?.usernameId || !marker(session)) throw new Error('account_required');
   const check = captureFence();
-  const active = JSON.parse(localStorage.getItem('gipfAccount') || 'null');
+  const active = JSON.parse(localStorage.getItem('playAccount') || 'null');
   if (active?.usernameId !== session.usernameId || marker(active) !== marker(session)) throw new Error('account_changed');
   const r = await fetch(ENDPOINT, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Games-Request': '1' },
@@ -25,7 +25,7 @@ async function requestProfile(session, action, fields = {}) {
   const data = await r.json();
   check();
   if (!r.ok) throw new Error(data.error === 'conflict' ? 'conflict' : 'sync_failed');
-  const current = JSON.parse(localStorage.getItem('gipfAccount') || 'null');
+  const current = JSON.parse(localStorage.getItem('playAccount') || 'null');
   if (current?.usernameId !== session.usernameId || marker(current) !== marker(session)) throw new Error('account_changed');
   return data;
 }
@@ -54,7 +54,7 @@ export async function putRemoteProfile(session, domains) {
     revisions.set(session.usernameId, data.revision);
     return true;
   } catch (_) {
-    window.dispatchEvent(new CustomEvent('gipf-sync-conflict'));
+    window.dispatchEvent(new CustomEvent('play-sync-conflict'));
     return false;
   }
 }

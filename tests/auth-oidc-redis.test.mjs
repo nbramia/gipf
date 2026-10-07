@@ -1,5 +1,5 @@
 // Auth0 sign-in, server key custody, account-key proxies and old-account linking,
-// end to end against a synthetic OpenID provider and the disposable gipf-test-* Redis.
+// end to end against a synthetic OpenID provider and the disposable play-test-* Redis.
 // No real provider, store or user is involved; every identity and key is synthetic.
 import test, { beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -97,7 +97,7 @@ async function signIn(claims = {}) {
   assert.match(res.headers.location, /^\/login\?signedin=1/, JSON.stringify(res.headers));
   return cookieValue(res, COOKIE);
 }
-const identityKeys = () => redis('KEYS', 'gipf:identity:v1:*');
+const identityKeys = () => redis('KEYS', 'play:identity:v1:*');
 
 beforeEach(() => {
   redis('FLUSHDB');
@@ -212,7 +212,7 @@ test('callback fails closed on state, nonce, issuer, audience, expiry, signature
   assert.equal((await finishLogin(undefined)).headers.location, '/login?error=signin', 'no transaction cookie');
   assert.equal((await finishLogin(`${first.transaction.slice(0, -2)}AA`)).headers.location, '/login?error=signin', 'tampered transaction');
   assert.deepEqual(identityKeys(), []);
-  assert.deepEqual(redis('KEYS', 'gipf:session:v1:*'), []);
+  assert.deepEqual(redis('KEYS', 'play:session:v1:*'), []);
 });
 
 test('sign-in requires a verified email', async () => {
@@ -367,9 +367,9 @@ test('CSRF: establish, keys, logout and profile need JSON, the custom header and
 
 test('a malformed session record is refused and removed; retired account actions are refused', async () => {
   const malformed = 'L'.repeat(43);
-  redis('SET', `gipf:session:v1:${hash(malformed)}`, JSON.stringify({ u: 'a'.repeat(64), created: Date.now(), seen: Date.now() }));
+  redis('SET', `play:session:v1:${hash(malformed)}`, JSON.stringify({ u: 'a'.repeat(64), created: Date.now(), seen: Date.now() }));
   assert.equal((await call(profile, { body: { action: 'read' }, cookies: { [COOKIE]: malformed } })).statusCode, 401);
-  assert.equal(redis('EXISTS', `gipf:session:v1:${hash(malformed)}`), 0);
+  assert.equal(redis('EXISTS', `play:session:v1:${hash(malformed)}`), 0);
   const token = await signIn();
   for (const action of ['create', 'login', 'setKey', 'link', 'link-verify']) {
     const res = await call(account, { body: { action, u: 'a'.repeat(64), auth: 'b'.repeat(64) }, cookies: { [COOKIE]: token } });

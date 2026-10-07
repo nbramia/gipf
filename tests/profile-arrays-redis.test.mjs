@@ -4,13 +4,13 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import profile from '../api/chessProfile.js';
 import { signInAs, cookieHeaders } from './session-fixture.mjs';
-const redisContainer = process.env.GIPF_TEST_REDIS_CONTAINER;
-if (!/^gipf-test-[a-z0-9-]+$/.test(redisContainer || '')) throw new Error('Set GIPF_TEST_REDIS_CONTAINER to a disposable gipf-test-* container');
+const redisContainer = process.env.PLAY_TEST_REDIS_CONTAINER;
+if (!/^play-test-[a-z0-9-]+$/.test(redisContainer || '')) throw new Error('Set PLAY_TEST_REDIS_CONTAINER to a disposable play-test-* container');
 const redis = (...args) => JSON.parse(execFileSync('docker', ['exec', '-i', redisContainer, 'redis-cli', '--json'], {
   encoding:'utf8', input:args.map(arg=>JSON.stringify(String(arg))).join(' ')+'\n', maxBuffer:16*1024*1024,
 }));
 const u='a'.repeat(64), other='c'.repeat(64);
-const key=`gipf:profile:v2:${u}`;
+const key=`play:profile:v2:${u}`;
 let tokens={};
 // Requests are the owner's (data id u) with its session cookie; `as: null` sends none.
 async function call(body, { handler=profile, as='owner' }={}) {
@@ -149,7 +149,7 @@ test('maximum-count synthetic domains and five stored alternatives preserve exac
   };
   // Five pre-Auth0 claimed copies, as such records hold them in legacyProfiles.
   const stored=JSON.parse(redis('GET',key));
-  stored.legacyProfiles=Object.fromEntries(Array.from({length:5},(_,i)=>[`gipf:claim:${String(i).repeat(64)}`,large]));
+  stored.legacyProfiles=Object.fromEntries(Array.from({length:5},(_,i)=>[`play:claim:${String(i).repeat(64)}`,large]));
   stored.claimCount=5;
   redis('SET',key,JSON.stringify(stored));
   const before=await read();assert.equal(before.claimCount,5);

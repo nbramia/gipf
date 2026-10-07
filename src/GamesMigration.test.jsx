@@ -34,7 +34,7 @@ test('in-flight failure does not overwrite identity-change explanation', async (
   migration.captureIdentity.mockReturnValue({check:() => { if (changed) throw new Error('account_changed'); },invalidate:() => { changed = true; }});
   render(<GamesMigration />);
   fireEvent.click(screen.getByRole('button',{name:'Prepare export'}));
-  fireEvent(window,new StorageEvent('storage',{key:'gipfAccount'}));
+  fireEvent(window,new StorageEvent('storage',{key:'playAccount'}));
   reject(new Error('unrelated deferred error'));
   await waitFor(() => expect(screen.queryByText('Checking local progress…')).toBeNull());
   expect(screen.getByRole('alert').textContent).toMatch(/Account changed. Reload/);
@@ -125,7 +125,7 @@ test('account/transition event discards prepared material and prevents stale dow
   render(<GamesMigration />);
   fireEvent.click(screen.getByRole('button',{name:'Prepare export'}));
   await screen.findByRole('button',{name:'Download export'});
-  fireEvent(window,new StorageEvent('storage',{key:'gipf:account-transition'}));
+  fireEvent(window,new StorageEvent('storage',{key:'play:account-transition'}));
   expect(screen.queryByRole('button',{name:'Download export'})).toBeNull();
   expect(screen.getByRole('alert').textContent).toMatch(/Account changed/);
 });

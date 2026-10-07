@@ -1,7 +1,7 @@
 // ChessBoard.js — pure game logic for the Chess game (no React).
 //
 // Wraps chess.js for rule enforcement and exposes the same Board-class shape
-// the rest of the GIPF suite uses: an internal source of truth, undo/redo via a
+// the app's other games use: an internal source of truth, undo/redo via a
 // position stack, and clone() so the React layer can re-render immutably.
 //
 // The UI never reaches into chess.js directly — it goes through this class.

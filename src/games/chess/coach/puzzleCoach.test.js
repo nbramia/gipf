@@ -151,7 +151,7 @@ describe('requestCommentary spoiler guard (puzzle-hint, with an API key set)', (
   const solution = { uci: 'a1a8', fen: BACK_RANK.fen };
 
   beforeEach(() => {
-    localStorage.setItem('gipfApiKey', 'test-key');
+    localStorage.setItem('playApiKey', 'test-key');
   });
   afterEach(() => {
     localStorage.clear();

@@ -1111,7 +1111,7 @@ const YinshGame = () => {
           className="text-[10px] font-semibold uppercase tracking-[0.2em] mb-1 opacity-40 hover:opacity-70 transition-opacity"
           style={{ color: 'var(--color-text-secondary)' }}
         >
-          &larr; GIPF Project
+          &larr; Games
         </Link>
         <h1
           className="font-heading text-4xl lg:text-6xl font-extrabold tracking-[0.25em] uppercase"

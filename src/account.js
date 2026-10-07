@@ -1,5 +1,6 @@
 import { captureFence, withAccountTransition } from './accountFence.js';
 import { accountKeys, setAccountKeys } from './accountKeys.js';
+import { renameKeyDatabase } from './storageRename.js';
 // account.js — Games accounts, signed in with Auth0 (the ramia.us sign-in).
 //
 // The one implementation: /login signs in and out here, and each game reads the
@@ -10,7 +11,7 @@ import { accountKeys, setAccountKeys } from './accountKeys.js';
 // later request. Back on /login, `completeSignIn` asks the server for the account's
 // data id and its device seal key — the AES key that seals this device's recovery
 // copies, kept as a non-extractable CryptoKey in IndexedDB — and switches the
-// device to that account. The cached `gipfAccount` session (v3) holds no secret:
+// device to that account. The cached `playAccount` session (v3) holds no secret:
 // the account name, its data id, and a random per-sign-in marker (`sid`) the
 // identity fences compare.
 //
@@ -19,7 +20,7 @@ import { accountKeys, setAccountKeys } from './accountKeys.js';
 // to each request (src/accountKeys.js says which keys exist). Guests keep
 // device-only keys in localStorage.
 
-export const ACCOUNT_STORAGE_KEY = 'gipfAccount';
+export const ACCOUNT_STORAGE_KEY = 'playAccount';
 
 // ---- byte/string helpers -------------------------------------------------
 
@@ -134,11 +135,16 @@ export async function checkServerSession() {
 // The seal key lives in IndexedDB as a non-extractable CryptoKey, keyed by the
 // account's data id: page script can use it to encrypt and decrypt, never read it out.
 
-const KEY_DB = 'gipf-account';
+const KEY_DB = 'play-account';
 const KEY_STORE = 'keys';
 const keyCache = new Map();
 
-function keyStore(mode, operation) {
+// The legacy key database is moved once per page, before the first read or write.
+let keyDbRenamed = null;
+const renameKeyDb = () => (keyDbRenamed ||= renameKeyDatabase(KEY_DB, KEY_STORE).catch(() => false));
+
+async function keyStore(mode, operation) {
+  await renameKeyDb();
   return new Promise((resolve, reject) => {
     if (!globalThis.indexedDB) { reject(new Error('indexeddb_unavailable')); return; }
     const open = globalThis.indexedDB.open(KEY_DB, 1);
@@ -219,7 +225,7 @@ export const PROGRESS_KEYS = [
   'splendorDarkMode', 'splendorDifficulty', 'splendorPlayerCount',
   'diplomacyDarkMode', 'diplomacyShowOrders', 'diplomacyShowLastMoves', 'diplomacySettings', 'diplomacyGameState',
 ];
-const SECRET_KEYS = ['gipfApiKey', 'chessApiKey', 'catanApiKey', 'chessLichessToken'];
+const SECRET_KEYS = ['playApiKey', 'chessApiKey', 'catanApiKey', 'chessLichessToken'];
 // Device keys and the account-key marker: neither belongs on a signed-in device's next identity.
 export function clearDeviceSecrets() {
   SECRET_KEYS.forEach(k => localStorage.removeItem(k));
@@ -232,7 +238,7 @@ export async function retainProgress(session) {
   const snapshot = () => JSON.stringify(Object.fromEntries(PROGRESS_KEYS.map(k => [k, localStorage.getItem(k)]).filter(([, v]) => v !== null)));
   const progress = snapshot();
   if (progress === '{}') return;
-  const key = session ? `gipf:recovery:${session.usernameId}` : 'gipf:guest:recovery';
+  const key = session ? `play:recovery:${session.usernameId}` : 'play:guest:recovery';
   const previous = localStorage.getItem(key);
   const value = session ? JSON.stringify(await encryptApiKey(await accountKey(session), progress)) : progress;
   check();
@@ -249,9 +255,9 @@ async function saveSessionProgress(s, { importGuest = false, keys = null } = {})
       // Validate recovery and retain outgoing progress before any destructive step.
       await retainProgress(previous);
       const retained = JSON.stringify(PROGRESS_KEYS.map(k => localStorage.getItem(k)));
-      const sealed = localStorage.getItem(`gipf:recovery:${s.usernameId}`);
+      const sealed = localStorage.getItem(`play:recovery:${s.usernameId}`);
       const restored = sealed ? JSON.parse(await decryptApiKey(s.aesKey, JSON.parse(sealed))) : {};
-      const guest = importGuest && !previous ? JSON.parse(localStorage.getItem('gipf:guest:recovery') || '{}') : {};
+      const guest = importGuest && !previous ? JSON.parse(localStorage.getItem('play:guest:recovery') || '{}') : {};
       if (mark(loadSession()) !== mark(previous)) throw new Error('account_changed');
       assertMatchTransition();
       if (JSON.stringify(PROGRESS_KEYS.map(k => localStorage.getItem(k))) !== retained) throw new Error('progress_changed');
@@ -295,7 +301,7 @@ async function clearSessionProgress({ everywhere = false, server = true } = {}) 
 
 // ---- shared API key slot ----------------------------------------------------
 //
-// 'gipfApiKey' is a guest's one BYO Anthropic key, shared by Chess, Catan,
+// 'playApiKey' is a guest's one BYO Anthropic key, shared by Chess, Catan,
 // Splendor and Diplomacy on this device (see AGENTS.md). /login is the only place
 // it is written; each game reads it through its own storage helper (which also
 // migrates legacy per-game keys, a step this module deliberately does not
@@ -303,7 +309,7 @@ async function clearSessionProgress({ everywhere = false, server = true } = {}) 
 
 export function getSharedApiKey() {
   try {
-    return localStorage.getItem('gipfApiKey') || '';
+    return localStorage.getItem('playApiKey') || '';
   } catch (_) {
     return '';
   }
@@ -312,9 +318,9 @@ export function getSharedApiKey() {
 export function setSharedApiKey(key) {
   try {
     if (key) {
-      localStorage.setItem('gipfApiKey', key);
+      localStorage.setItem('playApiKey', key);
     } else {
-      ['gipfApiKey', 'chessApiKey', 'catanApiKey'].forEach(k => localStorage.removeItem(k));
+      ['playApiKey', 'chessApiKey', 'catanApiKey'].forEach(k => localStorage.removeItem(k));
     }
   } catch (_) {
     /* ignore storage failures */
@@ -375,7 +381,7 @@ export async function clearSession(options = {}) {
   }
 }
 
-export const SESSION_EXPIRED_KEY = 'gipf:session-expired';
+export const SESSION_EXPIRED_KEY = 'play:session-expired';
 function noteSessionEnded(reason) {
   try { sessionStorage.setItem(SESSION_EXPIRED_KEY, reason); } catch (_) { /* optional notice */ }
 }

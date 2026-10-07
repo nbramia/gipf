@@ -23,7 +23,7 @@ test('A cannot authorize B by swapping public ID; arbitrary id field is not auth
   assert.equal((await call(profile,{action:'read',u:other})).statusCode,401);
   assert.equal((await call(profile,{action:'read',id:other},'POST','192.0.2.1',null)).statusCode,401);
   assert.equal((await call(profile,{action:'write',u,id:other,revision:0,domains:{rating:{rating:1400,ratedGames:2}}})).statusCode,200);
-  assert.equal(redis('GET',`gipf:profile:v2:${other}`),null);
+  assert.equal(redis('GET',`play:profile:v2:${other}`),null);
   assert.equal((await call(profile,{},'GET')).statusCode,405);
 });
 test('stale revision conflicts without changing cloud data and settings revision is independent',async()=>{
@@ -32,7 +32,7 @@ test('stale revision conflicts without changing cloud data and settings revision
   assert.equal((await call(profile,{...write,domains:{rating:{rating:1000,ratedGames:1}}})).statusCode,409);
   assert.equal((await call(profile,{action:'read',u})).body.profile.rating.rating,1500);
   assert.equal((await call(profile,{...write,scope:'settings',domains:{preferences:{yinshWins:'{"1":2,"2":1}'}}})).body.revision,1);
-  assert.equal((await call(profile,{...write,scope:'settings',revision:1,domains:{preferences:{gipfApiKey:'synthetic'}}})).statusCode,400);
+  assert.equal((await call(profile,{...write,scope:'settings',revision:1,domains:{preferences:{playApiKey:'synthetic'}}})).statusCode,400);
 });
 test('two handler instances share account limits and bounded payloads',async()=>{
   const second=(await import('../api/chessAccount.js?second')).default;
@@ -58,14 +58,14 @@ test('retired account and claim actions are refused without touching the store',
   }
   const claim=await call(profile,{action:'claim',u,legacyId:'d'.repeat(64)});
   assert.deepEqual([claim.statusCode,claim.body],[400,{error:'bad_request'}]);
-  assert.equal(redis('EXISTS',`gipf:profile:v2:${u}`),0);
+  assert.equal(redis('EXISTS',`play:profile:v2:${u}`),0);
 });
 test('profiles claimed before Auth0 keep their legacyProfiles copies through reads and writes',async()=>{
-  const legacy={'gipf:claim:synthetic':{rating:{rating:1500,ratedGames:3}}};
-  redis('SET',`gipf:profile:v2:${u}`,JSON.stringify({revision:1,profile:{rating:{rating:1700,ratedGames:10}},legacyProfiles:legacy,claimCount:1}));
+  const legacy={'play:claim:synthetic':{rating:{rating:1500,ratedGames:3}}};
+  redis('SET',`play:profile:v2:${u}`,JSON.stringify({revision:1,profile:{rating:{rating:1700,ratedGames:10}},legacyProfiles:legacy,claimCount:1}));
   const read=(await call(profile,{action:'read',u})).body;
   assert.equal(read.profile.rating.rating,1700);
   assert.deepEqual(read.legacyProfiles,legacy);
   assert.equal((await call(profile,{action:'write',u,revision:1,domains:{rating:{rating:1720,ratedGames:11}}})).body.revision,2);
-  assert.deepEqual(JSON.parse(redis('GET',`gipf:profile:v2:${u}`)).legacyProfiles,legacy);
+  assert.deepEqual(JSON.parse(redis('GET',`play:profile:v2:${u}`)).legacyProfiles,legacy);
 });

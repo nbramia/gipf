@@ -15,12 +15,12 @@ test('old tab cannot overwrite newer device state or write after identity change
   const stale = createMatchStore('yinsh');
   first.save(snapshot());
   expect(() => stale.save(snapshot('yinsh', 2))).toThrow('local_conflict');
-  localStorage.setItem('gipfAccount', JSON.stringify({ v: 3, username: 'B', usernameId: 'B', sid: 'B' }));
+  localStorage.setItem('playAccount', JSON.stringify({ v: 3, username: 'B', usernameId: 'B', sid: 'B' }));
   expect(() => first.save(snapshot())).toThrow('account_changed');
 });
 test('transition marker blocks delayed local writes even before account changes', () => {
   const store = createMatchStore('yinsh');
-  localStorage.setItem('gipf:account-transition', 'synthetic');
+  localStorage.setItem('play:account-transition', 'synthetic');
   expect(() => store.save(snapshot())).toThrow('account_changed');
 });
 test('quota failure preserves the prior snapshot and is visible to caller', () => {
@@ -41,7 +41,7 @@ test('explicit resolution retains both alternatives before replacing', () => {
 
 test('a crashed transition requires a fresh writer after lease expiry', () => {
   const store = createMatchStore('yinsh');
-  localStorage.setItem('gipf:account-transition', JSON.stringify({id:'crashed',until:Date.now()-1}));
+  localStorage.setItem('play:account-transition', JSON.stringify({id:'crashed',until:Date.now()-1}));
   expect(() => store.save(snapshot())).toThrow('account_changed');
   expect(() => createMatchStore('yinsh').save(snapshot())).not.toThrow();
 });
@@ -53,7 +53,7 @@ test('clearing writes an account-owned empty value while a new account can still
   expect(createMatchStore('chess').hasCurrent()).toBe(true);
   // Existing account cleanup removes the same key; no device-wide import marker.
   localStorage.removeItem('chessMatch:v1');
-  localStorage.setItem('gipfAccount', JSON.stringify({ usernameId: 'B' }));
+  localStorage.setItem('playAccount', JSON.stringify({ usernameId: 'B' }));
   expect(createMatchStore('chess').hasCurrent()).toBe(false);
 });
 
@@ -98,7 +98,7 @@ test('restaging an old alternative in a full ring cannot evict either current ch
 });
 
 test.each([[400, 'sync_rejected'], [413, 'sync_rejected'], [502, 'sync_unavailable'], [429, 'sync_unavailable'], [409, 'cloud_conflict']])('HTTP %s classified without parsing an HTML error page', async (status, error) => {
-  localStorage.setItem('gipfAccount', JSON.stringify({ v: 3, username: 'A', usernameId: 'A', sid: 'synthetic' }));
+  localStorage.setItem('playAccount', JSON.stringify({ v: 3, username: 'A', usernameId: 'A', sid: 'synthetic' }));
   const json = jest.fn().mockRejectedValue(new Error('HTML'));
   global.fetch = jest.fn().mockResolvedValue({ ok: false, status, json });
   await expect(createMatchStore('yinsh').request('write')).rejects.toThrow(error);

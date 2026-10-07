@@ -26,7 +26,7 @@ export const safeTree = (v, depth = 0) => {
   if (v === null || typeof v === 'boolean' || typeof v === 'string') return true;
   if (typeof v === 'number') return Number.isFinite(v);
   if (!Array.isArray(v) && !obj(v)) return false;
-  return Object.entries(v).every(([k,x]) => !/^(?:__proto__|prototype|constructor|authToken|aesKey|profileId|usernameId|apiKey|password|token|secret|credentials|enc|encLichess|lichessToken|gipfAccount)$/i.test(k) && safeTree(x, depth + 1));
+  return Object.entries(v).every(([k,x]) => !/^(?:__proto__|prototype|constructor|authToken|aesKey|profileId|usernameId|apiKey|password|token|secret|credentials|enc|encLichess|lichessToken|playAccount)$/i.test(k) && safeTree(x, depth + 1));
 };
 export const canonical = v => JSON.stringify(v, (_, x) => obj(x) ? Object.fromEntries(Object.keys(x).sort().map(k => [k,x[k]])) : x);
 export const bytes = v => new TextEncoder().encode(v).length;

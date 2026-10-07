@@ -77,7 +77,7 @@ test('the account endpoint accepts only setKeys; retired actions never reach the
     const res=response(); await account(req({action,u:'e'.repeat(64),auth:'b'.repeat(64)}),res);
     assert.deepEqual([res.statusCode,res.body],[400,{error:'bad_request'}]);
   }
-  assert.deepEqual([...data.keys()].filter(k=>!k.startsWith('gipf:limit:')),[]);
+  assert.deepEqual([...data.keys()].filter(k=>!k.startsWith('play:limit:')),[]);
 });
 test('direct Chess match writes bound PGN before replay', async()=>{
   const { validMatch }=await import('../server/matchValidation.js');

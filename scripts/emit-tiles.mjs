@@ -15,7 +15,7 @@ import { games } from '../src/games-registry.js'
 export function buildManifest() {
   return {
     version: 1,
-    project: 'gipf',
+    project: 'play',
     tiles: games.map((game) => ({
       name: game.name,
       href: game.path,

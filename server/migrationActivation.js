@@ -72,11 +72,11 @@ export async function migrationActivation(body, res, settingKeys, deadline) {
     }
   } catch (_) { return res.status(400).json({ error: 'invalid_migration' }); }
   const fingerprint = hash(canonical({ bundle, selected: [...body.selected].sort() }));
-  const receiptKey = `gipf:migration:v1:${hash(bundle.exportId)}`;
-  const countKey = `gipf:migration-count:v1:${body.u}`;
-  const keys = [receiptKey, countKey, `gipf:settings:v2:${body.u}`, `gipf:profile:v2:${body.u}`,
-    ...games.map(game => `gipf:match:v1:${body.u}:${game}`), `gipf:migration-extra:v1:${body.u}`,
-    `gipf:migration-bytes:v1:${body.u}`];
+  const receiptKey = `play:migration:v1:${hash(bundle.exportId)}`;
+  const countKey = `play:migration-count:v1:${body.u}`;
+  const keys = [receiptKey, countKey, `play:settings:v2:${body.u}`, `play:profile:v2:${body.u}`,
+    ...games.map(game => `play:match:v1:${body.u}:${game}`), `play:migration-extra:v1:${body.u}`,
+    `play:migration-bytes:v1:${body.u}`];
   const raw = await store('MGET', ...keys);
   if (raw[0] !== null && Buffer.byteLength(raw[0]) > MIGRATION_LIMITS.receiptBytes) return res.status(409).json({ error: 'migration_storage_limit' });
   if (raw[0] !== null) {

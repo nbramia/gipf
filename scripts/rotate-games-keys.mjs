@@ -12,11 +12,11 @@ import { keyring } from '../server/keyCustody.js';
 const ring = keyring();
 let cursor = '0', seen = 0, rewrapped = 0;
 do {
-  const [next, keys] = await command('SCAN', cursor, 'MATCH', 'gipf:identity:v1:*', 'COUNT', 200);
+  const [next, keys] = await command('SCAN', cursor, 'MATCH', 'play:identity:v1:*', 'COUNT', 200);
   cursor = String(next);
   for (const key of keys) {
     seen++;
-    if (await rewrapIdentity(key.slice('gipf:identity:v1:'.length), ring)) rewrapped++;
+    if (await rewrapIdentity(key.slice('play:identity:v1:'.length), ring)) rewrapped++;
   }
 } while (cursor !== '0');
 console.log(`identities: ${seen}, rewrapped to v${ring.current}: ${rewrapped}`);

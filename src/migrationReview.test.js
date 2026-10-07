@@ -109,7 +109,7 @@ test('uncapped repertoire and Diplomacy conversation writers fit the envelope bu
 });
 
 test.each([false,true])('invalid retained entries stay byte-preserved while valid stages work (account=%s)', async signedIn => {
-  if (signedIn) localStorage.setItem('gipfAccount',JSON.stringify(account));
+  if (signedIn) localStorage.setItem('playAccount',JSON.stringify(account));
   localStorage.setItem('chessDarkMode','true');
   const {bundles:[bundle]} = await exportProgress(origin);
   const original = `[ ${JSON.stringify(bundle)},\n { "future": 9, "private": "unvalidated" }, null ]\n`;
@@ -130,7 +130,7 @@ test.each([false,true])('invalid retained entries stay byte-preserved while vali
   expect(() => rawStageRecovery(guard)).toThrow('account_changed');
   if (signedIn) {
     expect(stored).not.toContain('unvalidated');
-    localStorage.removeItem('gipfAccount');
+    localStorage.removeItem('playAccount');
     expect(await readStages()).toEqual([]);
     expect(() => rawStageRecovery()).toThrow();
   }
@@ -143,9 +143,9 @@ test('raw escape preserves damaged container but cannot enter validated migratio
 });
 
 test.each([false,true])('excluded recovery warning is generic with no account IDs or counts (account=%s)', async signedIn => {
-  if (signedIn) localStorage.setItem('gipfAccount',JSON.stringify(account));
-  localStorage.setItem('gipf:recovery:private-other-id','sealed-private-content');
-  localStorage.setItem('gipf:guest:recovery','guest-private-content');
+  if (signedIn) localStorage.setItem('playAccount',JSON.stringify(account));
+  localStorage.setItem('play:recovery:private-other-id','sealed-private-content');
+  localStorage.setItem('play:guest:recovery','guest-private-content');
   const {bundles:[bundle],issues} = await exportProgress(origin);
   expect(issues).toHaveLength(2);
   expect(issues.join(' ')).toContain('Other account recovery');
@@ -279,7 +279,7 @@ test('staging split files keeps distinct IDs and replays each file idempotently'
 });
 
 test('account change while decrypting stages cannot be swallowed as an invalid entry', async () => {
-  localStorage.setItem('gipfAccount',JSON.stringify(account));
+  localStorage.setItem('playAccount',JSON.stringify(account));
   const bundle = (await exportProgress(origin)).bundles[0];
   await stageImport(bundle,'retain');
   const real = webcrypto.subtle.decrypt.bind(webcrypto.subtle);
@@ -289,7 +289,7 @@ test('account change while decrypting stages cannot be swallowed as an invalid e
   const spy = jest.spyOn(webcrypto.subtle,'decrypt').mockImplementation(async (...args) => { reached(); await pause; return real(...args); });
   const pending = inspectStages();
   await started;
-  localStorage.removeItem('gipfAccount');
+  localStorage.removeItem('playAccount');
   release();
   await expect(pending).rejects.toThrow('account_changed');
   spy.mockRestore();

@@ -162,7 +162,7 @@ export default async function handler(req, res) {
     const match = body.scope === 'match';
     if (match && !['chess','yinsh','zertz','catan'].includes(body.game)) return res.status(400).json({ error: 'bad_request' });
     if (body.scope && !settings && !match) return res.status(400).json({ error: 'bad_request' });
-    const key = match ? `gipf:match:v1:${body.u}:${body.game}` : `gipf:${settings ? 'settings' : 'profile'}:v2:${body.u}`;
+    const key = match ? `play:match:v1:${body.u}:${body.game}` : `play:${settings ? 'settings' : 'profile'}:v2:${body.u}`;
     if (body.action === 'read') {
       const raw = await command('GET', key);
       const record = raw != null ? JSON.parse(raw) : { revision: 0, profile: {} };

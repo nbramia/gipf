@@ -35,11 +35,11 @@ rather than an iframe, so third-party cookie blocking does not matter.
 
 It never loops or interrupts a guest:
 
-- After any attempt, the browser makes no other for 10 minutes (`gipf:silent-sign-in-at`
+- After any attempt, the browser makes no other for 10 minutes (`play:silent-sign-in-at`
   in localStorage). If that marker cannot be stored, there is no attempt at all.
-- The catalogue tries at most once per browser session (`gipf:silent-sign-in-home` in
+- The catalogue tries at most once per browser session (`play:silent-sign-in-home` in
   sessionStorage); game routes never try.
-- Signing out of Games sets `gipf:silent-sign-in-off`, which stops attempts until the
+- Signing out of Games sets `play:silent-sign-in-off`, which stops attempts until the
   player next chooses Sign in or "Use a different account"; otherwise the Auth0 session
   that outlives a Games sign-out would sign straight back in.
 - Only on play.ramia.us, the one host Auth0 accepts a callback for, and never while
@@ -64,7 +64,7 @@ It never loops or interrupts a guest:
   `email_verified === true` (Google identities are verified). Any failure returns to
   `/login?error=…` with no provider detail and no session.
 - The identity is `sha256("gipf-games-identity:v1|<issuer>|<sub>")`; Redis never holds
-  the subject. A first sign-in creates `gipf:identity:v1:<identityId>` and spends the
+  the subject. A first sign-in creates `play:identity:v1:<identityId>` and spends the
   creation budgets that bound the store (see Durable limits; over budget returns
   `error=busy`). The callback then revokes any session the browser
   presented, issues a new one, and returns to `/login?signedin=1&return=…`, where
@@ -83,10 +83,10 @@ It never loops or interrupts a guest:
 
 - The cookie is `__Host-games_session=<token>; Path=/; HttpOnly; Secure; SameSite=Lax;
   Max-Age=7776000` — host-only, never readable by page script. The token is 32 random
-  bytes; Redis stores only `gipf:session:v1:<sha256(token)>` →
+  bytes; Redis stores only `play:session:v1:<sha256(token)>` →
   `{i, u, name, created, seen}` (identity, data id, and the verified email shown as the
   account name), plus the set
-  `gipf:sessions:v1:<identityId>` of that identity's session hashes.
+  `play:sessions:v1:<identityId>` of that identity's session hashes.
 - Lifetime: 30 days idle (the record's TTL, refreshed at most hourly by use) and
   90 days absolute from creation.
 - `GET /api/session` reports `{signedIn, u, name, keys}` or 401. `keys` says only
@@ -101,13 +101,13 @@ It never loops or interrupts a guest:
   with no conflicting `Origin`; otherwise 403. The Auth0 login and callback are top-level
   GET navigations protected by `state`, `nonce` and PKCE instead.
 
-`gipfAccount` (v3) is `{v:3, username, usernameId, sid}`: the account name, the data id
+`playAccount` (v3) is `{v:3, username, usernameId, sid}`: the account name, the data id
 its progress is stored under, and a random per-sign-in marker the identity fences
 compare. It holds no secret. The device seal key — the AES key that seals this
 device's recovery copies and migration journals — is imported as a non-extractable
-`CryptoKey` into IndexedDB (`gipf-account` / `keys`, keyed by data id); without
+`CryptoKey` into IndexedDB (`play-account` / `keys`, keyed by data id); without
 IndexedDB it is kept for the page only. Sign-out deletes it; the next sign-in fetches it
-again with `establish`. At startup, before anything renders, a stored `gipfAccount`
+again with `establish`. At startup, before anything renders, a stored `playAccount`
 that is not a valid v3 record is removed (`discardUnreadableSession`); the device's
 progress stays in place as guest progress.
 
@@ -139,12 +139,12 @@ key. Proxies never log request bodies or keys, never use an environment key as a
 fallback, and never echo provider error details. A missing or unreadable account key is
 401 `missing_api_key`; an unavailable store or KEK is 503.
 
-Signed in, no key is kept in `localStorage`: `gipfAccountKeys` holds only
+Signed in, no key is kept in `localStorage`: `playAccountKeys` holds only
 `{anthropic, lichess}` booleans (`src/accountKeys.js`), which each game's key client
 reads to enable its AI features, sending `X-Games-Request: 1` so the server may use the
 cookie. Keys already on a device as a guest move to the account at sign-in when the
 account lacks them, and are removed from the device either way. Guests keep
-device-only `gipfApiKey` and `chessLichessToken`.
+device-only `playApiKey` and `chessLichessToken`.
 
 Rotation: put the new KEK in `GAMES_KEY_ENCRYPTION_KEY`, raise
 `GAMES_KEY_ENCRYPTION_KEY_VERSION`, and keep the previous KEK readable as
@@ -179,7 +179,7 @@ id, so a tab still showing another account cannot write into this one.
   (including credentials) are rejected. Startup conflicts offer explicit choices;
   changes are checked every five seconds. Network failures leave local play usable.
 - `scope:"match"`: `read`/`write` for `game:"chess"|"yinsh"|"zertz"|"catan"`,
-  stored at `gipf:match:v1:<dataId>:<game>` with a separate account/game CAS
+  stored at `play:match:v1:<dataId>:<game>` with a separate account/game CAS
   revision. Writes use `domains.match` (a validated snapshot or null to clear);
   stale revisions return 409. See
   [resumable matches](resumable-matches.md) for schema, restore, and recovery details.
@@ -221,11 +221,11 @@ migration or recovery of already-lost data is provided.
 
 On switching, the outgoing
 allowlisted progress is encrypted with its account's seal key and stored under
-`gipf:recovery:<dataId>`. Only a sign-in to that account can decrypt it. Secrets,
+`play:recovery:<dataId>`. Only a sign-in to that account can decrypt it. Secrets,
 active sessions, and unrelated app data are excluded. Device quota/encryption
 failure aborts a switch instead of deleting the only recovery copy.
 
-Guest progress is retained separately in `gipf:guest:recovery`. Import requires the
+Guest progress is retained separately in `play:guest:recovery`. Import requires the
 unchecked-by-default checkbox; it never imports an outgoing account into another.
 Logout revokes the server session and removes the cached session, the stored seal key,
 the shared and per-game Anthropic slots, the Lichess slot and the account-key marker,
@@ -292,15 +292,15 @@ hardening work, with browser response-header coverage required.
 CI=true npm test -- --watchAll=false --runInBand --runTestsByPath src/games/chess/engine/account.test.js src/games/chess/engine/chessAccountEndpoint.test.js src/games/chess/engine/profileSync.test.js src/LandingPage.test.jsx src/LoginPage.test.jsx src/gamesLoginBoundary.test.js src/accountSession.test.js src/accountKeys.test.js src/games/chess/ChessGame.test.js
 node --test tests/public-security.test.mjs tests/ai-security.test.mjs
 # Explicit disposable Redis only; these tests FLUSHDB the container, so run them one file at a time.
-export GIPF_TEST_REDIS_CONTAINER=gipf-test-public-accounts
-docker run --rm -d --name "$GIPF_TEST_REDIS_CONTAINER" redis:7-alpine
+export PLAY_TEST_REDIS_CONTAINER=play-test-public-accounts
+docker run --rm -d --name "$PLAY_TEST_REDIS_CONTAINER" redis:7-alpine
 node --test --test-concurrency=1 tests/auth-oidc-redis.test.mjs tests/account-redis.test.mjs tests/session-redis.test.mjs tests/match-redis.test.mjs tests/profile-arrays-redis.test.mjs tests/migration-activation-redis.test.mjs
 # Real sign-in in Chromium against the synthetic provider, served as https://play.ramia.us.
 npm run build
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node tests/auth-browser.mjs
 # Browser fixture server at http://127.0.0.1:3187/; stop it before container cleanup.
 node tests/serve-public-security.mjs
-docker stop "$GIPF_TEST_REDIS_CONTAINER"
+docker stop "$PLAY_TEST_REDIS_CONTAINER"
 ```
 
 `tests/auth-oidc-redis.test.mjs` runs the Auth0 flow against a synthetic OpenID
@@ -315,13 +315,13 @@ completing on its own with one, a model request, sign-out suppressing the automa
 attempt, a clicked silent sign-in, and `prompt=login`.
 
 The fixtures use only synthetic local Redis and refuse real provider calls.
-`GIPF_TEST_REDIS_CONTAINER` must explicitly name a `gipf-test-*` disposable
-container; there is no shared-container default. `GIPF_TEST_PORT` can select a
+`PLAY_TEST_REDIS_CONTAINER` must explicitly name a `play-test-*` disposable
+container; there is no shared-container default. `PLAY_TEST_PORT` can select a
 nonconflicting loopback port.
 In the fixture server `GET /api/auth/login` is a synthetic sign-in: it seeds a session for
 the identity named by a `fixture-identity` cookie and returns to `/login?signedin=1`, so
 the real device-side sign-in runs. The match fixtures (`tests/match-browser.mjs`,
-`tests/match-import-browser.mjs`) expect `GIPF_TEST_PORT=3189`, and the ESM fixtures need
+`tests/match-import-browser.mjs`) expect `PLAY_TEST_PORT=3189`, and the ESM fixtures need
 `PLAYWRIGHT_MODULE` to name Playwright's `index.mjs`.
 CRA/source-map warnings may appear in the build output.
 

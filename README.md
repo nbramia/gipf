@@ -1,4 +1,4 @@
-# GIPF Project
+# Play
 
 Browser-based implementations of abstract strategy and classic board games, each with its own computer opponent. Play against the AI or another person, with full rule enforcement, undo/redo, and dark mode.
 
@@ -55,8 +55,8 @@ Offline training splits positions by source game before applying six rotations t
 ## Quick Start
 
 ```bash
-git clone https://github.com/nbramia/gipf.git
-cd gipf
+git clone https://github.com/nbramia/play.git
+cd play
 npm install
 npm start
 ```

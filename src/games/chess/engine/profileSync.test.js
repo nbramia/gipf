@@ -177,7 +177,7 @@ describe('authenticated profile requests', () => {
   afterEach(() => { delete global.fetch; localStorage.clear(); });
   test('old component cannot assign a queued write to a new account', async () => {
     const { putRemoteProfile } = await import('./profileSync.js');
-    localStorage.setItem('gipfAccount', JSON.stringify(b));
+    localStorage.setItem('playAccount', JSON.stringify(b));
     global.fetch = jest.fn();
     expect(await putRemoteProfile(a, { rating: { rating: 1400, ratedGames: 1 } })).toBe(false);
     expect(global.fetch).not.toHaveBeenCalled();
@@ -190,9 +190,9 @@ describe('authenticated profile requests', () => {
   });
   test('late read rejects after an account switch', async () => {
     const { fetchRemoteProfile } = await import('./profileSync.js');
-    localStorage.setItem('gipfAccount', JSON.stringify(a));
+    localStorage.setItem('playAccount', JSON.stringify(a));
     global.fetch = jest.fn(async () => {
-      localStorage.setItem('gipfAccount', JSON.stringify(b));
+      localStorage.setItem('playAccount', JSON.stringify(b));
       return { ok: true, json: async () => ({ profile: { rating: { rating: 1400 } }, revision: 1 }) };
     });
     await expect(fetchRemoteProfile(a)).rejects.toThrow('account_changed');
@@ -205,7 +205,7 @@ describe('legacy mistakes compatibility', () => {
   test.each([{}, { original: 'retained remotely' }])('reconciles non-array entries without mutation: %p', async entries => {
     const { fetchRemoteProfile, putRemoteProfile } = await import('./profileSync.js');
     const session = { v: 3, username: 'e', usernameId: 'e'.repeat(64), sid: 'f'.repeat(32) };
-    localStorage.setItem('gipfAccount', JSON.stringify(session));
+    localStorage.setItem('playAccount', JSON.stringify(session));
     const healthy = [{ fenBefore: 'synthetic', attempts: 0, nextDueAt: 0, createdAt: 1 }];
     const data = { revision: 1, profile: { mistakes: { v: 1, entries } }, legacyProfiles: {
       damaged: { mistakes: { v: 1, entries: {} } }, healthy: { mistakes: { v: 1, entries: healthy } },

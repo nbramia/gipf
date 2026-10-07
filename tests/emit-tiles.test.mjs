@@ -16,7 +16,7 @@ test('the script writes root hrefs whatever PUBLIC_URL the build environment car
   const original = readFileSync(out, 'utf8');
   const script = fileURLToPath(new URL('../scripts/emit-tiles.mjs', import.meta.url));
   try {
-    for (const PUBLIC_URL of ['/', '/gipf', '']) {
+    for (const PUBLIC_URL of ['/', '/play', '']) {
       execFileSync(process.execPath, [script], { env: { ...process.env, PUBLIC_URL }, stdio: 'ignore' });
       assert.deepEqual(JSON.parse(readFileSync(out, 'utf8')).tiles.map(t => t.href), canonical);
     }

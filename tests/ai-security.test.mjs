@@ -55,7 +55,7 @@ test('Yinsh checks shared durable AI budget and size before constructing a board
   globalThis.fetch=()=>{throw new Error('size check must precede storage');};
   const large=res();await yinsh(req({boardState:'x'.repeat(33000)}),large);assert.equal(large.statusCode,413);
   globalThis.fetch=async(_url,opts)=>{
-    const c=JSON.parse(opts.body);assert.match(c[3],/^gipf:limit:ai:/);
+    const c=JSON.parse(opts.body);assert.match(c[3],/^play:limit:ai:/);
     return {ok:true,json:async()=>({result:31})};
   };
   const denied=res();await yinsh(req({boardState:'synthetic-private-value'}),denied);assert.equal(denied.statusCode,429);

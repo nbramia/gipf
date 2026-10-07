@@ -1,9 +1,9 @@
 // Games identities: one per Auth0 subject, keyed by an opaque digest of the issuer and
 // subject so Redis never holds the subject itself.
 //
-// `gipf:identity:v1:<identityId>` → {v, data, created, keys}
-//   data    the id every progress key is stored under (`gipf:settings:v2:<data>`,
-//           `gipf:match:v1:<data>:<game>`, …): the identity's own id. Sessions carry
+// `play:identity:v1:<identityId>` → {v, data, created, keys}
+//   data    the id every progress key is stored under (`play:settings:v2:<data>`,
+//           `play:match:v1:<data>:<game>`, …): the identity's own id. Sessions carry
 //           it as `u`, so progress keys never depend on how the id was derived.
 //   keys    server-encrypted envelopes (server/keyCustody.js): `anthropic`, `lichess`,
 //           and `seal`, the 32-byte key the browser seals its local recovery copies with.
@@ -11,7 +11,7 @@ import { randomBytes } from 'node:crypto';
 import { command, hash, hex64 } from './publicSecurity.js';
 import { seal, open, isEnvelope, rewrap, keyring } from './keyCustody.js';
 
-export const identityKey = id => `gipf:identity:v1:${id}`;
+export const identityKey = id => `play:identity:v1:${id}`;
 export const MAX_SECRET_LENGTH = 512;
 // New identities per network and across all networks per 24 hours (see ensureIdentity's caller).
 export const CREATE_PER_NETWORK = 5;

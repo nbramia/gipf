@@ -66,7 +66,7 @@ beforeEach(() => {
     expect(script).toContain("redis.call('INCR'");
     expect(script).toContain("redis.call('EXPIRE'");
     expect(keyCount).toBe(1);
-    expect(key).toMatch(/^gipf:limit:ai:[a-f0-9]{64}$/);
+    expect(key).toMatch(/^play:limit:ai:[a-f0-9]{64}$/);
     expect(seconds).toBe(60);
     counts.set(key, (counts.get(key) || 0) + 1);
     return { ok: true, json: async () => ({ result: counts.get(key) }) };

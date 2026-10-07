@@ -1,6 +1,6 @@
 // Synthetic signed-in sessions for Redis contract tests. Seeds an identity (as an
 // Auth0 callback would) whose progress lives under `data`, and returns a session
-// cookie token for it. Use only against the disposable gipf-test-* container.
+// cookie token for it. Use only against the disposable play-test-* container.
 import { randomBytes } from 'node:crypto';
 import { hash } from '../server/publicSecurity.js';
 import { ensureIdentity, identityKey } from '../server/identity.js';
@@ -43,7 +43,7 @@ export async function seedSession(label, data) {
   // An identity is created once, like a first Auth0 sign-in; later sessions reuse it and its seal key.
   redis('SET', identityKey(i), JSON.stringify({ v: 1, data: data || i, created: now, keys: { seal: seal(i, 'seal', randomBytes(32).toString('base64')) } }), 'NX');
   const token = randomBytes(32).toString('base64url');
-  redis('SET', `gipf:session:v1:${hash(token)}`, JSON.stringify({ i, u: data || i, name: `${label}@synthetic.example`, created: now, seen: now }), 'PX', IDLE_MS);
-  redis('SADD', `gipf:sessions:v1:${i}`, hash(token));
+  redis('SET', `play:session:v1:${hash(token)}`, JSON.stringify({ i, u: data || i, name: `${label}@synthetic.example`, created: now, seen: now }), 'PX', IDLE_MS);
+  redis('SADD', `play:sessions:v1:${i}`, hash(token));
   return token;
 }

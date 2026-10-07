@@ -381,8 +381,8 @@ function ChessGame() {
   }, [account]);
   useEffect(() => {
     const failed = () => setSyncStatus('error');
-    window.addEventListener('gipf-sync-conflict', failed);
-    return () => window.removeEventListener('gipf-sync-conflict', failed);
+    window.addEventListener('play-sync-conflict', failed);
+    return () => window.removeEventListener('play-sync-conflict', failed);
   }, []);
 
   // On a fresh sync id, pull the remote profile and reconcile every domain with
@@ -1473,7 +1473,7 @@ function ChessGame() {
       white: humanColor === 'w' ? 'Human' : 'Stockfish',
       black: humanColor === 'w' ? 'Stockfish' : 'Human',
     });
-    downloadPgn(text, 'gipf-chess.pgn');
+    downloadPgn(text, 'play-chess.pgn');
   };
 
   const importPgn = async (e) => {
@@ -1717,7 +1717,7 @@ function ChessGame() {
         <div className="max-w-[1400px] mx-auto">
           <div className="flex items-center justify-between mb-6">
             <Link to="/" className="font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-              &larr; GIPF Project
+              &larr; Games
             </Link>
             <h1 className="font-display text-2xl font-bold tracking-wide" style={{ color: 'var(--color-text-primary)' }}>
               CHESS

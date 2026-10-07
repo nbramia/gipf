@@ -27,7 +27,7 @@ test('a normal guest save shows no status or recovery control', () => {
 });
 test('a normal signed-in save and sync shows no status or recovery control', async () => {
   jest.useFakeTimers();
-  localStorage.setItem('gipfAccount', JSON.stringify(session));
+  localStorage.setItem('playAccount', JSON.stringify(session));
   localStorage.setItem('yinshMatch:v1', JSON.stringify(sample(1)));
   let cloud = sample(1);
   global.fetch.mockImplementation((_url, init) => {
@@ -63,7 +63,7 @@ test('guest refresh restores the newest local match and metadata is not required
   mount(); expect(screen.getByText('Turn 9')).toBeTruthy();
 });
 test('cloud hydration is completed before mounting the game', async () => {
-  localStorage.setItem('gipfAccount', JSON.stringify(session));
+  localStorage.setItem('playAccount', JSON.stringify(session));
   global.fetch.mockImplementation(() => ok({ revision: 2, profile: { match: sample(3) } }));
   mount();
   expect(screen.queryByText('Move')).toBeNull();
@@ -77,7 +77,7 @@ function MountSavingGame() {
   return <Game />;
 }
 test.each([Game, MountSavingGame])('absent storage hydrates before %p mounts', async Child => {
-  localStorage.setItem('gipfAccount', JSON.stringify(session));
+  localStorage.setItem('playAccount', JSON.stringify(session));
   global.fetch.mockImplementation(() => ok({ revision: 2, profile: { match: sample(3) } }));
   render(<MatchBoundary game="yinsh" decode={decode}><Child /></MatchBoundary>);
   expect(screen.queryByText('Move')).toBeNull();
@@ -90,7 +90,7 @@ test.each([
   [MountSavingGame, 'Keep this match'], [MountSavingGame, 'Use cloud match'],
 ])('explicit clear waits for %s choice %s before mounting or writing', async (Child, choice) => {
   jest.useFakeTimers();
-  localStorage.setItem('gipfAccount', JSON.stringify(session));
+  localStorage.setItem('playAccount', JSON.stringify(session));
   localStorage.setItem('yinshMatch:v1', 'null');
   let cloud = sample(3);
   global.fetch.mockImplementation((_url, init) => {
@@ -119,7 +119,7 @@ test.each([
   expect(JSON.parse(localStorage.getItem('yinshMatchRecovery:v1')).alternatives).toContainEqual(sample(3));
 });
 test('different device/cloud matches block play and explicit CAS preserves both alternatives', async () => {
-  localStorage.setItem('gipfAccount', JSON.stringify(session));
+  localStorage.setItem('playAccount', JSON.stringify(session));
   localStorage.setItem('yinshMatch:v1', JSON.stringify(sample(1)));
   global.fetch.mockImplementation((_url, init) => {
     const req = JSON.parse(init.body);
@@ -134,11 +134,11 @@ test('different device/cloud matches block play and explicit CAS preserves both 
   expect(JSON.parse(localStorage.getItem('yinshMatchRecovery:v1')).alternatives).toEqual(expect.arrayContaining([sample(1),sample(2)]));
 });
 test('account change during read cannot hydrate or send a queued match for next account', async () => {
-  localStorage.setItem('gipfAccount', JSON.stringify(session));
+  localStorage.setItem('playAccount', JSON.stringify(session));
   let resolve;
   global.fetch.mockImplementation(() => new Promise(r => { resolve = r; }));
   mount();
-  localStorage.setItem('gipfAccount', JSON.stringify({ v: 3, username: 'B', usernameId: 'B', sid: 'other' }));
+  localStorage.setItem('playAccount', JSON.stringify({ v: 3, username: 'B', usernameId: 'B', sid: 'other' }));
   await act(async () => resolve({ ok: true, json: async () => ({ revision: 1, profile: { match: sample(1) } }) }));
   expect(localStorage.getItem('yinshMatch:v1')).toBeNull();
   expect(screen.getByText(/Account changed/)).toBeTruthy();
@@ -159,7 +159,7 @@ test('storage conflict pauses the game and exposes the other tab choice', async 
 });
 test('offline edits retry from persisted account baseline', async () => {
   jest.useFakeTimers();
-  localStorage.setItem('gipfAccount', JSON.stringify(session));
+  localStorage.setItem('playAccount', JSON.stringify(session));
   localStorage.setItem('yinshMatch:v1', JSON.stringify(sample(1)));
   localStorage.setItem('yinshMatchSync:v1', JSON.stringify({ v: 1, owner: 'A', revision: 2, baseline: sample(1) }));
   global.fetch.mockRejectedValue(new Error('offline'));
@@ -172,7 +172,7 @@ test('offline edits retry from persisted account baseline', async () => {
 });
 
 test('a second CAS conflict requires another explicit decision and retains alternatives', async () => {
-  localStorage.setItem('gipfAccount', JSON.stringify(session));
+  localStorage.setItem('playAccount', JSON.stringify(session));
   localStorage.setItem('yinshMatch:v1', JSON.stringify(sample(1)));
   let reads = 0;
   global.fetch.mockImplementation((_url, init) => {
@@ -222,7 +222,7 @@ test('a captured callback from a replaced match cannot save after remount', asyn
 const advance = async ms => { await act(async () => { jest.advanceTimersByTime(ms); }); };
 const requests = action => global.fetch.mock.calls.map(c => JSON.parse(c[1].body)).filter(r => r.action === action);
 test('both alternatives are durable before a cloud write and recovery does not duplicate them', async () => {
-  localStorage.setItem('gipfAccount', JSON.stringify(session));
+  localStorage.setItem('playAccount', JSON.stringify(session));
   localStorage.setItem('yinshMatch:v1', JSON.stringify(sample(1)));
   let cloud = sample(2);
   global.fetch.mockImplementation((_url, init) => {
@@ -241,7 +241,7 @@ test('both alternatives are durable before a cloud write and recovery does not d
 
 test.each([400, 413])('permanent %s stops unchanged retries and retries corrected local state', async status => {
   jest.useFakeTimers();
-  localStorage.setItem('gipfAccount', JSON.stringify(session));
+  localStorage.setItem('playAccount', JSON.stringify(session));
   localStorage.setItem('yinshMatch:v1', JSON.stringify(sample(1)));
   global.fetch.mockImplementation((_url, init) => JSON.parse(init.body).action === 'read'
     ? ok({ revision: 0, profile: {} })
@@ -261,7 +261,7 @@ test.each([400, 413])('permanent %s stops unchanged retries and retries correcte
 
 test('non-JSON 502 backs off, including edit/reconnect events, then recovers', async () => {
   jest.useFakeTimers();
-  localStorage.setItem('gipfAccount', JSON.stringify(session));
+  localStorage.setItem('playAccount', JSON.stringify(session));
   global.fetch.mockResolvedValue({ ok: false, status: 502, json: async () => { throw new Error('HTML'); } });
   mount(); await advance(0);
   expect(notice().textContent).toMatch(/retry automatically/);
@@ -282,7 +282,7 @@ test('non-JSON 502 backs off, including edit/reconnect events, then recovers', a
 
 test('unsupported cloud is retained, pauses automatic reads, and requires explicit replacement', async () => {
   jest.useFakeTimers();
-  localStorage.setItem('gipfAccount', JSON.stringify(session));
+  localStorage.setItem('playAccount', JSON.stringify(session));
   localStorage.setItem('yinshMatch:v1', JSON.stringify(sample(1)));
   const cloud = { ...sample(2), v: 99 };
   const strict = snapshot => { if (snapshot.v !== 1) throw new Error('unsupported'); return decode(snapshot); };
@@ -299,7 +299,7 @@ test('unsupported cloud is retained, pauses automatic reads, and requires explic
 
 test('idle reads are 30s apart; rapid local edits use at most one read/write pair per 10s', async () => {
   jest.useFakeTimers();
-  localStorage.setItem('gipfAccount', JSON.stringify(session));
+  localStorage.setItem('playAccount', JSON.stringify(session));
   let cloud = sample(1);
   localStorage.setItem('yinshMatch:v1', JSON.stringify(cloud));
   global.fetch.mockImplementation((_url, init) => {
@@ -325,7 +325,7 @@ test('idle reads are 30s apart; rapid local edits use at most one read/write pai
 });
 
 test('a newer recovery copy is offered, restored, queued and synced with the existing account baseline', async () => {
-  localStorage.setItem('gipfAccount', JSON.stringify(session));
+  localStorage.setItem('playAccount', JSON.stringify(session));
   localStorage.setItem('yinshMatch:v1', JSON.stringify(sample(1)));
   const newer = { ...sample(2), updatedAt: 2 };
   localStorage.setItem('yinshMatchRecovery:v1', JSON.stringify({ v: 1, alternatives: [newer] }));
@@ -356,7 +356,7 @@ test('corrupt recovery can be repaired by a conflict choice without losing its r
 });
 
 test('quota stops a cloud replacement before the request; account change stops a delayed choice locally', async () => {
-  localStorage.setItem('gipfAccount', JSON.stringify(session));
+  localStorage.setItem('playAccount', JSON.stringify(session));
   localStorage.setItem('yinshMatch:v1', JSON.stringify(sample(1)));
   let finish;
   global.fetch.mockImplementation((_url, init) => JSON.parse(init.body).action === 'read'
@@ -374,7 +374,7 @@ test('quota stops a cloud replacement before the request; account change stops a
   spy.mockRestore();
   fireEvent.click(screen.getByText('Keep this match')); await act(async () => {});
   expect(requests('write')).toHaveLength(1);
-  localStorage.setItem('gipfAccount', JSON.stringify({ v: 3, username: 'B', usernameId: 'B', sid: 'other' }));
+  localStorage.setItem('playAccount', JSON.stringify({ v: 3, username: 'B', usernameId: 'B', sid: 'other' }));
   localStorage.setItem('yinshMatch:v1', JSON.stringify(sample(7)));
   await act(async () => finish({ ok: true, json: async () => ({ revision: 3 }) }));
   expect(localStorage.getItem('yinshMatch:v1')).toBe(JSON.stringify(sample(7)));

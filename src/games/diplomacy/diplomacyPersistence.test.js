@@ -157,7 +157,7 @@ describe('diplomacyPersistence — clearGame', () => {
     saveGame(makeState());
     localStorage.setItem('diplomacySettings', '{}');
     localStorage.setItem('diplomacyDarkMode', 'true');
-    localStorage.setItem('gipfApiKey', 'sk-keep-me');
+    localStorage.setItem('playApiKey', 'sk-keep-me');
 
     clearGame();
 
@@ -165,7 +165,7 @@ describe('diplomacyPersistence — clearGame', () => {
     for (let i = 0; i < localStorage.length; i++) remaining.push(localStorage.key(i));
     expect(remaining.filter((k) => k && k.startsWith('diplomacy'))).toHaveLength(0);
     // The shared cross-game key is NOT a diplomacy key, so it survives.
-    expect(localStorage.getItem('gipfApiKey')).toBe('sk-keep-me');
+    expect(localStorage.getItem('playApiKey')).toBe('sk-keep-me');
   });
 });
 

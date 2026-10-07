@@ -136,7 +136,7 @@ exactly:
   the request body so the key can't leak through an error.
 - There is **no server-side fallback key** — with no key in the body and none on the
   account, there is no reply.
-- A guest's key is stored **client-side** in `localStorage` under the shared **`gipfApiKey`**
+- A guest's key is stored **client-side** in `localStorage` under the shared **`playApiKey`**
   slot, the same slot the chess coach and the Catan/Splendor rules chats use. Keys are entered
   only at `/login`; without a key the chat panel links to `/login?return=/diplomacy`.
 - The endpoint only works on a **deployed site** (same-origin `/api`, e.g. `play.ramia.us`) or under
@@ -245,7 +245,7 @@ Settings are chosen on the new-game setup screen (`DiplomacySetup.jsx`) and pers
 | `diplomacyShowOrders` | Whether order arrows/labels are shown on the map |
 | `diplomacySettings` | New-game setup: `power`, `difficulty`, `personaSpice`, `maxYears` |
 | `diplomacyGameState` | Versioned in-progress save: board snapshot, UI phase, per-power controllers, diplomatic state |
-| `gipfApiKey` | Shared (app-wide) BYO Anthropic key — also used by chess, Catan, and Splendor |
+| `playApiKey` | Shared (app-wide) BYO Anthropic key — also used by chess, Catan, and Splendor |
 
-Clearing a game removes every `diplomacy`-prefixed key **except** the shared `gipfApiKey`
+Clearing a game removes every `diplomacy`-prefixed key **except** the shared `playApiKey`
 (which belongs to the whole app).

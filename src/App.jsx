@@ -15,7 +15,7 @@ const GamesMigration = lazy(() => import('./GamesMigration.jsx'));
 function App() {
   useEffect(() => {
     const changed = event => {
-      if (event.key === 'gipfAccount' && event.oldValue !== event.newValue) window.location.reload();
+      if (event.key === 'playAccount' && event.oldValue !== event.newValue) window.location.reload();
     };
     window.addEventListener('storage', changed);
     return () => window.removeEventListener('storage', changed);

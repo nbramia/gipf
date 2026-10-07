@@ -14,7 +14,7 @@ beforeEach(async () => {
   AbortSignal.timeout = () => new AbortController().signal;
   globalThis.fetch = jest.fn();
   await storeAccountKey(session.usernameId,session.aesKey);
-  localStorage.setItem('gipfAccount',JSON.stringify(session));
+  localStorage.setItem('playAccount',JSON.stringify(session));
 });
 afterEach(() => jest.restoreAllMocks());
 
@@ -22,12 +22,12 @@ test('settings response cannot apply while the account transition lease is held'
   let release;
   fetch.mockReturnValue(new Promise(resolve => { release = resolve; }));
   const mounted = render(<AccountBoundary><p>Synthetic child</p></AccountBoundary>);
-  localStorage.setItem('gipf:account-transition',JSON.stringify({id:'synthetic-held-transition',until:Date.now()+60000}));
+  localStorage.setItem('play:account-transition',JSON.stringify({id:'synthetic-held-transition',until:Date.now()+60000}));
   await act(async () => release({ok:true,json:async () => ({revision:1,profile:{preferences:{chessDarkMode:'true'}}})}));
   expect(screen.queryByText('Synthetic child')).toBeNull();
   expect(screen.getByText(/Reload before playing/)).toBeTruthy();
   expect(localStorage.getItem('chessDarkMode')).toBeNull();
-  expect(localStorage.getItem('gipf:account-transition')).toContain('synthetic-held-transition');
+  expect(localStorage.getItem('play:account-transition')).toContain('synthetic-held-transition');
   mounted.unmount();
 });
 
@@ -42,7 +42,7 @@ test('retainProgress rejects a stale pre-await snapshot without overwriting reco
   await reached;
   localStorage.setItem('chessDarkMode','true');
   release(); await expect(pending).rejects.toThrow('progress_changed');
-  expect(localStorage.getItem(`gipf:recovery:${session.usernameId}`)).toBeNull();
+  expect(localStorage.getItem(`play:recovery:${session.usernameId}`)).toBeNull();
   expect(localStorage.getItem('chessDarkMode')).toBe('true');
 });
 
@@ -51,7 +51,7 @@ test('same-account transition that finishes before hydration response still fenc
   let release;
   fetch.mockReturnValue(new Promise(resolve => { release = resolve; }));
   render(<AccountBoundary><p>Synthetic child</p></AccountBoundary>);
-  localStorage.setItem('gipf:account-epoch','completed-transition');
+  localStorage.setItem('play:account-epoch','completed-transition');
   await act(async () => release({ok:true,json:async () => ({revision:1,profile:{preferences:{chessDarkMode:'true'}}})}));
   expect(localStorage.getItem('chessDarkMode')).toBeNull();
 });
@@ -72,17 +72,17 @@ test('delayed cloud conflict recovery cannot replace newer statistics or setting
   expect(await screen.findByText(/cloud replacement cancelled/)).toBeTruthy();
   expect(localStorage.getItem('chessDarkMode')).toBe('false');
   expect(localStorage.getItem('chessGameLog')).toBe('newer statistics');
-  expect(localStorage.getItem(`gipf:recovery:${session.usernameId}`)).toBeNull();
+  expect(localStorage.getItem(`play:recovery:${session.usernameId}`)).toBeNull();
 });
 
 test('recovery encryption expiring its lease preserves the prior recovery and active match', async () => {
   localStorage.setItem('chessMatch:v1','original match');
-  localStorage.setItem(`gipf:recovery:${session.usernameId}`,'original recovery');
+  localStorage.setItem(`play:recovery:${session.usernameId}`,'original recovery');
   const until=Date.now()+1000;
-  localStorage.setItem('gipf:account-transition',JSON.stringify({id:'owner',until}));
+  localStorage.setItem('play:account-transition',JSON.stringify({id:'owner',until}));
   const encrypt=webcrypto.subtle.encrypt.bind(webcrypto.subtle);
   jest.spyOn(webcrypto.subtle,'encrypt').mockImplementation(async(...args)=>{const sealed=await encrypt(...args);jest.spyOn(Date,'now').mockReturnValue(until+1);return sealed;});
   await expect(retainProgress(session)).rejects.toThrow('account_changed');
-  expect(localStorage.getItem(`gipf:recovery:${session.usernameId}`)).toBe('original recovery');
+  expect(localStorage.getItem(`play:recovery:${session.usernameId}`)).toBe('original recovery');
   expect(localStorage.getItem('chessMatch:v1')).toBe('original match');
 });

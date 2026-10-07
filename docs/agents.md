@@ -1,6 +1,6 @@
 # Development Guide for AI Agents
 
-Practical guide for working on any part of the GIPF Project codebase. AGENTS.md is the primary reference for rules and architecture -- this document covers **how** to work in each area.
+Practical guide for working on any part of the Play codebase. AGENTS.md is the primary reference for rules and architecture -- this document covers **how** to work in each area.
 
 ---
 
@@ -31,7 +31,7 @@ function plus a client wrapper: the chess coach (`api/chessCoach.js` / `src/game
 the Catan and Splendor rules-help chats (`api/catanRules.js`, `api/splendorRules.js` +
 `coach/rulesClient.js` in each game), and the Diplomacy negotiation agents (`api/diplomacyAgent.js`
 + `src/games/diplomacy/agents/`). All of them share the same storage slot,
-`localStorage['gipfApiKey']` — a key saved in one game is reused by the others. See
+`localStorage['playApiKey']` — a key saved in one game is reused by the others. See
 [diplomacy.md](diplomacy.md) for the fullest write-up of this pattern (negotiation, personas,
 trust/betrayal); the chess and Catan/Splendor chats follow the same bring-your-own-key model but
 are simpler single-turn rules assistants rather than persistent multi-agent negotiation.

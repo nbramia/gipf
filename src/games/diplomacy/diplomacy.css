@@ -2,7 +2,7 @@
    Diplomacy — "The Chancellery" theme.
    A tense, early-1900s-Europe atmosphere: aged-map cartography, iron-gall ink,
    oxblood wax-seal accents, brass supply markers — rendered as a clean, modern,
-   legible UI that fits the GIPF suite (Syne display / Outfit body, with the
+   legible UI that fits the rest of the app (Syne display / Outfit body, with the
    already-loaded Cormorant Garamond for cartographic flourishes).
 
    ALL selectors are scoped under .game-diplomacy. CSS variables live only on the

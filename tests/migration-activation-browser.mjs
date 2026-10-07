@@ -1,5 +1,5 @@
 // Built UI -> actual handler -> isolated Redis. Deny all other traffic before navigation.
-// The account is a seeded Auth0-era identity: a session cookie, a v3 gipfAccount and its
+// The account is a seeded Auth0-era identity: a session cookie, a v3 playAccount and its
 // seal key in IndexedDB, as /login leaves them after sign-in.
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -13,8 +13,8 @@ import { fromLegacy } from '../src/games/chess/matchSnapshot.js';
 const { chromium }=await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const build=path.resolve(process.env.MIGRATION_BUILD || 'build');
 const origin='https://activation.example.test';
-const container=process.env.GIPF_TEST_REDIS_CONTAINER;
-if(!/^gipf-test-[a-z0-9-]+$/.test(container||''))throw new Error('Set GIPF_TEST_REDIS_CONTAINER to a disposable gipf-test-* container');
+const container=process.env.PLAY_TEST_REDIS_CONTAINER;
+if(!/^play-test-[a-z0-9-]+$/.test(container||''))throw new Error('Set PLAY_TEST_REDIS_CONTAINER to a disposable play-test-* container');
 const redis=(...args)=>JSON.parse(execFileSync('docker',['exec','-i',container,'redis-cli','--json'],{encoding:'utf8',input:args.map(v=>JSON.stringify(String(v))).join(' ')+'\n'}));
 process.env.KV_REST_API_URL='https://synthetic.invalid';process.env.KV_REST_API_TOKEN='synthetic';
 globalThis.fetch=async(url,options)=>{assert.equal(url,'https://synthetic.invalid');return {ok:true,json:async()=>({result:redis(...JSON.parse(options.body))})};};
@@ -25,7 +25,7 @@ const token=await seedSession('synthetic-migration',session.usernameId);
 // The device seal key, stored as /login stores it: a non-extractable key in IndexedDB.
 const storeSealKey=({usernameId,sealKey})=>new Promise(async(resolve,reject)=>{
   const key=await crypto.subtle.importKey('raw',Uint8Array.from(atob(sealKey),c=>c.charCodeAt(0)),{name:'AES-GCM'},false,['encrypt','decrypt']);
-  const open=indexedDB.open('gipf-account',1);
+  const open=indexedDB.open('play-account',1);
   open.onupgradeneeded=()=>open.result.createObjectStore('keys');
   open.onerror=()=>reject(open.error);
   open.onsuccess=()=>{const tx=open.result.transaction('keys','readwrite');tx.objectStore('keys').put(key,usernameId);tx.oncomplete=()=>{open.result.close();resolve();};tx.onerror=()=>reject(tx.error);};
@@ -60,7 +60,7 @@ try {
  const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));await page.goto(`${origin}/migration`);
  await context.addCookies([{name:'__Host-games_session',value:token,url:origin,secure:true,httpOnly:true,sameSite:'Lax'}]);
  for(const usernameId of [session.usernameId,'d'.repeat(64)])await page.evaluate(storeSealKey,{usernameId,sealKey});
- await page.evaluate(s=>{localStorage.setItem('gipfAccount',JSON.stringify(s));localStorage.setItem('chessDarkMode','false');localStorage.setItem('gipfApiKey','SYNTHETIC_EXCLUDED');},session);await page.reload();
+ await page.evaluate(s=>{localStorage.setItem('playAccount',JSON.stringify(s));localStorage.setItem('chessDarkMode','false');localStorage.setItem('playApiKey','SYNTHETIC_EXCLUDED');},session);await page.reload();
  // Browser fetch -> actual authenticated handler: reject amplification before
  // creating ownership, a budget ledger, or any destination progress.
  const oversized={...bundle,records:[record('preference','chessLearningGoal','x'.repeat(600000))]};
@@ -72,12 +72,12 @@ try {
    return result;
  },{session,bundles:[oversized,longGoal,largeExtra]});
  assert.deepEqual(statuses,[413,400,409]);
- assert.equal(redis('GET',`gipf:migration-count:v1:${session.usernameId}`),null);
- assert.equal(redis('GET',`gipf:migration-bytes:v1:${session.usernameId}`),null);
+ assert.equal(redis('GET',`play:migration-count:v1:${session.usernameId}`),null);
+ assert.equal(redis('GET',`play:migration-bytes:v1:${session.usernameId}`),null);
  assert.equal(await page.evaluate(()=>localStorage.getItem('chessDarkMode')),'false');
  console.log('PASS browser HTTP input/writer/extras bounds with unchanged local progress and no migration budget spent');
  // Hydration reads old cloud and pauses before the browser gets the response.
- redis('SET',`gipf:settings:v2:${session.usernameId}`,JSON.stringify({revision:2,profile:{preferences:{chessDarkMode:'false'}}}));
+ redis('SET',`play:settings:v2:${session.usernameId}`,JSON.stringify({revision:2,profile:{preferences:{chessDarkMode:'false'}}}));
  const reached=new Promise(resolve=>{readReached=resolve;});pauseRead=true;
  const stale=await context.newPage();stale.on('pageerror',e=>errors.push(e.message));await stale.goto(`${origin}/splendor`);await reached;
  await page.getByLabel('Migration file').setInputFiles({name:'synthetic.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(bundle))});
@@ -86,16 +86,16 @@ try {
  await page.getByLabel(/I have selected the intended/).check();loseResponse=true;
  await page.getByRole('button',{name:'Activate selected progress'}).click();await page.getByText(/Unable to finish/).waitFor();
  assert.equal(await page.evaluate(()=>localStorage.getItem('chessDarkMode')),'false');
- assert.equal(JSON.parse(redis('GET',`gipf:settings:v2:${session.usernameId}`)).profile.preferences.chessDarkMode,'true');
+ assert.equal(JSON.parse(redis('GET',`play:settings:v2:${session.usernameId}`)).profile.preferences.chessDarkMode,'true');
  releaseRead();await stale.getByText(/Reload before playing/).waitFor();
  await page.reload();await page.getByRole('button',{name:'Resume pending activation'}).click();await page.getByText(/Activation resumed/).waitFor();
  const active=await page.evaluate(()=>({dark:localStorage.getItem('chessDarkMode'),rating:localStorage.getItem('chessRating'),match:JSON.parse(localStorage.getItem('chessMatch:v1')),log:localStorage.getItem('chessGameLog'),extra:localStorage.getItem('splendorDifficulty')}));
  assert.equal(active.dark,'true');assert.equal(active.rating,'1600');assert.equal(active.match.id,match.id);assert.equal(active.log,'[]');assert.equal(active.extra,'strong');
  console.log('PASS actual browser/HTTP/Redis activation, lost response, reload recovery, match/statistics and delayed second-tab settings hydration');
  await page.getByRole('button',{name:'Show retained files'}).click();await page.getByRole('button',{name:'Preview retained file 1'}).click();await page.getByRole('button',{name:'Preview account activation'}).click();await page.getByText(/Cloud conflicts:/).waitFor();await page.getByLabel(/I have selected the intended/).check();
- await page.getByRole('button',{name:'Activate selected progress'}).click();await page.getByText(/already activated/).waitFor();assert.equal(redis('GET',`gipf:migration-count:v1:${session.usernameId}`),'1');
+ await page.getByRole('button',{name:'Activate selected progress'}).click();await page.getByText(/already activated/).waitFor();assert.equal(redis('GET',`play:migration-count:v1:${session.usernameId}`),'1');
  const download=page.waitForEvent('download');await page.getByRole('button',{name:'Download activation recovery'}).click();const saved=await download;const recovered=JSON.parse(await readFile(await saved.path(),'utf8'));assert.equal(recovered.before.chessDarkMode,'false');assert.equal(JSON.parse(recovered.cloud.before[0]).profile.preferences.chessDarkMode,'false');assert.ok(!JSON.stringify(recovered).includes('SYNTHETIC_EXCLUDED'));assert.ok(!JSON.stringify(recovered).includes(token));
  console.log('PASS durable replay, retained-file activation and authenticated before/after recovery without credentials');
- await page.evaluate(s=>localStorage.setItem('gipfAccount',JSON.stringify({...s,usernameId:'d'.repeat(64)})),session);await page.reload();await page.getByRole('button',{name:'Show retained files'}).click();await page.getByText('No retained files for this identity.').waitFor();
+ await page.evaluate(s=>localStorage.setItem('playAccount',JSON.stringify({...s,usernameId:'d'.repeat(64)})),session);await page.reload();await page.getByRole('button',{name:'Show retained files'}).click();await page.getByText('No retained files for this identity.').waitFor();
  assert.equal(errors.length,0,errors.join('\n'));console.log('PASS account isolation and zero page errors');
 }finally{await context.close();await browser.close();}

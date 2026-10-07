@@ -24,15 +24,15 @@ export default function GamesMigration() {
     mounted.current = true;
     try { guard.current = captureIdentity(); setIdentityReady(true); } catch (_) { setInvalid(true); setError('Account transition in progress. Reload after it finishes.'); }
     const changed = e => {
-      if (e.type === 'gipf-account-transition' && e.detail?.migration) return;
-      if (e.type === 'gipf-account-transition' || ['gipfAccount','gipf:account-transition','gipf:account-epoch'].includes(e.key) || e.key === null) {
+      if (e.type === 'play-account-transition' && e.detail?.migration) return;
+      if (e.type === 'play-account-transition' || ['playAccount','play:account-transition','play:account-epoch'].includes(e.key) || e.key === null) {
         guard.current?.invalidate(); setInvalid(true); setPrepared(null); setIncoming(null); setActivation(null); setStages([]); setPreview([]); setUnreadable(0); setRawConsent(false);
         setError('Account changed. Reload this page before continuing.');
       }
     };
     window.addEventListener('storage',changed);
-    window.addEventListener('gipf-account-transition',changed);
-    return () => { mounted.current = false; guard.current?.invalidate(); window.removeEventListener('storage',changed); window.removeEventListener('gipf-account-transition',changed); };
+    window.addEventListener('play-account-transition',changed);
+    return () => { mounted.current = false; guard.current?.invalidate(); window.removeEventListener('storage',changed); window.removeEventListener('play-account-transition',changed); };
   },[]);
   const run = async fn => {
     if (!guard.current || invalid || busy) return;

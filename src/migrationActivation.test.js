@@ -9,7 +9,7 @@ let bundle, selected, activated;
 beforeEach(async()=>{
  localStorage.clear();Object.defineProperty(globalThis,'crypto',{value:webcrypto,configurable:true});globalThis.TextEncoder=TextEncoder;globalThis.TextDecoder=TextDecoder;
  Object.defineProperty(navigator,'locks',{value:{request:async(_key,fn)=>fn()},configurable:true});AbortSignal.timeout=()=>new AbortController().signal;
- await storeAccountKey(session.usernameId,session.aesKey);localStorage.setItem('gipfAccount',JSON.stringify(session));localStorage.setItem('chessDarkMode','true');
+ await storeAccountKey(session.usernameId,session.aesKey);localStorage.setItem('playAccount',JSON.stringify(session));localStorage.setItem('chessDarkMode','true');
  bundle=(await exportProgress('https://synthetic.example.test')).bundles[0];selected=defaultSelection(bundle);localStorage.setItem('chessDarkMode','false');activated=false;
  globalThis.fetch=jest.fn(async(_url,options)=>{
    const body=JSON.parse(options.body);
@@ -43,12 +43,12 @@ test('lost HTTP response leaves pending journal and resumes idempotently after r
 });
 test('post-await account change never promotes data into another account',async()=>{
  const plan=await previewActivation(bundle,selected);
- fetch.mockImplementationOnce(async()=>{localStorage.setItem('gipfAccount',JSON.stringify({...session,usernameId:'4'.repeat(64)}));return {ok:true,json:async()=>({status:'activated'})};});
+ fetch.mockImplementationOnce(async()=>{localStorage.setItem('playAccount',JSON.stringify({...session,usernameId:'4'.repeat(64)}));return {ok:true,json:async()=>({status:'activated'})};});
  await expect(activateImport(plan)).rejects.toThrow('account_changed');expect(localStorage.getItem('chessDarkMode')).toBe('false');expect(await activationRecovery()).toBeNull();
 });
 test('same-account transition between request and response permanently fences capture even after marker clears',async()=>{
  const guard=captureIdentity();fetch.mockImplementationOnce(async()=>{
-   localStorage.setItem('gipf:account-epoch','finished-transition');
+   localStorage.setItem('play:account-epoch','finished-transition');
    return {ok:true,json:async()=>({status:'preview',token:'synthetic'})};
  });
  await expect(previewActivation(bundle,selected,guard)).rejects.toThrow('account_changed');expect(localStorage.getItem('chessDarkMode')).toBe('false');
@@ -66,7 +66,7 @@ test('partial local quota failure resumes only old/imported values and preserves
  fetch.mockResolvedValue({ok:true,json:async()=>({status:'replay'})});await activateImport(plan);expect((await activationRecovery()).done).toBe(true);
 });
 test('guest cannot preview or activate and never calls account endpoint',async()=>{
- localStorage.removeItem('gipfAccount');await expect(previewActivation(bundle,selected)).rejects.toThrow('account_required');await expect(activateImport({bundle,selected})).rejects.toThrow('account_required');expect(fetch).not.toHaveBeenCalled();
+ localStorage.removeItem('playAccount');await expect(previewActivation(bundle,selected)).rejects.toThrow('account_required');await expect(activateImport({bundle,selected})).rejects.toThrow('account_required');expect(fetch).not.toHaveBeenCalled();
 });
 
 test('a fresh conflict preview can retry an uncommitted journal without a permanent stale token',async()=>{
@@ -82,7 +82,7 @@ test('a fresh conflict preview can retry an uncommitted journal without a perman
 test('account changing while activation waits for the writer lock cannot claim or promote for the new account',async()=>{
  const plan=await previewActivation(bundle,selected);
  navigator.locks.request=async(name,fn)=>{
-   if(name==='gipf-account-writer-v1')localStorage.setItem('gipfAccount',JSON.stringify({...session,usernameId:'4'.repeat(64)}));
+   if(name==='play-account-writer-v1')localStorage.setItem('playAccount',JSON.stringify({...session,usernameId:'4'.repeat(64)}));
    return fn();
  };
  await expect(activateImport(plan)).rejects.toThrow('account_changed');expect(activated).toBe(false);expect(localStorage.getItem('chessDarkMode')).toBe('false');

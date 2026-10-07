@@ -27,8 +27,8 @@ const hash = async value => [...new Uint8Array(await crypto.subtle.digest('SHA-2
 // storage events in the UI, in addition to these synchronous storage checks.
 export function captureIdentity() {
   const checkFence = captureFence();
-  const owner = localStorage.getItem('gipfAccount');
-  const marker = localStorage.getItem('gipf:account-transition');
+  const owner = localStorage.getItem('playAccount');
+  const marker = localStorage.getItem('play:account-transition');
   if (marker) {
     try { if (!(JSON.parse(marker).until <= Date.now())) throw new Error(); }
     catch (_) { throw new Error('account_changed'); }
@@ -41,7 +41,7 @@ export function captureIdentity() {
     invalidate() { invalid = true; },
     check() {
       checkFence();
-      if (invalid || localStorage.getItem('gipfAccount') !== owner || localStorage.getItem('gipf:account-transition') !== marker) throw new Error('account_changed');
+      if (invalid || localStorage.getItem('playAccount') !== owner || localStorage.getItem('play:account-transition') !== marker) throw new Error('account_changed');
     },
   };
 }
@@ -122,7 +122,7 @@ export async function exportProgress(sourceOrigin, guard = captureIdentity()) {
   // Decrypt only the captured account's progress container. Never export the
   // container, arbitrary decoded keys, metadata or another account's recovery.
   if (guard.session) {
-    const sealed = localStorage.getItem(`gipf:recovery:${guard.session.usernameId}`);
+    const sealed = localStorage.getItem(`play:recovery:${guard.session.usernameId}`);
     if (sealed) {
       try {
         guard.check();
@@ -146,14 +146,14 @@ export async function exportProgress(sourceOrigin, guard = captureIdentity()) {
       }
     }
   }
-  if (localStorage.getItem('gipf:guest:recovery')) {
+  if (localStorage.getItem('play:guest:recovery')) {
     issues.push('Retained guest recovery is separate from current guest progress and is not exported; original retained.');
   }
   // Inspect only names, never values, for other account recovery. Do not reveal
   // account identifiers or counts in either the warning or portable bundle.
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (key?.startsWith('gipf:recovery:') && key !== `gipf:recovery:${guard.session?.usernameId}`) {
+    if (key?.startsWith('play:recovery:') && key !== `play:recovery:${guard.session?.usernameId}`) {
       issues.push('Other account recovery exists on this device and is not exported. Sign in to the intended account to include its supported recovery; originals retained.');
       break;
     }

@@ -9,7 +9,7 @@
 // own pgn() output is already valid; we just optionally add Event/Date headers.
 export function withHeaders(pgnBody, { white = 'Human', black = 'Stockfish', date } = {}) {
   const headers = [
-    '[Event "GIPF Chess"]',
+    '[Event "Play Chess"]',
     '[Site "play.ramia.us/chess"]',
     date ? `[Date "${date}"]` : null,
     `[White "${white}"]`,

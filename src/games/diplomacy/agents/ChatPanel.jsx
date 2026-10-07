@@ -38,7 +38,7 @@ export default function ChatPanel({
   const memory = memoryProp || localMemory;
   const setMemory = setMemoryProp || setLocalMemory;
   const [draft, setDraft] = useState('');
-  // Reactive: reflects a key set here OR in another tab / GIPF game, live.
+  // Reactive: reflects a key set here OR in another tab / another game in this app, live.
   const hasKey = useHasApiKey();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
