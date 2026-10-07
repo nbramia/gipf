@@ -108,7 +108,8 @@
   letter-spacing: 0.3px;
   margin-top: 2px;
 }
-.spl-back { display: inline-flex; align-items: center; flex-shrink: 0; white-space: nowrap; min-height: 44px; padding-right: 6px; color: var(--spl-muted); text-decoration: none; font-size: 13px; transition: color 0.15s; }
+.spl-back { display: inline-flex; align-items: center; flex-shrink: 0; white-space: nowrap; min-height: 44px; padding-right: 6px; color: var(--spl-muted); text-decoration: none; font-size: 14px; transition: color 0.15s; }
+.game-splendor:not(.dark) .spl-back { color: #6b5c40; }
 .spl-back:hover { color: var(--spl-gold); }
 .spl-header-right { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -165,16 +166,16 @@
   display: flex; align-items: center; gap: 12px; margin: 0 -8px 10px; padding: 6px 8px; min-height: 24px;
   background: var(--spl-bg); border-bottom: 1px solid var(--spl-line);
 }
-.spl-mini { display: none; margin-left: auto; align-items: center; gap: 4px; font-size: 12px; }
-.spl-mini b { color: var(--spl-gold); margin-right: 4px; }
-.spl-mini em { font-style: normal; color: var(--spl-muted); margin-left: 2px; }
-.spl-mini-chip { min-width: 20px; height: 20px; padding: 0 4px; border-radius: 50%; background: var(--chip); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+.game-splendor .spl-mini { display: none; margin-left: auto; align-items: center; gap: 4px; font-size: 12px; }
+.game-splendor .spl-mini b { color: var(--spl-gold); margin-right: 4px; }
+.game-splendor .spl-mini em { font-style: normal; color: var(--spl-muted); margin-left: 2px; }
+.game-splendor .spl-mini-chip { min-width: 20px; height: 20px; padding: 0 4px; border-radius: 50%; background: var(--chip); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
 .spl-status-text { font-family: 'Cormorant Garamond', serif; font-size: 19px; font-style: italic; color: var(--spl-ink); }
 .spl-thinking { font-size: 12px; color: var(--spl-gold); letter-spacing: 0.5px; animation: splendor-pulse 1.2s ease-in-out infinite; }
 
 /* ---- layout ---- */
 .spl-main { display: grid; grid-template-columns: 1fr 330px; gap: 22px; align-items: start; }
-@media (max-width: 920px) { .spl-main { grid-template-columns: 1fr; } .spl-mini { display: flex; } }
+@media (max-width: 920px) { .spl-main { grid-template-columns: 1fr; } .game-splendor .spl-mini { display: flex; } }
 .spl-board { display: flex; flex-direction: column; gap: 10px; }
 .spl-section-label {
   font-size: 11px; text-transform: uppercase; letter-spacing: 2px;
@@ -205,9 +206,9 @@
 }
 
 /* ---- nobles ---- */
-.spl-tray { display: flex; gap: 12px 20px; flex-wrap: wrap; align-items: flex-start; }
-.spl-tray-nobles, .spl-tray-bank { display: flex; flex-direction: column; gap: 6px; }
-.spl-tray .spl-section-label { margin: 0 0 0 2px; }
+.game-splendor .spl-tray { display: flex; gap: 12px 20px; flex-wrap: wrap; align-items: flex-start; }
+.game-splendor .spl-tray-nobles, .game-splendor .spl-tray-bank { display: flex; flex-direction: column; gap: 6px; }
+.game-splendor .spl-tray .spl-section-label { margin: 0 0 0 2px; }
 .spl-nobles { display: flex; gap: 8px; flex-wrap: wrap; }
 .spl-noble {
   position: relative;
@@ -344,7 +345,7 @@
 .spl-player-current { border-color: var(--spl-gold); box-shadow: var(--spl-shadow), 0 0 0 1px var(--spl-gold), 0 0 22px rgba(216,178,94,0.25); }
 .spl-player-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; padding-left: 8px; }
 .spl-player-name { font-family: 'Cormorant Garamond', serif; font-weight: 600; font-size: 19px; color: var(--spl-ink); }
-.spl-legend { display: flex; gap: 12px; padding-left: 8px; margin: -4px 0 6px; font-size: 10px; color: var(--spl-muted); letter-spacing: 0.3px; }
+.game-splendor .spl-legend { display: flex; gap: 12px; padding-left: 8px; margin: -4px 0 6px; font-size: 10px; color: var(--spl-muted); letter-spacing: 0.3px; }
 .spl-player-points { font-family: 'Cormorant Garamond', serif; font-weight: 700; font-size: 24px; color: var(--spl-gold); }
 .spl-player-points small { font-size: 11px; color: var(--spl-muted); font-weight: 500; }
 .spl-player-gems { display: flex; gap: 7px; flex-wrap: wrap; padding-left: 8px; }
@@ -359,8 +360,8 @@
   min-width: 27px; height: 19px; padding: 0 4px; border-radius: 6px; font-size: 12px; font-weight: 700;
   background: var(--spl-panel-2); color: var(--spl-ink); border: 1px solid var(--spl-line); cursor: default;
 }
-.spl-discardable { border-color: #c98a2b; cursor: pointer; color: var(--spl-gold-bright); }
-.spl-discardable:hover { background: rgba(201,138,43,0.16); }
+.game-splendor .spl-discardable { border-color: #c98a2b; cursor: pointer; color: var(--spl-gold-bright); }
+.game-splendor .spl-discardable:hover { background: rgba(201,138,43,0.16); }
 /* A 0-count gem recedes so the colours you actually hold stand out. */
 .spl-empty { opacity: 0.3; filter: saturate(0.45); }
 
@@ -449,7 +450,7 @@
 .spl-modal p { font-family: 'Cormorant Garamond', serif; font-style: italic; color: var(--spl-gold); font-size: 18px; margin-bottom: 18px; }
 .spl-modal-scores { list-style: none; margin-bottom: 22px; display: flex; flex-direction: column; gap: 6px; }
 .spl-modal-scores li { font-size: 15px; color: var(--spl-ink); }
-.spl-seat-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
+.game-splendor .spl-seat-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
 
 @keyframes splendor-deal { from { opacity: 0; transform: translateY(14px) scale(0.96); } to { opacity: 1; transform: none; } }
 @keyframes splendor-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
@@ -460,33 +461,37 @@
 
 /* ---- phone ---- */
 @media (max-width: 640px) {
-  .spl-app { padding: 8px 12px 32px; }
-  .spl-header { gap: 8px; }
-  .spl-title { font-size: 32px; }
-  .spl-tagline { display: none; }
-  .spl-btn, .spl-seg-btn { min-height: 44px; }
-  .spl-header-right { gap: 6px; }
-  .spl-status { margin: 0 -12px 8px; padding: 6px 12px; }
-  .spl-status-text { font-size: 16px; }
-  .spl-market { padding: 8px; gap: 10px; }
-  .spl-row { flex-direction: column; align-items: stretch; gap: 6px; }
-  .spl-deck { flex-direction: row; justify-content: space-between; align-items: center; }
-  .spl-deck .spl-card-back { width: auto; height: 40px; flex-direction: row; padding: 4px 14px; gap: 10px; animation: none; }
-  .spl-deck .spl-card-back .spl-card-crest { display: none; }
-  .spl-deck-tier { font-size: 22px; }
-  .spl-deck-reserve { min-height: 44px; }
-  .spl-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-  .spl-cards .spl-card { width: auto; height: auto; min-height: 150px; }
-  .spl-card-actions .spl-btn { min-height: 44px; }
-  .spl-reserved-card .spl-card-actions .spl-btn { min-height: 44px; }
-  .spl-take2 { min-height: 44px; min-width: 48px; }
-  .spl-bank { width: 100%; justify-content: space-between; gap: 6px; padding: 8px; }
-  .spl-tray, .spl-tray-bank { width: 100%; }
-  .spl-modal { padding: 24px 22px; min-width: 0; width: calc(100vw - 32px); }
-  .spl-chat { right: 8px; left: 8px; width: auto; }
+  .game-splendor .spl-app { padding: 8px 12px 32px; }
+  .game-splendor .spl-header { gap: 8px; }
+  .game-splendor .spl-title { font-size: 32px; }
+  .game-splendor .spl-tagline { display: none; }
+  .game-splendor .spl-btn,.game-splendor .spl-seg-btn { min-height: 44px; }
+  .game-splendor .spl-header-right { gap: 6px; }
+  .game-splendor .spl-status { margin: 0 -12px 8px; padding: 6px 12px; }
+  .game-splendor .spl-status-text { font-size: 16px; }
+  .game-splendor .spl-market { padding: 8px; gap: 10px; }
+  .game-splendor .spl-row { flex-direction: column; align-items: stretch; gap: 6px; }
+  .game-splendor .spl-deck { flex-direction: row; justify-content: space-between; align-items: center; }
+  .game-splendor .spl-deck .spl-card-back { width: auto; height: 40px; flex-direction: row; padding: 4px 14px; gap: 10px; animation: none; }
+  .game-splendor .spl-deck .spl-card-back .spl-card-crest { display: none; }
+  .game-splendor .spl-deck-tier { font-size: 22px; }
+  .game-splendor .spl-deck-reserve { min-height: 44px; }
+  .game-splendor .spl-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .game-splendor .spl-cards .spl-card { width: auto; height: auto; min-height: 150px; }
+  .game-splendor .spl-card-actions .spl-btn { min-height: 44px; }
+  .game-splendor .spl-reserved-card .spl-card-actions .spl-btn { min-height: 44px; }
+  .game-splendor .spl-take2 { min-height: 44px; min-width: 48px; }
+  .game-splendor .spl-bank { width: 100%; justify-content: space-between; gap: 6px; padding: 8px; }
+  .game-splendor .spl-tray,.game-splendor .spl-tray-bank { width: 100%; }
+  .game-splendor .spl-modal { padding: 24px 22px; min-width: 0; width: calc(100vw - 32px); }
+  .game-splendor .spl-chat { right: 8px; left: 8px; width: auto; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .spl-card, .spl-modal { animation: none; }
   .spl-noble-claimable, .spl-thinking { animation: none; }
 }
+
+.game-splendor .spl-mini-bonus { border-radius: 5px; }
+.game-splendor .spl-discard-row { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+.game-splendor .spl-discard-btn { width: 44px; height: 44px; box-shadow: var(--gem-edge), 0 0 0 2px #c98a2b; }

@@ -489,10 +489,13 @@ export default function SplendorGame() {
         <div className="spl-status">
           <span className="spl-status-text">{board.lastAction}</span>
           {isAiThinking && <span className="spl-thinking">thinking…</span>}
-          <span className="spl-mini" aria-hidden="true">
+          <span className="spl-mini" aria-hidden="true" title="Points, tokens (round), card discounts (square)">
             <b>{board.getVictoryPoints(HUMAN_PLAYER)} pts</b>
             {[...GEMS, GOLD].filter(g => human.tokens[g] > 0).map(g => (
               <span key={g} className={`spl-mini-chip ${gemClass(g)}`}>{human.tokens[g]}</span>
+            ))}
+            {GEMS.filter(g => human.bonuses[g] > 0).map(g => (
+              <span key={g} className={`spl-mini-chip spl-mini-bonus ${gemClass(g)}`}>{human.bonuses[g]}</span>
             ))}
             <em>{board.getTokenTotal(HUMAN_PLAYER)}/10</em>
           </span>
@@ -551,7 +554,20 @@ export default function SplendorGame() {
             )}
             {humanDiscardMode && (
               <div className="spl-take-bar spl-warn">
-                Over the 10-token limit — click your tokens to return {board.getTokenTotal(HUMAN_PLAYER) - 10} more.
+                <span>Over the 10-token limit — return {board.getTokenTotal(HUMAN_PLAYER) - 10} more:</span>
+                <span className="spl-discard-row">
+                  {[...GEMS, GOLD].filter(g => human.tokens[g] > 0).map(g => (
+                    <button
+                      key={g}
+                      type="button"
+                      className={`spl-token spl-token-sm spl-discard-btn ${gemClass(g)}`}
+                      onClick={() => discardToken(g)}
+                      aria-label={`Return a ${GEM_LABELS[g]} (you have ${human.tokens[g]})`}
+                    >
+                      <span className="spl-token-count">{human.tokens[g]}</span>
+                    </button>
+                  ))}
+                </span>
               </div>
             )}
             {humanNobleMode && (
