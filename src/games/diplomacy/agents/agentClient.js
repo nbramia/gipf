@@ -88,6 +88,21 @@ export function subscribeApiKey(callback) {
   };
 }
 
+// POST to the agent endpoint, retrying once after a short backoff on a transient
+// failure (504 upstream timeout, 502 provider error, 429 rate limit). Nothing is
+// written to a thread or store until the caller sees the final response, so a
+// retry cannot duplicate a message.
+const RETRY_STATUSES = [429, 502, 504];
+const RETRY_DELAY_MS = 800;
+
+async function postAgent(body) {
+  const send = () => fetch('/api/diplomacyAgent', { method: 'POST', headers: ACCOUNT_REQUEST_HEADERS, body });
+  const res = await send();
+  if (!RETRY_STATUSES.includes(res.status)) return res;
+  await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+  return send();
+}
+
 // Re-export the memory helpers so callers (the chat panel) have one import for
 // the whole agent substrate.
 export { createMemory, serializeMemory, deserializeMemory, validateScratchpad };
@@ -113,11 +128,7 @@ export async function sendMessage({ power, history, context, addressee, model, s
 
   let res;
   try {
-    res = await fetch('/api/diplomacyAgent', {
-      method: 'POST',
-      headers: ACCOUNT_REQUEST_HEADERS,
-      body: JSON.stringify({ ...(apiKey ? { apiKey } : {}), power, persona, context, messages, addressee, model }),
-    });
+    res = await postAgent(JSON.stringify({ ...(apiKey ? { apiKey } : {}), power, persona, context, messages, addressee, model }));
   } catch (_) {
     return { error: 'network', message: 'Could not reach the other power. Check your connection.' };
   }
@@ -182,10 +193,7 @@ export async function askAgent({
 
   let res;
   try {
-    res = await fetch('/api/diplomacyAgent', {
-      method: 'POST',
-      headers: ACCOUNT_REQUEST_HEADERS,
-      body: JSON.stringify({
+    res = await postAgent(JSON.stringify({
         ...(apiKey ? { apiKey } : {}),
         power,
         persona: resolvedPersona,
@@ -198,8 +206,7 @@ export async function askAgent({
         memory,
         proposedDeal,
         initiate,
-      }),
-    });
+      }));
   } catch (_) {
     return { error: 'network', reply: { message: '' } };
   }

@@ -268,6 +268,9 @@ function validateScratchpad(obj) {
   return true;
 }
 
+// Must finish inside vercel.json's maxDuration (20 s) with margin for the reply.
+const UPSTREAM_TIMEOUT_MS = 17500;
+
 export default async function handler(req, res) {
   if (req.method === 'POST' && !await guardRequest(req, res, { bucket: 'ai', limit: 30 })) return;
   res.setHeader('Cache-Control', 'no-store');
@@ -304,7 +307,7 @@ export default async function handler(req, res) {
     }
 
     const upstream = await fetch(ANTHROPIC_URL, {
-    signal: AbortSignal.timeout(12000),
+      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -353,6 +356,10 @@ export default async function handler(req, res) {
   } catch (err) {
     // Never include the request body (which holds the key) in error output.
     applyCors(req, res);
+    if (err && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
+      res.status(504).json({ error: 'upstream_timeout', message: 'The model took too long to reply.' });
+      return;
+    }
     res.status(500).json({ error: 'server_error', message: 'Failed to generate a reply.' });
   }
 }
