@@ -12,3 +12,9 @@ test('legacy conversion preserves source data and scoring flags', () => {
   expect(fromLegacy(legacy).ui.humanColor).toBe('b');
   expect(legacy).toEqual({ v: 1, pgn: '', humanColor: 'b', rated: true });
 });
+test('a declared import result survives a snapshot round trip (reload stays finished)', () => {
+  const b = new ChessBoard();
+  b.loadPgn('[Result "1-0"]\n\n1. e4 1-0');
+  const snap = { v: 1, game: 'chess', id: 'synthetic', updatedAt: 1, state: encodeBoard(b), ui: { humanColor: 'w', orientation: 'white' } };
+  expect(decodeMatch(snap).board.declared).toBe('white');
+});

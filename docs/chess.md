@@ -145,7 +145,7 @@ move-context block with prompt caching so multi-round threads stay cheap.
   text is threaded into the coaching payload to steer the explanations.
 - **Opening detection:** `coach/openings.js` names the opening (deepest ECO
   match) and flags when play leaves book.
-- **PGN:** export the current game (one header set, the game's result as the Result tag and terminal marker) or import one to review (`coach/pgn.js`). An import is never scored as rated or recorded as a played game, resets the clock and result state, and a PGN that declares a result is shown as finished rather than continued. A clock choice in Settings applies to the next new game, not the one in progress; a timeout is a draw when the other side cannot possibly checkmate.
+- **PGN:** export the current game (one header set, the game's result as the Result tag and terminal marker) or import one to review (`coach/pgn.js`). An import is a casual, fully unscored board (no rated, opponent-history or game-log writes, including moves played on from it), resets the clock and result state, and a PGN that declares a result is shown as finished rather than continued; the declared result is kept in the saved PGN's Result header so it survives a reload. A clock choice in Settings applies to the next new game, not the one in progress; a timeout is a draw when the other side cannot possibly checkmate (lichess material rules). Promotion (click or drag) uses an app-owned labelled chooser.
 - **Accuracy summary:** at game end, a per-side accuracy % plus
   blunder/mistake/inaccuracy counts (`coach/accuracy.js`, Lichess-style curve).
 - **Puzzles:** a rated, adaptive, coached trainer.

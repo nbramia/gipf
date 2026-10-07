@@ -116,11 +116,43 @@ describe('ChessGame — PGN import and clock behavior', () => {
     await act(async () => { choose(); });
     await act(async () => { boardProps.onSquareClick('a7'); });
     await act(async () => { boardProps.onSquareClick('a8'); });
-    expect(boardProps.showPromotionDialog).toBe(true);
-    expect(boardProps.promotionToSquare).toBe('a8');
     expect(utils.container.textContent).toContain('No moves yet.');
-    await act(async () => { boardProps.onPromotionPieceSelect('wN', undefined, 'a8'); });
+    const dialog = await utils.findByRole('dialog');
+    expect(dialog.getAttribute('aria-label')).toBe('Choose promotion piece');
+    expect(Array.from(dialog.querySelectorAll('button')).map((x) => x.textContent.replace(/[^A-Za-z]/g, ''))).toEqual(['Queen', 'Rook', 'Bishop', 'Knight']);
+    await act(async () => { fireEvent.click(utils.getByText('Knight')); });
     await waitFor(() => expect(utils.container.textContent).toContain('a8=N'));
+  });
+
+  test('dragging a pawn onto the last rank opens the same chooser, and Escape cancels', async () => {
+    const utils = mount();
+    const { choose } = await importPgn(
+      utils,
+      '[SetUp "1"]\n[FEN "7k/P7/8/8/8/8/7p/4K3 w - - 0 1"]\n\n*',
+      'White'
+    );
+    await act(async () => { choose(); });
+    await act(async () => { boardProps.onPieceDrop('a7', 'a8', 'wP'); });
+    expect(await utils.findByRole('dialog')).toBeTruthy();
+    await act(async () => { fireEvent.keyDown(window, { key: 'Escape' }); });
+    expect(utils.queryByRole('dialog')).toBeNull();
+    expect(utils.container.textContent).toContain('No moves yet.');
+  });
+
+  test('moves played after an import are never scored (rated, history, game log)', async () => {
+    localStorage.setItem('chessRated', 'true');
+    const utils = mount();
+    const { choose } = await importPgn(utils, '[SetUp "1"]\n[FEN "7k/8/6K1/8/8/8/8/Q7 w - - 0 1"]\n\n*', 'White');
+    await act(async () => { choose(); });
+    expect(utils.container.textContent).not.toContain('Rated mode on');
+    expect(utils.queryByText('Rated', { selector: 'span' })).toBeNull();
+    const input = utils.container.querySelector('#chess-move-input');
+    await act(async () => { fireEvent.change(input, { target: { value: 'Qa8#' } }); });
+    await act(async () => { fireEvent.submit(input.closest('form')); });
+    expect(utils.container.textContent).toContain('Checkmate — White wins');
+    expect(localStorage.getItem('chessOppHistory')).toBeNull();
+    expect(localStorage.getItem('chessGameLog')).toBeNull();
+    expect(JSON.parse(localStorage.getItem('chessRating') || '1000')).toBe(1000);
   });
 
   test('changing the clock preset does not alter the game in progress', () => {

@@ -20,6 +20,9 @@ export default class ChessBoard {
     this.moves = [];
     // Index into positions of the currently displayed position.
     this.pointer = 0;
+    // Result declared by an imported PGN ('white'|'black'|'draw'|null). Carried
+    // in the PGN's Result header so a saved import stays finished on resume.
+    this.declared = null;
   }
 
   // --- Current-state accessors -------------------------------------------
@@ -76,26 +79,43 @@ export default class ChessBoard {
     return this.chess.isGameOver();
   }
 
-  // Whether `color` ('w'|'b') could still checkmate in some legal continuation,
-  // which is what a win on time requires (FIDE 6.9). Conservative material test:
-  // a bare king, or king plus a single minor piece against a bare king, cannot.
+  // Whether `color` ('w'|'b') could still checkmate, which a win on time
+  // requires (FIDE 6.9). Same material rules as lichess/scalachess: a bare king
+  // cannot; a lone knight can only with the opponent holding something other
+  // than a queen; bishops all on one colour can only against an opposing pawn,
+  // knight, or bishop of the opposite colour; anything else can.
   canWinOnTime(color) {
-    const own = { n: 0, other: 0 };
-    let oppPieces = 0;
-    for (const row of this.chess.board()) {
-      for (const sq of row) {
+    const own = { p: 0, n: 0, major: 0, bishopColors: new Set() };
+    const opp = { p: 0, n: 0, r: 0, b: 0, bishopColors: new Set() };
+    const rows = this.chess.board();
+    for (let r = 0; r < rows.length; r += 1) {
+      for (let c = 0; c < rows[r].length; c += 1) {
+        const sq = rows[r][c];
         if (!sq || sq.type === 'k') continue;
+        const squareColor = (r + c) % 2;
         if (sq.color === color) {
-          if (sq.type === 'n' || sq.type === 'b') own.n += 1;
-          else own.other += 1;
-        } else {
-          oppPieces += 1;
-        }
+          if (sq.type === 'p') own.p += 1;
+          else if (sq.type === 'n') own.n += 1;
+          else if (sq.type === 'b') own.bishopColors.add(squareColor);
+          else own.major += 1; // rook or queen
+        } else if (sq.type === 'p') opp.p += 1;
+        else if (sq.type === 'n') opp.n += 1;
+        else if (sq.type === 'r') opp.r += 1;
+        else if (sq.type === 'b') opp.bishopColors.add(squareColor);
       }
     }
-    if (own.other > 0 || own.n >= 2) return true;
-    if (own.n === 0) return false;
-    return oppPieces > 0; // lone minor piece can only mate with the opponent's help
+    const bishops = own.bishopColors.size;
+    if (own.p > 0 || own.major > 0) return true;
+    if (own.n === 0 && bishops === 0) return false;
+    if (own.n >= 2 || bishops >= 2) return true; // two knights, or bishops on both colours
+    if (own.n === 1 && bishops === 1) return true;
+    if (own.n === 1) {
+      // Lone knight: mate needs the opponent's own pieces to block, other than a queen.
+      return opp.p + opp.n + opp.r + opp.bishopColors.size > 0;
+    }
+    // Same-coloured bishops only.
+    const [ownColor] = [...own.bishopColors];
+    return opp.p > 0 || opp.n > 0 || [...opp.bishopColors].some((x) => x !== ownColor);
   }
 
   // Returns a structured result describing how (and if) the game ended.
@@ -164,6 +184,7 @@ export default class ChessBoard {
 
   undo() {
     if (!this.canUndo()) return false;
+    this.declared = null;
     this.pointer -= 1;
     this._rebuildHistory();
     return true;
@@ -197,6 +218,9 @@ export default class ChessBoard {
     for (const m of this.moves.slice(0, this.pointer)) {
       fresh.move({ from: m.from, to: m.to, promotion: m.promotion });
     }
+    if (this.declared) {
+      fresh.header('Result', this.declared === 'white' ? '1-0' : this.declared === 'black' ? '0-1' : '1/2-1/2');
+    }
     return fresh.pgn();
   }
 
@@ -219,6 +243,8 @@ export default class ChessBoard {
     }
     this.pointer = this.moves.length;
     this.chess = replay;
+    const declared = { '1-0': 'white', '0-1': 'black', '1/2-1/2': 'draw' }[fresh.getHeaders().Result];
+    this.declared = declared || null;
     return true;
   }
 
@@ -239,6 +265,7 @@ export default class ChessBoard {
     copy.positions = [...this.positions];
     copy.moves = [...this.moves];
     copy.pointer = this.pointer;
+    copy.declared = this.declared;
     copy._rebuildHistory();
     return copy;
   }

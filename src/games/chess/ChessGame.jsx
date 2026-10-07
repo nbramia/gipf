@@ -173,9 +173,6 @@ function ChessGame() {
     return { w: tc.base * 1000, b: tc.base * 1000 };
   });
   const [flagged, setFlagged] = useState(() => restored?.flagged || null); // color that ran out of time
-  // Result declared by an imported PGN ('white'|'black'|'draw'); the game is then
-  // finished for review. Not persisted: a resumed import falls back to its board.
-  const [importedResult, setImportedResult] = useState(null);
   // Click-to-move promotion awaiting a piece choice: {from, to}.
   const [pendingPromotion, setPendingPromotion] = useState(null);
 
@@ -483,8 +480,10 @@ function ChessGame() {
     () => (rated ? ratedRung.spec : difficulty),
     [rated, ratedRung, difficulty]
   );
-  const gameResult = importedResult && !puzzleMode && !drill.active
-    ? { over: true, type: 'declared', winner: importedResult === 'draw' ? null : importedResult }
+  // A PGN's declared result (board.declared) keeps an imported game finished.
+  const declaredResult = board.declared && !board.result() && !puzzleMode && !drill.active ? board.declared : null;
+  const gameResult = declaredResult
+    ? { over: true, type: 'declared', winner: declaredResult === 'draw' ? null : declaredResult }
     : resigned
       ? { over: true, type: 'resign', winner: resigned === 'w' ? 'black' : 'white' }
       : flagged
@@ -1066,12 +1065,15 @@ function ChessGame() {
   const onPieceDrop = useCallback(
     (from, to, piece) => {
       if (!canInteract) return false;
-      const isPawn = piece && piece[1] === 'P';
-      const promoRank = to[1] === '8' || to[1] === '1';
-      const promotion = isPawn && promoRank ? 'q' : undefined;
-      return tryHumanMove(from, to, promotion);
+      // A pawn reaching the last rank asks for a piece (the board snaps back
+      // until the chooser answers), same as a click.
+      if (board.legalMovesFrom(from).some((m) => m.to === to && m.promotion)) {
+        setPendingPromotion({ from, to });
+        return false;
+      }
+      return tryHumanMove(from, to);
     },
-    [canInteract, tryHumanMove]
+    [canInteract, tryHumanMove, board]
   );
 
   const onSquareClick = useCallback(
@@ -1100,21 +1102,24 @@ function ChessGame() {
     [selected, board, canInteract, tryHumanMove]
   );
 
-  const onPromotionPieceSelect = useCallback(
-    (piece, from, to) => {
-      if (pendingPromotion) {
-        // Click-to-move choice (or its cancel, which passes no piece). The board
-        // is updated from our own state, so tell the chessboard not to move.
-        const pending = pendingPromotion;
-        setPendingPromotion(null);
-        if (piece) tryHumanMove(pending.from, pending.to, piece[1].toLowerCase());
-        return false;
-      }
-      if (!piece || !from || !to) return false;
-      return tryHumanMove(from, to, piece[1].toLowerCase());
+  // Answer (or cancel, with no piece) the app-owned promotion chooser.
+  const choosePromotion = useCallback(
+    (piece) => {
+      const pending = pendingPromotion;
+      setPendingPromotion(null);
+      if (pending && piece) tryHumanMove(pending.from, pending.to, piece);
     },
     [tryHumanMove, pendingPromotion]
   );
+
+  useEffect(() => {
+    if (!pendingPromotion) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setPendingPromotion(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [pendingPromotion]);
 
   const startGame = (color) => {
     savedMatch?.startNew();
@@ -1144,7 +1149,6 @@ function ChessGame() {
     setIsThinking(false);
     setFlagged(null);
     lastCreditedPlyRef.current = 0;
-    setImportedResult(null);
     setPendingPromotion(null);
     setTimeControl(timeControlPref);
     const tc = getTimeControl(timeControlPref);
@@ -1443,7 +1447,6 @@ function ChessGame() {
     if (board.turn() === aiColor && board.canUndo()) board.undo();
     setSelected(null);
     setResigned(null);
-    setImportedResult(null);
     // Drop dialogue + stats past the new ply count.
     const ply = board.sanHistory().length;
     setDialogue((d) => d.filter((e) => e.ply <= ply));
@@ -1569,18 +1572,15 @@ function ChessGame() {
         setFlagged(null);
         setPendingPromotion(null);
         setReviewPly(null);
-        // An import is never a scored match. Rated scoring is skipped for it,
-        // and a game that arrives finished is not recorded as one of ours.
+        // An import is never a scored match, including anything played on from
+        // it: rated, opponent-history and game-log writes are all skipped, and
+        // it is a casual review board, not a rated one.
         ratedAppliedRef.current = true;
-        if (declared || next.result()) {
-          historyAppliedRef.current = true;
-          gameLoggedRef.current = true;
-        } else {
-          historyAppliedRef.current = false;
-          gameLoggedRef.current = false;
-        }
+        historyAppliedRef.current = true;
+        gameLoggedRef.current = true;
+        setRated(false);
         setRatedDelta(null);
-        setImportedResult(next.result() ? null : declared);
+        next.declared = next.result() ? null : declared;
         // Fresh clock for the active preset, no increment credit for the
         // imported plies.
         setTimeControl(timeControlPref);
@@ -1945,10 +1945,7 @@ function ChessGame() {
                     position={displayFen}
                     onPieceDrop={onPieceDrop}
                     onSquareClick={onSquareClick}
-                    onPromotionPieceSelect={onPromotionPieceSelect}
-                    showPromotionDialog={!!pendingPromotion}
-                    promotionToSquare={pendingPromotion ? pendingPromotion.to : null}
-                    promotionDialogVariant="modal"
+                    onPromotionCheck={() => false}
                     boardOrientation={orientation}
                     customSquareStyles={squareStyles}
                     customBoardStyle={{ borderRadius: '8px', boxShadow: '0 4px 16px rgba(0,0,0,0.18)' }}
@@ -2919,6 +2916,38 @@ function ChessGame() {
           </div>
         </div>
       </div>
+
+      {/* Promotion chooser (click and drag): labelled, keyboard-reachable. */}
+      {pendingPromotion && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center modal-safe-area"
+          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Choose promotion piece"
+          onClick={() => choosePromotion(null)}
+        >
+          <div className="panel rounded-2xl w-full max-w-sm p-5" onClick={(ev) => ev.stopPropagation()}>
+            <h3 className="font-heading text-sm font-semibold mb-3" style={{ color: 'var(--color-text-primary)' }}>
+              Promote to
+            </h3>
+            <div className="grid grid-cols-2 gap-2">
+              {[['q', 'Queen'], ['r', 'Rook'], ['b', 'Bishop'], ['n', 'Knight']].map(([p, label]) => (
+                <button
+                  key={p}
+                  autoFocus={p === 'q'}
+                  onClick={() => choosePromotion(p)}
+                  className="px-3 py-3 rounded-lg font-body text-sm panel flex items-center justify-center gap-2"
+                  style={{ minHeight: 44 }}
+                >
+                  <span aria-hidden="true" className="text-xl leading-none">{PIECE_GLYPH[p]}</span>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Imported PGN: which side is "you"? */}
       {importPrompt && (
