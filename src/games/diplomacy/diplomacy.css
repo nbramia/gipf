@@ -1313,3 +1313,68 @@
     transition-duration: 0.001ms !important;
   }
 }
+
+/* ---- Map zoom controls and selected-province caption ---- */
+.game-diplomacy .dip-board-svg { touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+
+.game-diplomacy .dip-map-controls {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.game-diplomacy .dip-map-btn {
+  min-width: 40px;
+  min-height: 40px;
+  border: 1px solid var(--dip-border-strong);
+  border-radius: 8px;
+  background: var(--dip-panel);
+  color: var(--dip-text);
+  font-size: 1.15rem;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow: var(--dip-shadow-soft);
+}
+.game-diplomacy .dip-map-btn--fit { font-size: 0.78rem; }
+.game-diplomacy .dip-map-btn:hover:not(:disabled) { border-color: var(--dip-accent); color: var(--dip-accent); }
+.game-diplomacy .dip-map-btn:disabled { opacity: 0.45; cursor: default; }
+
+.game-diplomacy .dip-map-caption {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 3;
+  max-width: calc(100% - 24px);
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--dip-border-strong);
+  border-radius: 8px;
+  background: var(--dip-panel);
+  color: var(--dip-text);
+  font-size: 0.9rem;
+  box-shadow: var(--dip-shadow-soft);
+  pointer-events: none;
+}
+
+/* ---- No-key notice: collapsible ---- */
+.game-diplomacy .dip-keyprompt-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.game-diplomacy .dip-keyprompt-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--dip-text);
+}
+.game-diplomacy .dip-keyprompt--collapsed { padding: 0.35rem 0.75rem; }
+.game-diplomacy .dip-keyprompt-dismiss { min-height: 32px; padding: 0 0.25rem; }
+
+@media (max-width: 640px) {
+  .game-diplomacy .dip-map-btn { min-width: 44px; min-height: 44px; }
+  .game-diplomacy .dip-keyprompt-dismiss { min-height: 44px; }
+}

@@ -391,6 +391,19 @@ export default function useDiplomacyTurn({
     settle('orders', diplomaticState);
   }, [settle, diplomaticState]);
 
+  // When none of the human's units must retreat there is nothing to decide, so
+  // the retreats resolve on their own (the AI powers' retreats are bound by their
+  // intents). Keyed by phase so a failed attempt can't loop.
+  const autoRetreatRef = useRef(null);
+  useEffect(() => {
+    if (uiPhase !== 'retreats' || !board.isRetreatPhase() || busyRef.current) return;
+    if (board.pendingRetreats.some((entry) => controllers[entry.unit.power] === 'human')) return;
+    const sig = `${board.year}|${board.phase}|${board.turnNumber}`;
+    if (autoRetreatRef.current === sig) return;
+    autoRetreatRef.current = sig;
+    submitRetreats({});
+  }, [uiPhase, board, controllers, submitRetreats]);
+
   // Re-enter the saved UI phase on load (called by the game on mount-restore).
   const restoreUiPhase = useCallback((phase) => {
     if (phase) setUiPhase(phase);
