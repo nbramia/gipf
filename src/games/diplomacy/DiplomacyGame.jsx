@@ -782,9 +782,8 @@ export default function DiplomacyGame() {
                 <button
                   className="dip-primary-btn w-full"
                   onClick={turn.proceedToOrders}
-                  disabled={turn.isBusy}
                 >
-                  {turn.isBusy ? 'Powers conferring…' : 'Proceed to orders'}
+                  {turn.isBusy ? 'Skip conferring and proceed' : 'Proceed to orders'}
                 </button>
               </div>
             </div>

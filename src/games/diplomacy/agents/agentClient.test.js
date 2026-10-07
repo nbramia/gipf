@@ -139,11 +139,11 @@ describe('sendMessage', () => {
     expect(store.threads.germany).toBeUndefined();
   });
 
-  test('askAgent retries once on 429/502 and a 500 is not retried', async () => {
+  test('askAgent retries once on 502 and a 500 is not retried', async () => {
     immediateTimers();
     setApiKey('sk-live');
     global.fetch = jest.fn()
-      .mockResolvedValueOnce({ ok: false, status: 429, json: async () => ({}) })
+      .mockResolvedValueOnce({ ok: false, status: 502, json: async () => ({}) })
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ message: 'Ok.' }) });
     let p = askAgent({ power: 'germany', messages: [] });
     expect((await p).reply.message).toBe('Ok.');
@@ -153,6 +153,19 @@ describe('sendMessage', () => {
     p = askAgent({ power: 'germany', messages: [] });
     expect((await p).error).toBe('upstream');
     expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  test('a stalled fetch is aborted client-side instead of hanging', async () => {
+    jest.useFakeTimers();
+    setApiKey('sk-live');
+    global.fetch = jest.fn((_url, { signal }) => new Promise((_res, reject) => {
+      signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    }));
+    const pending = sendMessage({ power: 'germany', history: [{ role: 'user', content: 'hi' }], context: {} });
+    jest.advanceTimersByTime(30000);
+    const result = await pending;
+    jest.useRealTimers();
+    expect(result.error).toBe('network');
   });
 
   test('an empty reply is reported as an error', async () => {

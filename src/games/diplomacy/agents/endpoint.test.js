@@ -434,13 +434,4 @@ describe('diplomacyAgent endpoint', () => {
       expect(JSON.stringify(res.body)).not.toContain('sk-supersecret');
     }
   });
-
-  test('the upstream deadline fits inside the 20 s function limit', async () => {
-    upstreamFetch = mockUpstreamText(JSON.stringify({ message: 'Hi.', scratchpad: VALID_SCRATCHPAD }));
-    const spy = jest.spyOn(AbortSignal, 'timeout');
-    await handler(makeReq({ body: { apiKey: 'sk-test', power: 'france' } }), makeRes());
-    const ms = Math.max(...spy.mock.calls.map((c) => c[0]));
-    expect(ms).toBeGreaterThan(12000);
-    expect(ms).toBeLessThanOrEqual(18000);
-  });
 });

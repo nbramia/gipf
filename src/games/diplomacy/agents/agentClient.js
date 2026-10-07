@@ -95,8 +95,26 @@ export function subscribeApiKey(callback) {
 const RETRY_STATUSES = [429, 502, 504];
 const RETRY_DELAY_MS = 800;
 
+// Each attempt is bounded client-side (the function itself gives up at 20 s) so a
+// stalled connection cannot hang a caller forever; an expired attempt throws like
+// any network failure.
+const ATTEMPT_TIMEOUT_MS = 25000;
+
 async function postAgent(body) {
-  const send = () => fetch('/api/diplomacyAgent', { method: 'POST', headers: ACCOUNT_REQUEST_HEADERS, body });
+  const send = async () => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), ATTEMPT_TIMEOUT_MS);
+    try {
+      return await fetch('/api/diplomacyAgent', {
+        method: 'POST',
+        headers: ACCOUNT_REQUEST_HEADERS,
+        body,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
   const res = await send();
   if (!RETRY_STATUSES.includes(res.status)) return res;
   await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
