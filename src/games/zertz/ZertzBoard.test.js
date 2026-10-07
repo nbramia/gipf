@@ -689,7 +689,7 @@ describe('_canSlideAway', () => {
 // ============================================================================
 
 describe('All-rings-occupied endgame', () => {
-  test('no win condition met results in draw (winner is null)', () => {
+  test('no win condition met: the last mover still wins the full board (rules G.2)', () => {
     // 2 rings, both occupied, capture gives no win
     const board = createBoard({
       rings: ['0,0', '1,0'],
@@ -704,7 +704,7 @@ describe('All-rings-occupied endgame', () => {
     board.placeMarble(1, 0);
 
     expect(board.gamePhase).toBe('game-over');
-    expect(board.winner).toBeNull();
+    expect(board.winner).toBe(1);
   });
 
   test('win condition met sets correct winner', () => {
@@ -1215,11 +1215,12 @@ describe('Ring removal (extended)', () => {
   });
 
   test('isolation claims the larger group too when it is fully occupied (no size exemption)', () => {
-    // Remove 2,0 -> {3,0} (size 1) and {-1,0, 0,0, 1,0} (size 3) are both fully occupied
+    // Remove 2,0 -> {3,0} (size 1) and {-1,0, 0,0, 1,0} (size 3) are both fully occupied.
+    // Marbles conserved: pool W4/G7/B9 + board W2/G1/B1 = 6/8/10.
     const board = createBoard({
       rings: ['-1,0', '0,0', '1,0', '2,0', '3,0'],
       marbles: { '3,0': 'grey', '-1,0': 'white', '0,0': 'black', '1,0': 'white' },
-      pool: FULL_POOL,
+      pool: { white: 4, grey: 7, black: 9 },
       captures: ZERO_CAPS,
       gamePhase: 'remove-ring',
       currentPlayer: 1,
@@ -1228,17 +1229,17 @@ describe('Ring removal (extended)', () => {
     expect(board.captures[1]).toEqual({ white: 2, grey: 1, black: 1 });
     expect(board.marbles).toEqual({});
     expect(board.rings.size).toBe(0);
-    // Nothing left to play and no win condition met: the game ends as a draw
+    // Nothing left to play: the last mover wins (official rules G.2), not a draw
     expect(board.gamePhase).toBe('game-over');
-    expect(board.winner).toBeNull();
+    expect(board.winner).toBe(1);
   });
 
   test('filling the last vacancy of the LARGER isolated group claims it and wins', () => {
     // Groups {-1,0, 0,0, 1,0} (size 3, one vacancy at 1,0) and {4,0} (size 1, vacant)
     const board = createBoard({
-      rings: ['-1,0', '0,0', '1,0', '4,0'],
+      rings: ['-1,0', '0,0', '1,0', '3,0'],
       marbles: { '-1,0': 'white', '0,0': 'white' },
-      pool: FULL_POOL,
+      pool: { white: 4, grey: 8, black: 9 },
       captures: { 1: { white: 2, grey: 0, black: 0 }, 2: { white: 0, grey: 0, black: 0 } },
       gamePhase: 'place-marble',
       currentPlayer: 1,
@@ -2019,7 +2020,7 @@ describe('All-rings-occupied / draw (extended)', () => {
     expect(Object.keys(board.marbles).length).toBe(0);
   });
 
-  test('draw: winConditionMet remains null', () => {
+  test('full board without a win condition: last mover wins, winConditionMet stays null', () => {
     const board = createBoard({
       rings: ['0,0', '1,0'],
       marbles: { '0,0': 'black' },
@@ -2030,7 +2031,7 @@ describe('All-rings-occupied / draw (extended)', () => {
     });
     board.selectMarbleColor('white');
     board.placeMarble(1, 0);
-    expect(board.winner).toBeNull();
+    expect(board.winner).toBe(1);
     expect(board.winConditionMet).toBeNull();
   });
 
@@ -2674,7 +2675,7 @@ describe('Regression tests', () => {
     expect(board.captures[1].black).toBe(1);
   });
 
-  test('undo a draw game-over then continue playing', () => {
+  test('undo a full-board game-over then continue playing', () => {
     const board = createBoard({
       rings: ['0,0', '1,0'],
       marbles: { '0,0': 'black' },
@@ -2684,9 +2685,9 @@ describe('Regression tests', () => {
       currentPlayer: 1,
     });
     board.selectMarbleColor('white');
-    board.placeMarble(1, 0); // all-rings-occupied -> draw
+    board.placeMarble(1, 0); // all-rings-occupied -> last mover wins
     expect(board.gamePhase).toBe('game-over');
-    expect(board.winner).toBeNull();
+    expect(board.winner).toBe(1);
 
     board.undo();
     expect(board.gamePhase).toBe('place-marble');

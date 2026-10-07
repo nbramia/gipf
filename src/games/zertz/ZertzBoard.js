@@ -175,8 +175,9 @@ export default class ZertzBoard {
         return true;
       }
       if (this.rings.size === 0) {
-        // Every remaining group was claimed at once: nothing left to play (draw)
+        // Every remaining group was claimed at once: the last mover wins (official rules G.2)
         this.gamePhase = 'game-over';
+        this.winner = this.currentPlayer;
         this._captureState();
         return true;
       }
@@ -289,8 +290,9 @@ export default class ZertzBoard {
         return true;
       }
       if (this.rings.size === 0) {
-        // Every remaining group was claimed at once: nothing left to play (draw)
+        // Every remaining group was claimed at once: the last mover wins (official rules G.2)
         this.gamePhase = 'game-over';
+        this.winner = this.currentPlayer;
         this._captureState();
         return true;
       }
@@ -564,10 +566,10 @@ export default class ZertzBoard {
     }
     this.marbles = {};
 
-    if (this._checkWinCondition(this.currentPlayer)) {
-      this.winner = this.currentPlayer;
-    }
-    // else: winner stays null → draw
+    // Official rules G.2: when every ring is occupied, the player who made the
+    // last move claims all remaining marbles and wins.
+    this._checkWinCondition(this.currentPlayer);
+    this.winner = this.currentPlayer;
   }
 
   // --- Main Click Handler ---
