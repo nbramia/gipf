@@ -91,7 +91,7 @@ export function validateData(kind, id, data) {
     if (!(id === DATA_KEYS[kind] || (kind === 'chess-log' && /^chessGameLog:[a-f0-9]{64}$/.test(id))) || !schemas[kind](data)) fail();
   } else if (kind === 'diplomacy-save') {
     if (id !== 'diplomacyGameState') fail(); // Caller runs closed Diplomacy schema.
-  } else if (/^(chess|yinsh|zertz|catan)-match$/.test(kind)) {
+  } else if (/^(chess|yinsh|zertz|catan|splendor)-match$/.test(kind)) {
     // The caller additionally runs the closed snapshot schema and real decoder.
     if (id !== data.id && !new RegExp(`^${data.id}:[a-f0-9]{64}$`).test(id)) fail();
   } else fail();

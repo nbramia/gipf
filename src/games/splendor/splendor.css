@@ -497,3 +497,16 @@
 .game-splendor .spl-mini-bonus { border-radius: 5px; }
 .game-splendor .spl-discard-row { display: inline-flex; gap: 8px; flex-wrap: wrap; }
 .game-splendor .spl-discard-btn { width: 44px; height: 44px; box-shadow: var(--gem-edge), 0 0 0 2px #c98a2b; }
+
+/* Payment and confirmation dialogs, quick-rules reference */
+.game-splendor .spl-dialog { max-width: 520px; width: calc(100vw - 32px); text-align: left; }
+.game-splendor .spl-dialog h2 { font-size: 28px; }
+.game-splendor .spl-dialog:focus { outline: none; }
+.game-splendor .spl-dialog-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.game-splendor .spl-pay-rows { list-style: none; display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.game-splendor .spl-pay-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--spl-ink); font-size: 14px; }
+.game-splendor .spl-pay-name { flex: 1 1 140px; }
+.game-splendor .spl-modal p.spl-pay-total { font-style: normal; font-family: inherit; font-size: 14px; color: var(--spl-ink); }
+.game-splendor .spl-rules-ref { font-size: 13px; line-height: 1.45; border: 1px solid var(--spl-line); border-radius: 9px; padding: 8px 11px; background: var(--spl-panel-2); color: var(--spl-ink); }
+.game-splendor .spl-rules-ref summary { cursor: pointer; font-weight: 600; color: var(--spl-gold); min-height: 28px; display: flex; align-items: center; }
+.game-splendor .spl-rules-ref ul { margin: 6px 0 0 18px; list-style: disc; display: flex; flex-direction: column; gap: 5px; }

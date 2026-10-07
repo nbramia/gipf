@@ -14,6 +14,9 @@ export function defaultSelection(bundle) {
 }
 const snapshot = () => Object.fromEntries(PROGRESS_KEYS.map(k => [k,localStorage.getItem(k)]));
 const equal = (a,b) => canonical(a) === canonical(b);
+// A journal written before a progress key existed lacks it; absent and null both mean "no stored value".
+const present = values => Object.fromEntries(Object.entries(values).filter(([,v]) => v != null));
+const sameProgress = (a,b) => equal(present(a),present(b));
 const journalKey = session => `gamesMigrationActivation:v1:${session.usernameId}`;
 async function request(session, body, check) {
   check();
@@ -61,9 +64,9 @@ export async function activateImport(plan, guard = captureIdentity()) {
     if (journal && journal.owner !== session.usernameId) throw new Error('invalid_recovery');
     if (journal?.fingerprint === fingerprint && journal.done) return {status:'replay'};
     if (journal && !journal.done && journal.fingerprint !== fingerprint) throw new Error('activation_pending');
-    if (journal?.fingerprint !== fingerprint || (plan.cloud.status === 'preview' && (plan.cloud.token !== journal.token || !equal(plan.before,journal.before)))) {
+    if (journal?.fingerprint !== fingerprint || (plan.cloud.status === 'preview' && (plan.cloud.token !== journal.token || !sameProgress(plan.before,journal.before)))) {
       if (plan.cloud.status === 'replay') return {status:'replay'};
-      if (!equal(snapshot(),plan.before)) throw new Error('progress_changed');
+      if (!sameProgress(snapshot(),plan.before)) throw new Error('progress_changed');
       const after = {};
       for (const record of plan.bundle.records.filter(r => plan.selected.includes(recordIdentity(r)))) {
         const destination = destinationKey(record);
@@ -77,7 +80,7 @@ export async function activateImport(plan, guard = captureIdentity()) {
     // A partial commit may contain either the old or imported bytes. Any third
     // value is a new edit and must be preserved for explicit reconciliation.
     for (const [k,v] of Object.entries(current)) {
-      if (v !== journal.before[k] && (!Object.hasOwn(journal.after,k) || v !== journal.after[k])) throw new Error('progress_changed');
+      if (v !== (journal.before[k] ?? null) && (!Object.hasOwn(journal.after,k) || v !== journal.after[k])) throw new Error('progress_changed');
     }
     const serialized = JSON.stringify(journal);
     if (bytes(serialized) > 20 * 1024 * 1024) throw new Error('recovery_too_large');

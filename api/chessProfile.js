@@ -160,7 +160,7 @@ export default async function handler(req, res) {
     if (migration) return await migrationActivation(body, res, SETTING_KEYS, deadline);
     const settings = body.scope === 'settings';
     const match = body.scope === 'match';
-    if (match && !['chess','yinsh','zertz','catan'].includes(body.game)) return res.status(400).json({ error: 'bad_request' });
+    if (match && !['chess','yinsh','zertz','catan','splendor'].includes(body.game)) return res.status(400).json({ error: 'bad_request' });
     if (body.scope && !settings && !match) return res.status(400).json({ error: 'bad_request' });
     const key = match ? `play:match:v1:${body.u}:${body.game}` : `play:${settings ? 'settings' : 'profile'}:v2:${body.u}`;
     if (body.action === 'read') {

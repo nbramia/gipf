@@ -8,6 +8,8 @@ import * as chess from './games/chess/matchSnapshot.js';
 import * as yinsh from './games/yinsh/matchSnapshot.js';
 import * as zertz from './games/zertz/matchSnapshot.js';
 import * as catan from './games/catan/matchSnapshot.js';
+import SplendorBoard from './games/splendor/SplendorBoard.js';
+import * as splendor from './games/splendor/matchSnapshot.js';
 import { exportProgress, validateFile, previewImport, stageImport, readStages, captureIdentity, MAX_BYTES } from './migration.js';
 import { encryptApiKey, storeAccountKey } from './account.js';
 import { canonical } from './migrationSchema.js';
@@ -33,6 +35,7 @@ test.each([
   ['yinsh', yinsh, () => { const b = new YinshBoard(); b.handleClick(0,0); return b; }],
   ['zertz', zertz, () => { const b = new ZertzBoard(); b.selectMarbleColor('white'); b.placeMarble(0,0); return b; }],
   ['catan', catan, () => { const b = new CatanBoard({ seed:7 }); b.applyMove(b.getLegalMoves()[0]); return b; }],
+  ['splendor', splendor, () => { const b = new SplendorBoard({ seed:7, playerCount:3 }); b.applyMove(b.getLegalMoves()[0]); return b; }],
 ])('%s real engine round-trip and latest unsynced local data', async (game, adapter, create) => {
   const value = snapshot(game, adapter, create());
   localStorage.setItem(`${game}Match:v1`, JSON.stringify(value));
@@ -275,9 +278,9 @@ test('transition appearing during encryption and encryption failure leave accoun
   expect(localStorage.getItem(key)).toBe(original);
 });
 
-test.each(['chess','yinsh','zertz','catan'])('%s malformed nested payload with a correct digest rejects before mutation', async game => {
-  const adapters = {chess,yinsh,zertz,catan};
-  const boards = {chess:new ChessBoard(),yinsh:new YinshBoard(),zertz:new ZertzBoard(),catan:new CatanBoard()};
+test.each(['chess','yinsh','zertz','catan','splendor'])('%s malformed nested payload with a correct digest rejects before mutation', async game => {
+  const adapters = {chess,yinsh,zertz,catan,splendor};
+  const boards = {chess:new ChessBoard(),yinsh:new YinshBoard(),zertz:new ZertzBoard(),catan:new CatanBoard(),splendor:new SplendorBoard()};
   localStorage.setItem(`${game}Match:v1`,JSON.stringify(snapshot(game,adapters[game],boards[game])));
   const bundle = await exportFile();
   bundle.records[0].data.ui.future = {password:'synthetic'};

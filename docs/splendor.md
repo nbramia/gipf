@@ -15,13 +15,19 @@ Faithful **base-game Splendor, 2–4 players**. Implemented:
 - The four turn actions: take 3 different gems, take 2 of one color (pile ≥ 4),
   reserve a card (from the market or blind off a deck) taking 1 gold if available,
   and purchase a card (from the market or your reserve), gold paying any shortfall.
+  Gold may also replace a colored gem the player holds: the UI asks how to pay only
+  when that choice exists (default: the automatic minimum-gold payment), and the
+  engine accepts only a payment that covers the discounted cost exactly
+  (`buyCard(..., { payment })`; the AI always pays automatically).
 - The 10-token hand limit as a real discard sub-phase (one token returned at a time),
   the 3-reserved-card limit, automatic noble visits (with a choice when more than one
   qualifies), market replacement draws, and the 15-prestige **final-round** end
   condition with the **fewest-purchased-cards** tiebreak (players still tied share the
   victory; `board.winners` lists every winner). Live games have no round cap; self-play
   scripts pass `maxTurns` to bound pathological games.
-- Undo/redo via the same board-state snapshot pattern as the other games.
+- Undo/redo history exists in the engine but is not exposed: undoing a solo move would reveal hidden deck and AI information.
+- Resumable matches (`splendorMatch:v1`): the board including hidden deck order, seats, phase, player count and difficulty is saved and restored on reload; see [resumable matches](resumable-matches.md).
+- A short offline rules reference inside Rules Help; starting a new match asks for confirmation once the match has progress.
 
 **Intentionally omitted:** the Cities of Splendor expansions (Cities, Strongholds,
 Trading Posts, The Orient) and the two-player Splendor Duel (a separate game). The
@@ -47,7 +53,8 @@ to trigger React rendering.
 |------|---------|
 | `src/games/splendor/SplendorBoard.js` | Pure rules/state engine (no React) |
 | `src/games/splendor/splendorCards.js` | Canonical 90-card deck, 10 nobles, token/noble setup constants |
-| `src/games/splendor/SplendorGame.jsx` | React UI — card market, token bank, player panels, AI loop, rules chat |
+| `src/games/splendor/SplendorGame.jsx` | React UI — card market, token bank, player panels, AI loop, payment chooser, offline quick rules, rules chat |
+| `src/games/splendor/matchSnapshot.js` | Portable snapshot encoding and strict decoding for resumable matches |
 | `src/games/splendor/splendor.css` | Scoped `.game-splendor` variables and styling |
 | `src/games/splendor/coach/rulesClient.js` | Client + BYO-key storage for the rules assistant |
 | `api/splendorRules.js` | Serverless rules assistant (Claude, bring-your-own key) |

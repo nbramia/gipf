@@ -299,7 +299,7 @@ and `src/accountKeys.js`, which the games' key clients read to know an account k
 | `hooks/useStockfish.js` | Engine lifecycle; `getMove()` (opponent) + `analyze()` (coaching), serialized |
 | `coach/*.js` | classify, analyzeMove, templates, coachClient, openings, pgn, accuracy, puzzles, material, sound |
 | `api/chessCoach.js` | Vercel serverless coach (Claude API, **bring-your-own key**, no server fallback) |
-| `api/chessProfile.js` | Authenticated, revisioned Chess profile and separate four-game settings scope, match scope and `/migration` activation. See `docs/public-accounts.md` |
+| `api/chessProfile.js` | Authenticated, revisioned Chess profile and separate four-game settings scope (Chess, Yinsh, Zertz, Catan; Splendor preferences stay on the device), match scope and `/migration` activation. See `docs/public-accounts.md` |
 | `api/chessAccount.js` | Signed-in account keys (`setKeys`, stored server-encrypted); any other action is 400 |
 
 See [docs/chess.md](docs/chess.md) for the engine + coaching pipeline and the BYO-key security model.
@@ -338,9 +338,10 @@ See [docs/catan.md](docs/catan.md) for rule coverage and AI/training details.
 
 | File | Purpose |
 |------|---------|
-| `SplendorBoard.js` | Pure 2-4 player base-game rules engine -- token takes, reserve+gold, gold-min-payment buys, discard, nobles, final-round end + tiebreak |
+| `SplendorBoard.js` | Pure 2-4 player base-game rules engine -- token takes, reserve+gold, validated chosen-or-automatic payment buys, discard, nobles, final-round end + tiebreak |
+| `matchSnapshot.js` | Portable board encoding (hidden decks included) and strict validated match restoration |
 | `splendorCards.js` | Canonical 90-card deck, 10 nobles, token/noble setup constants (cross-validated, test-locked) |
-| `SplendorGame.jsx` | React UI -- card market, token bank, player panels, AI turn loop, rules-help chat |
+| `SplendorGame.jsx` | React UI -- card market, token bank, player panels, payment chooser, AI turn loop, offline quick rules + rules-help chat |
 | `splendor.css` | Scoped CSS variables (`.game-splendor`) + animations |
 | `engine/mcts.js` | maxⁿ PUCT game-tree MCTS (no chance nodes; determinization for hidden deck/reserves; heuristic-rollout/NN evaluator) |
 | `engine/features.js` | Self-play feature extraction and policy targets |
@@ -526,7 +527,8 @@ catanMatch:v1, catanMatchSync:v1, catanMatchRecovery:v1
 **Splendor:**
 
 ```
-splendorDarkMode, splendorDifficulty, splendorPlayerCount
+splendorDarkMode, splendorDifficulty, splendorPlayerCount,
+splendorMatch:v1, splendorMatchSync:v1, splendorMatchRecovery:v1
 ```
 
 **Diplomacy:**

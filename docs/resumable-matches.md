@@ -1,15 +1,16 @@
-# Four-game resumable matches
+# Five-game resumable matches
 
-Chess, Yinsh, Zertz and Catan save the current match on the device and, for a
+Chess, Yinsh, Zertz, Catan and Splendor save the current match on the device and, for a
 signed-in account, in the cloud.
 
 ## User behavior
 
-Chess, Yinsh, Zertz and Catan save the current match after gameplay changes and
+Chess, Yinsh, Zertz, Catan and Splendor save the current match after gameplay changes and
 resume it when their route is reopened or refreshed. Guests remain local.
 Signing in opts into authenticated cloud saves. New games replace the current
 match and receive a new ID. Chess puzzle/drill exercises are transient; their
-progress stores are independent. Splendor and Diplomacy have no resumable match.
+progress stores are independent. Diplomacy keeps its own versioned save and has no
+resumable match.
 
 A new signed-in device waits for hydration before mounting its engine. An absent
 local match can hydrate automatically; an explicitly cleared match with no sync
@@ -64,6 +65,7 @@ Only these keys are portable current-match payloads:
 | Yinsh | `yinshMatch:v1` | `yinsh-match` | 1 |
 | Zertz | `zertzMatch:v1` | `zertz-match` | 1 |
 | Catan | `catanMatch:v1` | `catan-match` | 1 |
+| Splendor | `splendorMatch:v1` | `splendor-match` | 1 |
 
 Each value is a JSON object with **exactly** the following allowed fields:
 
@@ -122,6 +124,16 @@ returns the canonical portable engine state.
   `tradeGive`, `tradeReceive`, `tradeTargets`, `showMonopolyPicker`,
   `showYopPicker`, `yopPick`, `robberVictimPicker`, `gameLog`.
 
+- **Splendor state:** all `SplendorBoard.serializeState()` fields, with
+  `stateHistory:[]` and `historyIndex:-1`: both hidden deck orders, the market,
+  bank, every player's tokens, cards, reserved cards (with their blind flag) and
+  nobles, the starting and current seat, phase, pending noble choice, end trigger,
+  turn number, log and result. The player count is part of the state; the human is
+  always seat 1 and every other seat is an AI. UI fields: `difficulty`, `showModal`.
+  The decoder checks that every development card sits in exactly one place, tokens
+  are conserved against the setup supply, and stored bonuses and prestige match the
+  cards held.
+
 Undo/redo caches are intentionally not portable: Catan caches entire historical
 maps and exceeds the wire budget. Yinsh/Zertz initialize a new undo history at
 the restored current position, and say so: until a move is made, the disabled Undo explains that it covers moves since the match was reopened. Chess preserves its played history, but a future
@@ -151,7 +163,7 @@ reading and after any await. Never export the raw containers or their metadata.
 If the active account has an encrypted device recovery copy, the migration UI
 can use the local `decryptApiKey(await accountKey(session), sealed)` functions on
 `play:recovery:<that same usernameId>` after the user has authenticated that
-account. From the decoded progress object, allowlist only the four portable
+account. From the decoded progress object, allowlist only the five portable
 match values, `chessGameLog`, and validated progress extracted from the recovery
 arrays above. Credentials, AES keys, ciphertext wrappers, queue baselines,
 account IDs, and other accounts' containers never become export records.
@@ -214,7 +226,7 @@ after reading the response, and before acknowledgment. It never replaces those
 credentials with the next active account's credentials. Metadata from another
 owner cannot authorize a replay. Reopening the game resumes an offline queue.
 
-The account module's encrypted recovery/cleanup allowlist includes all twelve
+The account module's encrypted recovery/cleanup allowlist includes all fifteen
 match/sync/recovery keys plus `chessStatsRecovery:v1`. Guest import still requires the explicit
 unchecked opt-in; restored account data takes priority over a repeated guest
 import. A shared, bounded account-transition lease freezes match writers before
@@ -222,10 +234,10 @@ async claims/encryption, including writers in tabs that have not received a
 storage event yet. Account commit checks fail closed if the lease is replaced or
 expires; a crashed tab's lease expires after 60 seconds. Account transitions and
 match replacement unmount game controllers; worker IDs and component generations
-reject late AI responses; Yinsh, Zertz and Catan share this worker-generation
+reject late AI responses; Yinsh, Zertz, Catan and Splendor share this worker-generation
 pattern.
 
-Four-game preferences, Yinsh win counts and Chess finished-game statistics
+Four-game preferences (Chess, Yinsh, Zertz, Catan), Yinsh win counts and Chess finished-game statistics
 (`chessGameLog`) use the separate settings CAS record. The Chess log is a validated
 JSON string of at most 200 entries / 100,000 UTF-8 bytes, so Redis
 never re-encodes its arrays. Settings conflict choices preserve both Chess logs
@@ -240,7 +252,7 @@ are not atomically committed with matches.
 Focused tests cover engine snapshots, Chess repetition/custom-start restoration,
 worker cancellation, local/conflict recovery, expired ownership, offline queues,
 quota errors, account switches, repeat guest import and actual Redis CAS across
-four account/game scopes. The browser fixture runs the built app at the root with
+five account/game scopes. The browser fixture runs the built app at the root with
 real handlers and a disposable Redis container; external requests are blocked.
 See `tests/match-browser.mjs` and `tests/match-redis.test.mjs`.
 

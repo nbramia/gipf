@@ -1,5 +1,5 @@
 // Shared wire envelope only; engines stay isolated in their own game directories.
-export const MATCH_GAMES = ['chess', 'yinsh', 'zertz', 'catan'];
+export const MATCH_GAMES = ['chess', 'yinsh', 'zertz', 'catan', 'splendor'];
 export const MAX_MATCH_BYTES = 240000;
 export function validateMatch(value, game) {
   if (!MATCH_GAMES.includes(game) || !value || value.v !== 1 || value.game !== game ||

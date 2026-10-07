@@ -18,6 +18,8 @@ import { MCTS } from './engine/mcts.js';
 import { applyAIMove } from './engine/aiPlayer.js';
 import { askRules, hasApiKey as hasRulesKey } from './coach/rulesClient.js';
 import { loginHref } from '../../loginReturn.js';
+import MatchBoundary, { useSavedMatch } from '../../MatchBoundary.jsx';
+import { encodeBoard, decodeMatch } from './matchSnapshot.js';
 import './splendor.css';
 
 const HUMAN_PLAYER = 1;
@@ -50,6 +52,9 @@ function cardDescription(card) {
   const pts = card.points ? `, ${card.points} prestige` : '';
   return `tier ${card.tier} ${GEM_LABELS[card.bonus]} card${pts}, costs ${costText(card.cost)}`;
 }
+
+// "a Diamond" / "an Emerald": the article follows the gem's name.
+const withArticle = token => `${/^[AEIOU]/i.test(GEM_LABELS[token]) ? 'an' : 'a'} ${GEM_LABELS[token]}`;
 
 function makeSeed() {
   return Math.floor(Math.random() * 1e9) + 1;
@@ -185,8 +190,8 @@ function HeroPanel({ player, board, isCurrent, onBuyReserved, onDiscardToken, di
             <button
               key={g}
               type="button"
-              title={discardMode ? `Return a ${GEM_LABELS[g]}` : GEM_LABELS[g]}
-              aria-label={discardMode && canDiscard ? `Return a ${GEM_LABELS[g]}` : `${GEM_LABELS[g]} tokens: ${player.tokens[g]}`}
+              title={discardMode ? `Return ${withArticle(g)}` : GEM_LABELS[g]}
+              aria-label={discardMode && canDiscard ? `Return ${withArticle(g)}` : `${GEM_LABELS[g]} tokens: ${player.tokens[g]}`}
               className={`spl-token spl-hero-token ${gemClass(g)} ${player.tokens[g] === 0 ? 'spl-empty' : ''} ${canDiscard ? 'spl-discardable' : ''}`}
               onClick={canDiscard ? () => onDiscardToken(g) : undefined}
               disabled={!canDiscard}
@@ -248,17 +253,105 @@ function PlayerPanel({ player, board, isCurrent }) {
   );
 }
 
+// Modal dialog: labelled, focus moves in and returns to the opener, Tab stays
+// inside, Escape or a click on the backdrop dismisses.
+function Dialog({ labelId, onClose, children }) {
+  const ref = useRef(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    const opener = document.activeElement;
+    const node = ref.current;
+    const focusable = () => [...node.querySelectorAll('button:not([disabled])')];
+    (focusable()[0] || node).focus();
+    const onKey = event => {
+      if (event.key === 'Escape') { event.stopPropagation(); closeRef.current(); return; }
+      if (event.key !== 'Tab') return;
+      const items = focusable();
+      if (items.length === 0) { event.preventDefault(); return; }
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === node)) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    node.addEventListener('keydown', onKey);
+    return () => { node.removeEventListener('keydown', onKey); if (opener && opener.isConnected) opener.focus(); };
+  }, []);
+  return (
+    <div className="spl-modal-overlay" onClick={() => closeRef.current()}>
+      <div className="spl-modal spl-dialog" role="dialog" aria-modal="true" aria-labelledby={labelId} tabIndex={-1} ref={ref} onClick={e => e.stopPropagation()}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Choose how a purchase is paid. Gold may stand in for a gem the player holds;
+// the default is the automatic allocation (colored tokens first, minimum gold).
+function PaymentDialog({ board, card, initial, onConfirm, onCancel }) {
+  const player = board.players[HUMAN_PLAYER];
+  const [spend, setSpend] = useState(initial);
+  const needs = Object.fromEntries(GEMS.map(g => [g, Math.max(0, (card.cost[g] || 0) - player.bonuses[g])]));
+  const gold = GEMS.reduce((sum, g) => sum + needs[g] - spend[g], 0);
+  const adjust = (gem, delta) => setSpend(prev => ({ ...prev, [gem]: prev[gem] + delta }));
+  const summary = [...GEMS.filter(g => spend[g] > 0).map(g => `${spend[g]} ${GEM_LABELS[g]}`), ...(gold > 0 ? [`${gold} Gold`] : [])];
+  return (
+    <Dialog labelId="spl-pay-title" onClose={onCancel}>
+      <h2 id="spl-pay-title">Choose payment</h2>
+      <p>Gold can stand in for any gem, even one you hold.</p>
+      <ul className="spl-pay-rows">
+        {GEMS.filter(g => needs[g] > 0).map(g => (
+          <li key={g} className="spl-pay-row">
+            <span className={`spl-token spl-token-sm ${gemClass(g)}`} aria-hidden="true" />
+            <span className="spl-pay-name">{GEM_LABELS[g]}: pay {spend[g]} of {needs[g]}{needs[g] - spend[g] > 0 ? `, ${needs[g] - spend[g]} in gold` : ''}</span>
+            <button type="button" className="spl-btn" onClick={() => adjust(g, -1)} disabled={spend[g] <= 0 || gold >= player.tokens[GOLD]} aria-label={`Pay one ${GEM_LABELS[g]} with gold instead`}>Use gold</button>
+            <button type="button" className="spl-btn" onClick={() => adjust(g, 1)} disabled={spend[g] >= Math.min(needs[g], player.tokens[g])} aria-label={`Pay one more ${GEM_LABELS[g]} token instead of gold`}>Use {GEM_LABELS[g]}</button>
+          </li>
+        ))}
+      </ul>
+      <p className="spl-pay-total" aria-live="polite">You pay: {summary.length ? summary.join(', ') : 'nothing'}</p>
+      <div className="spl-dialog-actions">
+        <button type="button" className="spl-btn spl-btn-primary" onClick={() => onConfirm({ ...spend, [GOLD]: gold })}>Pay</button>
+        <button type="button" className="spl-btn" onClick={onCancel}>Cancel</button>
+      </div>
+    </Dialog>
+  );
+}
+
+function RulesReference() {
+  return (
+    <details className="spl-rules-ref">
+      <summary>Quick rules (no key needed)</summary>
+      <ul>
+        <li><b>Goal:</b> the first player to reach 15 prestige triggers the last round. Everyone finishes the round so all have the same number of turns. Most prestige wins; ties go to the player who bought the fewest development cards.</li>
+        <li><b>On your turn do one of:</b></li>
+        <li>Take 3 gems of different colours.</li>
+        <li>Take 2 gems of the same colour, only if that pile holds at least 4 gems.</li>
+        <li>Reserve a development card (face-up, or blind from a deck) and take 1 gold if any is left. You may hold at most 3 reserved cards.</li>
+        <li>Buy a face-up or reserved card by paying its cost. Cards you own give a permanent discount of their colour. Gold stands in for any gem.</li>
+        <li><b>10-token limit:</b> at the end of your turn you may hold at most 10 tokens, gold included. Return any extras.</li>
+        <li><b>Nobles:</b> at the end of your turn, if your cards meet a noble's requirement you receive it for 3 prestige. At most one noble per turn; if you qualify for several, you choose one.</li>
+      </ul>
+    </details>
+  );
+}
+
 // ---- main component --------------------------------------------------------
 
-export default function SplendorGame() {
+function SplendorGame() {
+  const savedMatch = useSavedMatch();
+  const resumed = savedMatch?.restored;
+  const savedUI = resumed?.ui || {};
   const initial = useMemo(loadInitialConfig, []);
-  const [difficulty, setDifficulty] = useState(initial.difficulty);
-  const [playerCount, setPlayerCount] = useState(initial.playerCount);
-  const [board, setBoard] = useState(() => new SplendorBoard({ seed: makeSeed(), playerCount: initial.playerCount }));
+  const [difficulty, setDifficulty] = useState(savedUI.difficulty || initial.difficulty);
+  const [playerCount, setPlayerCount] = useState(resumed?.board.playerCount || initial.playerCount);
+  const [board, setBoard] = useState(() => resumed?.board || new SplendorBoard({ seed: makeSeed(), playerCount: initial.playerCount }));
   // Dark velvet is the hero look; default to it unless the player opted out.
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('splendorDarkMode') !== 'false');
   const [showSettings, setShowSettings] = useState(false);
-  const [showModal, setShowModal] = useState(false);
+  const [showModal, setShowModal] = useState(savedUI.showModal ?? false);
+  const [payment, setPayment] = useState(null); // { cardId, fromReserve } while choosing how to pay
+  const [confirmNew, setConfirmNew] = useState(null); // player count a pending New Game would use
   const [isAiThinking, setIsAiThinking] = useState(false);
   const [pendingColors, setPendingColors] = useState([]);
   const [lastMoveKey, setLastMoveKey] = useState(null);
@@ -284,20 +377,28 @@ export default function SplendorGame() {
 
   useEffect(() => {
     localStorage.setItem('splendorDarkMode', String(darkMode));
-  }, [darkMode]);
+    savedMatch?.setTheme(darkMode);
+  }, [darkMode, savedMatch]);
+
+  useEffect(() => { savedMatch?.persist(encodeBoard(board), { difficulty, showModal }); }, [board, difficulty, showModal, savedMatch]);
 
   const startNewGame = useCallback((pc = playerCount) => {
     if (aiTimerRef.current) clearTimeout(aiTimerRef.current);
     aiTimerRef.current = null;
     gameGenRef.current += 1;
     cancelAI();
+    savedMatch?.startNew();
     const next = new SplendorBoard({ seed: makeSeed(), playerCount: pc });
+    setPlayerCount(pc);
+    localStorage.setItem('splendorPlayerCount', String(pc));
     setBoard(next);
     setPendingColors([]);
     setLastMoveKey(null);
     setShowModal(false);
     setIsAiThinking(false);
-  }, [playerCount, cancelAI]);
+    setPayment(null);
+    setConfirmNew(null);
+  }, [playerCount, cancelAI, savedMatch]);
 
   const play = useCallback((move) => {
     if (!move) return false;
@@ -316,8 +417,9 @@ export default function SplendorGame() {
     setIsAiThinking(true);
     const gen = gameGenRef.current;
 
+    const stale = () => gen !== gameGenRef.current || (savedMatch && !savedMatch.isCurrent());
     const onSuccess = (move) => {
-      if (gen !== gameGenRef.current) return;
+      if (stale()) return;
       setIsAiThinking(false);
       if (!move) return;
       applyAIMove(board, move);
@@ -327,13 +429,13 @@ export default function SplendorGame() {
     };
 
     const onError = (error) => {
-      if (gen !== gameGenRef.current) return;
+      if (stale()) return;
       console.warn('Splendor AI error:', error);
       setIsAiThinking(false);
       const fallback = new MCTS({ maxChildren: difficultyConfig.maxChildren, rolloutSteps: difficultyConfig.rolloutSteps });
       fallback.getBestMove(board, Math.max(60, Math.floor(difficultyConfig.simulations / 4)))
         .then((move) => {
-          if (!move || gen !== gameGenRef.current) return;
+          if (!move || stale()) return;
           applyAIMove(board, move);
           setBoard(board.clone());
           if (board.phase === 'game-over') setShowModal(true);
@@ -347,7 +449,7 @@ export default function SplendorGame() {
       const mcts = new MCTS({ maxChildren: difficultyConfig.maxChildren, rolloutSteps: difficultyConfig.rolloutSteps });
       mcts.getBestMove(board, difficultyConfig.simulations).then(onSuccess).catch(onError);
     }
-  }, [board, computeMove, difficultyConfig, isAiThinking, workerSupported]);
+  }, [board, computeMove, difficultyConfig, isAiThinking, workerSupported, savedMatch]);
 
   useEffect(() => {
     if (showModal || isHumanTurn || isAiThinking || board.phase === 'game-over') return;
@@ -381,12 +483,29 @@ export default function SplendorGame() {
     play({ type: 'take-two', color: gem });
   }, [play]);
 
-  const buyVisible = useCallback((cardId) => play({ type: 'buy', cardId }), [play]);
-  const buyReserved = useCallback((cardId) => play({ type: 'buy', cardId, fromReserve: true }), [play]);
+  // Ask how to pay only when gold could replace a gem the player holds; otherwise one click buys.
+  const startBuy = useCallback((cardId, fromReserve) => {
+    if (board.hasPaymentChoice(HUMAN_PLAYER, CARDS_BY_ID[cardId].cost)) setPayment({ cardId, fromReserve });
+    else play({ type: 'buy', cardId, fromReserve });
+  }, [board, play]);
+  const buyVisible = useCallback((cardId) => startBuy(cardId, false), [startBuy]);
+  const buyReserved = useCallback((cardId) => startBuy(cardId, true), [startBuy]);
+  const confirmPayment = useCallback((spend) => {
+    const choice = payment;
+    setPayment(null);
+    if (choice) play({ type: 'buy', cardId: choice.cardId, fromReserve: choice.fromReserve, payment: spend });
+  }, [payment, play]);
   const reserveVisible = useCallback((cardId, tier) => play({ type: 'reserve', cardId, tier }), [play]);
   const reserveDeck = useCallback((tier) => play({ type: 'reserve', tier, fromDeck: true }), [play]);
   const discardToken = useCallback((token) => play({ type: 'discard-token', token }), [play]);
   const chooseNoble = useCallback((nobleId) => play({ type: 'choose-noble', nobleId }), [play]);
+
+  // A finished match, or one nobody has moved in, is never worth a confirmation.
+  const hasProgress = board.phase !== 'game-over' && board.log.length > 0;
+  const requestNewGame = useCallback((pc = playerCount) => {
+    if (hasProgress) setConfirmNew(pc);
+    else startNewGame(pc);
+  }, [hasProgress, playerCount, startNewGame]);
 
   const humanDiscardMode = isHumanTurn && board.phase === 'discard';
   const humanNobleMode = isHumanTurn && board.phase === 'noble-choice';
@@ -442,14 +561,14 @@ export default function SplendorGame() {
               aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
               aria-pressed={darkMode}
             ><span aria-hidden="true">{darkMode ? '☀' : '☾'}</span></button>
-            <button type="button" className="spl-btn spl-btn-primary" onClick={() => startNewGame()}>New Game</button>
+            <button type="button" className="spl-btn spl-btn-primary" onClick={() => requestNewGame()}>New Game</button>
           </div>
         </header>
 
         {showSettings && (
           <div className="spl-settings">
             <div className="spl-setting">
-              <label>Players <small>(changing starts a new game)</small></label>
+              <label>Players <small>(changing starts a new match)</small></label>
               <div className="spl-seg">
                 {[2, 3, 4].map(pc => (
                   <button
@@ -457,7 +576,7 @@ export default function SplendorGame() {
                     type="button"
                     className={`spl-seg-btn ${playerCount === pc ? 'active' : ''}`}
                     aria-pressed={playerCount === pc}
-                    onClick={() => { if (pc === playerCount) return; setPlayerCount(pc); localStorage.setItem('splendorPlayerCount', String(pc)); startNewGame(pc); }}
+                    onClick={() => { if (pc === playerCount) return; requestNewGame(pc); }}
                   >{pc}</button>
                 ))}
               </div>
@@ -562,7 +681,7 @@ export default function SplendorGame() {
                       type="button"
                       className={`spl-token spl-token-sm spl-discard-btn ${gemClass(g)}`}
                       onClick={() => discardToken(g)}
-                      aria-label={`Return a ${GEM_LABELS[g]} (you have ${human.tokens[g]})`}
+                      aria-label={`Return ${withArticle(g)} (you have ${human.tokens[g]})`}
                     >
                       <span className="spl-token-count">{human.tokens[g]}</span>
                     </button>
@@ -643,6 +762,7 @@ export default function SplendorGame() {
               <button type="button" className="spl-btn" onClick={() => setChatOpen(false)} aria-label="Close Rules Help">×</button>
             </div>
             <div className="spl-chat-body">
+              <RulesReference />
               {!hasKey && <p className="spl-chat-hint">Rules chat uses your Anthropic API key. <Link to={loginHref('/splendor')}>Sign in / add key</Link></p>}
               {chatMessages.map((m, i) => (
                 <div key={i} className={`spl-chat-msg ${m.role}`}>{m.content}</div>
@@ -660,6 +780,27 @@ export default function SplendorGame() {
               <button type="button" className="spl-btn spl-btn-primary" onClick={sendChat} disabled={!hasKey || chatBusy}>Send</button>
             </div>
           </div>
+        )}
+
+        {payment && isHumanTurn && board.phase === 'play' && (
+          <PaymentDialog
+            board={board}
+            card={CARDS_BY_ID[payment.cardId]}
+            initial={board.getAutoPayment(HUMAN_PLAYER, CARDS_BY_ID[payment.cardId].cost)}
+            onConfirm={confirmPayment}
+            onCancel={() => setPayment(null)}
+          />
+        )}
+
+        {confirmNew !== null && (
+          <Dialog labelId="spl-new-title" onClose={() => setConfirmNew(null)}>
+            <h2 id="spl-new-title">Start a new match?</h2>
+            <p>The match in progress will be replaced{confirmNew !== board.playerCount ? ` by a ${confirmNew}-player match` : ''}. This cannot be undone.</p>
+            <div className="spl-dialog-actions">
+              <button type="button" className="spl-btn spl-btn-primary" onClick={() => startNewGame(confirmNew)}>Start new match</button>
+              <button type="button" className="spl-btn" onClick={() => setConfirmNew(null)}>Keep playing</button>
+            </div>
+          </Dialog>
         )}
 
         {showModal && board.phase === 'game-over' && (
@@ -690,3 +831,5 @@ export default function SplendorGame() {
     </div>
   );
 }
+
+export default function ResumableSplendorGame() { return <MatchBoundary game="splendor" decode={decodeMatch}><SplendorGame /></MatchBoundary>; }

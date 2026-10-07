@@ -2,6 +2,7 @@ import * as chess from './games/chess/matchSnapshot.js';
 import * as yinsh from './games/yinsh/matchSnapshot.js';
 import * as zertz from './games/zertz/matchSnapshot.js';
 import * as catan from './games/catan/matchSnapshot.js';
+import * as splendor from './games/splendor/matchSnapshot.js';
 import { shape, array, map, text, number, integer, one, nullable, bool, count, mistake, safeTree, fail } from './migrationSchema.js';
 
 const p2 = one(1,2), p6 = integer(1,6), coord = v => array(integer(-5,5),2)(v) && v.length === 2;
@@ -47,6 +48,18 @@ const catanState = shape({
   tradeProposalsThisTurn:count,maxTradeProposalsPerTurn:count,longestRoadHolder:nullable(p6),largestArmyHolder:nullable(p6),winner:nullable(p6),winningPoints:count,
   stateHistory:array(() => false,0),historyIndex:one(-1),maxHistoryLength:count,
 });
+const gems = ['white','blue','green','red','black'], p4 = integer(1,4), cardId = text(16), nobleId = text(16);
+const tokens = shape(Object.fromEntries([...gems,'gold'].map(k => [k,integer(0,50)])));
+const splendorPlayer = shape({id:p4,name:short,color:short,tokens,bonuses:shape(Object.fromEntries(gems.map(k => [k,integer(0,40)]))),cards:array(cardId,90),
+  reserved:array(shape({cardId,hidden:bool}),3),nobles:array(nobleId,10),points:integer(0,100)});
+const splendorState = shape({
+  seed:integer(0,Number.MAX_SAFE_INTEGER),playerCount:integer(2,4),playerIds:array(p4,4),victoryTarget:one(15),
+  decks:shape({1:array(cardId,40),2:array(cardId,40),3:array(cardId,40)}),visible:shape({1:array(nullable(cardId),4),2:array(nullable(cardId),4),3:array(nullable(cardId),4)}),
+  bank:tokens,nobles:array(nobleId,5),players:map(splendorPlayer,/^[1-4]$/,4),firstPlayer:p4,currentPlayer:p4,
+  phase:one('play','discard','noble-choice','game-over'),pendingNobles:array(nobleId,5),endTriggered:bool,turnNumber:integer(1,10000),maxTurns:one(null),
+  winner:nullable(p4),winners:array(p4,4),winningPoints:integer(0,100),lastAction:text(300),log:array(text(300),60),
+  stateHistory:array(() => false,0),historyIndex:one(-1),maxHistoryLength:one(100),
+});
 const analysis = shape({}, {fenBefore:text(120),fenAfter:text(120),movePlayed:short,classification:short,evalBefore:short,evalAfter:short,bestMove:text(),opening:text(256),commentary:text(240000)});
 const dialogue = shape({id:v => text(80)(v) || count(v),ply:count,kind:short,san:text(32),tone:short,label:short,text:text(240000),source:short,pending:bool},
   {opening:nullable(text(256)),leftBook:bool,analysis,thread:array(shape({role:one('user','assistant'),content:text(240000)}),10000)});
@@ -54,12 +67,13 @@ const uiSchemas = {
   chess:shape({}, {humanColor:one('w','b'),orientation:one('white','black'),resigned:nullable(one('w','b')),rated:bool,difficulty:short,clock:nullable(shape({w:number(),b:number()})),timeControl:short,flagged:nullable(one('w','b')),ratedApplied:bool,historyApplied:bool,gameLogged:bool,dialogue:array(dialogue),moveStats:array(shape({ply:count,moverColor:one('w','b'),cpLoss:number(0,1000000),classification:short})),gameMistakes:array(mistake,200)}),
   yinsh:shape({}, {humanPlayer:p2,twoPlayerMode:bool,showModal:bool,difficulty:short,selectedSetupRing:setupRing,scoreApplied:bool}),
   zertz:shape({}, {humanPlayer:p2,twoPlayerMode:bool,showModal:bool,difficulty:short,lastMoveKeys:array(coordKey,37)}),
+  splendor:shape({}, {difficulty:one('strong','expert','brutal'),showModal:bool}),
   catan:shape({}, {showModal:bool,gameConfig:shape({rulesetId:short,playerCount:integer(3,6)},{scenarioId:nullable(short)}),selectedAction:nullable(short),
     lastMove:nullable(shape({type:short},{vertexId:short,edgeId:short,tileId:short,stealPlayerId:nullable(p6),resource:one(...resources),resourceA:one(...resources),resourceB:one(...resources),resources:partialAmounts,player:p6,give:v => partialAmounts(v) || one(...resources)(v),receive:v => partialAmounts(v) || one(...resources)(v),targets:array(p6,6),accept:bool,free:bool,ratio:integer(2,4)})),
     showTradeBuilder:bool,tradeGive:partialAmounts,tradeReceive:partialAmounts,tradeTargets:array(p6,6),showMonopolyPicker:bool,showYopPicker:bool,yopPick:array(one(...resources),2),robberVictimPicker:nullable(shape({tileId:short,victims:array(p6,6)})),gameLog:array(text())}),
 };
-const adapters = {chess,yinsh,zertz,catan};
-const states = {chess:shape({pgn:text(240000),initialFen:text(120)}),yinsh:yinshState,zertz:zertzState,catan:catanState};
+const adapters = {chess,yinsh,zertz,catan,splendor};
+const states = {chess:shape({pgn:text(240000),initialFen:text(120)}),yinsh:yinshState,zertz:zertzState,catan:catanState,splendor:splendorState};
 export function validatePortableMatch(value, game) {
   if (!safeTree(value) || !states[game]?.(value?.state) || !uiSchemas[game](value.ui)) fail();
   adapters[game].decodeMatch(value);

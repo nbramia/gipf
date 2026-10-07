@@ -6,7 +6,7 @@ import { validateDiplomacy } from './migrationDiplomacySchema.js';
 import { shape, array, one, text, safeTree, canonical, bytes, validateData, destinationKey, PREFERENCE_KEYS, DATA_KEYS, fail } from './migrationSchema.js';
 
 export const MAX_BYTES = 5 * 1024 * 1024;
-const GAMES = ['chess','yinsh','zertz','catan'];
+const GAMES = ['chess','yinsh','zertz','catan','splendor'];
 const uuid = v => typeof v === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(v);
 const digest = v => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
 const recordId = v => typeof v === 'string' && /^[a-zA-Z0-9:_-]{1,160}$/.test(v);
