@@ -30,6 +30,8 @@ import { PERSONAS } from './agents/personas.js';
 import useHasApiKey from './hooks/useApiKey.js';
 import useAIWorker from './hooks/useAIWorker.js';
 import useDiplomacyTurn from './hooks/useDiplomacyTurn.js';
+import useModalFocus from './hooks/useModalFocus.js';
+import { moveOptionsInto, toggleAdjustment } from './orderEntry.js';
 import DiplomacySetup from './DiplomacySetup.jsx';
 import {
   loadSettings,
@@ -180,6 +182,9 @@ export default function DiplomacyGame() {
   // For two-step map targeting of support-move / convoy: the moving unit (base
   // province) whose move is being supported/convoyed; null until picked.
   const [supportFrom, setSupportFrom] = useState(null);
+  // Several coast-specific moves enter the clicked province: ask which coast.
+  const [coastChoices, setCoastChoices] = useState(null);
+  const [buildNotice, setBuildNotice] = useState('');
   const [retreatChoices, setRetreatChoices] = useState(() => restoredUi.retreatChoices || {}); // { [unitLoc]: 'DISBAND'|to }
   const [buildOrders, setBuildOrders] = useState(() => restoredUi.buildOrders || {}); // { [power]: order[] }
 
@@ -188,12 +193,10 @@ export default function DiplomacyGame() {
   useEffect(() => localStorage.setItem('diplomacyDarkMode', JSON.stringify(darkMode)), [darkMode]);
   useEffect(() => localStorage.setItem('diplomacyShowOrders', JSON.stringify(showOrders)), [showOrders]);
   useEffect(() => localStorage.setItem('diplomacyShowLastMoves', JSON.stringify(showLastMoves)), [showLastMoves]);
-  useEffect(() => {
-    if (!logExpanded) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') setLogExpanded(false); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [logExpanded]);
+  const logRef = useRef(null);
+  const confirmRef = useRef(null);
+  useModalFocus(logExpanded, logRef, () => setLogExpanded(false));
+  useModalFocus(confirmNew, confirmRef, () => setConfirmNew(false));
 
   const setBoard = useCallback((next) => setBoardState(next), []);
 
@@ -248,6 +251,8 @@ export default function DiplomacyGame() {
     setSupportFrom(null);
     setRetreatChoices({});
     setBuildOrders({});
+    setCoastChoices(null);
+    setBuildNotice('');
   }, [board.phase, board.year, board.season, turn.uiPhase]);
 
   // Persist whenever the board, phase, or in-progress order entry changes, so a
@@ -371,6 +376,7 @@ export default function DiplomacyGame() {
     setSelectedUnit(loc);
     setOrderType(null);
     setSupportFrom(null);
+    setCoastChoices(null);
   }
 
   function setPendingOrder(order) {
@@ -378,11 +384,13 @@ export default function DiplomacyGame() {
     setSelectedUnit(null);
     setOrderType(null);
     setSupportFrom(null);
+    setCoastChoices(null);
   }
 
   function chooseOrderType(type) {
     setOrderType(type);
     setSupportFrom(null);
+    setCoastChoices(null);
     if (type === 'hold') setPendingOrder({ type: 'hold', unitLoc: selectedUnit });
   }
 
@@ -416,8 +424,9 @@ export default function DiplomacyGame() {
     if (!isOrderEntry) return;
     if (selectedUnit && orderType && orderType !== 'hold') {
       if (orderType === 'move') {
-        const opt = optionsForType.find(o => baseProvince(o.to) === base);
-        if (opt) { setPendingOrder(opt); return; }
+        const opts = moveOptionsInto(optionsForType, base, baseProvince);
+        if (opts.length === 1) { setPendingOrder(opts[0]); return; }
+        if (opts.length > 1) { setCoastChoices(opts); return; }
       } else if (orderType === 'support-hold') {
         const opt = optionsForType.find(o => baseProvince(o.target) === base);
         if (opt) { setPendingOrder(opt); return; }
@@ -458,14 +467,10 @@ export default function DiplomacyGame() {
   }
 
   // ----- winter -----
-  function toggleBuildOrder(power, order) {
-    setBuildOrders(prev => {
-      const list = prev[power] || [];
-      const key = pendingKey(order);
-      const exists = list.some(o => pendingKey(o) === key);
-      if (exists) return { ...prev, [power]: list.filter(o => pendingKey(o) !== key) };
-      return { ...prev, [power]: [...list, order] };
-    });
+  function toggleBuildOrder(power, order, limit) {
+    const { list, error } = toggleAdjustment(buildOrders[power] || [], order, limit, pendingKey, baseProvince);
+    setBuildNotice(error || '');
+    if (!error) setBuildOrders(prev => ({ ...prev, [power]: list }));
   }
   function submitAdjustments() {
     turn.submitAdjustments(buildOrders);
@@ -534,9 +539,9 @@ export default function DiplomacyGame() {
   return (
     <div className={`game-diplomacy min-h-screen bg-[var(--dip-bg)] font-body ${darkMode ? 'dark' : ''}`}>
       {confirmNew && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-4" onClick={(e) => { if (e.target === e.currentTarget) setConfirmNew(false); }}>
-          <div className="dip-modal w-full max-w-sm p-6">
-            <h2 className="text-xl font-bold" style={{ color: 'var(--dip-text)' }}>Start a new game?</h2>
+        <div className="dip-overlay fixed inset-0 z-[70] flex items-center justify-center bg-black/50 px-4" onClick={(e) => { if (e.target === e.currentTarget) setConfirmNew(false); }}>
+          <div ref={confirmRef} className="dip-modal w-full max-w-sm p-6" role="dialog" aria-modal="true" aria-labelledby="dip-confirm-title">
+            <h2 id="dip-confirm-title" className="text-xl font-bold" style={{ color: 'var(--dip-text)' }}>Start a new game?</h2>
             <p className="mt-2 text-sm leading-relaxed" style={{ color: 'var(--dip-text-muted)' }}>
               Your current game will be lost.
             </p>
@@ -549,24 +554,32 @@ export default function DiplomacyGame() {
       )}
 
       <div className="mx-auto flex min-h-screen w-full max-w-[2200px] flex-col gap-4 px-4 py-4 lg:flex-row lg:px-6">
-        {/* ---- Left: header, scoreboard ---- */}
-        <aside className="order-3 flex w-full flex-col gap-3 lg:order-1 lg:w-[300px]">
-          <div className="dip-panel p-4">
+        {/* ---- Left: header, scoreboard ----
+            `contents` on small screens so the status header can sit above the
+            map while the rest of the sidebar stays below it. */}
+        <aside className="contents lg:order-1 lg:flex lg:w-[300px] lg:flex-col lg:gap-3">
+          <div className="dip-panel dip-status-header order-first p-4 lg:order-none">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <Link to="/" className="dip-panel-label hover:opacity-80">Games</Link>
+                <Link to="/" className="dip-home-link hover:opacity-80">← Games</Link>
                 <h1 className="dip-title mt-1 text-2xl" style={{ color: 'var(--dip-text)' }}>DIPLOMACY</h1>
               </div>
             </div>
-            <div className="dip-phase-banner mt-4">{phaseLabel}</div>
+            <div className="dip-phase-banner mt-3">{phaseLabel}</div>
             <div className="dip-last-action mt-2">{board.lastAction}</div>
             <div className="dip-you-line mt-1">
-              You are <strong style={{ color: POWER_COLORS[humanPower] }}>{POWER_NAMES[humanPower]}</strong>
+              You are{' '}
+              <span className="dip-score-swatch dip-you-swatch" style={{ backgroundColor: POWER_COLORS[humanPower] }} aria-hidden="true" />{' '}
+              <strong style={{ color: 'var(--dip-text)' }}>{POWER_NAMES[humanPower]}</strong>
             </div>
             {turn.isBusy && turn.progress && (
               <div className="dip-progress mt-2" role="status">{turn.progress}</div>
             )}
-            <div className="mt-3 flex flex-wrap gap-2">
+          </div>
+
+          <div className="order-3 flex w-full flex-col gap-3 lg:order-none">
+          <div className="dip-panel p-4">
+            <div className="flex flex-wrap gap-2">
               <button className="dip-tool-btn px-3" onClick={() => setConfirmNew(true)} aria-label="Start a new game">New</button>
             </div>
             <div className="mt-3 space-y-2">
@@ -628,7 +641,11 @@ export default function DiplomacyGame() {
           )}
 
           {logExpanded && <div className="dip-chat-backdrop" onClick={() => setLogExpanded(false)} />}
-          <div className={`dip-panel p-4 ${logExpanded ? 'dip-log--modal' : ''}`}>
+          <div
+            ref={logRef}
+            className={`dip-panel p-4 ${logExpanded ? 'dip-log--modal' : ''}`}
+            {...(logExpanded ? { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Results Log' } : {})}
+          >
             <div className="dip-chat-titlebar">
               <div className="dip-panel-label">Results Log</div>
               <button
@@ -666,6 +683,7 @@ export default function DiplomacyGame() {
               onScratchpad={foldScratchpadIntoState}
               onDeal={foldDealIntoState}
             />
+          </div>
           </div>
         </aside>
 
@@ -815,7 +833,7 @@ export default function DiplomacyGame() {
                   x={label.x}
                   y={label.y}
                   textAnchor="middle"
-                  className={`dip-province-label dip-province-label-${province.type}`}
+                  className={`dip-province-label dip-province-label-${province.type}${owner ? ' is-owned' : ''}`}
                 >
                   {id}
                 </text>
@@ -963,10 +981,24 @@ export default function DiplomacyGame() {
                 <p className="dip-target-hint mt-2">
                   {(orderType === 'support-move' || orderType === 'convoy')
                     ? (supportFrom == null
-                        ? 'Click the highlighted unit on the map whose move you want to support — or pick from the list.'
+                        ? (orderType === 'convoy'
+                            ? 'Choose the army to convoy, then its destination — click the highlighted army on the map or pick from the list. The army and every fleet in the chain need matching orders.'
+                            : 'Click the highlighted unit on the map whose move you want to support — or pick from the list.')
                         : <>Now click the highlighted destination for <strong>{supportFrom}</strong>. <button className="dip-linkbtn" onClick={() => setSupportFrom(null)}>change unit</button></>)
                     : 'Click a highlighted province on the map — or pick from the list.'}
                 </p>
+                {coastChoices && (
+                  <div className="dip-coast-picker mt-2" role="group" aria-label="Choose a coast">
+                    <p className="dip-target-hint">Which coast of {PROVINCES[baseProvince(coastChoices[0].to)].name}?</p>
+                    <div className="dip-target-grid mt-1">
+                      {coastChoices.map(option => (
+                        <button key={pendingKey(option)} className="dip-target-btn" onClick={() => setPendingOrder(option)}>
+                          {provinceLabel(option.to)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="mt-2 dip-target-grid">
                   {optionsForType.length === 0 && <p className="dip-log-empty">No legal targets.</p>}
                   {optionsForType.map(option => (
@@ -1057,6 +1089,7 @@ export default function DiplomacyGame() {
             {(() => {
               const legal = board.getLegalAdjustmentOrders(humanPower);
               const selected = buildOrders[humanPower] || [];
+              const limit = adj.delta > 0 ? adj.buildCount : adj.disbandCount;
               const need = adj.delta > 0 ? `build ${adj.buildCount}` : `disband ${adj.disbandCount}`;
               return (
                 <div className="dip-winter-power">
@@ -1074,14 +1107,15 @@ export default function DiplomacyGame() {
                         <button
                           key={pendingKey(order)}
                           className={`dip-target-btn ${isOn ? 'active' : ''}`}
-                          onClick={() => toggleBuildOrder(humanPower, order)}
+                          onClick={() => toggleBuildOrder(humanPower, order, limit)}
                         >
                           {label}
                         </button>
                       );
                     })}
                   </div>
-                  <p className="dip-winter-count">{selected.length} selected</p>
+                  <p className="dip-winter-count">{selected.length} of {limit} selected</p>
+                  {buildNotice && <p className="dip-winter-notice" role="alert">{buildNotice}</p>}
                 </div>
               );
             })()}

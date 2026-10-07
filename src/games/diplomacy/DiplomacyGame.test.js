@@ -89,3 +89,42 @@ describe('DiplomacyGame — negotiation -> orders flow', () => {
     expect(container.textContent).toContain('Your Orders');
   });
 });
+
+describe('DiplomacyGame — layout and dialogs', () => {
+  const fs = require('fs');
+  const path = require('path');
+
+  test('the status header (Games link, phase, power) precedes the map in the DOM', () => {
+    const { container } = render(<MemoryRouter><DiplomacyGame /></MemoryRouter>);
+    startNewGame();
+    const header = container.querySelector('.dip-status-header');
+    const map = container.querySelector('.dip-board-svg');
+    expect(header.textContent).toContain('Games');
+    expect(header.textContent).toContain('You are');
+    expect(header.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  test('New Game confirmation is a dialog and its wrapper is not forced to position: relative', () => {
+    const { container } = render(<MemoryRouter><DiplomacyGame /></MemoryRouter>);
+    startNewGame();
+    fireEvent.click(screen.getByLabelText('Start a new game'));
+    const dialog = container.querySelector('[role="dialog"]');
+    expect(dialog).toBeTruthy();
+    expect(dialog.parentElement.classList.contains('dip-overlay')).toBe(true);
+    const css = fs.readFileSync(path.join(__dirname, 'diplomacy.css'), 'utf8');
+    expect(css).toMatch(/\.game-diplomacy > \*:not\(\.dip-overlay\)\s*\{\s*position: relative/);
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' });
+    expect(container.querySelector('[role="dialog"]')).toBeFalsy();
+  });
+
+  test('the expanded Results Log is a dialog that holds focus', () => {
+    const { container } = render(<MemoryRouter><DiplomacyGame /></MemoryRouter>);
+    startNewGame();
+    fireEvent.click(screen.getByLabelText('Expand results log'));
+    const dialog = container.querySelector('[role="dialog"]');
+    expect(dialog.getAttribute('aria-label')).toBe('Results Log');
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    fireEvent.keyDown(document.activeElement, { key: 'Tab' });
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  });
+});

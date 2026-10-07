@@ -136,7 +136,7 @@
 .game-diplomacy.dark::after { mix-blend-mode: overlay; opacity: 0.07; }
 
 /* Keep real content above the atmosphere layers. */
-.game-diplomacy > * { position: relative; z-index: 1; }
+.game-diplomacy > *:not(.dip-overlay) { position: relative; z-index: 1; }
 
 /* ========== Layout & panels ========== */
 
@@ -1236,6 +1236,44 @@
   /* Let the page scroll naturally instead of nesting scroll regions. */
   .game-diplomacy .dip-unit-list,
   .game-diplomacy .dip-target-grid { max-height: none; overflow: visible; }
+}
+
+/* ---- Status header: "← Games", phase and power stay above the map on small screens ---- */
+.game-diplomacy .dip-home-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  white-space: nowrap;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--dip-text);
+  text-decoration: none;
+}
+.game-diplomacy .dip-home-link:hover { color: var(--dip-accent); }
+.game-diplomacy .dip-you-swatch { vertical-align: -2px; }
+@media (max-width: 1023px) {
+  .game-diplomacy .dip-status-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    padding: 0.5rem 0.9rem;
+  }
+  .game-diplomacy .dip-status-header .dip-title { font-size: 1.25rem; margin-top: 0; }
+  .game-diplomacy .dip-status-header .dip-phase-banner { font-size: 1.25rem; margin-top: 0.25rem; }
+  .game-diplomacy .dip-status-header .dip-last-action { display: none; }
+}
+
+.game-diplomacy .dip-winter-notice {
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--dip-accent);
+}
+
+/* Owned provinces keep their light pastel fill in dark mode, so their labels stay dark. */
+.game-diplomacy.dark .dip-province-label.is-owned {
+  fill: rgba(30, 22, 10, 0.92);
+  stroke: rgba(255, 250, 235, 0.7);
 }
 
 /* ========== Animations (all prefixed diplomacy-) ========== */
