@@ -1,6 +1,7 @@
 import { guardRequest } from '../server/publicSecurity.js';
 import { requestKey } from '../server/accountKeys.js';
 import { applyCors } from '../server/cors.js';
+import { isUpstreamTimeout, upstreamBudgetMs } from '../server/upstreamDeadline.js';
 export const config = { api: { bodyParser: { sizeLimit: '32kb' } } };
 // Serverless Splendor rules assistant — answers a player's questions about the
 // game, grounded in the live game context.
@@ -31,6 +32,7 @@ Implementation note for THIS app: it implements base-game Splendor only — it d
 }
 
 export default async function handler(req, res) {
+  const startedAt = Date.now();
   if (req.method === 'POST' && !await guardRequest(req, res, { bucket: 'ai', limit: 30 })) return;
   res.setHeader('Cache-Control', 'no-store');
   applyCors(req, res);
@@ -57,7 +59,7 @@ export default async function handler(req, res) {
     }
 
     const upstream = await fetch(ANTHROPIC_URL, {
-    signal: AbortSignal.timeout(12000),
+      signal: AbortSignal.timeout(upstreamBudgetMs({ startedAt, now: Date.now() })),
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -103,6 +105,10 @@ export default async function handler(req, res) {
     res.status(200).json({ answer });
   } catch (err) {
     applyCors(req, res);
+    if (isUpstreamTimeout(err)) {
+      res.status(504).json({ error: 'upstream_timeout', message: 'The model took too long to reply.' });
+      return;
+    }
     res.status(500).json({ error: 'server_error', message: 'Failed to answer the question.' });
   }
 }

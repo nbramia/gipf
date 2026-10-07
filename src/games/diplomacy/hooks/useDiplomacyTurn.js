@@ -36,6 +36,9 @@ import { serializeBoardContext } from '../agents/serializeContext.js';
 // (Sonnet) for stronger, more believable negotiation. Each pair is a bilateral
 // two-call exchange, so 2 pairs × 2 rounds keeps the old 8-call budget flat.
 const AI_TO_AI_MODEL = 'claude-haiku-4-5-20251001';
+// Whole-round cap: past it, remaining conferring calls are skipped and the round
+// ends with what has been gathered. The player can also leave at any time.
+export const NEGOTIATION_BUDGET_MS = 90000;
 const NEGOTIATION_OPTIONS = { maxRounds: 2, maxPairsPerRound: 2, aiModel: AI_TO_AI_MODEL };
 
 // AI powers in the controller config (everything not 'human').
@@ -120,6 +123,7 @@ export default function useDiplomacyTurn({
   const [uiPhase, setUiPhase] = useState(initialUiPhase || 'negotiation');
   const [isBusy, setIsBusy] = useState(false);
   const [progress, setProgress] = useState('');
+  const negotiationRunRef = useRef(null); // the conferring round in flight, if any
   const busyRef = useRef(false); // re-entrancy guard (mirrors Catan's isAiThinking)
 
   // Strategic intents for the AI powers this orders phase. Captured when orders
@@ -173,6 +177,27 @@ export default function useDiplomacyTurn({
     setIsBusy(true);
     setProgress('The powers are conferring…');
     let nextState = diplomaticState;
+
+    // This round's handle. `end()` stops it: every later call is skipped and any
+    // call still in flight is abandoned, so a late reply can never write into
+    // the thread store or state. `cancelled` (player left) also discards the
+    // round's final state/settle; a spent budget keeps what was gathered.
+    let end;
+    const ended = new Promise((resolve) => { end = resolve; });
+    const run = { over: false, cancelled: false };
+    run.finish = (cancelled) => {
+      run.over = true;
+      run.cancelled = run.cancelled || cancelled;
+      end();
+    };
+    negotiationRunRef.current = run;
+    const budgetTimer = setTimeout(() => run.finish(false), NEGOTIATION_BUDGET_MS);
+    const guardedAsk = async (args) => {
+      if (run.over) return { reply: { message: '' } };
+      const outcome = await Promise.race([askAgent(args), ended.then(() => null)]);
+      // A reply that lands after the round was ended is discarded, even by a tick.
+      return outcome && !run.over ? outcome : { reply: { message: '' } };
+    };
     try {
       const agents = {};
       const aiPowers = aiPowersOf(controllers, board);
@@ -190,13 +215,18 @@ export default function useDiplomacyTurn({
         board,
         state: diplomaticState,
         agents,
-        askAgent,
+        askAgent: guardedAsk,
         options: { ...NEGOTIATION_OPTIONS, humanPower, initiateHuman: true },
       });
       if (result && result.state) nextState = result.state;
     } catch (_) {
       // Any failure: keep the prior diplomatic state, continue.
     }
+
+    clearTimeout(budgetTimer);
+    run.over = true;
+    if (run.cancelled) return diplomaticState; // the player already moved on
+    negotiationRunRef.current = null;
 
     if (setDiplomaticState) setDiplomaticState(nextState);
     // runNegotiationPhase mutates the thread store in place; hand the component a
@@ -386,7 +416,15 @@ export default function useDiplomacyTurn({
   // AI↔AI negotiation now runs automatically when the negotiation phase begins
   // (runNegotiation), so this just advances — it never blocks on AI calls.
   const proceedToOrders = useCallback(() => {
-    if (busyRef.current) return;
+    const run = negotiationRunRef.current;
+    if (run) {
+      // Leave a conferring round: abandon it and let its late results fall away.
+      run.finish(true);
+      negotiationRunRef.current = null;
+      busyRef.current = false;
+      setIsBusy(false);
+      setProgress('');
+    } else if (busyRef.current) return;
     setUiPhase('orders');
     settle('orders', diplomaticState);
   }, [settle, diplomaticState]);

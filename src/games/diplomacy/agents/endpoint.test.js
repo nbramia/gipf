@@ -422,4 +422,16 @@ describe('diplomacyAgent endpoint', () => {
     expect(res.statusCode).toBe(500);
     expect(JSON.stringify(res.body)).not.toContain('sk-supersecret');
   });
+  test('an upstream timeout or abort is a 504 upstream_timeout, never echoing the key', async () => {
+    for (const name of ['TimeoutError', 'AbortError']) {
+      const err = new Error('The operation was aborted due to timeout');
+      err.name = name;
+      upstreamFetch = jest.fn().mockRejectedValue(err);
+      const res = makeRes();
+      await handler(makeReq({ body: { apiKey: 'sk-supersecret', power: 'france' } }), res);
+      expect(res.statusCode).toBe(504);
+      expect(res.body.error).toBe('upstream_timeout');
+      expect(JSON.stringify(res.body)).not.toContain('sk-supersecret');
+    }
+  });
 });
