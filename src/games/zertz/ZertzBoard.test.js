@@ -1197,11 +1197,8 @@ describe('Ring removal (extended)', () => {
     expect(board.captures[1].black).toBe(1);
   });
 
-  test('isolation does not capture the unique largest component even if fully occupied', () => {
-    // 4 rings in a line: remove ring 2 to isolate {3,0} from {0,0, 1,0} (not {-1,0} since removed)
-    // Actually: rings = [-1,0, 0,0, 1,0, 2,0, 3,0]. Marble on 3,0 only.
-    // Remove 2,0 -> isolates {3,0} (size 1, occupied) from {-1,0, 0,0, 1,0} (size 3, not occupied)
-    // Unique largest = size 3 -> skip. Size 1 is fully occupied -> capture.
+  test('isolation leaves a larger group with a vacant ring in play', () => {
+    // Remove 2,0 -> {3,0} (size 1, occupied) splits from {-1,0, 0,0, 1,0} (size 3, vacant 1,0)
     const board = createBoard({
       rings: ['-1,0', '0,0', '1,0', '2,0', '3,0'],
       marbles: { '3,0': 'grey', '-1,0': 'white', '0,0': 'black' },
@@ -1211,11 +1208,57 @@ describe('Ring removal (extended)', () => {
       currentPlayer: 1,
     });
     board.removeRing(2, 0);
-    // Only {3,0} island captured (size 1 < size 3)
     expect(board.captures[1].grey).toBe(1);
-    // Marbles on the larger component remain
+    // Marbles on the larger, still-open component remain
     expect(board.marbles['-1,0']).toBe('white');
     expect(board.marbles['0,0']).toBe('black');
+  });
+
+  test('isolation claims the larger group too when it is fully occupied (no size exemption)', () => {
+    // Remove 2,0 -> {3,0} (size 1) and {-1,0, 0,0, 1,0} (size 3) are both fully occupied
+    const board = createBoard({
+      rings: ['-1,0', '0,0', '1,0', '2,0', '3,0'],
+      marbles: { '3,0': 'grey', '-1,0': 'white', '0,0': 'black', '1,0': 'white' },
+      pool: FULL_POOL,
+      captures: ZERO_CAPS,
+      gamePhase: 'remove-ring',
+      currentPlayer: 1,
+    });
+    board.removeRing(2, 0);
+    expect(board.captures[1]).toEqual({ white: 2, grey: 1, black: 1 });
+    expect(board.marbles).toEqual({});
+    expect(board.rings.size).toBe(0);
+    // Nothing left to play and no win condition met: the game ends as a draw
+    expect(board.gamePhase).toBe('game-over');
+    expect(board.winner).toBeNull();
+  });
+
+  test('filling the last vacancy of the LARGER isolated group claims it and wins', () => {
+    // Groups {-1,0, 0,0, 1,0} (size 3, one vacancy at 1,0) and {4,0} (size 1, vacant)
+    const board = createBoard({
+      rings: ['-1,0', '0,0', '1,0', '4,0'],
+      marbles: { '-1,0': 'white', '0,0': 'white' },
+      pool: FULL_POOL,
+      captures: { 1: { white: 2, grey: 0, black: 0 }, 2: { white: 0, grey: 0, black: 0 } },
+      gamePhase: 'place-marble',
+      currentPlayer: 1,
+    });
+    board.selectedColor = 'black';
+    expect(board.placeMarble(1, 0)).toBe(true);
+    expect(board.captures[1]).toEqual({ white: 4, grey: 0, black: 1 });
+    expect(board.rings.has('1,0')).toBe(false);
+    expect(board.gamePhase).toBe('game-over');
+    expect(board.winner).toBe(1);
+  });
+
+  test('a single connected full board is not isolated (handled by the all-occupied endgame)', () => {
+    const board = createBoard({
+      rings: ['0,0', '1,0'],
+      marbles: { '0,0': 'white', '1,0': 'black' },
+      pool: FULL_POOL,
+      captures: ZERO_CAPS,
+    });
+    expect(board._checkIsolation()).toEqual([]);
   });
 
   test('removeRing isolation capture that triggers win ends game', () => {
