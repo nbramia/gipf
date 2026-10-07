@@ -3,6 +3,8 @@ import { BrowserRouter, Routes, Route, Outlet } from 'react-router-dom';
 import AccountBoundary from './AccountBoundary.jsx';
 import LandingPage from './LandingPage.jsx';
 import LoginPage from './LoginPage.jsx';
+import DocumentTitle from './DocumentTitle.jsx';
+import NotFoundPage from './NotFoundPage.jsx';
 
 const YinshGame = lazy(() => import('./games/yinsh/YinshGame.jsx'));
 const ZertzGame = lazy(() => import('./games/zertz/ZertzGame.jsx'));
@@ -22,6 +24,7 @@ function App() {
   }, []);
   return (
     <BrowserRouter>
+      <DocumentTitle />
       <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-neutral-900 text-neutral-400 font-body">Loading...</div>}>
         <Routes>
           <Route path="/migration" element={<GamesMigration />} />
@@ -34,6 +37,7 @@ function App() {
             <Route path="/catan" element={<CatanGame />} />
             <Route path="/splendor" element={<SplendorGame />} />
             <Route path="/diplomacy" element={<DiplomacyGame />} />
+            <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>
       </Suspense>

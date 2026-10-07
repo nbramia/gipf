@@ -1,0 +1,9 @@
+/* Neutral shared footer: readable on every game's light or dark page. */
+.account-footer { background: #1f2430; color: #d6dae3; border-top: 1px solid #3a4152; padding: .5rem 1rem; font-family: system-ui, sans-serif; font-size: .875rem; text-align: center; }
+.account-footer button { min-height: 44px; padding: 0 .75rem; color: inherit; background: transparent; border: 1px solid #6b7488; border-radius: .375rem; cursor: pointer; }
+.account-footer button:hover { background: #2c3342; }
+.account-recovery { background: #1f2430; color: #d6dae3; padding: .75rem 1rem; font-family: system-ui, sans-serif; font-size: .875rem; }
+.account-recovery p { margin: .25rem 0 .5rem; }
+.account-recovery button { min-height: 44px; padding: 0 .75rem; margin: .25rem .5rem .25rem 0; color: inherit; background: transparent; border: 1px solid #6b7488; border-radius: .375rem; cursor: pointer; }
+.account-recovery button:hover { background: #2c3342; }
+.account-footer button:focus-visible, .account-recovery button:focus-visible { outline: 2px solid #9db4ff; outline-offset: 2px; }

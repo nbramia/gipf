@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { createMatchStore, matchKey } from './matchStore.js';
+import { describeSnapshot, gameLabel } from './matchSummary.js';
 import './matchBoundary.css';
 
 const MatchContext = createContext(null);
@@ -245,9 +246,15 @@ export default function MatchBoundary({ game, decode, loadLegacy, children }) {
     <div className={message ? 'p-2 text-sm' : undefined} aria-live="polite">
       {message && <><span>{message}</span>{' '}{!conflict && !initial.invalid && recoveryButton}</>}
     </div>
-    {recovery && <div role="dialog" aria-label="Match recovery" className="p-3">
-      <p>Saved alternatives stay on this device. Restoring one may require a cloud conflict choice.</p>
-      {recovery.map((snapshot, i) => <button key={i} className="m-2 underline" onClick={() => restore(snapshot)}>Restore backup {i + 1}</button>)}
+    {recovery && <div role="dialog" aria-label="Match recovery" className="p-3 match-recovery">
+      <p><strong>{gameLabel(game)} match recovery.</strong> Saved alternatives stay on this device. Restoring one may require a cloud conflict choice.</p>
+      <ul className="match-choices">
+        {recovery.map((snapshot, i) => <li key={i} className="match-choice">
+          <span className="match-choice-label">Backup {i + 1}{snapshot && equal(snapshot, latest.current) ? ' (same as current match)' : ''}</span>
+          <span className="match-choice-detail">{describeSnapshot(snapshot)}</span>
+          <button className="underline" onClick={() => restore(snapshot)}>Restore backup {i + 1}</button>
+        </li>)}
+      </ul>
       {!recovery.length && <p>No alternative matches saved.</p>}
       <button className="m-2 underline" onClick={() => restore(null)}>Keep backup and start new game</button>
       <button onClick={() => setRecovery(null)}>Close recovery</button>
@@ -257,9 +264,19 @@ export default function MatchBoundary({ game, decode, loadLegacy, children }) {
       {recoveryButton}
     </div>}
     {conflict && <div role="alert" className="p-3 match-conflict">
-      This match differs from {conflict.kind === 'cloud' ? 'your cloud save' : 'another tab'}. Choose a version; both will be kept in recovery.
-      <button className="m-2 underline" onClick={() => choose(true)}>Keep this match</button>
-      <button className="m-2 underline" disabled={conflict.invalidRemote} onClick={() => choose(false)}>Use {conflict.kind === 'cloud' ? 'cloud' : 'other tab'} match</button>
+      <p><strong>{gameLabel(game)}:</strong> this match differs from {conflict.kind === 'cloud' ? 'your cloud save' : 'another tab'}. Choose a version; both will be kept in recovery.</p>
+      <ul className="match-choices">
+        <li className="match-choice">
+          <span className="match-choice-label">This match (current on this page)</span>
+          <span className="match-choice-detail">{describeSnapshot(conflict.local)}</span>
+          <button className="underline" onClick={() => choose(true)}>Keep this match</button>
+        </li>
+        <li className="match-choice">
+          <span className="match-choice-label">{conflict.kind === 'cloud' ? 'Cloud match (alternative)' : 'Other tab match (alternative)'}</span>
+          <span className="match-choice-detail">{conflict.invalidRemote ? 'Unreadable copy (cannot be restored)' : describeSnapshot(conflict.remote)}</span>
+          <button className="underline" disabled={conflict.invalidRemote} onClick={() => choose(false)}>Use {conflict.kind === 'cloud' ? 'cloud' : 'other tab'} match</button>
+        </li>
+      </ul>
       {recoveryButton}
     </div>}
     {!ready && !initial.invalid && <p>Loading saved match…</p>}
