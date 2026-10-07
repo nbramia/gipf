@@ -99,15 +99,16 @@ export { createMemory, serializeMemory, deserializeMemory, validateScratchpad };
 //   context: the serialized board context (serializeContext.js)
 //   addressee: the human power id doing the talking (optional)
 //   model:   optional per-request model override (e.g. 'claude-opus-4-8')
+//   persona: optional persona (e.g. spice-adjusted); defaults to the base persona
 //   store:   optional memory store; when given, the result is wired through it
 // Returns { message, scratchpad } on success, or { error, message } like askRules.
-export async function sendMessage({ power, history, context, addressee, model, store } = {}) {
+export async function sendMessage({ power, history, context, addressee, model, store, persona: personaOverride } = {}) {
   const apiKey = getApiKey();
   if (!apiKey && !accountKeys().anthropic) {
     return { error: 'no_key', message: 'Add your Anthropic API key to talk to the other powers.' };
   }
 
-  const persona = getPersona(power);
+  const persona = personaOverride || getPersona(power);
   const messages = Array.isArray(history) ? history : [];
 
   let res;

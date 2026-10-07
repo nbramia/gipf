@@ -62,3 +62,56 @@ export const PERSONAS = {
 export function getPersona(power) {
   return PERSONAS[power] || null;
 }
+
+// ---- Persona spice ----------------------------------------------------------
+// The setup's "Persona spice" slider in [0, 1] (0 = restrained, 1 = vivid and
+// volatile). It does three things, all derived from this one number:
+//   1. scales how far each temperament knob sits from neutral (extremity),
+//   2. rides along on the persona so the agent prompt can carry a tone
+//      instruction (api/diplomacyAgent.js turns `spice` into a TONE paragraph),
+//   3. loosens or tightens the honor-vs-betray margin in betrayalModel.
+// 0.5 reproduces the base personas exactly, so it is also the default for a save
+// made before spice existed.
+export const DEFAULT_SPICE = 0.5;
+
+export function normalizeSpice(value) {
+  const n = Number(value);
+  if (value == null || !Number.isFinite(n)) return DEFAULT_SPICE;
+  return Math.min(1, Math.max(0, n));
+}
+
+// Extremity multiplier: 0.2x at spice 0, 1x at 0.5, 1.8x at 1.
+export function spiceScale(spice) {
+  return 0.2 + 1.6 * normalizeSpice(spice);
+}
+
+function scaleKnob(value, spice) {
+  return Math.min(1, Math.max(0, 0.5 + (value - 0.5) * spiceScale(spice)));
+}
+
+// Every power's persona with spice applied. Pure; never mutates PERSONAS.
+export function buildPersonas(spice = DEFAULT_SPICE) {
+  const s = normalizeSpice(spice);
+  const out = {};
+  for (const [power, persona] of Object.entries(PERSONAS)) {
+    out[power] = {
+      ...persona,
+      temperament: {
+        trust: scaleKnob(persona.temperament.trust, s),
+        aggression: scaleKnob(persona.temperament.aggression, s),
+      },
+      spice: s,
+    };
+  }
+  return out;
+}
+
+// Re-apply spice to a persona set restored from a save. A save made before spice
+// existed has no `spice` on its personas; those take `fallbackSpice` (the saved
+// setting, else the default), so older games keep resuming.
+export function ensureSpice(personas, fallbackSpice = DEFAULT_SPICE) {
+  if (!personas || typeof personas !== 'object') return buildPersonas(fallbackSpice);
+  const hasSpice = Object.values(personas).every((p) => p && typeof p.spice === 'number');
+  if (hasSpice) return personas;
+  return buildPersonas(fallbackSpice);
+}

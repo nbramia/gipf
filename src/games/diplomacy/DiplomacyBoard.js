@@ -703,6 +703,7 @@ export default class DiplomacyBoard {
     this.maxYears = maxYears;
     this.winner = null;
     this.winningCenters = 0;
+    this.endReason = null; // 'victory' | 'turn-limit' once the game is over
     this.lastAction = 'Spring 1901 orders are open.';
     this.orderHistory = [];
     this.pendingRetreats = [];
@@ -1780,7 +1781,11 @@ export default class DiplomacyBoard {
     if (this.season === 'fall') {
       this._updateSupplyOwnership();
       this._checkVictory();
-      if (this.winner) return;
+      if (this.phase === 'game-over') return;
+      if (this.year >= this.maxYears) {
+        this._endAtTurnLimit();
+        return;
+      }
       this.adjustments = this.getAdjustments();
       const needsAdjustment = Object.values(this.adjustments).some(entry => entry.buildCount > 0 || entry.disbandCount > 0);
       if (needsAdjustment) {
@@ -1816,25 +1821,34 @@ export default class DiplomacyBoard {
     }
   }
 
+  // The game ends in one of two ways: a power holds 18+ centers ('victory'), or
+  // the year limit is reached ('turn-limit', the center leader(s) are reported).
+  // Centers are counted after Fall adjudication; builds and disbands never change
+  // ownership, so the final year's winter would not change the standings.
   _checkVictory() {
     const leader = this.getLeader();
     if (leader?.centers >= 18) {
       this.phase = 'game-over';
+      this.endReason = 'victory';
       this.winner = leader.power;
       this.winningCenters = leader.centers;
       this.lastAction = `${POWER_SHORT_NAMES[leader.power]} controls ${leader.centers} centers.`;
       return;
     }
-    if (this.year > this.maxYears) {
-      const leaders = this.getLeaders();
-      this.phase = 'game-over';
-      this.winner = leaders.length === 1 ? leaders[0] : null;
-      this.winningCenters = leader?.centers || 0;
-      const names = leaders.map(power => POWER_SHORT_NAMES[power]);
-      this.lastAction = leaders.length > 1
-        ? `${names.join(' and ')} share the lead after ${this.maxYears - 1900} years.`
-        : `${names[0] || 'No power'} leads after ${this.maxYears - 1900} years.`;
-    }
+    if (this.year > this.maxYears) this._endAtTurnLimit();
+  }
+
+  _endAtTurnLimit() {
+    const leader = this.getLeader();
+    const leaders = this.getLeaders();
+    this.phase = 'game-over';
+    this.endReason = 'turn-limit';
+    this.winner = leaders.length === 1 ? leaders[0] : null;
+    this.winningCenters = leader?.centers || 0;
+    const names = leaders.map(power => POWER_SHORT_NAMES[power]);
+    this.lastAction = leaders.length > 1
+      ? `Turn limit reached — ${names.join(' and ')} share the lead with ${this.winningCenters} supply centers.`
+      : `Turn limit reached — ${names[0] || 'No power'} leads with ${this.winningCenters} supply centers.`;
   }
 
   getStateHash() {
@@ -1861,6 +1875,7 @@ export default class DiplomacyBoard {
       maxYears: this.maxYears,
       winner: this.winner,
       winningCenters: this.winningCenters,
+      endReason: this.endReason,
       lastAction: this.lastAction,
       orderHistory: this.orderHistory.map(entry => JSON.parse(JSON.stringify(entry))),
       pendingRetreats: this.pendingRetreats.map(entry => ({
@@ -1897,6 +1912,9 @@ export default class DiplomacyBoard {
     board.maxYears = state.maxYears || 1912;
     board.winner = state.winner || null;
     board.winningCenters = state.winningCenters || 0;
+    // Saves from before endReason existed: infer it for a finished game.
+    board.endReason = state.endReason
+      || (board.phase === 'game-over' ? (board.winningCenters >= 18 ? 'victory' : 'turn-limit') : null);
     board.lastAction = state.lastAction || '';
     board.orderHistory = (state.orderHistory || []).map(entry => JSON.parse(JSON.stringify(entry)));
     board.pendingRetreats = (state.pendingRetreats || []).map(entry => ({

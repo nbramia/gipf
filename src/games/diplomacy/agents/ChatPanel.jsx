@@ -25,6 +25,7 @@ export default function ChatPanel({
   onViewThread,
   onScratchpad,
   onDeal,
+  personas,
 }) {
   // AI powers are everyone except the human's power.
   const agents = useMemo(
@@ -90,6 +91,7 @@ export default function ChatPanel({
       history,
       context,
       addressee: humanPower ? POWER_NAMES[humanPower] : undefined,
+      persona: personas ? personas[selected] : undefined,
       store,
     });
 

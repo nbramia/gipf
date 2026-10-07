@@ -47,6 +47,13 @@ export const MARGIN = 0.15;   // breaking must clear honoring by this much
 export const W_LEDGER = 0.7;
 export const W_SCRATCH = 0.3;
 
+// The honor-vs-break margin for a persona: MARGIN at spice 0.5 (or no persona),
+// 1.5x at 0 (restrained, slow to stab), 0.5x at 1 (volatile, quick to stab).
+export function breakMargin(persona) {
+  const spice = persona && typeof persona.spice === 'number' ? persona.spice : 0.5;
+  return MARGIN * (1.5 - Math.min(1, Math.max(0, spice)));
+}
+
 function clamp(x, lo, hi) {
   return Math.max(lo, Math.min(hi, x));
 }
@@ -221,7 +228,10 @@ function partnerMoverInto(board, partner, toProvince) {
 //           agreement) -> number in ~[0,1]. Defaults to payoffOfBreaking, a
 //           DEAL-SPECIFIC proxy (honor-constrained best plan vs. free best plan).
 //           Deterministic in its inputs.
-export function decideStrategicIntent({ board, state, power, payoff } = {}) {
+//   persona: optional persona carrying `spice` in [0, 1]; the break margin is
+//           scaled by (1.5 - spice), so a spicier power stabs on a thinner edge
+//           (0.5 = the base MARGIN, the default).
+export function decideStrategicIntent({ board, state, power, payoff, persona } = {}) {
   if (!power || typeof power !== 'string') {
     throw new Error('decideStrategicIntent requires a power');
   }
@@ -267,7 +277,7 @@ export function decideStrategicIntent({ board, state, power, payoff } = {}) {
     // someone you've decided is an enemy (this is how antagonising a power in
     // talks gets your standing deals with it broken).
     const hostile = state ? scratchpadMarksHostile(scratchpadDisposition(state, power, partner)) : false;
-    const broken = hostile || breakScore > honorScore + MARGIN;
+    const broken = hostile || breakScore > honorScore + breakMargin(persona);
 
     if (broken) {
       brokenPartners.add(partner);

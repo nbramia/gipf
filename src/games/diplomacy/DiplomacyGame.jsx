@@ -26,7 +26,7 @@ import ChatPanel from './agents/ChatPanel.jsx';
 import { loginHref } from '../../loginReturn.js';
 import { createMemory } from './agents/memory.js';
 import { createDiplomaticState, setScratchpad, recordAgreement } from './agents/diplomaticState.js';
-import { PERSONAS } from './agents/personas.js';
+import { buildPersonas, ensureSpice } from './agents/personas.js';
 import useHasApiKey from './hooks/useApiKey.js';
 import useAIWorker from './hooks/useAIWorker.js';
 import useDiplomacyTurn from './hooks/useDiplomacyTurn.js';
@@ -48,6 +48,15 @@ import {
   SC_POS,
   LABEL_POS,
 } from './mapGeometry.js';
+import {
+  ZOOM_STEP,
+  MIN_SCALE,
+  MAX_SCALE,
+  fitView,
+  viewBoxString,
+  zoomAt,
+  panBy,
+} from './mapView.js';
 import './diplomacy.css';
 
 // Real-geography map (jDip vector boundaries + piece coordinates). Province
@@ -57,6 +66,13 @@ const VIEW = (() => {
   const [x, y, w, h] = MAP_VIEWBOX.split(/\s+/).map(Number);
   return { x, y, w, h };
 })();
+
+// The no-key notice stays collapsed once the player collapses it, until the page
+// is reloaded (module state: survives remounts, no storage key needed).
+let keyNoticeCollapsed = false;
+
+// A pointer moving further than this (CSS px) is a drag, not a click.
+const DRAG_THRESHOLD = 6;
 
 const ORDER_TYPE_LABELS = {
   hold: 'Hold',
@@ -111,11 +127,6 @@ function describeOrder(order) {
   }
 }
 
-// Personas for every power (the persona shape persisted in the save).
-function defaultPersonas() {
-  return { ...PERSONAS };
-}
-
 export default function DiplomacyGame() {
   // ----- one-time mount restore: resume a saved game if one exists -----
   const restoredRef = useRef(null);
@@ -136,7 +147,9 @@ export default function DiplomacyGame() {
     restored && restored.controllers ? restored.controllers : buildControllers(settings.power)
   );
   const [personas, setPersonas] = useState(() =>
-    restored && restored.personas ? restored.personas : defaultPersonas()
+    restored && restored.personas
+      ? ensureSpice(restored.personas, settings.personaSpice)
+      : buildPersonas(settings.personaSpice)
   );
   // Human-VISIBLE conversation store (memory of the human↔AI chat threads).
   const [conversations, setConversations] = useState(() => {
@@ -165,7 +178,13 @@ export default function DiplomacyGame() {
   const [showOrders, setShowOrders] = useState(() => JSON.parse(localStorage.getItem('diplomacyShowOrders') || 'true'));
   const [showLastMoves, setShowLastMoves] = useState(() => JSON.parse(localStorage.getItem('diplomacyShowLastMoves') || 'true'));
   const [confirmNew, setConfirmNew] = useState(false);
-  const [keyPromptDismissed, setKeyPromptDismissed] = useState(false);
+  const [keyNoticeOpen, setKeyNoticeOpen] = useState(() => !keyNoticeCollapsed);
+  const [mapView, setMapView] = useState(() => fitView(VIEW));
+  const [focusedProvince, setFocusedProvince] = useState(null);
+  const mapViewRef = useRef(mapView);
+  mapViewRef.current = mapView;
+  const svgRef = useRef(null);
+  const gestureRef = useRef({ pointers: new Map(), startDist: 0, startView: null, startPt: null, moved: false });
   const [logExpanded, setLogExpanded] = useState(false); // Results Log modal
   // Reactive shared-key signal: re-renders this view the instant the key is set
   // or cleared anywhere (this chat, another tab, or another game in this app), so the
@@ -263,6 +282,7 @@ export default function DiplomacyGame() {
     setBuildOrders({});
     setCoastChoices(null);
     setBuildNotice('');
+    setFocusedProvince(null);
   }, [board.phase, board.year, board.season, turn.uiPhase]);
 
   // Persist whenever the board, phase, or in-progress order entry changes, so a
@@ -372,7 +392,12 @@ export default function DiplomacyGame() {
     return legalForSelected.filter(o => o.type === orderType);
   }, [legalForSelected, selectedUnit, orderType]);
 
-  const isOrderEntry = board.isOrdersPhase() && turn.uiPhase === 'orders';
+  // Without an API key there is no one to negotiate with, so the (UI-only)
+  // negotiation step is skipped and the season opens straight on order entry. A
+  // save parked in 'negotiation' behaves the same, and returns to the chat as
+  // soon as a key exists.
+  const skipNegotiation = !hasKey && turn.uiPhase === 'negotiation';
+  const isOrderEntry = board.isOrdersPhase() && (turn.uiPhase === 'orders' || skipNegotiation);
   // The right-hand action panel only appears when there's something to act on;
   // during negotiation it's hidden so the map spans the full remaining width.
   const showActionPanel =
@@ -386,6 +411,7 @@ export default function DiplomacyGame() {
     const unit = board.units[loc];
     if (!unit || unit.power !== humanPower || !isOrderEntry) return;
     setSelectedUnit(loc);
+    setFocusedProvince(baseProvince(loc));
     setOrderType(null);
     setSupportFrom(null);
     setCoastChoices(null);
@@ -433,6 +459,7 @@ export default function DiplomacyGame() {
   // A click on province `base` during order entry: finalize a target if we're
   // targeting and it's valid; otherwise (re)select the human's unit there.
   function handleMapClick(base) {
+    setFocusedProvince(base);
     if (!isOrderEntry) return;
     if (selectedUnit && orderType && orderType !== 'hold') {
       if (orderType === 'move') {
@@ -514,7 +541,7 @@ export default function DiplomacyGame() {
     const ai = POWERS.filter((p) => p !== next.power);
     setBoardState(fresh);
     setControllers(ctrls);
-    setPersonas(defaultPersonas());
+    setPersonas(buildPersonas(next.personaSpice));
     setConversations(createMemory(ai));
     try {
       setDiplomaticState(createDiplomaticState({ board: fresh, humanPower: next.power }));
@@ -522,7 +549,8 @@ export default function DiplomacyGame() {
       setDiplomaticState(null);
     }
     setConfirmNew(false);
-    setKeyPromptDismissed(false);
+    setMapView(fitView(VIEW));
+    setFocusedProvince(null);
     turn.setUiPhase('negotiation'); // a fresh game always opens in negotiation
     setInGame(true);
   }
@@ -552,7 +580,91 @@ export default function DiplomacyGame() {
       .map(([loc, o]) => ({ power: o.power, from: o.unitLoc, to: o.to, success: !!moveSuccess[loc] }));
   }, [board, showLastMoves]);
 
-  const showKeyPrompt = !hasKey && !keyPromptDismissed && inGame;
+  const showKeyPrompt = !hasKey && inGame;
+  const captionProvince = selectedUnit ? baseProvince(selectedUnit) : focusedProvince;
+  const toggleKeyNotice = () => {
+    keyNoticeCollapsed = keyNoticeOpen;
+    setKeyNoticeOpen(!keyNoticeOpen);
+  };
+
+  // ----- map zoom / pan -----
+  const zoomBy = (factor) => setMapView((v) => zoomAt(v, VIEW, v.scale * factor));
+  const resetMapView = () => setMapView(fitView(VIEW));
+
+  // Wheel zoom needs a non-passive listener to stop the page scrolling. Scrolling
+  // down at fit scale is left to the page.
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return undefined;
+    const onWheel = (e) => {
+      const unit = e.deltaMode === 1 ? 16 : 1;
+      const delta = e.deltaY * unit;
+      const v = mapViewRef.current;
+      if (delta > 0 && v.scale <= MIN_SCALE) return;
+      e.preventDefault();
+      const rect = el.getBoundingClientRect();
+      const fx = (e.clientX - rect.left) / rect.width;
+      const fy = (e.clientY - rect.top) / rect.height;
+      setMapView(zoomAt(v, VIEW, v.scale * Math.exp(-delta * 0.002), fx, fy));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [inGame]);
+
+  // Pointer gestures: one pointer drags, two pinch. A drag past the threshold is
+  // not a click, so the click that follows it is swallowed (onClickCapture).
+  function onMapPointerDown(e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const g = gestureRef.current;
+    if (g.pointers.size === 0) g.moved = false;
+    g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (g.pointers.size === 1) g.startPt = { x: e.clientX, y: e.clientY };
+    if (g.pointers.size === 2) {
+      const [a, b] = [...g.pointers.values()];
+      g.startDist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      g.startView = mapView;
+      g.moved = true;
+    }
+  }
+  function onMapPointerMove(e) {
+    const g = gestureRef.current;
+    const prev = g.pointers.get(e.pointerId);
+    if (!prev) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    g.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (g.pointers.size >= 2) {
+      const [a, b] = [...g.pointers.values()];
+      const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      const fx = ((a.x + b.x) / 2 - rect.left) / rect.width;
+      const fy = ((a.y + b.y) / 2 - rect.top) / rect.height;
+      setMapView(zoomAt(g.startView, VIEW, g.startView.scale * (dist / g.startDist), fx, fy));
+      return;
+    }
+    if (!g.moved && Math.hypot(e.clientX - g.startPt.x, e.clientY - g.startPt.y) > DRAG_THRESHOLD) {
+      g.moved = true;
+      try { svgRef.current.setPointerCapture(e.pointerId); } catch (_) { /* not capturable */ }
+    }
+    if (g.moved) {
+      setMapView((v) => panBy(v, VIEW, (e.clientX - prev.x) / rect.width, (e.clientY - prev.y) / rect.height));
+    }
+  }
+  function onMapPointerEnd(e) {
+    const g = gestureRef.current;
+    g.pointers.delete(e.pointerId);
+    if (g.pointers.size === 1) {
+      // A pinch ended with one finger still down: carry on as a drag from here.
+      const [rest] = [...g.pointers.values()];
+      g.startPt = rest;
+    }
+  }
+  function onMapClickCapture(e) {
+    const g = gestureRef.current;
+    if (g.moved) {
+      e.stopPropagation();
+      e.preventDefault();
+      g.moved = false;
+    }
+  }
 
   // ----- setup gate -----
   if (!inGame) {
@@ -639,7 +751,7 @@ export default function DiplomacyGame() {
 
           {/* Negotiation: the human chats below, then proceeds to enter orders.
               Lives here (not the right column) so the map can use the full width. */}
-          {board.phase !== 'game-over' && board.isOrdersPhase() && turn.uiPhase === 'negotiation' && (
+          {board.phase !== 'game-over' && board.isOrdersPhase() && turn.uiPhase === 'negotiation' && !skipNegotiation && (
             <div className="dip-panel p-4">
               <div className="dip-panel-label mb-2">Negotiation — {phaseLabel}</div>
               {turn.isBusy ? (
@@ -679,12 +791,26 @@ export default function DiplomacyGame() {
           )}
 
           {showKeyPrompt && (
-            <div className="dip-keyprompt p-4">
-              <div className="dip-keyprompt-text">
-                Playing without an Anthropic API key: the AI powers still make tactical moves, but
-                won't negotiate or chat. <Link to={loginHref('/diplomacy')}>Sign in / add key</Link> to enable diplomacy.
+            <div className={`dip-keyprompt ${keyNoticeOpen ? 'p-4' : 'dip-keyprompt--collapsed'}`}>
+              <div className="dip-keyprompt-head">
+                <span className="dip-keyprompt-title">No API key</span>
+                <button
+                  type="button"
+                  className="dip-keyprompt-dismiss"
+                  aria-expanded={keyNoticeOpen}
+                  aria-controls="dip-keyprompt-body"
+                  onClick={toggleKeyNotice}
+                >
+                  {keyNoticeOpen ? 'Collapse' : 'Show'}
+                </button>
               </div>
-              <button className="dip-keyprompt-dismiss" onClick={() => setKeyPromptDismissed(true)}>Dismiss</button>
+              {keyNoticeOpen && (
+                <div id="dip-keyprompt-body" className="dip-keyprompt-text">
+                  Playing without an Anthropic API key: the AI powers still make tactical moves, but
+                  won't negotiate or chat, so each season goes straight to orders.{' '}
+                  <Link to={loginHref('/diplomacy')}>Sign in / add key</Link> to enable diplomacy.
+                </div>
+              )}
             </div>
           )}
 
@@ -730,6 +856,7 @@ export default function DiplomacyGame() {
               onViewThread={markThreadRead}
               onScratchpad={foldScratchpadIntoState}
               onDeal={foldDealIntoState}
+              personas={personas}
             />
           </div>
           </div>
@@ -758,6 +885,20 @@ export default function DiplomacyGame() {
           </div>
           <div className="dip-board-shell">
             {renderMap()}
+            <div className="dip-map-controls" role="group" aria-label="Map zoom">
+              <button type="button" className="dip-map-btn" aria-label="Zoom in" onClick={() => zoomBy(ZOOM_STEP)} disabled={mapView.scale >= MAX_SCALE}>+</button>
+              <button type="button" className="dip-map-btn" aria-label="Zoom out" onClick={() => zoomBy(1 / ZOOM_STEP)} disabled={mapView.scale <= MIN_SCALE}>−</button>
+              <button type="button" className="dip-map-btn dip-map-btn--fit" aria-label="Reset map to fit" onClick={resetMapView} disabled={mapView.scale === MIN_SCALE}>Fit</button>
+            </div>
+            {captionProvince && (
+              <div className="dip-map-caption" role="status">
+                <strong>{PROVINCES[captionProvince].name}</strong>
+                <span> ({captionProvince})</span>
+                {PROVINCES[captionProvince].supply && (
+                  <span> · supply center{board.supplyCenters[captionProvince] ? `, ${POWER_SHORT_NAMES[board.supplyCenters[captionProvince]]}` : ''}</span>
+                )}
+              </div>
+            )}
           </div>
         </main>
 
@@ -768,14 +909,18 @@ export default function DiplomacyGame() {
             {board.phase === 'game-over' && (
               <div className="dip-panel p-4">
                 <div className="dip-gameover-banner">
-                  {winners.length > 1
-                    ? `${winnerNames} share the victory`
-                    : winners.length === 1 ? `${winnerNames} wins` : 'Game over'}
+                  {board.endReason === 'turn-limit'
+                    ? `Turn limit reached \u2014 ${winnerNames || 'No power'} ${winners.length > 1 ? 'share the lead with' : 'leads with'} ${board.winningCenters} supply centers`
+                    : winners.length > 1
+                      ? `${winnerNames} share the victory`
+                      : winners.length === 1 ? `${winnerNames} wins` : 'Game over'}
                 </div>
                 <p className="mt-2 text-sm" style={{ color: 'var(--dip-text-muted)' }}>
-                  {winners.length > 0
-                    ? `${winners.length > 1 ? 'Each controls' : 'Controls'} ${board.winningCenters} supply centers.`
-                    : 'No decisive winner.'}
+                  {board.endReason === 'turn-limit'
+                    ? `No power reached 18 supply centers by the end of ${board.maxYears}.`
+                    : winners.length > 0
+                      ? `${winners.length > 1 ? 'Each controls' : 'Controls'} ${board.winningCenters} supply centers.`
+                      : 'No decisive winner.'}
                 </p>
                 <button className="dip-primary-btn mt-4 w-full" onClick={() => setConfirmNew(true)}>New Game</button>
               </div>
@@ -802,10 +947,17 @@ export default function DiplomacyGame() {
     const units = board.getUnits();
     return (
       <svg
+        ref={svgRef}
         className="dip-board-svg"
-        viewBox={MAP_VIEWBOX}
+        viewBox={viewBoxString(mapView, VIEW)}
+        style={{ touchAction: mapView.scale > MIN_SCALE ? 'none' : 'pan-y' }}
         role="img"
         aria-label="Diplomacy map"
+        onPointerDown={onMapPointerDown}
+        onPointerMove={onMapPointerMove}
+        onPointerUp={onMapPointerEnd}
+        onPointerCancel={onMapPointerEnd}
+        onClickCapture={onMapClickCapture}
       >
         <defs>
           <filter id="dip-piece-shadow" x="-40%" y="-40%" width="180%" height="180%">
