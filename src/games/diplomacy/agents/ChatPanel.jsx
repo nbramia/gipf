@@ -11,6 +11,7 @@ import { Link } from 'react-router-dom';
 import { sendMessage, createMemory } from './agentClient.js';
 import { loginHref } from '../../../loginReturn.js';
 import useHasApiKey from '../hooks/useApiKey.js';
+import useModalFocus from '../hooks/useModalFocus.js';
 import { appendMessage, getThread } from './memory.js';
 import { serializeBoardContext } from './serializeContext.js';
 
@@ -41,17 +42,15 @@ export default function ChatPanel({
   // Reactive: reflects a key set here OR in another tab / another game in this app, live.
   const hasKey = useHasApiKey();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  // Errors belong to the thread they happened in: { [power]: message }.
+  const [errors, setErrors] = useState({});
   // Expand the whole panel into a centered modal overlay for more room.
   const [expanded, setExpanded] = useState(false);
 
-  // Esc closes the expanded overlay.
-  useEffect(() => {
-    if (!expanded) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') setExpanded(false); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [expanded]);
+  // Expanded overlay is a modal dialog: focus contained, Esc closes, focus restored.
+  const dialogRef = useRef(null);
+  useModalFocus(expanded, dialogRef, () => setExpanded(false));
+  const error = (selected && errors[selected]) || '';
 
   const thread = selected ? getThread(memory, selected) : null;
 
@@ -73,7 +72,8 @@ export default function ChatPanel({
   async function send() {
     const text = draft.trim();
     if (!text || !selected || busy) return;
-    setError('');
+    const target = selected;
+    setErrors((prev) => ({ ...prev, [target]: '' }));
 
     // Optimistically append the human's message to the thread.
     const store = { threads: { ...memory.threads } };
@@ -94,7 +94,7 @@ export default function ChatPanel({
     });
 
     if (result.error) {
-      setError(result.message || 'Something went wrong.');
+      setErrors((prev) => ({ ...prev, [target]: result.message || 'Something went wrong.' }));
     }
     // sendMessage already appended the assistant reply + scratchpad into `store`.
     setMemory({ threads: { ...store.threads } });
@@ -110,8 +110,12 @@ export default function ChatPanel({
 
   return (
     <>
-      {expanded && <div className="dip-chat-backdrop" onClick={() => setExpanded(false)} />}
-      <div className={`dip-chat ${expanded ? 'dip-chat--modal' : ''}`}>
+      {expanded && <div className="dip-chat-backdrop" data-modal-keep onClick={() => setExpanded(false)} />}
+      <div
+        ref={dialogRef}
+        className={`dip-chat ${expanded ? 'dip-chat--modal' : ''}`}
+        {...(expanded ? { role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Negotiation' } : {})}
+      >
       <div className="dip-chat-titlebar">
         <div className="dip-panel-label">Negotiation</div>
         <button
