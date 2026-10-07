@@ -75,6 +75,26 @@ function moverNote(mover, playerColor, sideToMove) {
   return `Side to move: ${colour(sideToMove)}.`;
 }
 
+const MATERIAL = ['pawn', 'knight', 'bishop', 'rook', 'queen'];
+
+// Fact line for what the move captured / promoted to. Enum values only; anything
+// else is ignored. "Captured nothing" is claimed only when the SAN has no 'x', so
+// an older client that never sent the field cannot cause a false statement.
+function captureNote({ mover, playerColor, captured, promotion, san }) {
+  const piece = MATERIAL.includes(captured) ? captured : null;
+  const promo = MATERIAL.includes(promotion) ? promotion : null;
+  const out = [];
+  if (piece) {
+    const owner =
+      mover === 'engine' ? "the student's" : mover === 'user' ? "the engine's" : "the opponent's";
+    out.push(`This move captured ${owner} ${piece}.`);
+  } else if (typeof san === 'string' && san && !san.includes('x')) {
+    out.push('This move captured nothing.');
+  }
+  if (promo) out.push(`The pawn promoted to a ${promo}.`);
+  return out.join(' ');
+}
+
 // Build the coaching prompt from engine-grounded facts only.
 export function buildPrompt(body) {
   const {
@@ -100,6 +120,8 @@ export function buildPrompt(body) {
     mateBudget,
     mover,
     playerColor,
+    captured,
+    promotion,
     legalMoves,
     legalMovesAfter,
   } = body;
@@ -109,6 +131,10 @@ export function buildPrompt(body) {
   lines.push(`Side to move at this point: ${sideToMove === 'b' ? 'Black' : 'White'}`);
   if (mover === 'engine' || mover === 'user') lines.push(moverNote(mover, playerColor, sideToMove));
   if (movePlayed) lines.push(`Move played: ${movePlayed.san || movePlayed}`);
+  if (movePlayed) {
+    const note = captureNote({ mover, playerColor, captured, promotion, san: movePlayed.san || movePlayed });
+    if (note) lines.push(note);
+  }
   if (typeof evalBefore === 'string') lines.push(`Eval before (White POV): ${evalBefore}`);
   if (typeof evalAfter === 'string') lines.push(`Eval after (White POV): ${evalAfter}`);
   if (classification) {
@@ -267,7 +293,11 @@ export function buildThreadSystem(context) {
   if (c.fenBefore) facts.push(`Position before the move (FEN): ${c.fenBefore}`);
   if (c.fenAfter) facts.push(`Position after the move (FEN): ${c.fenAfter}`);
   if (c.mover === 'engine' || c.mover === 'user') facts.push(moverNote(c.mover, c.playerColor, undefined));
-  if (c.movePlayed) facts.push(`Move played: ${c.movePlayed}`);
+  if (c.movePlayed) {
+    facts.push(`Move played: ${c.movePlayed}`);
+    const note = captureNote({ mover: c.mover, playerColor: c.playerColor, captured: c.captured, promotion: c.promotion, san: c.movePlayed });
+    if (note) facts.push(note);
+  }
   const legalBefore = cleanSanList(c.legalMoves);
   const legalAfter = cleanSanList(c.legalMovesAfter);
   if (legalBefore.length) facts.push(`Legal moves before the move: ${legalBefore.join(' ')}`);

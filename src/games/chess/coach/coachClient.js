@@ -9,7 +9,7 @@
 import { describeAiMove, describePlayerMove } from './templates.js';
 import { describePuzzleFail, hintLeaksSolution } from './puzzleCoach.js';
 import { runTool } from './analysisTools.js';
-import { legalSan, movedPieceNextMoves } from './legalMoves.js';
+import { legalSan, movedPieceNextMoves, moveMaterial } from './legalMoves.js';
 import { getLichessToken } from './openingCoach.js';
 import { accountKeys, ACCOUNT_REQUEST_HEADERS } from '../../../accountKeys.js';
 
@@ -139,6 +139,7 @@ export async function runThreadTurn({ context, history, question, analyze, onToo
     ...context,
     ...(context && context.fenBefore ? { legalMoves: legalSan(context.fenBefore) } : {}),
     ...(context && context.fenAfter ? { legalMovesAfter: legalSan(context.fenAfter) } : {}),
+    ...(context && context.fenBefore && context.movePlayed ? moveMaterial(context.fenBefore, context.movePlayed) : {}),
     ...(context && context.fenBefore && context.movePlayed
       ? { movedPieceNextMoves: movedPieceNextMoves(context.fenBefore, context.movePlayed) }
       : {}),

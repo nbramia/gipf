@@ -82,3 +82,23 @@ describe('analyzeMove — buildMovePayload', () => {
     expect(payload.kind).toBe('ai-move');
   });
 });
+
+describe('analyzeMove — captured piece', () => {
+  const build = (fenBefore, san) =>
+    buildMovePayload({ fenBefore, fenAfter: fenBefore, movePlayedSan: san, moverColor: 'b', kind: 'ai-move' });
+
+  test('Nxe4 after 1.e4 e5 2.Nf3 Nf6 3.Bc4 captured a pawn', () => {
+    const fen = 'rnbqkb1r/pppp1ppp/5n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3';
+    expect(build(fen, 'Nxe4').captured).toBe('pawn');
+  });
+  test('en passant captures a pawn', () => {
+    const fen = 'rnbqkbnr/ppp1p1pp/8/3pPp2/8/8/PPPP1PPP/RNBQKBNR w KQkq f6 0 3';
+    expect(build(fen, 'exf6').captured).toBe('pawn');
+  });
+  test('a quiet move has no captured field; promotion is reported', () => {
+    expect('captured' in build(STARTING_FEN, 'e4')).toBe(false);
+    const p = build('8/P6k/8/8/8/8/8/K7 w - - 0 1', 'a8=Q');
+    expect(p.promotion).toBe('queen');
+    expect('captured' in p).toBe(false);
+  });
+});
