@@ -73,7 +73,7 @@
   z-index: 1;
   max-width: 1200px;
   margin: 0 auto;
-  padding: 20px 24px 56px;
+  padding: 14px 24px 48px;
 }
 
 /* ---- header ---- */
@@ -83,16 +83,16 @@
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
-  padding-bottom: 16px;
-  margin-bottom: 18px;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
   border-bottom: 1px solid var(--spl-line);
 }
-.spl-header-left { display: flex; align-items: flex-end; gap: 18px; }
+.spl-header-left { display: flex; align-items: center; gap: 14px; }
 .spl-titlewrap { display: flex; flex-direction: column; }
 .spl-title {
   font-family: 'Cormorant Garamond', Georgia, serif;
   font-weight: 700;
-  font-size: 46px;
+  font-size: 38px;
   line-height: 0.95;
   letter-spacing: 0.5px;
   background: linear-gradient(120deg, var(--spl-gold-bright), var(--spl-gold) 55%, var(--spl-gold-bright));
@@ -108,7 +108,7 @@
   letter-spacing: 0.3px;
   margin-top: 2px;
 }
-.spl-back { color: var(--spl-muted); text-decoration: none; font-size: 13px; padding-bottom: 6px; transition: color 0.15s; }
+.spl-back { display: inline-flex; align-items: center; flex-shrink: 0; white-space: nowrap; min-height: 44px; padding-right: 6px; color: var(--spl-muted); text-decoration: none; font-size: 13px; transition: color 0.15s; }
 .spl-back:hover { color: var(--spl-gold); }
 .spl-header-right { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -118,6 +118,7 @@
   background: var(--spl-panel);
   color: var(--spl-ink);
   border-radius: 8px;
+  min-height: 36px;
   padding: 7px 13px;
   font-size: 13px;
   letter-spacing: 0.2px;
@@ -127,6 +128,7 @@
 .spl-btn:hover:not(:disabled) { border-color: var(--spl-gold); box-shadow: 0 0 0 1px rgba(216,178,94,0.25); }
 .spl-btn:active:not(:disabled) { transform: translateY(1px); }
 .spl-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.spl-btn-icon { min-width: 44px; }
 .spl-btn-primary {
   background: linear-gradient(150deg, var(--spl-gold-bright), var(--spl-gold));
   color: #2a1d05;
@@ -147,9 +149,10 @@
   border-radius: 14px; padding: 16px 20px; margin-bottom: 16px; box-shadow: var(--spl-shadow);
 }
 .spl-setting { display: flex; flex-direction: column; gap: 7px; }
+.spl-setting > label small { text-transform: none; letter-spacing: 0; }
 .spl-setting > label { font-size: 11px; color: var(--spl-muted); text-transform: uppercase; letter-spacing: 1px; }
 .spl-seg { display: inline-flex; border: 1px solid var(--spl-line); border-radius: 9px; overflow: hidden; }
-.spl-seg-btn { border: none; background: var(--spl-panel-2); color: var(--spl-ink); padding: 7px 16px; cursor: pointer; font-size: 13px; transition: background 0.15s; }
+.spl-seg-btn { min-height: 36px; border: none; background: var(--spl-panel-2); color: var(--spl-ink); padding: 7px 16px; cursor: pointer; font-size: 13px; transition: background 0.15s; }
 .spl-seg-btn.active { background: linear-gradient(150deg, var(--spl-gold-bright), var(--spl-gold)); color: #2a1d05; font-weight: 600; }
 .spl-setting-key { flex: 1; min-width: 260px; }
 .spl-key-row { display: flex; gap: 8px; }
@@ -157,14 +160,22 @@
 .spl-key-ok { color: #3fae74; font-size: 13px; align-self: center; }
 
 /* ---- status ---- */
-.spl-status { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; min-height: 24px; }
+.spl-status {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: 12px; margin: 0 -8px 10px; padding: 6px 8px; min-height: 24px;
+  background: var(--spl-bg); border-bottom: 1px solid var(--spl-line);
+}
+.spl-mini { display: none; margin-left: auto; align-items: center; gap: 4px; font-size: 12px; }
+.spl-mini b { color: var(--spl-gold); margin-right: 4px; }
+.spl-mini em { font-style: normal; color: var(--spl-muted); margin-left: 2px; }
+.spl-mini-chip { min-width: 20px; height: 20px; padding: 0 4px; border-radius: 50%; background: var(--chip); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
 .spl-status-text { font-family: 'Cormorant Garamond', serif; font-size: 19px; font-style: italic; color: var(--spl-ink); }
 .spl-thinking { font-size: 12px; color: var(--spl-gold); letter-spacing: 0.5px; animation: splendor-pulse 1.2s ease-in-out infinite; }
 
 /* ---- layout ---- */
 .spl-main { display: grid; grid-template-columns: 1fr 330px; gap: 22px; align-items: start; }
-@media (max-width: 920px) { .spl-main { grid-template-columns: 1fr; } }
-.spl-board { display: flex; flex-direction: column; gap: 14px; }
+@media (max-width: 920px) { .spl-main { grid-template-columns: 1fr; } .spl-mini { display: flex; } }
+.spl-board { display: flex; flex-direction: column; gap: 10px; }
 .spl-section-label {
   font-size: 11px; text-transform: uppercase; letter-spacing: 2px;
   color: var(--spl-gold); font-weight: 600; margin: 4px 0 -2px 2px;
@@ -180,7 +191,7 @@
 .gem-gold   { --chip: #d6a341; --spot: #fff0c0; color: #3a2906; }
 
 /* Small gems (card cost/bonus, player holdings, noble reqs): flat matte tiles. */
-.spl-cost-pip, .spl-card-bonus, .spl-gemstack-bonus, .spl-noble-pip {
+.spl-cost-pip, .spl-card-bonus, .spl-gemstack-bonus, .spl-noble-pip, .spl-hero-bonus {
   background: var(--chip);
   box-shadow: var(--gem-edge);
 }
@@ -194,46 +205,49 @@
 }
 
 /* ---- nobles ---- */
-.spl-nobles { display: flex; gap: 12px; flex-wrap: wrap; }
+.spl-tray { display: flex; gap: 12px 20px; flex-wrap: wrap; align-items: flex-start; }
+.spl-tray-nobles, .spl-tray-bank { display: flex; flex-direction: column; gap: 6px; }
+.spl-tray .spl-section-label { margin: 0 0 0 2px; }
+.spl-nobles { display: flex; gap: 8px; flex-wrap: wrap; }
 .spl-noble {
   position: relative;
-  width: 84px; height: 84px; border-radius: 12px;
+  width: 66px; height: 78px; border-radius: 12px;
   background:
     radial-gradient(120% 120% at 50% 0%, rgba(216,178,94,0.18), rgba(0,0,0,0) 60%),
     var(--spl-card-face);
   border: 1px solid var(--spl-gold);
   box-shadow: var(--spl-shadow), inset 0 0 0 3px rgba(216,178,94,0.12);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-  cursor: default; padding: 6px;
+  cursor: default; padding: 4px;
 }
 .spl-noble-crown { font-size: 13px; color: var(--spl-gold); line-height: 1; }
 .spl-noble-claimable { cursor: pointer; animation: splendor-glow 1.5s ease-in-out infinite; }
-.spl-noble-points { font-family: 'Cormorant Garamond', serif; font-weight: 700; font-size: 24px; color: var(--spl-gold); line-height: 0.9; }
-.spl-noble-req { display: flex; gap: 4px; }
-.spl-noble-pip { width: 17px; height: 17px; border-radius: 5px; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.spl-noble-points { font-family: 'Cormorant Garamond', serif; font-weight: 700; font-size: 20px; color: var(--spl-gold); line-height: 0.9; }
+.spl-noble-req { display: flex; gap: 3px; flex-wrap: wrap; justify-content: center; }
+.spl-noble-pip { width: 16px; height: 16px; border-radius: 5px; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
 
 /* ---- card rows ---- */
 /* Play-mat: a subtle inset felt surface the market sits on, so the cards read as
    a crafted board rather than floating on the page. */
 .spl-market {
-  display: flex; flex-direction: column; gap: 14px;
-  padding: 16px; border-radius: 18px;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 12px; border-radius: 18px;
   background:
     radial-gradient(120% 80% at 50% 0%, rgba(216,178,94,0.06), rgba(0,0,0,0) 70%),
     linear-gradient(180deg, rgba(0,0,0,0.05), rgba(0,0,0,0.12));
   border: 1px solid var(--spl-line);
   box-shadow: inset 0 2px 14px rgba(0,0,0,0.22);
 }
-.spl-row { display: flex; gap: 14px; align-items: center; }
+.spl-row { display: flex; gap: 12px; align-items: center; }
 .spl-deck { display: flex; flex-direction: column; gap: 7px; align-items: center; }
-.spl-cards { display: flex; gap: 12px; flex-wrap: wrap; }
+.spl-cards { display: flex; gap: 10px; flex-wrap: wrap; }
 
 .spl-card {
-  width: 106px; height: 152px; border-radius: 11px;
+  width: 104px; height: 134px; border-radius: 11px;
   background: var(--spl-card-face);
   border: 1px solid var(--spl-card-border);
   box-shadow: var(--spl-shadow);
-  padding: 9px; position: relative; overflow: hidden;
+  padding: 8px; position: relative; overflow: hidden;
   display: flex; flex-direction: column; justify-content: space-between;
   animation: splendor-deal 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
@@ -263,7 +277,7 @@
 .spl-card-crest { font-size: 22px; color: var(--spl-gold); opacity: 0.7; }
 .spl-deck-tier { font-family: 'Cormorant Garamond', serif; font-weight: 700; font-size: 30px; color: var(--spl-gold); line-height: 1; }
 .spl-deck-count { font-size: 12px; color: var(--spl-muted); }
-.spl-deck-reserve { font-size: 11px; padding: 4px 10px; flex: none; border: 1px solid var(--spl-line); border-radius: 7px; }
+.spl-deck-reserve { font-size: 11px; min-height: 30px; padding: 4px 10px; flex: none; border: 1px solid var(--spl-line); border-radius: 7px; }
 .spl-reserved-back { width: 64px; height: 90px; }
 
 .spl-card-top { display: flex; justify-content: space-between; align-items: flex-start; position: relative; z-index: 1; }
@@ -279,18 +293,18 @@
   width: 19px; height: 19px; border-radius: 50%;
   font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center;
 }
-.spl-card-actions { display: flex; flex-direction: column; gap: 4px; align-items: stretch; }
-.spl-card-actions .spl-btn { flex: none; padding: 3px 10px; font-size: 11px; }
+.spl-card-actions { display: flex; flex-direction: column; gap: 6px; align-items: stretch; }
+.spl-card-actions .spl-btn { flex: none; min-height: 30px; padding: 3px 10px; font-size: 12px; }
 
 /* ---- token bank ---- */
 .spl-bank {
-  display: flex; gap: 16px; padding: 14px 18px; flex-wrap: wrap; width: fit-content;
+  display: flex; gap: 10px; padding: 8px 12px; flex-wrap: wrap; width: fit-content;
   background: linear-gradient(180deg, rgba(0,0,0,0.04), rgba(0,0,0,0.10));
   border: 1px solid var(--spl-line); border-radius: 16px; box-shadow: inset 0 2px 8px rgba(0,0,0,0.18);
 }
-.spl-bank-slot { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+.spl-bank-slot { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .spl-token {
-  width: 52px; height: 52px; border-radius: 50%; overflow: hidden;
+  width: 46px; height: 46px; border-radius: 50%; overflow: hidden;
   border: none; position: relative; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s;
@@ -302,7 +316,7 @@
 .spl-token-star { position: absolute; top: 5px; z-index: 1; font-size: 10px; opacity: 0.85; }
 .spl-take2 {
   font-size: 11px; border: 1px solid var(--spl-line); background: var(--spl-panel);
-  border-radius: 6px; padding: 1px 8px; cursor: pointer; color: var(--spl-ink); transition: border-color 0.15s;
+  border-radius: 6px; min-width: 44px; min-height: 30px; padding: 2px 10px; cursor: pointer; color: var(--spl-ink); transition: border-color 0.15s;
 }
 .spl-take2:hover { border-color: var(--spl-gold); color: var(--spl-gold); }
 
@@ -329,7 +343,8 @@
 }
 .spl-player-current { border-color: var(--spl-gold); box-shadow: var(--spl-shadow), 0 0 0 1px var(--spl-gold), 0 0 22px rgba(216,178,94,0.25); }
 .spl-player-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; padding-left: 8px; }
-.spl-player-name { font-family: 'Cormorant Garamond', serif; font-weight: 600; font-size: 19px; }
+.spl-player-name { font-family: 'Cormorant Garamond', serif; font-weight: 600; font-size: 19px; color: var(--spl-ink); }
+.spl-legend { display: flex; gap: 12px; padding-left: 8px; margin: -4px 0 6px; font-size: 10px; color: var(--spl-muted); letter-spacing: 0.3px; }
 .spl-player-points { font-family: 'Cormorant Garamond', serif; font-weight: 700; font-size: 24px; color: var(--spl-gold); }
 .spl-player-points small { font-size: 11px; color: var(--spl-muted); font-weight: 500; }
 .spl-player-gems { display: flex; gap: 7px; flex-wrap: wrap; padding-left: 8px; }
@@ -396,7 +411,7 @@
 .spl-reserved-card .spl-card-bottom { gap: 4px; }
 .spl-reserved-card .spl-cost { gap: 2px; }
 .spl-reserved-card .spl-cost-pip { width: 15px; height: 15px; font-size: 9px; }
-.spl-reserved-card .spl-card-actions .spl-btn { padding: 2px 7px; font-size: 10px; }
+.spl-reserved-card .spl-card-actions .spl-btn { min-height: 28px; padding: 2px 7px; font-size: 11px; }
 
 /* ---- move log ---- */
 .spl-log { background: var(--spl-panel); border: 1px solid var(--spl-line); border-radius: 12px; padding: 12px 14px; box-shadow: var(--spl-shadow); }
@@ -433,13 +448,42 @@
 .spl-modal h2 { font-family: 'Cormorant Garamond', serif; font-weight: 700; font-size: 34px; margin-bottom: 4px; color: var(--spl-ink); }
 .spl-modal p { font-family: 'Cormorant Garamond', serif; font-style: italic; color: var(--spl-gold); font-size: 18px; margin-bottom: 18px; }
 .spl-modal-scores { list-style: none; margin-bottom: 22px; display: flex; flex-direction: column; gap: 6px; }
-.spl-modal-scores li { font-size: 15px; }
+.spl-modal-scores li { font-size: 15px; color: var(--spl-ink); }
+.spl-seat-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
 
 @keyframes splendor-deal { from { opacity: 0; transform: translateY(14px) scale(0.96); } to { opacity: 1; transform: none; } }
 @keyframes splendor-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 1; } }
 @keyframes splendor-glow {
   0%, 100% { box-shadow: var(--spl-shadow), inset 0 0 0 3px rgba(216,178,94,0.12), 0 0 0 0 rgba(216,178,94,0.5); }
   50% { box-shadow: var(--spl-shadow), inset 0 0 0 3px rgba(216,178,94,0.35), 0 0 22px 3px rgba(216,178,94,0.45); }
+}
+
+/* ---- phone ---- */
+@media (max-width: 640px) {
+  .spl-app { padding: 8px 12px 32px; }
+  .spl-header { gap: 8px; }
+  .spl-title { font-size: 32px; }
+  .spl-tagline { display: none; }
+  .spl-btn, .spl-seg-btn { min-height: 44px; }
+  .spl-header-right { gap: 6px; }
+  .spl-status { margin: 0 -12px 8px; padding: 6px 12px; }
+  .spl-status-text { font-size: 16px; }
+  .spl-market { padding: 8px; gap: 10px; }
+  .spl-row { flex-direction: column; align-items: stretch; gap: 6px; }
+  .spl-deck { flex-direction: row; justify-content: space-between; align-items: center; }
+  .spl-deck .spl-card-back { width: auto; height: 40px; flex-direction: row; padding: 4px 14px; gap: 10px; animation: none; }
+  .spl-deck .spl-card-back .spl-card-crest { display: none; }
+  .spl-deck-tier { font-size: 22px; }
+  .spl-deck-reserve { min-height: 44px; }
+  .spl-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .spl-cards .spl-card { width: auto; height: auto; min-height: 150px; }
+  .spl-card-actions .spl-btn { min-height: 44px; }
+  .spl-reserved-card .spl-card-actions .spl-btn { min-height: 44px; }
+  .spl-take2 { min-height: 44px; min-width: 48px; }
+  .spl-bank { width: 100%; justify-content: space-between; gap: 6px; padding: 8px; }
+  .spl-tray, .spl-tray-bank { width: 100%; }
+  .spl-modal { padding: 24px 22px; min-width: 0; width: calc(100vw - 32px); }
+  .spl-chat { right: 8px; left: 8px; width: auto; }
 }
 
 @media (prefers-reduced-motion: reduce) {

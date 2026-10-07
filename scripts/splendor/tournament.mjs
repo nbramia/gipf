@@ -51,7 +51,7 @@ async function main() {
     const offset = i % 2;
     const assign = {};
     for (let s = 1; s <= PLAYERS; s++) assign[s] = (s - 1 + offset) % 2 === 0 ? 'A' : 'B';
-    const board = new SplendorBoard({ seed: SEED + i, playerCount: PLAYERS, skipInitialHistory: true });
+    const board = new SplendorBoard({ seed: SEED + i, playerCount: PLAYERS, skipInitialHistory: true, maxTurns: 200 });
     board._skipHistory = true;
     const engines = {};
     for (let s = 1; s <= PLAYERS; s++) {

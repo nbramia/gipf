@@ -385,6 +385,47 @@ describe('Splendor end of game', () => {
     expect(board.getVictoryPoints(y)).toBe(15);
     expect(board.winner).toBe(y); // fewer cards wins the tie
   });
+
+  test('equal prestige and equal card counts share the victory', () => {
+    const board = new SplendorBoard({ seed: 11, playerCount: 2 });
+    const x = board.firstPlayer;
+    const y = board._nextPlayerId(x);
+    const fivePt = CARDS.find(c => c.points === 5).id;
+    board.players[x].cards = [fivePt, fivePt, fivePt];
+    board.players[y].cards = [fivePt, fivePt, fivePt];
+    board.currentPlayer = x;
+    board.passTurn();
+    board.passTurn();
+    expect(board.phase).toBe('game-over');
+    expect([...board.winners].sort()).toEqual([x, y].sort());
+    expect(board.winner).toBeNull();
+    expect(board.lastAction).toMatch(/share the victory/);
+    expect(board.clone().winners).toEqual(board.winners);
+  });
+
+  test('live games have no round cap; maxTurns still ends self-play', () => {
+    const live = new SplendorBoard({ seed: 3, playerCount: 2 });
+    for (let i = 0; i < 500; i++) live.passTurn();
+    expect(live.phase).toBe('play');
+    expect(live.turnNumber).toBeGreaterThan(200);
+
+    const capped = new SplendorBoard({ seed: 3, playerCount: 2, maxTurns: 200 });
+    for (let i = 0; i < 500 && capped.phase !== 'game-over'; i++) capped.passTurn();
+    expect(capped.phase).toBe('game-over');
+    expect(capped.clone().maxTurns).toBe(200);
+  });
+
+  test('human messages use second-person grammar and gem names', () => {
+    const board = new SplendorBoard({ seed: 5, playerCount: 2 });
+    board.firstPlayer = 1;
+    board.currentPlayer = 1;
+    board.players[1].cards = [CARDS.find(c => c.points === 5).id, CARDS.find(c => c.points === 5).id, CARDS.find(c => c.points === 5).id];
+    board.takeTokens(['white', 'blue', 'green']);
+    expect(board.log[board.log.length - 1]).toBe('You took Diamond, Sapphire, Emerald.');
+    board.passTurn();
+    expect(board.phase).toBe('game-over');
+    expect(board.lastAction).toBe('You win with 15 prestige!');
+  });
 });
 
 describe('Splendor history & cloning', () => {
@@ -435,7 +476,8 @@ describe('Splendor self-play termination', () => {
       for (let seed = 1; seed <= 6; seed++) {
         const board = playRandomGame(seed * 13 + pc, pc);
         expect(board.phase).toBe('game-over');
-        expect(board.getPlayerIds()).toContain(board.winner);
+        expect(board.winners.length).toBeGreaterThan(0);
+        board.winners.forEach(id => expect(board.getPlayerIds()).toContain(id));
       }
     }
   });

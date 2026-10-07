@@ -39,6 +39,18 @@ const DIFFICULTY_LABELS = { strong: 'Strong', expert: 'Expert', brutal: 'Brutal'
 const gemClass = token => `gem gem-${token}`;
 const ROMAN = { 1: 'I', 2: 'II', 3: 'III' };
 
+// "2 Ruby and 1 Onyx" / "1 Diamond"
+function costText(cost) {
+  const parts = GEMS.filter(g => cost[g]).map(g => `${cost[g]} ${GEM_LABELS[g]}`);
+  if (parts.length === 0) return 'nothing';
+  return parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+}
+
+function cardDescription(card) {
+  const pts = card.points ? `, ${card.points} prestige` : '';
+  return `tier ${card.tier} ${GEM_LABELS[card.bonus]} card${pts}, costs ${costText(card.cost)}`;
+}
+
 function makeSeed() {
   return Math.floor(Math.random() * 1e9) + 1;
 }
@@ -79,7 +91,7 @@ function CostPips({ cost }) {
   );
 }
 
-function DevCard({ card, faceDown, onBuy, onReserve, canBuy, canReserve, style }) {
+function DevCard({ card, faceDown, onBuy, onReserve, canBuy, canReserve, style, reserved }) {
   if (faceDown) {
     return (
       <div className={`spl-card spl-card-back tier-${card?.tier || 1}`} style={style}>
@@ -88,7 +100,7 @@ function DevCard({ card, faceDown, onBuy, onReserve, canBuy, canReserve, style }
     );
   }
   return (
-    <div className={`spl-card tier-${card.tier}`} style={style}>
+    <div className={`spl-card tier-${card.tier}`} style={style} role="group" aria-label={cardDescription(card)}>
       <div className="spl-card-top">
         <span className="spl-card-points">{card.points > 0 ? card.points : ''}</span>
         <span className={`spl-card-bonus ${gemClass(card.bonus)}`} />
@@ -97,10 +109,10 @@ function DevCard({ card, faceDown, onBuy, onReserve, canBuy, canReserve, style }
         <CostPips cost={card.cost} />
         <div className="spl-card-actions">
           {onBuy && (
-            <button type="button" className="spl-btn spl-btn-buy" onClick={onBuy} disabled={!canBuy}>Buy</button>
+            <button type="button" className="spl-btn spl-btn-buy" onClick={onBuy} disabled={!canBuy} aria-label={`Buy ${reserved ? 'reserved ' : ''}${cardDescription(card)}`}>Buy</button>
           )}
           {onReserve && (
-            <button type="button" className="spl-btn spl-btn-reserve" onClick={onReserve} disabled={!canReserve}>Reserve</button>
+            <button type="button" className="spl-btn spl-btn-reserve" onClick={onReserve} disabled={!canReserve} aria-label={`Reserve ${cardDescription(card)}`}>Reserve</button>
           )}
         </div>
       </div>
@@ -116,6 +128,7 @@ function NobleTile({ noble, claimable, onClick }) {
       onClick={claimable ? onClick : undefined}
       disabled={!claimable}
       title="Noble — 3 prestige"
+      aria-label={`Noble, 3 prestige, requires ${costText(noble.requirement)}${claimable ? '. Click to receive' : ''}`}
     >
       <span className="spl-noble-crown">♛</span>
       <span className="spl-noble-points">3</span>
@@ -138,7 +151,7 @@ function ReservedRow({ player, board, isCurrent, isHuman, onBuyReserved }) {
         // Opponents' reserves stay hidden to the human.
         return isHuman ? (
           <div key={i} className="spl-reserved-card">
-            <DevCard card={card} onBuy={isCurrent ? () => onBuyReserved(entry.cardId) : undefined} canBuy={canBuy} />
+            <DevCard card={card} reserved onBuy={isCurrent ? () => onBuyReserved(entry.cardId) : undefined} canBuy={canBuy} />
           </div>
         ) : (
           <div key={i} className="spl-card spl-card-back spl-reserved-back"><span className="spl-card-crest">❖</span></div>
@@ -157,7 +170,7 @@ function HeroPanel({ player, board, isCurrent, onBuyReserved, onDiscardToken, di
   return (
     <div className={`spl-player spl-hero ${isCurrent ? 'spl-player-current' : ''}`} style={{ '--accent': player.color }}>
       <div className="spl-player-head">
-        <span className="spl-player-name" style={{ color: player.color }}>You</span>
+        <span className="spl-player-name">You</span>
         <span className="spl-player-points">{points} <small>prestige</small></span>
       </div>
 
@@ -173,6 +186,7 @@ function HeroPanel({ player, board, isCurrent, onBuyReserved, onDiscardToken, di
               key={g}
               type="button"
               title={discardMode ? `Return a ${GEM_LABELS[g]}` : GEM_LABELS[g]}
+              aria-label={discardMode && canDiscard ? `Return a ${GEM_LABELS[g]}` : `${GEM_LABELS[g]} tokens: ${player.tokens[g]}`}
               className={`spl-token spl-hero-token ${gemClass(g)} ${player.tokens[g] === 0 ? 'spl-empty' : ''} ${canDiscard ? 'spl-discardable' : ''}`}
               onClick={canDiscard ? () => onDiscardToken(g) : undefined}
               disabled={!canDiscard}
@@ -187,7 +201,7 @@ function HeroPanel({ player, board, isCurrent, onBuyReserved, onDiscardToken, di
       <div className="spl-hero-label">Your cards <small>· discounts</small></div>
       <div className="spl-hero-bonuses">
         {GEMS.map(g => (
-          <span key={g} className={`spl-hero-bonus ${gemClass(g)} ${player.bonuses[g] === 0 ? 'spl-empty' : ''}`} title={`${GEM_LABELS[g]} discount`}>
+          <span key={g} className={`spl-hero-bonus ${gemClass(g)} ${player.bonuses[g] === 0 ? 'spl-empty' : ''}`} title={`${GEM_LABELS[g]} discount`} role="img" aria-label={`${GEM_LABELS[g]} discount: ${player.bonuses[g]}`}>
             {player.bonuses[g]}
           </span>
         ))}
@@ -204,12 +218,19 @@ function PlayerPanel({ player, board, isCurrent }) {
   return (
     <div className={`spl-player ${isCurrent ? 'spl-player-current' : ''}`} style={{ '--accent': player.color }}>
       <div className="spl-player-head">
-        <span className="spl-player-name" style={{ color: player.color }}>{player.name}</span>
+        <span className="spl-player-name">{player.name}</span>
         <span className="spl-player-points">{points} <small>pts</small></span>
       </div>
+      <div className="spl-legend"><span>Top: card discounts</span><span>Bottom: tokens</span></div>
       <div className="spl-player-gems">
         {[...GEMS, GOLD].map(g => (
-          <div key={g} className="spl-gemstack" title={GEM_LABELS[g]}>
+          <div
+            key={g}
+            className="spl-gemstack"
+            title={GEM_LABELS[g]}
+            role="img"
+            aria-label={g === GOLD ? `Gold tokens: ${player.tokens[g]}` : `${GEM_LABELS[g]}: ${player.bonuses[g]} discount, ${player.tokens[g]} tokens`}
+          >
             <span className={`spl-gemstack-bonus ${gemClass(g)} ${g !== GOLD && player.bonuses[g] === 0 ? 'spl-empty' : ''}`}>
               <span className="spl-gemstack-val">{g === GOLD ? '✦' : player.bonuses[g]}</span>
             </span>
@@ -249,8 +270,10 @@ export default function SplendorGame() {
   const [chatBusy, setChatBusy] = useState(false);
   const [hasKey] = useState(hasRulesKey());
 
-  const { computeMove, isSupported: workerSupported } = useAIWorker();
+  const { computeMove, cancel: cancelAI, isSupported: workerSupported } = useAIWorker();
   const aiTimerRef = useRef(null);
+  // Bumped on every New Game so a late AI reply for the old match is dropped.
+  const gameGenRef = useRef(0);
 
   const difficultyConfig = DIFFICULTY_CONFIG[difficulty] || DIFFICULTY_CONFIG.strong;
   const isHumanTurn = board.currentPlayer === HUMAN_PLAYER && board.phase !== 'game-over';
@@ -265,13 +288,16 @@ export default function SplendorGame() {
 
   const startNewGame = useCallback((pc = playerCount) => {
     if (aiTimerRef.current) clearTimeout(aiTimerRef.current);
+    aiTimerRef.current = null;
+    gameGenRef.current += 1;
+    cancelAI();
     const next = new SplendorBoard({ seed: makeSeed(), playerCount: pc });
     setBoard(next);
     setPendingColors([]);
     setLastMoveKey(null);
     setShowModal(false);
     setIsAiThinking(false);
-  }, [playerCount]);
+  }, [playerCount, cancelAI]);
 
   const play = useCallback((move) => {
     if (!move) return false;
@@ -288,8 +314,10 @@ export default function SplendorGame() {
   const computeAIMove = useCallback(() => {
     if (isAiThinking || board.phase === 'game-over') return;
     setIsAiThinking(true);
+    const gen = gameGenRef.current;
 
     const onSuccess = (move) => {
+      if (gen !== gameGenRef.current) return;
       setIsAiThinking(false);
       if (!move) return;
       applyAIMove(board, move);
@@ -299,12 +327,13 @@ export default function SplendorGame() {
     };
 
     const onError = (error) => {
+      if (gen !== gameGenRef.current) return;
       console.warn('Splendor AI error:', error);
       setIsAiThinking(false);
       const fallback = new MCTS({ maxChildren: difficultyConfig.maxChildren, rolloutSteps: difficultyConfig.rolloutSteps });
       fallback.getBestMove(board, Math.max(60, Math.floor(difficultyConfig.simulations / 4)))
         .then((move) => {
-          if (!move) return;
+          if (!move || gen !== gameGenRef.current) return;
           applyAIMove(board, move);
           setBoard(board.clone());
           if (board.phase === 'game-over') setShowModal(true);
@@ -322,8 +351,9 @@ export default function SplendorGame() {
 
   useEffect(() => {
     if (showModal || isHumanTurn || isAiThinking || board.phase === 'game-over') return;
-    aiTimerRef.current = setTimeout(() => computeAIMove(), 300);
-    return () => { if (aiTimerRef.current) clearTimeout(aiTimerRef.current); };
+    const timer = setTimeout(() => computeAIMove(), 300);
+    aiTimerRef.current = timer;
+    return () => clearTimeout(timer);
   }, [board.currentPlayer, board.phase, computeAIMove, isAiThinking, isHumanTurn, showModal]);
 
   // ---- human interactions --------------------------------------------------
@@ -403,9 +433,15 @@ export default function SplendorGame() {
             </div>
           </div>
           <div className="spl-header-right">
-            <button type="button" className="spl-btn" onClick={() => setChatOpen(o => !o)}>Rules Help</button>
-            <button type="button" className="spl-btn" onClick={() => setShowSettings(s => !s)}>Settings</button>
-            <button type="button" className="spl-btn" onClick={() => setDarkMode(d => !d)}>{darkMode ? '☀' : '☾'}</button>
+            <button type="button" className="spl-btn" onClick={() => setChatOpen(o => !o)} aria-expanded={chatOpen}>Rules Help</button>
+            <button type="button" className="spl-btn" onClick={() => setShowSettings(s => !s)} aria-expanded={showSettings}>Settings</button>
+            <button
+              type="button"
+              className="spl-btn spl-btn-icon"
+              onClick={() => setDarkMode(d => !d)}
+              aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+              aria-pressed={darkMode}
+            ><span aria-hidden="true">{darkMode ? '☀' : '☾'}</span></button>
             <button type="button" className="spl-btn spl-btn-primary" onClick={() => startNewGame()}>New Game</button>
           </div>
         </header>
@@ -413,14 +449,15 @@ export default function SplendorGame() {
         {showSettings && (
           <div className="spl-settings">
             <div className="spl-setting">
-              <label>Players</label>
+              <label>Players <small>(changing starts a new game)</small></label>
               <div className="spl-seg">
                 {[2, 3, 4].map(pc => (
                   <button
                     key={pc}
                     type="button"
                     className={`spl-seg-btn ${playerCount === pc ? 'active' : ''}`}
-                    onClick={() => { setPlayerCount(pc); localStorage.setItem('splendorPlayerCount', String(pc)); startNewGame(pc); }}
+                    aria-pressed={playerCount === pc}
+                    onClick={() => { if (pc === playerCount) return; setPlayerCount(pc); localStorage.setItem('splendorPlayerCount', String(pc)); startNewGame(pc); }}
                   >{pc}</button>
                 ))}
               </div>
@@ -433,6 +470,7 @@ export default function SplendorGame() {
                     key={level}
                     type="button"
                     className={`spl-seg-btn ${difficulty === level ? 'active' : ''}`}
+                    aria-pressed={difficulty === level}
                     onClick={() => { setDifficulty(level); localStorage.setItem('splendorDifficulty', level); }}
                   >{DIFFICULTY_LABELS[level]}</button>
                 ))}
@@ -451,10 +489,19 @@ export default function SplendorGame() {
         <div className="spl-status">
           <span className="spl-status-text">{board.lastAction}</span>
           {isAiThinking && <span className="spl-thinking">thinking…</span>}
+          <span className="spl-mini" aria-hidden="true">
+            <b>{board.getVictoryPoints(HUMAN_PLAYER)} pts</b>
+            {[...GEMS, GOLD].filter(g => human.tokens[g] > 0).map(g => (
+              <span key={g} className={`spl-mini-chip ${gemClass(g)}`}>{human.tokens[g]}</span>
+            ))}
+            <em>{board.getTokenTotal(HUMAN_PLAYER)}/10</em>
+          </span>
         </div>
 
         <div className="spl-main">
           <div className="spl-board">
+            <div className="spl-tray">
+              <div className="spl-tray-nobles">
             <div className="spl-section-label">Nobles</div>
             <div className="spl-nobles">
               {board.nobles.map(nobleId => (
@@ -467,39 +514,8 @@ export default function SplendorGame() {
               ))}
             </div>
 
-            <div className="spl-market">
-            {[3, 2, 1].map(tier => (
-              <div key={tier} className={`spl-row tier-row-${tier}`}>
-                <div className="spl-deck">
-                  <div className={`spl-card spl-card-back tier-${tier}`}>
-                    <span className="spl-deck-tier">{ROMAN[tier]}</span>
-                    <span className="spl-deck-count">{board.decks[tier].length}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="spl-btn spl-btn-reserve spl-deck-reserve"
-                    onClick={() => reserveDeck(tier)}
-                    disabled={!isHumanTurn || board.phase !== 'play' || humanReservedFull || board.decks[tier].length === 0}
-                    title={`Reserve the top (face-down) card of deck ${ROMAN[tier]} and take a gold`}
-                  >Reserve blind</button>
-                </div>
-                <div className="spl-cards">
-                  {board.visible[tier].map((cardId, i) => cardId ? (
-                    <DevCard
-                      key={cardId}
-                      card={CARDS_BY_ID[cardId]}
-                      style={{ animationDelay: `${i * 60}ms` }}
-                      onBuy={() => buyVisible(cardId)}
-                      onReserve={() => reserveVisible(cardId, tier)}
-                      canBuy={isHumanTurn && board.phase === 'play' && board.canAffordCard(HUMAN_PLAYER, cardId)}
-                      canReserve={isHumanTurn && board.phase === 'play' && !humanReservedFull}
-                    />
-                  ) : <div key={`empty-${tier}-${i}`} className="spl-card spl-card-empty" />)}
-                </div>
               </div>
-            ))}
-            </div>
-
+              <div className="spl-tray-bank">
             <div className="spl-section-label">Gem Bank</div>
             <div className="spl-bank">
               {ALL_TOKENS.map(token => {
@@ -515,11 +531,13 @@ export default function SplendorGame() {
                       disabled={!selectable}
                     />
                     {isGem && board.bank[token] >= TAKE_TWO_MIN && isHumanTurn && board.phase === 'play' && (
-                      <button type="button" className="spl-take2" onClick={() => takeTwo(token)}>×2</button>
+                      <button type="button" className="spl-take2" onClick={() => takeTwo(token)} aria-label={`Take two ${GEM_LABELS[token]}`}>×2</button>
                     )}
                   </div>
                 );
               })}
+            </div>
+              </div>
             </div>
 
             {isHumanTurn && board.phase === 'play' && pendingColors.length > 0 && (
@@ -539,6 +557,39 @@ export default function SplendorGame() {
             {humanNobleMode && (
               <div className="spl-take-bar">Choose a noble to receive (click a highlighted tile above).</div>
             )}
+            <div className="spl-market">
+            {[3, 2, 1].map(tier => (
+              <div key={tier} className={`spl-row tier-row-${tier}`}>
+                <div className="spl-deck">
+                  <div className={`spl-card spl-card-back tier-${tier}`}>
+                    <span className="spl-deck-tier">{ROMAN[tier]}</span>
+                    <span className="spl-deck-count">{board.decks[tier].length}</span>
+                  </div>
+                  <button
+                    type="button"
+                    className="spl-btn spl-btn-reserve spl-deck-reserve"
+                    onClick={() => reserveDeck(tier)}
+                    disabled={!isHumanTurn || board.phase !== 'play' || humanReservedFull || board.decks[tier].length === 0}
+                    title={`Reserve the top (face-down) card of deck ${ROMAN[tier]} and take a gold`}
+                    aria-label={`Reserve blind: top card of tier ${tier} deck, and take a gold`}
+                  >Reserve blind</button>
+                </div>
+                <div className="spl-cards">
+                  {board.visible[tier].map((cardId, i) => cardId ? (
+                    <DevCard
+                      key={cardId}
+                      card={CARDS_BY_ID[cardId]}
+                      style={{ animationDelay: `${i * 60}ms` }}
+                      onBuy={() => buyVisible(cardId)}
+                      onReserve={() => reserveVisible(cardId, tier)}
+                      canBuy={isHumanTurn && board.phase === 'play' && board.canAffordCard(HUMAN_PLAYER, cardId)}
+                      canReserve={isHumanTurn && board.phase === 'play' && !humanReservedFull}
+                    />
+                  ) : <div key={`empty-${tier}-${i}`} className="spl-card spl-card-empty" />)}
+                </div>
+              </div>
+            ))}
+            </div>
           </div>
 
           <aside className="spl-side">
@@ -573,7 +624,7 @@ export default function SplendorGame() {
           <div className="spl-chat">
             <div className="spl-chat-head">
               <span>Rules Help</span>
-              <button type="button" className="spl-btn" onClick={() => setChatOpen(false)}>×</button>
+              <button type="button" className="spl-btn" onClick={() => setChatOpen(false)} aria-label="Close Rules Help">×</button>
             </div>
             <div className="spl-chat-body">
               {!hasKey && <p className="spl-chat-hint">Rules chat uses your Anthropic API key. <Link to={loginHref('/splendor')}>Sign in / add key</Link></p>}
@@ -598,11 +649,19 @@ export default function SplendorGame() {
         {showModal && board.phase === 'game-over' && (
           <div className="spl-modal-overlay" onClick={() => setShowModal(false)}>
             <div className="spl-modal" onClick={e => e.stopPropagation()}>
-              <h2>{board.winner === HUMAN_PLAYER ? 'You win!' : `${board.players[board.winner].name} wins`}</h2>
-              <p>{board.winningPoints} prestige</p>
+              <h2>
+                {board.winners.length > 1
+                  ? 'Shared victory'
+                  : board.winners[0] === HUMAN_PLAYER ? 'You win!' : `${board.players[board.winners[0]].name} wins`}
+              </h2>
+              <p>
+                {board.winners.length > 1 ? `${board.winners.map(id => board.players[id].name).join(' and ')} · ` : ''}
+                {board.winningPoints} prestige
+              </p>
               <ul className="spl-modal-scores">
                 {board.getPlayerIds().map(id => (
-                  <li key={id} style={{ color: board.players[id].color }}>
+                  <li key={id}>
+                    <span className="spl-seat-dot" style={{ background: board.players[id].color }} aria-hidden="true" />
                     {board.players[id].name}: {board.getVictoryPoints(id)} pts · {board.players[id].cards.length} cards
                   </li>
                 ))}

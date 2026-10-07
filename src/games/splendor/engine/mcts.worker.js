@@ -7,8 +7,10 @@ self.onmessage = async function (event) {
   const { type, data } = event.data;
   if (type !== 'compute') return;
 
+  let requestId;
   try {
     const { boardState, simulations, maxChildren, rolloutSteps } = data;
+    requestId = data.requestId;
     const board = SplendorBoard.fromSerializedState(boardState);
     const mcts = new MCTS({ maxChildren, rolloutSteps: rolloutSteps ?? 28 });
     const move = await mcts.getBestMove(board, simulations);
@@ -16,6 +18,7 @@ self.onmessage = async function (event) {
     self.postMessage({
       type: 'result',
       success: true,
+      requestId,
       data: { move },
       stats: {
         simulations,
@@ -27,6 +30,7 @@ self.onmessage = async function (event) {
     self.postMessage({
       type: 'error',
       success: false,
+      requestId,
       error: error.message,
       stack: error.stack,
     });

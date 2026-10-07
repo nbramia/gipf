@@ -22,7 +22,7 @@ const SEED = getInt('seed', 12345);
 const { default: SplendorBoard } = await import(resolve(projectDir, 'src/games/splendor/SplendorBoard.js'));
 const { MCTS, applyMove } = await import(resolve(projectDir, 'src/games/splendor/engine/mcts.js'));
 
-const board = new SplendorBoard({ seed: SEED, playerCount: PLAYERS, skipInitialHistory: true });
+const board = new SplendorBoard({ seed: SEED, playerCount: PLAYERS, skipInitialHistory: true, maxTurns: 200 });
 board._skipHistory = true;
 const mcts = new MCTS({ maxChildren: 36, rolloutSteps: ROLLOUT });
 

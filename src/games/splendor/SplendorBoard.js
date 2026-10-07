@@ -15,6 +15,7 @@ import {
   NOBLES_BY_ID,
   GEMS,
   GOLD,
+  GEM_LABELS,
   ALL_TOKENS,
   TOKEN_SETUP,
   GOLD_COUNT,
@@ -28,8 +29,9 @@ import {
   emptyTokens,
 } from './splendorCards.js';
 
-// Generous round cap so even pathological self-play/rollouts always terminate.
-const MAX_GAME_TURNS = 200;
+// Live games have no round cap (base Splendor ends only via the 15-point
+// trigger). Self-play and scripts opt in with the `maxTurns` constructor option
+// so pathological games still terminate.
 
 const PLAYER_NAMES = {
   1: 'You',
@@ -74,6 +76,11 @@ function normalizePlayerCount(count) {
   return Math.max(2, Math.min(4, n));
 }
 
+// "You win" / "Medici wins": the human seat is addressed in the second person.
+function verb(name, singular, plural) {
+  return name === 'You' ? plural : singular;
+}
+
 function turnLabel(name) {
   return name === 'You' ? 'Your turn.' : `${name}'s turn.`;
 }
@@ -92,8 +99,9 @@ function tripletsOf(colors) {
 }
 
 export default class SplendorBoard {
-  constructor({ seed = 1, playerCount = 4, skipInitialHistory = false } = {}) {
+  constructor({ seed = 1, playerCount = 4, skipInitialHistory = false, maxTurns = null } = {}) {
     this.seed = seed;
+    this.maxTurns = maxTurns;
     this.playerCount = normalizePlayerCount(playerCount);
     this.playerIds = Array.from({ length: this.playerCount }, (_, i) => i + 1);
     this.victoryTarget = VICTORY_POINTS;
@@ -150,7 +158,8 @@ export default class SplendorBoard {
     this.pendingNobles = [];        // candidate noble ids during 'noble-choice'
     this.endTriggered = false;      // someone reached 15 -> finish the round
     this.turnNumber = 1;
-    this.winner = null;
+    this.winner = null;             // sole winner's seat, or null (undecided / shared)
+    this.winners = [];              // every winning seat (several on a shared victory)
     this.winningPoints = 0;
     this.lastAction = turnLabel(this.players[this.currentPlayer].name);
     this.log = [];
@@ -514,7 +523,7 @@ export default class SplendorBoard {
     this.nobles = this.nobles.filter(id => id !== nobleId);
     player.nobles.push(nobleId);
     player.points = this.getVictoryPoints(player.id);
-    this._log(`${player.name} was visited by a noble (+3 prestige).`);
+    this._log(`${player.name} ${verb(player.name, 'was', 'were')} visited by a noble (+3 prestige).`);
   }
 
   _advanceTurn() {
@@ -526,7 +535,7 @@ export default class SplendorBoard {
 
     if (wraps && this.endTriggered) return this._endGame('target');
     if (wraps) this.turnNumber++;
-    if (this.turnNumber > MAX_GAME_TURNS) return this._endGame('limit');
+    if (this.maxTurns != null && this.turnNumber > this.maxTurns) return this._endGame('limit');
 
     this.currentPlayer = next;
     this.phase = 'play';
@@ -536,27 +545,29 @@ export default class SplendorBoard {
     return true;
   }
 
-  // Winner: most prestige; tiebreak fewest development cards; then lowest seat
-  // (a deterministic stand-in for the rulebook's shared victory).
+  // Winner: most prestige; tiebreak fewest purchased development cards; players
+  // still tied share the victory (`winners` holds every seat, `winner` is set
+  // only when the victory is not shared).
   _endGame(reason) {
     const ids = this.getPlayerIds();
-    let winner = ids[0];
-    for (const id of ids) {
-      const wp = this.getVictoryPoints(winner);
-      const ip = this.getVictoryPoints(id);
-      if (ip > wp) { winner = id; continue; }
-      if (ip === wp) {
-        const wc = this.players[winner].cards.length;
-        const ic = this.players[id].cards.length;
-        if (ic < wc) winner = id;
-      }
-    }
+    const best = Math.max(...ids.map(id => this.getVictoryPoints(id)));
+    const leaders = ids.filter(id => this.getVictoryPoints(id) === best);
+    const fewest = Math.min(...leaders.map(id => this.players[id].cards.length));
+    const winners = leaders.filter(id => this.players[id].cards.length === fewest);
     this.phase = 'game-over';
-    this.winner = winner;
-    this.winningPoints = this.getVictoryPoints(winner);
-    this.lastAction = reason === 'limit'
-      ? `${this.players[winner].name} wins on points (game-length limit).`
-      : `${this.players[winner].name} wins with ${this.winningPoints} prestige!`;
+    this.winners = winners;
+    this.winner = winners.length === 1 ? winners[0] : null;
+    this.winningPoints = best;
+    const names = winners.map(id => this.players[id].name);
+    if (winners.length > 1) {
+      this.lastAction = `${names.join(' and ')} share the victory with ${best} prestige!`;
+    } else {
+      const name = names[0];
+      const w = verb(name, 'wins', 'win');
+      this.lastAction = reason === 'limit'
+        ? `${name} ${w} on points (game-length limit).`
+        : `${name} ${w} with ${best} prestige!`;
+    }
     this._log(this.lastAction);
     this._captureState();
     return true;
@@ -573,7 +584,7 @@ export default class SplendorBoard {
   }
 
   _gem(token) {
-    return token; // human-readable label is applied in the UI via GEM_LABELS
+    return GEM_LABELS[token] || token;
   }
 
   _log(message) {
@@ -626,7 +637,9 @@ export default class SplendorBoard {
       pendingNobles: [...this.pendingNobles],
       endTriggered: this.endTriggered,
       turnNumber: this.turnNumber,
+      maxTurns: this.maxTurns,
       winner: this.winner,
+      winners: [...this.winners],
       winningPoints: this.winningPoints,
       lastAction: this.lastAction,
       log: [...this.log],
@@ -663,7 +676,9 @@ export default class SplendorBoard {
     board.pendingNobles = [...(state.pendingNobles || [])];
     board.endTriggered = !!state.endTriggered;
     board.turnNumber = state.turnNumber;
+    board.maxTurns = state.maxTurns ?? null;
     board.winner = state.winner;
+    board.winners = [...(state.winners || (state.winner != null ? [state.winner] : []))];
     board.winningPoints = state.winningPoints;
     board.lastAction = state.lastAction;
     board.log = [...(state.log || [])];
@@ -712,7 +727,9 @@ export default class SplendorBoard {
     b.pendingNobles = this.pendingNobles.slice();
     b.endTriggered = this.endTriggered;
     b.turnNumber = this.turnNumber;
+    b.maxTurns = this.maxTurns;
     b.winner = this.winner;
+    b.winners = this.winners.slice();
     b.winningPoints = this.winningPoints;
     b.lastAction = this.lastAction;
     b.log = this.log.slice();

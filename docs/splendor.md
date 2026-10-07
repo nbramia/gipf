@@ -18,7 +18,9 @@ Faithful **base-game Splendor, 2–4 players**. Implemented:
 - The 10-token hand limit as a real discard sub-phase (one token returned at a time),
   the 3-reserved-card limit, automatic noble visits (with a choice when more than one
   qualifies), market replacement draws, and the 15-prestige **final-round** end
-  condition with the **fewest-cards** tiebreak.
+  condition with the **fewest-purchased-cards** tiebreak (players still tied share the
+  victory; `board.winners` lists every winner). Live games have no round cap; self-play
+  scripts pass `maxTurns` to bound pathological games.
 - Undo/redo via the same board-state snapshot pattern as the other games.
 
 **Intentionally omitted:** the Cities of Splendor expansions (Cities, Strongholds,
