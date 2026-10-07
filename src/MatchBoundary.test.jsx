@@ -30,7 +30,7 @@ test('a normal guest save shows no status or recovery control', () => {
   expect(JSON.parse(localStorage.getItem('yinshMatch:v1')).state.turn).toBe(9);
   expectQuiet();
 });
-test('a normal signed-in save and sync shows no status or recovery control', async () => {
+test('a normal signed-in save and sync shows no status, only the quiet recovery entry', async () => {
   jest.useFakeTimers();
   localStorage.setItem('playAccount', JSON.stringify(session));
   localStorage.setItem('yinshMatch:v1', JSON.stringify(sample(1)));
@@ -49,7 +49,7 @@ test('a normal signed-in save and sync shows no status or recovery control', asy
   await act(async () => { jest.advanceTimersByTime(10000); });
   expect(cloud.state.turn).toBe(9);
   expect(JSON.parse(localStorage.getItem('yinshMatchSync:v1')).baseline.state.turn).toBe(9);
-  // Every write stages older positions in recovery; that history is not offered.
+  // Every write stages older positions in recovery, reachable from the quiet entry.
   expect(JSON.parse(localStorage.getItem('yinshMatchRecovery:v1')).alternatives).toContainEqual(sample(1));
   expectQuietWithRecovery();
 });
