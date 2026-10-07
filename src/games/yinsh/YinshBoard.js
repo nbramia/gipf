@@ -688,6 +688,12 @@ export default class YinshBoard {
     }
 
     if (this.gamePhase === 'play') {
+      // An exhausted pool means the game is already decided; never place a 52nd marker.
+      if (this._countMarkers() >= YinshBoard.MARKER_POOL) {
+        this._endByMarkerExhaustion();
+        this._captureState();
+        return;
+      }
       const key = this._toKey(q, r);
       const piece = this.boardState[key];
 

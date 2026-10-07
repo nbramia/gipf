@@ -204,6 +204,11 @@ const YinshGame = () => {
         setWins(w => ({ ...w, [prev.winner]: Math.max(0, w[prev.winner] - 1) }));
       }
       scoreApplied.current = false;
+    } else if (prevResult.current.phase !== 'game-over' && keepScore && !scoreApplied.current) {
+      // Entering a finished position (including by redo) counts the result once
+      scoreApplied.current = true;
+      const winner = yinshBoard.winner;
+      if (winner) setWins(w => ({ ...w, [winner]: w[winner] + 1 }));
     }
     prevResult.current = { phase: yinshBoard.gamePhase, winner: yinshBoard.winner };
     savedMatch?.persist(encodeBoard(yinshBoard), { humanPlayer, twoPlayerMode, showModal, difficulty, selectedSetupRing, scoreApplied: scoreApplied.current });
@@ -1617,9 +1622,8 @@ const YinshGame = () => {
 
           {/* Setup Ring Tray - outside SVG to avoid board overlap */}
           {gamePhase === 'setup' && (
-            <div className="flex flex-col sm:flex-row justify-center items-start sm:items-center gap-1 sm:gap-4 py-2 px-2 mt-2 rounded-lg bg-[var(--color-bg-tray)]">
+            <div className="flex flex-col items-center gap-1 py-2 px-2 mt-2 rounded-lg bg-[var(--color-bg-tray)]">
               {renderSetupTray(1)}
-              <div className="hidden sm:block w-px h-8 bg-[var(--color-border-panel)]" />
               {renderSetupTray(2)}
             </div>
           )}

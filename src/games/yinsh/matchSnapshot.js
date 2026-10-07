@@ -27,6 +27,8 @@ export function decodeMatch(snapshot) {
   const row = r => record(r) && player(r.player) && Array.isArray(r.markers) && r.markers.length === 5 && r.markers.every(coordinate);
   if ((s.selectedRing !== null && !coordinate(s.selectedRing)) || !s.validMoves.every(coordinate) ||
       !s.rows.every(row) || !s.rowResolutionQueue.every(q => record(q) && player(q.player) && Array.isArray(q.rows) && q.rows.every(row))) throw new Error('invalid_snapshot');
+  // A save written before the pool rule can hold a full pool mid-play: adjudicate it now.
+  if (board.gamePhase === 'play' && board._countMarkers() >= YinshBoard.MARKER_POOL) board._endByMarkerExhaustion();
   board._captureState();
   return { board, ui: snapshot.ui };
 }

@@ -1,5 +1,6 @@
 import YinshBoard from './YinshBoard.js';
 import { encodeBoard, decodeMatch } from './matchSnapshot.js';
+import legacy51 from './fixtures/old-51-save.json';
 import { getAIMove } from './engine/aiPlayer.js';
 
 const envelope = board => ({ v: 1, game: 'yinsh', id: 'synthetic', updatedAt: 1, state: encodeBoard(board), ui: { humanPlayer: 1, twoPlayerMode: true, showModal: false } });
@@ -66,12 +67,12 @@ describe('jump notation', () => {
 describe('off-axis destinations', () => {
   test('getFlippedAlongPath returns [] instead of walking a path that cannot reach the target', () => {
     const board = new YinshBoard();
-    expect(board.getFlippedAlongPath([-3, -2], [0, 0])).toEqual([]);
+    expect(board.getFlippedAlongPath([0, 0], [2, -1])).toEqual([]);
     expect(board.getFlippedAlongPath([0, 0], [0, 0])).toEqual([]);
   });
   test('_flipMarkersAlongPath rejects an off-axis path instead of looping', () => {
     const board = new YinshBoard();
-    expect(() => board._flipMarkersAlongPath(-3, -2, 0, 0, {})).toThrow(/straight/);
+    expect(() => board._flipMarkersAlongPath(0, 0, 2, -1, {})).toThrow(/straight/);
   });
 });
 
@@ -133,6 +134,24 @@ describe('marker pool exhaustion', () => {
     expect(await mcts.getBestMove(board, 5)).toBeNull();
     expect(mcts._evaluatePlayoutResult(board, 1)).toBe(0);
     expect(await getAIMove(mcts, board, 5)).toBeNull();
+  });
+
+  test('a pre-rule save holding a full pool is adjudicated on restore and never overdrawn', () => {
+    const { board } = decodeMatch(JSON.parse(JSON.stringify(legacy51)));
+    expect(board.getGamePhase()).toBe('game-over');
+    expect(board._countMarkers()).toBe(51);
+    const ring = Object.entries(board.getBoardState()).find(([, p]) => p.type === 'ring' && p.player === board.getCurrentPlayer());
+    const [q, r] = ring[0].split(',').map(Number);
+    board.handleClick(q, r);
+    expect(board._countMarkers()).toBe(51);
+    expect(() => decodeMatch(JSON.parse(JSON.stringify(envelope(board))))).not.toThrow();
+  });
+
+  test('the engine refuses to place a marker once the pool is full', () => {
+    const board = nearlyFullBoard(51, [0, 0]);
+    board.handleClick(...Object.keys(board.getBoardState()).find(k => board.getBoardState()[k].type === 'ring' && board.getBoardState()[k].player === 1).split(',').map(Number));
+    expect(board._countMarkers()).toBe(51);
+    expect(board.getGamePhase()).toBe('game-over');
   });
 
   test('snapshots round-trip a draw and reject an over-full pool or an unexplained drawn phase', () => {
