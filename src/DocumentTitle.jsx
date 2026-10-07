@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { games } from './games-registry.js';
 
 export function titleFor(pathname) {
-  const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+  const path = (pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname).toLowerCase();
   if (path === '/') return 'Play';
   const game = games.find(g => g.path === path);
   if (game) return `${game.name} · Play`;

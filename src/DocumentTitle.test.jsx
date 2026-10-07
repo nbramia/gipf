@@ -7,6 +7,8 @@ test('titles come from the registry and route', () => {
   expect(titleFor('/')).toBe('Play');
   expect(titleFor('/yinsh')).toBe('YINSH · Play');
   expect(titleFor('/chess/')).toBe('CHESS · Play');
+  expect(titleFor('/CHESS')).toBe('CHESS · Play');
+  expect(titleFor('/Login')).toBe('Sign in · Play');
   expect(titleFor('/login')).toBe('Sign in · Play');
   expect(titleFor('/nope')).toBe('Page not found · Play');
 });
