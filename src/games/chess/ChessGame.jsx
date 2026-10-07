@@ -1,5 +1,7 @@
 import MatchBoundary, { useSavedMatch } from '../../MatchBoundary.jsx';
 import { encodeBoard, decodeMatch, fromLegacy } from './matchSnapshot.js';
+import ConfirmDialog from '../../ConfirmDialog.jsx';
+import { beforeReplace as beforeReplaceRatedMatch, isScored, markScored } from './ratedMatches.js';
 // ChessGame.jsx — React UI for the Chess game.
 //
 // Interactive react-chessboard wired to ChessBoard.js via the suite's
@@ -215,8 +217,10 @@ function ChessGame() {
   useEffect(() => { soundRef.current = soundOn; }, [soundOn]);
   const ratedRef = useRef(rated); // latest value usable inside coachOnMove
   useEffect(() => { ratedRef.current = rated; }, [rated]);
-  const ratedAppliedRef = useRef(restored?.ratedApplied || false); // guard: score each rated game exactly once
-  const historyAppliedRef = useRef(restored?.historyApplied || false); // guard: record opponent history once per game (casual + rated)
+  // A match id that was already scored (even via another retained snapshot of it) never scores again.
+  const alreadyScored = useRef(isScored(savedMatch?.matchId?.())).current;
+  const ratedAppliedRef = useRef(restored?.ratedApplied || alreadyScored); // guard: score each rated game exactly once
+  const historyAppliedRef = useRef(restored?.historyApplied || alreadyScored); // guard: record opponent history once per game (casual + rated)
   const ratingRef = useRef(rating); // latest rating/games for the sync-pull closure
   const ratedGamesRef = useRef(ratedGames);
   useEffect(() => { ratingRef.current = rating; }, [rating]);
@@ -283,6 +287,27 @@ function ChessGame() {
   // screen for the board + coach. Native <details> keeps them user-toggleable.
   const [gamePanelOpen, setGamePanelOpen] = useState(true);
   const [settingsPanelOpen, setSettingsPanelOpen] = useState(true);
+  // Which tab of the Game panel is showing (Play or Train); remembered per device.
+  const [gameTab, setGameTab] = useState(() => {
+    try { return localStorage.getItem('chessGameTab') === 'train' ? 'train' : 'play'; } catch (_) { return 'play'; }
+  });
+  const gameTabs = ['play', 'train'];
+  const onGameTabKey = (e) => {
+    const i = gameTabs.indexOf(gameTab);
+    const next = e.key === 'ArrowRight' ? (i + 1) % gameTabs.length
+      : e.key === 'ArrowLeft' ? (i + gameTabs.length - 1) % gameTabs.length
+        : e.key === 'Home' ? 0 : e.key === 'End' ? gameTabs.length - 1 : -1;
+    if (next < 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    selectGameTab(gameTabs[next]);
+    const el = document.getElementById(`chess-tab-${gameTabs[next]}`);
+    if (el) el.focus();
+  };
+  const selectGameTab = (tab) => {
+    setGameTab(tab);
+    try { localStorage.setItem('chessGameTab', tab); } catch (_) { /* storage unavailable */ }
+  };
   const autoCollapsedRef = useRef(false);
 
   // Confirmation prompt for actions that destroy something the user can't get
@@ -459,6 +484,8 @@ function ChessGame() {
   useEffect(() => {
     const onKey = (e) => {
       if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+      // Keys aimed at a tab list or a dialog belong to it, not to history.
+      if (e.defaultPrevented || (e.target && e.target.closest && e.target.closest('[role="tablist"], [role="dialog"]'))) return;
       const total = board.positions.length - 1;
       if (e.key === 'ArrowLeft') {
         setReviewPly((p) => Math.max(0, (p == null ? total : p) - 1));
@@ -541,17 +568,21 @@ function ChessGame() {
   };
 
 
-  // Score a finished rated game exactly once: derive win/loss/draw from the
-  // human's POV, update the Elo against the matched rung, and record the delta.
-  useEffect(() => {
-    if (!rated || puzzleMode || !gameResult || ratedAppliedRef.current) return;
-    ratedAppliedRef.current = true;
+  // The three result writers below are shared by a game that ends on the board
+  // (the effects that follow) and by abandoning a live rated game
+  // (forfeitRatedGame), so a forfeit is booked exactly like a resignation. Each
+  // is guarded by its own ref, so no game can be booked twice.
+  const humanResultOf = (res) => {
     const humanWord = humanColor === 'w' ? 'white' : 'black';
-    const result = gameResult.winner == null
-      ? 'draw'
-      : gameResult.winner === humanWord
-        ? 'win'
-        : 'loss';
+    return res.winner == null ? 'draw' : res.winner === humanWord ? 'win' : 'loss';
+  };
+
+  // Score a finished rated game exactly once: update the Elo against the matched
+  // rung, the rated-game count and the displayed delta.
+  const scoreRatedGame = (result) => {
+    if (ratedAppliedRef.current) return;
+    ratedAppliedRef.current = true;
+    markScored(savedMatch?.matchId?.());
     const opp = ratedRung.rating;
     const { rating: next, delta } = updateRating(rating, opp, scoreFor(result), ratedGames);
     setRating(next);
@@ -559,38 +590,38 @@ function ChessGame() {
     setRatedDelta({ delta, opp });
     // cross-device write-through
     if (syncId) putRemoteProfile(syncId, { rating: { rating: next, ratedGames: ratedGames + 1 } });
+  };
+  useEffect(() => {
+    if (!rated || puzzleMode || !gameResult) return;
+    scoreRatedGame(humanResultOf(gameResult));
   }, [rated, puzzleMode, gameResult, humanColor, ratedRung, rating, ratedGames, syncId]);
 
   // Record per-opponent history at every game end (casual and rated), once per
   // game. Independent of rated scoring so casual games are tracked too; skipped
   // in puzzle mode and mistake drills (those aren't games vs an opponent).
-  useEffect(() => {
-    if (puzzleMode || drill.active || !gameResult || historyAppliedRef.current) return;
+  const recordHistory = (result) => {
+    if (historyAppliedRef.current) return;
     historyAppliedRef.current = true;
-    const humanWord = humanColor === 'w' ? 'white' : 'black';
-    const result = gameResult.winner == null
-      ? 'draw'
-      : gameResult.winner === humanWord
-        ? 'win'
-        : 'loss';
     const h = recordGameResult(loadOppHistory(), { rated, opponentKey, result });
     saveOppHistory(h);
     setHistory(h);
     // Mistakes accumulated during the game get synced at game end too.
     if (syncId) putRemoteProfile(syncId, { history: h, mistakes: loadMistakes() });
+  };
+  useEffect(() => {
+    if (puzzleMode || drill.active || !gameResult) return;
+    recordHistory(humanResultOf(gameResult));
   }, [puzzleMode, drill.active, gameResult, humanColor, rated, opponentKey, syncId]);
 
   // Log the finished game for the cross-game progress view. Deliberately waits
   // for `coaching` to settle: the last move's analysis is still in flight when
   // the result lands, and recording early would bank an accuracy figure that
   // misses it. Guarded to fire exactly once per game.
-  const gameLoggedRef = useRef(restored?.gameLogged || false);
-  useEffect(() => {
-    if (puzzleMode || drill.active || !gameResult || coaching || gameLoggedRef.current) return;
+  const gameLoggedRef = useRef(restored?.gameLogged || alreadyScored);
+  const logGame = (result) => {
+    if (gameLoggedRef.current) return;
     if (moveStats.length === 0) return; // nothing analysed — nothing to say
     gameLoggedRef.current = true;
-    const humanWord = humanColor === 'w' ? 'white' : 'black';
-    const result = gameResult.winner == null ? 'draw' : gameResult.winner === humanWord ? 'win' : 'loss';
     const summary = summarizeAccuracy(moveStats);
     const side = humanColor === 'w' ? summary.white : summary.black;
     const opening = detectOpening(board.sanHistory());
@@ -610,10 +641,54 @@ function ChessGame() {
       })
     );
     setGameLog(loadGameLog());
+  };
+  useEffect(() => {
+    if (puzzleMode || drill.active || !gameResult || coaching) return;
+    logGame(humanResultOf(gameResult));
   }, [
     puzzleMode, drill.active, gameResult, coaching, moveStats, humanColor,
     rated, opponentKey, board,
   ]);
+
+  // A rated game can be restarted for free only until both sides have moved
+  // (the abort window). After that, leaving it is a forfeit.
+  // The scored-id store is authoritative: another path (the match boundary) may
+  // have booked this match since the refs were set.
+  const syncScored = () => {
+    if (!isScored(savedMatch?.matchId?.())) return false;
+    ratedAppliedRef.current = true;
+    historyAppliedRef.current = true;
+    gameLoggedRef.current = true;
+    return true;
+  };
+  const ratedGameLive = rated && !puzzleMode && !drill.active && !gameOver && !ratedAppliedRef.current &&
+    !isScored(savedMatch?.matchId?.());
+  const ratedAbortable = movesPlayedCount < 2;
+  const forfeitRatedGame = () => {
+    if (syncScored()) return;
+    scoreRatedGame('loss');
+    recordHistory('loss');
+    logGame('loss');
+  };
+  const guardRatedForfeitRef = useRef(null);
+  // Run `proceed` now, or after confirming the forfeit when a started rated game
+  // would be discarded by it.
+  const guardRatedForfeit = (proceed, { title, confirmLabel } = {}) => {
+    if (!ratedGameLive || ratedAbortable) {
+      proceed();
+      return;
+    }
+    askConfirm({
+      title: title || 'Abandon this rated game?',
+      body: 'Both sides have moved, so leaving counts as a resignation: a loss that lowers your rating.',
+      confirmLabel: confirmLabel || 'Forfeit and continue',
+      onConfirm: () => {
+        forfeitRatedGame();
+        proceed();
+      },
+    });
+  };
+  guardRatedForfeitRef.current = guardRatedForfeit;
 
   // Save after result bookkeeping, so a refreshed terminal match cannot count twice.
   // The latest clock is read only on meaningful changes or lifecycle flushes.
@@ -1172,6 +1247,10 @@ function ChessGame() {
     startGame(goingRated ? (Math.random() < 0.5 ? 'w' : 'b') : humanColor);
   };
   const toggleRated = () => {
+    if (rated && ratedGameLive && !ratedAbortable) {
+      guardRatedForfeit(applyRatedToggle, { title: 'Leave rated mode?', confirmLabel: 'Forfeit and switch' });
+      return;
+    }
     if (movesPlayedCount > 0 && !gameOver) {
       askConfirm({
         title: rated ? 'Leave rated mode?' : 'Switch to rated mode?',
@@ -1270,7 +1349,8 @@ function ChessGame() {
     setBoard(next);
   };
 
-  const startPuzzles = () => {
+  const startPuzzles = () => guardRatedForfeit(beginPuzzles);
+  const beginPuzzles = () => {
     stashGame();
     const progress = loadProgress();
     setPuzzleProgressState(progress);
@@ -1402,7 +1482,8 @@ function ChessGame() {
     setSelected(null);
     setBoard(next);
   };
-  const startDrills = (entries) => {
+  const startDrills = (entries) => guardRatedForfeit(() => beginDrills(entries));
+  const beginDrills = (entries) => {
     stashGame();
     const first = drill.start(entries);
     if (!first) return;
@@ -1596,7 +1677,8 @@ function ChessGame() {
         setOrientation(color === 'w' ? 'white' : 'black');
         setBoard(next);
       };
-      setImportPrompt({ players, apply: applyImport });
+      // The side prompt answers later, so go through the latest render's guard.
+      setImportPrompt({ players, apply: (color) => guardRatedForfeitRef.current(() => applyImport(color)) });
     } catch (_) {
       setPgnError('Failed to read that file.');
     } finally {
@@ -1704,11 +1786,11 @@ function ChessGame() {
             : gameResult.type === 'stalemate'
             ? 'Draw — stalemate'
             : gameResult.type === 'threefold'
-              ? 'Draw — threefold repetition'
+              ? 'Draw by threefold repetition (claimed automatically)'
               : gameResult.type === 'insufficient'
                 ? 'Draw — insufficient material'
                 : gameResult.type === 'fifty-move'
-                  ? 'Draw — fifty-move rule'
+                  ? 'Draw by the 50-move rule (claimed automatically)'
                   : 'Draw';
   } else if (engineStatus === 'loading') {
     statusText = 'Loading engine…';
@@ -2166,7 +2248,7 @@ function ChessGame() {
                       )}
                     </>
                   ) : (
-                    <button onClick={() => startGame()} className="px-4 py-2 rounded-lg font-body text-sm panel tap-target">
+                    <button onClick={() => guardRatedForfeit(() => startGame())} className="px-4 py-2 rounded-lg font-body text-sm panel tap-target">
                       {rated ? 'New Rated Game' : 'New Game'}
                     </button>
                   )}
@@ -2324,7 +2406,7 @@ function ChessGame() {
               </div>
             </div>
 
-            <div className="flex flex-col gap-4 md:min-h-[calc(100vh-7rem)]">
+            <div className="right-col flex flex-col gap-4 md:min-h-[calc(100vh-7rem)]">
               {/* Post-game mistake review — retry this game's mistakes */}
               {accuracyReport && gameMistakes.length > 0 && (
                 <MistakeReviewPanel mistakes={gameMistakes} onRetry={retryMistake} />
@@ -2576,7 +2658,7 @@ function ChessGame() {
               )}
 
               <details
-                className="panel rounded-xl p-4"
+                className="panel rounded-xl p-4 game-panel"
                 open={gamePanelOpen}
                 onToggle={(e) => setGamePanelOpen(e.currentTarget.open)}
               >
@@ -2584,6 +2666,28 @@ function ChessGame() {
                   Game
                 </summary>
                 <div className="space-y-3 mt-3">
+                {/* Play / Train: playing a game and training on puzzles or mistakes
+                    live in separate tabs so the panel stays short. */}
+                <div role="tablist" aria-label="Game panel" className="flex gap-2" onKeyDown={onGameTabKey}>
+                  {[['play', 'Play'], ['train', 'Train']].map(([key, label]) => (
+                    <button
+                      key={key}
+                      role="tab"
+                      id={`chess-tab-${key}`}
+                      aria-selected={gameTab === key}
+                      tabIndex={gameTab === key ? 0 : -1}
+                      aria-controls="chess-tabpanel"
+                      onClick={() => selectGameTab(key)}
+                      className={`flex-1 px-3 py-2 rounded-lg font-body text-sm panel tap-target${
+                        gameTab === key ? ' is-selected' : ''
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div role="tabpanel" id="chess-tabpanel" aria-labelledby={`chess-tab-${gameTab}`} className="space-y-3">
+                {gameTab === 'play' && (<>
                 <Toggle label="Rated mode" checked={rated} onChange={toggleRated} />
                 {/* Explain the lockouts before the click, not after switching
                     (which would cost the current game). */}
@@ -2593,7 +2697,6 @@ function ChessGame() {
                     so the result is honest — you still get the full review once the game ends. Starts a new game.
                   </p>
                 )}
-
                 {rated ? (
                   <div className="rounded-lg p-3" style={{ backgroundColor: 'var(--color-bg-panel)' }}>
                     <div className="flex items-baseline justify-between">
@@ -2663,6 +2766,60 @@ function ChessGame() {
                         </p>
                       )}
                     </div>
+                    <div>
+                      <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+                        Clock
+                      </label>
+                      <select
+                        value={timeControlPref}
+                        onChange={(e) => setTimeControlPref(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg font-body text-sm panel"
+                        style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
+                      >
+                        {TIME_CONTROLS.map((t) => (
+                          <option key={t.key} value={t.key}>
+                            {t.label}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="font-body text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                        Clocks start on the first move. Takes effect on your next new game.
+                      </p>
+                    </div>
+                    <div>
+                      <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
+                        Play as
+                      </label>
+                      <div className="flex gap-2">
+                        {[
+                          { c: 'w', label: 'White' },
+                          { c: 'b', label: 'Black' },
+                        ].map(({ c, label }) => (
+                          <button
+                            key={c}
+                            onClick={() => startGame(c)}
+                            aria-pressed={humanColor === c}
+                            className={`flex-1 px-3 py-2 rounded-lg font-body text-sm panel tap-target${
+                              humanColor === c ? ' is-selected' : ''
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="mt-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                        Picking a colour starts a new game.
+                      </p>
+                    </div>
+                  </>
+                )}
+                </>)}
+                {gameTab === 'train' && (rated ? (
+                  <p className="font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                    Puzzles, mistake review and repertoire are off during rated games so the result is honest. Switch rated mode off under Play to use them.
+                  </p>
+                ) : (
+                  <>
                     {/* Deliberate practice: pick what to drill instead of only
                         taking whatever the adaptive queue serves up. */}
                     <div>
@@ -2780,60 +2937,15 @@ function ChessGame() {
                         </div>
                       </div>
                     )}
-
-                    <div>
-                      <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
-                        Clock
-                      </label>
-                      <select
-                        value={timeControlPref}
-                        onChange={(e) => setTimeControlPref(e.target.value)}
-                        className="w-full px-3 py-2 rounded-lg font-body text-sm panel"
-                        style={{ color: 'var(--color-text-primary)', backgroundColor: 'var(--color-bg-panel)' }}
-                      >
-                        {TIME_CONTROLS.map((t) => (
-                          <option key={t.key} value={t.key}>
-                            {t.label}
-                          </option>
-                        ))}
-                      </select>
-                      <p className="font-body text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
-                        Clocks start on the first move. Takes effect on your next new game.
-                      </p>
-                    </div>
-                    <div>
-                      <label className="block font-body text-xs mb-1" style={{ color: 'var(--color-text-secondary)' }}>
-                        Play as
-                      </label>
-                      <div className="flex gap-2">
-                        {[
-                          { c: 'w', label: 'White' },
-                          { c: 'b', label: 'Black' },
-                        ].map(({ c, label }) => (
-                          <button
-                            key={c}
-                            onClick={() => startGame(c)}
-                            aria-pressed={humanColor === c}
-                            className={`flex-1 px-3 py-2 rounded-lg font-body text-sm panel tap-target${
-                              humanColor === c ? ' is-selected' : ''
-                            }`}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                      <p className="mt-1 font-body text-xs" style={{ color: 'var(--color-text-muted)' }}>
-                        Picking a colour starts a new game.
-                      </p>
-                    </div>
                   </>
-                )}
+                ))}
+                </div>
                 </div>
               </details>
 
               <details
                 id="chess-settings"
-                className="panel rounded-xl p-4"
+                className="panel rounded-xl p-4 settings-panel"
                 open={settingsPanelOpen}
                 onToggle={(e) => setSettingsPanelOpen(e.currentTarget.open)}
               >
@@ -2998,44 +3110,27 @@ function ChessGame() {
 
       {/* Confirmation for anything that destroys state the user can't recover */}
       {confirmPrompt && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center modal-safe-area"
-          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
-          onClick={() => setConfirmPrompt(null)}
-          role="dialog"
-          aria-modal="true"
-          aria-label={confirmPrompt.title}
-        >
-          <div
-            className="panel rounded-2xl w-full max-w-sm p-5 modal-safe-bottom"
-            onClick={(ev) => ev.stopPropagation()}
-          >
-            <h3 className="font-heading text-sm font-semibold mb-2" style={{ color: 'var(--color-text-primary)' }}>
-              {confirmPrompt.title}
-            </h3>
-            <p className="font-body text-sm mb-4" style={{ color: 'var(--color-text-secondary)' }}>
-              {confirmPrompt.body}
-            </p>
-            <div className="flex gap-2 justify-end">
-              <button
-                onClick={() => setConfirmPrompt(null)}
-                className="px-4 py-2 rounded-lg font-body text-sm panel tap-target"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  const { onConfirm } = confirmPrompt;
-                  setConfirmPrompt(null);
-                  onConfirm();
-                }}
-                className="px-4 py-2 rounded-lg font-body text-sm btn-primary tap-target"
-              >
-                {confirmPrompt.confirmLabel}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title={confirmPrompt.title}
+          body={confirmPrompt.body}
+          confirmLabel={confirmPrompt.confirmLabel}
+          onCancel={() => setConfirmPrompt(null)}
+          onConfirm={() => {
+            const { onConfirm } = confirmPrompt;
+            setConfirmPrompt(null);
+            onConfirm();
+          }}
+          overlayStyle={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+          classes={{
+            overlay: 'fixed inset-0 z-50 flex items-center justify-center modal-safe-area',
+            panel: 'panel rounded-2xl w-full max-w-sm p-5 modal-safe-bottom',
+            title: 'font-heading text-sm font-semibold mb-2 confirm-title',
+            body: 'font-body text-sm mb-4 confirm-body',
+            actions: 'flex gap-2 justify-end',
+            cancel: 'px-4 py-2 rounded-lg font-body text-sm panel tap-target',
+            confirm: 'px-4 py-2 rounded-lg font-body text-sm btn-primary tap-target',
+          }}
+        />
       )}
 
       {/* Move-thread Q&A modal (tool-use, Stockfish-grounded) */}
@@ -3133,4 +3228,4 @@ function ChessGame() {
   );
 }
 
-export default function ResumableChessGame() { return <MatchBoundary game="chess" decode={decodeMatch} loadLegacy={loadLegacyMatch}><ChessGame /></MatchBoundary>; }
+export default function ResumableChessGame() { return <MatchBoundary game="chess" decode={decodeMatch} loadLegacy={loadLegacyMatch} beforeReplace={beforeReplaceRatedMatch}><ChessGame /></MatchBoundary>; }

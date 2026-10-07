@@ -148,6 +148,17 @@ move's dialogue entry so the conversation has continuity. Threads are a key-only
 feature — free-form Q&A has no template fallback. The endpoint marks the
 move-context block with prompt caching so multi-round threads stay cheap.
 
+## Game panel
+
+The Game panel has two tabs. **Play** holds rated mode (with its rating card),
+opponent strength, the clock and the colour choice. **Train** holds the puzzle
+theme filter, repertoire pins and the mistake-drill opening filter; the Puzzles
+and Train my mistakes buttons stay with the game controls. Rated games lock the
+Train tab. The last tab is remembered on the device in `chessGameTab`. The tabs follow the
+WAI-ARIA pattern: only the active tab is in the Tab order, Left/Right/Home/End
+move between tabs, and those keys do not step through move history. The
+confirmation dialog moves focus in, traps Tab, closes on Escape and returns focus.
+
 ## Learning modes
 
 - **Learning prompt:** a free-text "what do you want to learn" field whose
@@ -155,6 +166,7 @@ move-context block with prompt caching so multi-round threads stay cheap.
 - **Opening detection:** `coach/openings.js` names the opening (deepest ECO
   match) and flags when play leaves book.
 - **PGN:** export the current game (one header set, the game's result as the Result tag and terminal marker) or import one to review (`coach/pgn.js`). An import is a casual, fully unscored board (no rated, opponent-history or game-log writes, including moves played on from it), resets the clock and result state, and a PGN that declares a result is shown as finished rather than continued; the declared result is kept in the saved PGN's Result header so it survives a reload. A clock choice in Settings applies to the next new game, not the one in progress; a timeout is a draw when the other side cannot possibly checkmate (lichess material rules). Promotion (click or drag) uses an app-owned labelled chooser.
+- **Automatic draws:** threefold repetition and the 50-move rule end the game at once, as on most online servers, and the result says so ("Draw by threefold repetition (claimed automatically)", "Draw by the 50-move rule (claimed automatically)"). Stalemate, insufficient material and timeout-versus-insufficient-material keep their own wording.
 - **Accuracy summary:** at game end, a per-side accuracy % plus
   blunder/mistake/inaccuracy counts (`coach/accuracy.js`, Lichess-style curve).
 - **Puzzles:** a rated, adaptive, coached trainer.
@@ -245,6 +257,24 @@ tier:
   Reads and writes are authenticated with a signed-in account (Auth0); a
   key-hash or other public identifier never authorizes access (see
   `docs/public-accounts.md`).
+- **Abort window:** a new rated game is free until both sides have moved
+  (fewer than two plies, so an engine opening as White does not count against
+  the player). After that, anything that would discard the live game (New Rated
+  Game, leaving rated mode, starting puzzles or mistake drills, importing a PGN)
+  asks first and books a loss through the same writers as Resign (rating,
+  rated-game count, opponent history, game log). Each writer is guarded once per
+  game, so a finished or resigned game is never scored again.
+- **Replacement through the match boundary:** choosing the other tab's or the
+  cloud's match in a conflict, restoring a recovery backup, or "Keep backup and
+  start new game" replaces the saved match without the game's buttons.
+  `ChessGame` passes `ratedMatches.beforeReplace` to `MatchBoundary`, which
+  confirms and then books the forfeit from the saved snapshot alone. Restoring an
+  earlier snapshot of the same match id is a rewind and counts as abandoning the
+  further-along state.
+- **Scored match ids:** every scored match id (resign, finish, forfeit) is kept in
+  `chessRatedScored` (last 200, device-local, not synced). A snapshot whose id is
+  listed starts with its rated, history and log guards already set, so no
+  retained copy of a scored match can score again.
 
 ## Player profile & cross-device sync
 
@@ -319,6 +349,7 @@ authenticated cloud sync; see [resumable matches](resumable-matches.md).
 chessDarkMode, chessShowMoves, chessDifficulty, chessLearningGoal,
 chessShowEvalBar, chessSound, chessLichessToken, chessRated, chessRating,
 chessRatedGames, chessMistakes, chessOppHistory, chessPuzzleProgress,
+chessGameTab, chessRatedScored,
 chessMatch:v1, chessMatchSync:v1, chessMatchRecovery:v1, chessStatsRecovery:v1
 
 playApiKey  # shared app-wide (all games), not chess-prefixed

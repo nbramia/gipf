@@ -216,7 +216,7 @@ export const PROGRESS_KEYS = [
   'chessStatsRecovery:v1',
   'chessMatch:v1', 'chessMatchSync:v1', 'chessMatchRecovery:v1', 'yinshMatch:v1', 'yinshMatchSync:v1', 'yinshMatchRecovery:v1', 'zertzMatch:v1', 'zertzMatchSync:v1', 'zertzMatchRecovery:v1', 'catanMatch:v1', 'catanMatchSync:v1', 'catanMatchRecovery:v1', 'splendorMatch:v1', 'splendorMatchSync:v1', 'splendorMatchRecovery:v1',
   'chessDarkMode', 'chessShowMoves', 'chessDifficulty', 'chessLearningGoal',
-  'chessShowEvalBar', 'chessSound', 'chessRated', 'chessRating', 'chessRatedGames',
+  'chessShowEvalBar', 'chessSound', 'chessRated', 'chessRating', 'chessRatedGames', 'chessRatedScored',
   'chessGameState', 'chessIntroSeen', 'chessKeyNudgeDismissed', 'chessPuzzleShowTheme', 'chessTimeControl',
   'chessMistakes', 'chessOppHistory', 'chessPuzzleProgress', 'chessGameLog', 'chessRepertoire',
   'yinshDarkMode', 'yinshShowMoves', 'yinshRandomSetup', 'yinshKeepScore', 'yinshWins',

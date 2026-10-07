@@ -243,8 +243,21 @@
 /* Moves panel renders after the coach panel on phones (single-column stack);
  * natural source order returns at the lg 2-column breakpoint. */
 @media (max-width: 767px) {
+  /* Flatten both columns into the single-column grid so the moves can sit
+   * right after the coach, ahead of the Game and Settings panels. */
+  .game-chess .board-col,
+  .game-chess .right-col {
+    display: contents;
+  }
   .game-chess .moves-panel {
     order: 20;
+    margin-top: 0;
+  }
+  .game-chess .game-panel {
+    order: 21;
+  }
+  .game-chess .settings-panel {
+    order: 22;
   }
 }
 @media (min-width: 768px) {
@@ -259,7 +272,18 @@
   .game-chess .landscape-2col {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .game-chess .board-col {
+    display: block;
+  }
+  .game-chess .right-col {
+    display: flex;
+  }
   .game-chess .moves-panel {
+    order: 0;
+    margin-top: 1rem;
+  }
+  .game-chess .game-panel,
+  .game-chess .settings-panel {
     order: 0;
   }
 }
@@ -330,3 +354,6 @@
 @media (min-width: 768px) and (min-height: 600px) {
   .game-chess .board-cap { max-width: min(680px, max(360px, calc(100vh - 360px))); }
 }
+
+.game-chess .confirm-title { color: var(--color-text-primary); }
+.game-chess .confirm-body { color: var(--color-text-secondary); }
