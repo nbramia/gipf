@@ -16,7 +16,7 @@ const yinshState = shape({
   winner:nullable(p2), selectedSetupRing:setupRing,
   notation:shape({currentMoveNumber:count,moveHistory:array(shape({moveNumber:count,player:p2,type:one('placement','move','row-removal','ring-removal'),notation:text()},
     {from:nullable(coord),to:coord,markersFlipped:count,rowFormed:bool,row:array(coord,5),position:coord,gameWon:bool}))}),
-});
+}, {ringsToWin:one(1,3)}); // absent in matches saved before Blitz: Standard
 const colors = one('white','grey','black');
 const marbleCounts = shape({white:integer(0,24),grey:integer(0,24),black:integer(0,24)});
 const coordKey = v => typeof v === 'string' && /^-?\d+,-?\d+$/.test(v);

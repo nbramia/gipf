@@ -150,6 +150,7 @@ test('all essential canonical fields are required for both resolution phases', a
   for (const board of [rowBoard(), ringBoard()]) {
     const body = copy(board.serializeState());
     for (const field of Object.keys(body)) {
+      if (field === 'ringsToWin') continue; // optional: clients that predate Blitz mean Standard
       const incomplete = copy(body); delete incomplete[field];
       const res = await request(handler, incomplete);
       assert.equal(res.code, 400, `missing ${field} in ${body.gamePhase}`);
@@ -231,6 +232,22 @@ test('terminal snapshot preserves winner and returns null', async t => {
   assert.equal(res.code, 200);
   assert.equal(res.body, null);
   assert.deepEqual(captured, board.serializeState());
+});
+
+test('Blitz snapshots search with their own target and reject scores past it', async t => {
+  const handler = await freshHandler();
+  const captured = [];
+  t.mock.method(MCTS.prototype, 'runIteration', async board => { captured.push(board.ringsToWin); return goodMove; });
+  const blitz = copy(playBoard().serializeState()); blitz.ringsToWin = 1;
+  assert.equal((await request(handler, blitz)).code, 200);
+  assert.deepEqual(captured, [1]);
+  const past = copy(blitz); past.scores = { 1: 1, 2: 0 };
+  assert.equal((await request(handler, past)).code, 400);
+  const odd = copy(blitz); odd.ringsToWin = 2;
+  assert.equal((await request(handler, odd)).code, 400);
+  const standard = copy(playBoard().serializeState()); delete standard.ringsToWin;
+  assert.equal((await request(handler, standard)).code, 200);
+  assert.equal(captured.at(-1), 3);
 });
 
 test('real iteration returns coordinate moves and full removal rows (bounded simulation)', async t => {

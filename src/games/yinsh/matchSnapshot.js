@@ -3,11 +3,16 @@ import { requireSnapshot, record, player, count } from '../../snapshotValidation
 const UI = ['humanPlayer', 'twoPlayerMode', 'showModal', 'difficulty', 'selectedSetupRing', 'scoreApplied'];
 export const encodeBoard = board => ({ ...board.serializeState(), notation: { moveHistory: board.notation.moveHistory, currentMoveNumber: board.notation.currentMoveNumber } });
 const KEYS = Object.keys(encodeBoard(new YinshBoard()));
+// Matches saved before the Blitz variant carry no target and decode as Standard.
+const LEGACY_KEYS = KEYS.filter(k => k !== 'ringsToWin');
+const TARGETS = [YinshBoard.RINGS_TO_WIN, YinshBoard.BLITZ_RINGS_TO_WIN];
 export function decodeMatch(snapshot) {
-  requireSnapshot(snapshot, 'yinsh', UI, KEYS);
+  requireSnapshot(snapshot, 'yinsh', UI, snapshot?.state && 'ringsToWin' in snapshot.state ? KEYS : LEGACY_KEYS);
   const s = snapshot.state;
+  if ('ringsToWin' in s && !TARGETS.includes(s.ringsToWin)) throw new Error('invalid_snapshot');
+  const target = s.ringsToWin ?? YinshBoard.RINGS_TO_WIN;
   if (!player(s.currentPlayer) || !record(s.boardState) || !['setup','play','remove-row','remove-ring','game-over'].includes(s.gamePhase) ||
-      !record(s.scores) || !record(s.ringsPlaced) || ![1,2].every(p => count(s.scores[p], 3) && count(s.ringsPlaced[p], 5)) ||
+      !record(s.scores) || !record(s.ringsPlaced) || ![1,2].every(p => count(s.scores[p], target) && count(s.ringsPlaced[p], 5)) ||
       !Array.isArray(s.validMoves) || !Array.isArray(s.rows) || !Array.isArray(s.rowResolutionQueue) || typeof s.pendingRowsAfterRingRemoval !== 'boolean' ||
       (snapshot.ui.humanPlayer !== undefined && !player(snapshot.ui.humanPlayer))) throw new Error('invalid_snapshot');
   const board = YinshBoard.fromSerializedState(s);

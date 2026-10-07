@@ -486,6 +486,7 @@ Two evaluation modes (toggled in Settings):
 yinshDarkMode, yinshShowMoves, yinshRandomSetup,
 yinshKeepScore, yinshWins, yinshShowMoveHistory,
 yinshEvaluationMode,
+yinshVariant,                # Variant for the next New Game: standard | blitz
 yinshMatch:v1, yinshMatchSync:v1, yinshMatchRecovery:v1
 ```
 

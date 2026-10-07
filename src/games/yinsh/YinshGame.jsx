@@ -154,6 +154,10 @@ const YinshGame = () => {
     const saved = localStorage.getItem('yinshRandomSetup');
     return saved ? JSON.parse(saved) : false;
   });
+  // Variant for the NEXT new game; the running game keeps its own target (board.ringsToWin).
+  const [variant, setVariant] = useState(() => {
+    try { return localStorage.getItem('yinshVariant') === 'blitz' ? 'blitz' : 'standard'; } catch (e) { return 'standard'; }
+  });
   const [selectedSetupRing, setSelectedSetupRing] = useState(() => savedUI.selectedSetupRing ?? null);
   const [showInvalidFlash, setShowInvalidFlash] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -255,6 +259,9 @@ const YinshGame = () => {
   useEffect(() => {
     localStorage.setItem('yinshKeepScore', JSON.stringify(keepScore));
   }, [keepScore]);
+  useEffect(() => {
+    localStorage.setItem('yinshVariant', variant);
+  }, [variant]);
   useEffect(() => {
     localStorage.setItem('yinshShowMoveHistory', JSON.stringify(showMoveHistory));
   }, [showMoveHistory]);
@@ -419,13 +426,22 @@ const YinshGame = () => {
   };
 
   // Update startNewGame to remove the win counting (since it's now handled in handleGameOver)
+  // A reopened match starts with no takeback history; say so on the disabled Undo.
+  const [reopened, setReopened] = useState(() => !!resumed);
+  // Notation entry highlighted on the board: pinned by tap/click, previewed by hover/focus.
+  const [pinnedEntry, setPinnedEntry] = useState(null);
+  const [previewEntry, setPreviewEntry] = useState(null);
+  // Intersection under the pointer/focus while choosing a row to remove.
+  const [rowHover, setRowHover] = useState(null);
   const startNewGame = () => {
     savedMatch?.startNew();
     if (!twoPlayerMode) {
       setHumanPlayer(Math.random() < 0.5 ? 1 : 2);
     }
     scoreApplied.current = false; // a finished game's result stays counted
-    yinshBoard.startNewGame(useRandomSetup);
+    yinshBoard.startNewGame(useRandomSetup, variant === 'blitz' ? YinshBoard.BLITZ_RINGS_TO_WIN : YinshBoard.RINGS_TO_WIN);
+    setReopened(false);
+    setPinnedEntry(null);
     setYinshBoard(yinshBoard.clone());
     setShowModal(false);
     setSelectedSetupRing(null);
@@ -460,6 +476,9 @@ const YinshGame = () => {
       setLastMove(null);
     }
   };
+
+  const UNDO_NOTE = 'Undo covers moves since this match was reopened.';
+  const undoNote = reopened && !yinshBoard.canUndo() && yinshBoard.getMoveHistory().length > 0;
 
   // Read render data from the board, the single source of truth
   const boardState = yinshBoard.getBoardState();
@@ -525,13 +544,31 @@ const YinshGame = () => {
     }
   }, [boardState]);
 
+  // Notation highlight: the points a hovered, focused or tapped history entry touches.
+  const historyEntries = yinshBoard.getNotation().getHistory();
+  useEffect(() => { setPinnedEntry(null); setPreviewEntry(null); }, [historyEntries.length]);
+  const highlightedEntry = historyEntries[previewEntry ?? pinnedEntry];
+  const entryMarks = new Map();
+  if (highlightedEntry) {
+    const mark = ([q, r], kind) => entryMarks.set(`${q},${r}`, kind);
+    if (highlightedEntry.from) mark(highlightedEntry.from, 'from');
+    if (highlightedEntry.to) mark(highlightedEntry.to, 'to');
+    if (highlightedEntry.position) mark(highlightedEntry.position, 'to');
+    (highlightedEntry.row || []).forEach(point => mark(point, 'to'));
+  }
+  // Row-removal preview: exactly the five markers a click on the hovered/focused marker removes.
+  const rowPreview = new Set();
+  if (gamePhase === 'remove-row' && rowHover && (twoPlayerMode || currentPlayer === humanPlayer)) {
+    yinshBoard.getRowToRemove(rowHover[0], rowHover[1])?.markers.forEach(([mq, mr]) => rowPreview.add(`${mq},${mr}`));
+  }
+
   // Scoreboard
   const renderScoreIndicator = (player, position) => {
     const score = scores[player];
     const y = position === 'bottom' ? 560 : 40;
     return (
       <g>
-        {[0, 1, 2].map((i) => {
+        {Array.from({ length: yinshBoard.ringsToWin }, (_, i) => i).map((i) => {
           const x = position === 'bottom' ? 45 + i * 40 : 485 + i * 40;
           return (
             <g key={i}>
@@ -769,6 +806,31 @@ const YinshGame = () => {
       <Toggle label="Dark Mode" checked={darkMode} onChange={() => setDarkMode(!darkMode)} />
       <Toggle label="Show Valid Moves" checked={showPossibleMoves} onChange={() => setShowPossibleMoves(!showPossibleMoves)} />
       <Toggle label="Random Setup" checked={useRandomSetup} onChange={() => setUseRandomSetup(!useRandomSetup)} />
+      <div>
+        <div className="flex items-center justify-between">
+          <span style={{ color: 'var(--color-text-primary)' }}>Game Variant</span>
+          <div className="flex gap-1" role="group" aria-label="Game variant">
+            {[['standard', 'Standard'], ['blitz', 'Blitz']].map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => setVariant(id)}
+                aria-pressed={variant === id}
+                className="px-3 py-1 min-h-[44px] rounded text-xs font-medium transition-colors"
+                style={{
+                  backgroundColor: variant === id ? 'var(--color-toggle-active)' : 'var(--color-toggle-inactive)',
+                  color: variant === id ? '#fff' : 'var(--color-text-primary)',
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+          Standard: first to remove 3 rings. Blitz: first to remove 1 ring. Applies to the next New Game
+          {' '}(this game: {yinshBoard.ringsToWin === 1 ? 'Blitz' : 'Standard'}).
+        </p>
+      </div>
       <Toggle label="Keep Score" checked={keepScore} onChange={handleKeepScoreToggle} />
       <Toggle label="Show Move History" checked={showMoveHistory} onChange={() => setShowMoveHistory(!showMoveHistory)} />
       <div className="flex items-center justify-between">
@@ -821,10 +883,19 @@ const YinshGame = () => {
               const isCurrentMove = index === all.length - 1;
 
               return (
-                <div
+                <button
+                  type="button"
                   key={index}
                   data-current={isCurrentMove || undefined}
-                  className={`px-3 py-2 rounded text-sm font-mono transition-colors ${
+                  aria-pressed={pinnedEntry === index}
+                  aria-label={`Move ${moveNumber}, ${player === 1 ? 'White' : 'Black'}: ${move}. Show on board.`}
+                  onMouseEnter={() => setPreviewEntry(index)}
+                  onMouseLeave={() => setPreviewEntry(null)}
+                  onFocus={() => setPreviewEntry(index)}
+                  onBlur={() => setPreviewEntry(null)}
+                  onClick={() => setPinnedEntry(pinnedEntry === index ? null : index)}
+                  className={`block w-full text-left px-3 py-2 rounded text-sm font-mono transition-colors ${
+                    pinnedEntry === index ? 'ring-1 ring-[var(--color-accent)] ' : ''}${
                     isCurrentMove
                       ? 'border-l-2'
                       : 'hover:bg-[var(--color-bg-hover)]'
@@ -840,7 +911,7 @@ const YinshGame = () => {
                   <span className="font-semibold">{moveNumber}.</span>{' '}
                   <PieceIcon player={player} />{' '}
                   <span>{move}</span>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -885,7 +956,7 @@ const YinshGame = () => {
                 ? (yinshBoard.getWinner() ? `${yinshBoard.getWinner() === 1 ? 'White' : 'Black'} wins!` : 'Draw!')
                 : 'Welcome to YINSH!'}
             </h2>
-            {yinshBoard.getGamePhase() === 'game-over' && Math.max(scores[1], scores[2]) < 3 && (
+            {yinshBoard.getGamePhase() === 'game-over' && Math.max(scores[1], scores[2]) < yinshBoard.ringsToWin && (
               <p className="text-center text-sm mb-6" style={{ color: 'var(--color-text-secondary)' }}>
                 All 51 markers are placed. Rings removed: White {scores[1]}, Black {scores[2]}.
               </p>
@@ -1165,7 +1236,7 @@ const YinshGame = () => {
                     <text x="165" y="28" fill="var(--color-accent, #6366f1)" fontSize="18" fontFamily="Outfit, sans-serif" fontWeight="700">&#127942;</text>
                   </svg>
                 </div>
-                <p>The first player to remove <strong style={{ color: 'var(--color-text-primary)' }}>3 of their rings</strong> from the board wins. Note that removing rings is both the scoring mechanism and a sacrifice — you have fewer rings to move with as you score points.</p>
+                <p>The first player to remove <strong style={{ color: 'var(--color-text-primary)' }}>3 of their rings</strong> from the board wins. In the optional <strong style={{ color: 'var(--color-text-primary)' }}>Blitz</strong> variant (chosen in Settings, applied at the next New Game), the first player to remove a single ring wins. Note that removing rings is both the scoring mechanism and a sacrifice — you have fewer rings to move with as you score points.</p>
                 <p className="mt-2">The 51 markers are a shared pool. If the last marker is placed and it completes no row, the game ends at once: the player who removed more rings wins, and equal counts are a draw.</p>
               </div>
 
@@ -1418,6 +1489,10 @@ const YinshGame = () => {
                     <g
                       key={key}
                       onClick={() => handleIntersectionClick(q, r)}
+                      onMouseEnter={() => { if (gamePhase === 'remove-row') setRowHover([q, r]); }}
+                      onMouseLeave={() => { if (gamePhase === 'remove-row') setRowHover(null); }}
+                      onFocus={() => { if (gamePhase === 'remove-row') setRowHover([q, r]); }}
+                      onBlur={() => { if (gamePhase === 'remove-row') setRowHover(null); }}
                       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleIntersectionClick(q, r); }}}
                       role="button"
                       tabIndex={0}
@@ -1425,6 +1500,32 @@ const YinshGame = () => {
                       style={{ cursor: 'pointer', outline: 'none' }}
                     >
                       <circle cx={x} cy={y} r={22} fill="transparent" />
+
+                      {rowPreview.has(key) && (
+                        <circle
+                          data-row-preview
+                          cx={x}
+                          cy={y}
+                          r={17}
+                          fill="none"
+                          stroke="var(--color-row-highlight)"
+                          strokeWidth="3.5"
+                          pointerEvents="none"
+                        />
+                      )}
+                      {entryMarks.has(key) && (
+                        <circle
+                          data-history-mark={entryMarks.get(key)}
+                          cx={x}
+                          cy={y}
+                          r={21}
+                          fill="none"
+                          stroke="var(--color-accent)"
+                          strokeWidth="3"
+                          strokeDasharray={entryMarks.get(key) === 'from' ? '4,3' : undefined}
+                          pointerEvents="none"
+                        />
+                      )}
 
                       {showPossibleMoves && moveIsValid && (
                         <circle
@@ -1648,7 +1749,8 @@ const YinshGame = () => {
             <button
               onClick={handleUndo}
               disabled={!yinshBoard.canUndo()}
-              title="Undo (Ctrl+Z)"
+              aria-describedby={undoNote ? 'yinsh-undo-note' : undefined}
+              title={undoNote ? UNDO_NOTE : 'Undo (Ctrl+Z)'}
               className={`${btnClass} ${!yinshBoard.canUndo() ? 'opacity-30 cursor-not-allowed' : ''}`}
             >
               Undo
@@ -1661,6 +1763,11 @@ const YinshGame = () => {
             >
               Redo
             </button>
+            {undoNote && (
+              <p id="yinsh-undo-note" className="col-span-2 md:col-span-1 text-xs text-center" style={{ color: 'var(--color-text-muted)' }}>
+                {UNDO_NOTE}
+              </p>
+            )}
             {(twoPlayerMode || (!twoPlayerMode && currentPlayer === humanPlayer && !isAiThinking)) && (
               <button
                 onClick={() => getAISuggestion(false)}

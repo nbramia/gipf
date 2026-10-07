@@ -218,7 +218,7 @@ export default class MCTS {
     score += (myScore - oppScore) * 10000;
 
     // Ring count (having more rings is generally better unless winning)
-    if (myScore < 2 && oppScore < 2) {
+    if (myScore < board.ringsToWin - 1 && oppScore < board.ringsToWin - 1) {
       score += (myRings - oppRings) * 100;
     }
 

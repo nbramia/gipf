@@ -122,7 +122,7 @@ returns the canonical portable engine state.
 
 Undo/redo caches are intentionally not portable: Catan caches entire historical
 maps and exceeds the wire budget. Yinsh/Zertz initialize a new undo history at
-the restored current position. Chess preserves its played history, but a future
+the restored current position, and say so: until a move is made, the disabled Undo explains that it covers moves since the match was reopened. Chess preserves its played history, but a future
 redo branch beyond the current pointer is not saved. AI computations, animation,
 open settings/rules panels and transient provider requests are never resumed;
 engines request fresh work only for the restored live position.

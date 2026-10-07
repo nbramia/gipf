@@ -8,7 +8,7 @@ Browser-based implementations of abstract strategy and classic board games, each
 
 ### Yinsh
 
-Players compete using rings and markers on a hexagonal board. Place a marker in one of your rings, move the ring in a straight line, and flip any markers along the path. Form a row of 5 to score -- first to 3 points wins.
+Players compete using rings and markers on a hexagonal board. Place a marker in one of your rings, move the ring in a straight line, and flip any markers along the path. Form a row of 5 to score -- first to 3 points wins (or 1 in the optional Blitz variant).
 
 The opponent is a Monte Carlo tree search that can run on hand-written heuristics or be guided by a small trained neural network running in the browser. Includes chess-style move notation and difficulty settings. See [How the AI works](#how-the-ai-works) below.
 
