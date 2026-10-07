@@ -6,7 +6,7 @@ import Dialog, { CloseButton } from './Dialog.jsx';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import CatanBoard, { RESOURCES, COSTS, resourceTotal } from './CatanBoard.js';
-import { CATAN_RULESETS, RULESET_GROUPS, getDefaultScenario, getRuleset, normalizePlayerCount, effectiveTarget } from './catanRulesets.js';
+import { CATAN_RULESETS, getDefaultScenario, getRuleset, getPlayableRuleset, isPlayable, normalizePlayerCount, effectiveTarget } from './catanRulesets.js';
 import useAIWorker from './hooks/useAIWorker.js';
 import { MCTS } from './engine/mcts.js';
 import { applyAIMove } from './engine/aiPlayer.js';
@@ -57,6 +57,20 @@ function formatCost(cost) {
 // Hit areas keep a 24+ CSS px target on a phone-sized board (the SVG scales to
 // about 0.47 CSS px per unit at 390px wide) without enlarging the drawn pieces.
 const VERTEX_HIT_RADIUS = 26;
+
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 4;
+const DRAG_THRESHOLD = 6;
+const clampView = (view, width, height) => {
+  const k = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, view.k));
+  return {
+    k,
+    x: Math.min(0, Math.max(width - width * k, view.x)),
+    y: Math.min(0, Math.max(height - height * k, view.y)),
+  };
+};
+
+const TERRAIN_NAMES = { brick: 'Hills', lumber: 'Forest', wool: 'Pasture', grain: 'Fields', ore: 'Mountains', desert: 'Desert' };
 
 const tileName = tile => (tile.resource === 'desert' ? 'Desert' : `${RESOURCE_LABELS[tile.resource]} ${tile.number}`);
 
@@ -118,7 +132,7 @@ function PortIcon({ resource }) {
 
 function getStoredRulesetId() {
   const stored = localStorage.getItem('catanRulesetId') || 'base-classic';
-  return getRuleset(stored).id;
+  return getPlayableRuleset(stored).id;
 }
 
 function getStoredPlayerCount(ruleset) {
@@ -129,6 +143,18 @@ function getStoredScenarioId(ruleset) {
   const stored = localStorage.getItem('catanScenarioId');
   if (stored && ruleset.scenarios?.some(scenario => scenario.id === stored)) return stored;
   return getDefaultScenario(ruleset)?.id || null;
+}
+
+// A saved setup may name a ruleset that is no longer offered; it falls back to the base game.
+function sanitizeConfig(config) {
+  const ruleset = getPlayableRuleset(config.rulesetId);
+  return {
+    rulesetId: ruleset.id,
+    playerCount: normalizePlayerCount(ruleset, config.playerCount),
+    scenarioId: ruleset.scenarios?.some(scenario => scenario.id === config.scenarioId)
+      ? config.scenarioId
+      : getDefaultScenario(ruleset)?.id || null,
+  };
 }
 
 function loadInitialConfig() {
@@ -344,7 +370,7 @@ function CatanGame() {
   const savedMatch = useSavedMatch();
   const resumed = savedMatch?.restored;
   const savedUI = resumed?.ui || {};
-  const [gameConfig, setGameConfig] = useState(() => savedUI.gameConfig || loadInitialConfig());
+  const [gameConfig, setGameConfig] = useState(() => (savedUI.gameConfig ? sanitizeConfig(savedUI.gameConfig) : loadInitialConfig()));
   const [board, commitBoard] = useState(() => resumed?.board || new CatanBoard({ seed: Date.now(), ...loadInitialConfig() }));
   const { computeMove, cancelPending, isSupported: workerSupported } = useAIWorker();
   const stateVersion = useRef(0);
@@ -379,6 +405,14 @@ function CatanGame() {
   const [rulesBusy, setRulesBusy] = useState(false);
   const [rulesError, setRulesError] = useState('');
   const [rulesKeySet] = useState(() => hasRulesKey());
+  // Board zoom/pan (view) and the tapped or hovered hex shown in the inspector.
+  const [view, setView] = useState({ k: 1, x: 0, y: 0 });
+  const [inspectId, setInspectId] = useState(null);
+  const [hoverId, setHoverId] = useState(null);
+  const shellRef = useRef(null);
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const gesture = useRef({ pointers: new Map(), moved: false, startView: null, startPoint: null, startDist: 0, startMid: null });
   const aiTimerRef = useRef(null);
   const lastLoggedActionRef = useRef(null);
   const logEndRef = useRef(null);
@@ -438,19 +472,24 @@ function CatanGame() {
   const selectedScenario = selectedRuleset.scenarios?.find(scenario => scenario.id === gameConfig.scenarioId) || getDefaultScenario(selectedRuleset);
   const activeRuleset = getRuleset(board.rulesetId);
   const activeScenario = activeRuleset.scenarios?.find(scenario => scenario.id === board.scenarioId) || getDefaultScenario(activeRuleset);
+  // A match saved from a preview-catalogue entry keeps its players and progress, but only the base
+  // rules are enforced; "Rules In Play" and Rules Help describe what the engine really plays.
+  const legacyCatalog = !isPlayable(activeRuleset);
+  const enforcedRuleset = legacyCatalog ? getRuleset(board.pairedPlayers ? 'base-5-6' : 'base-classic') : activeRuleset;
+  const enforcedScenario = legacyCatalog ? getDefaultScenario(enforcedRuleset) : activeScenario;
 
   // Context handed to the rules assistant so its answers are specific to the
   // ruleset/scenario actually in play.
   const rulesContext = useMemo(() => ({
-    rulesetName: activeRuleset.name,
-    edition: activeRuleset.edition,
-    group: activeRuleset.group,
-    modules: activeRuleset.modules,
-    scenarioName: activeScenario?.name || 'Random Island',
+    rulesetName: enforcedRuleset.name,
+    edition: enforcedRuleset.edition,
+    group: enforcedRuleset.group,
+    modules: enforcedRuleset.modules,
+    scenarioName: enforcedScenario?.name || 'Random Island',
     mapName: board.mapName,
     players: board.playerCount,
     victoryTarget: board.victoryTarget,
-  }), [activeRuleset, activeScenario, board.mapName, board.playerCount, board.victoryTarget]);
+  }), [enforcedRuleset, enforcedScenario, board.mapName, board.playerCount, board.victoryTarget]);
 
   const sendRulesQuestion = useCallback(async () => {
     const question = rulesInput.trim();
@@ -503,6 +542,123 @@ function CatanGame() {
     if (board.phase === 'game-over') setShowModal(true);
     return true;
   }, [board]);
+
+  // Limited takeback of the human's own newest placement (see CatanBoard.undoPlacement).
+  const undoPlacement = useCallback(() => {
+    const next = board.clone();
+    if (!next.undoPlacement(HUMAN_PLAYER)) return;
+    const undone = board.lastAction;
+    lastLoggedActionRef.current = next.lastAction;
+    setGameLog(prev => (prev[prev.length - 1] === undone ? prev.slice(0, -1) : prev));
+    setLastMove(null);
+    setSelectedAction(null);
+    setBoard(next);
+  }, [board, setBoard, setLastMove]);
+  const undoable = useMemo(() => board.getUndoablePlacement(HUMAN_PLAYER), [board]);
+
+  const zoomAt = useCallback((factor, cx, cy) => {
+    const el = shellRef.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    setView(prev => {
+      const k = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, prev.k * factor));
+      if (k === prev.k) return prev;
+      const ratio = k / prev.k;
+      return clampView({ k, x: cx - (cx - prev.x) * ratio, y: cy - (cy - prev.y) * ratio }, width, height);
+    });
+  }, []);
+  const zoomBy = useCallback((factor) => {
+    const el = shellRef.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    zoomAt(factor, width / 2, height / 2);
+  }, [zoomAt]);
+  const resetView = useCallback(() => setView({ k: 1, x: 0, y: 0 }), []);
+
+  // Ctrl/Cmd + wheel (and trackpad pinch) zooms about the cursor; once zoomed in,
+  // the plain wheel zooms too. At 1x the plain wheel still scrolls the page.
+  useEffect(() => {
+    const el = shellRef.current;
+    if (!el) return undefined;
+    const onWheel = (event) => {
+      if (!(event.ctrlKey || event.metaKey || viewRef.current.k > 1)) return;
+      event.preventDefault();
+      const rect = el.getBoundingClientRect();
+      zoomAt(Math.exp(-event.deltaY * (event.ctrlKey ? 0.01 : 0.0025)), event.clientX - rect.left, event.clientY - rect.top);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [zoomAt]);
+
+  // A new game starts unzoomed with nothing inspected.
+  useEffect(() => { setView({ k: 1, x: 0, y: 0 }); setInspectId(null); setHoverId(null); }, [board.seed]);
+
+  const onShellPointerDown = (event) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    const g = gesture.current;
+    g.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    g.startView = viewRef.current;
+    if (g.pointers.size === 1) {
+      g.moved = false;
+      g.startPoint = { x: event.clientX, y: event.clientY };
+    } else if (g.pointers.size === 2) {
+      const [a, b] = [...g.pointers.values()];
+      g.moved = true; // a pinch is never a tap
+      g.startDist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      g.startMid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    }
+  };
+  const onShellPointerMove = (event) => {
+    const g = gesture.current;
+    if (!g.pointers.has(event.pointerId)) return;
+    g.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    const el = shellRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    if (g.pointers.size === 2) {
+      const [a, b] = [...g.pointers.values()];
+      const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const k = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, g.startView.k * (dist / g.startDist)));
+      const ratio = k / g.startView.k;
+      const ax = g.startMid.x - rect.left;
+      const ay = g.startMid.y - rect.top;
+      setView(clampView({
+        k,
+        x: (mid.x - rect.left) - (ax - g.startView.x) * ratio,
+        y: (mid.y - rect.top) - (ay - g.startView.y) * ratio,
+      }, rect.width, rect.height));
+      return;
+    }
+    if (g.pointers.size === 1 && g.startView) {
+      const dx = event.clientX - g.startPoint.x;
+      const dy = event.clientY - g.startPoint.y;
+      // A drag at any zoom is not a tap; only a zoomed board also pans.
+      if (!g.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+      g.moved = true;
+      if (g.startView.k <= 1) return;
+      try { el.setPointerCapture(event.pointerId); } catch { /* not capturable */ }
+      setView(clampView({ k: g.startView.k, x: g.startView.x + dx, y: g.startView.y + dy }, rect.width, rect.height));
+    }
+  };
+  const onShellPointerEnd = (event) => {
+    const g = gesture.current;
+    g.pointers.delete(event.pointerId);
+    // A finger left over from a pinch continues as a pan from where it is.
+    if (g.pointers.size === 1) {
+      const [rest] = [...g.pointers.values()];
+      g.startPoint = { ...rest };
+      g.startView = viewRef.current;
+    }
+  };
+  // A drag or pinch must never place a piece or inspect a hex.
+  const onShellClickCapture = (event) => {
+    const g = gesture.current;
+    if (!g.moved) return;
+    g.moved = false;
+    event.stopPropagation();
+    event.preventDefault();
+  };
 
   const openTradeBuilder = useCallback(() => {
     const empty = { brick: 0, lumber: 0, wool: 0, grain: 0, ore: 0 };
@@ -713,7 +869,7 @@ function CatanGame() {
   };
 
   const updateRuleset = (rulesetId) => {
-    const ruleset = getRuleset(rulesetId);
+    const ruleset = getPlayableRuleset(rulesetId);
     setGameConfig((previous) => ({
       rulesetId: ruleset.id,
       playerCount: normalizePlayerCount(ruleset, previous.playerCount),
@@ -1196,21 +1352,19 @@ function CatanGame() {
       <div className="catan-config-section">
         <div className="catan-panel-label mb-2">Rule Set</div>
         <div className={compact ? 'catan-ruleset-grid compact' : 'catan-ruleset-grid'}>
-          {RULESET_GROUPS.flatMap(group =>
-            CATAN_RULESETS.filter(ruleset => ruleset.group === group).map(ruleset => (
-              <button
-                key={ruleset.id}
-                type="button"
-                className={`catan-ruleset-card ${gameConfig.rulesetId === ruleset.id ? 'active' : ''}`}
-                onClick={() => updateRuleset(ruleset.id)}
-              >
-                <span className="catan-ruleset-kicker">{ruleset.group}</span>
-                <strong>{ruleset.name}</strong>
-                <span>{ruleset.edition}</span>
-                <em>{ruleset.engineLevel}</em>
-              </button>
-            ))
-          )}
+          {CATAN_RULESETS.filter(isPlayable).map(ruleset => (
+            <button
+              key={ruleset.id}
+              type="button"
+              className={`catan-ruleset-card ${gameConfig.rulesetId === ruleset.id ? 'active' : ''}`}
+              onClick={() => updateRuleset(ruleset.id)}
+            >
+              <span className="catan-ruleset-kicker">{ruleset.group}</span>
+              <strong>{ruleset.name}</strong>
+              <span>{ruleset.edition}</span>
+              <em>{ruleset.engineLevel}</em>
+            </button>
+          ))}
         </div>
       </div>
 
@@ -1228,6 +1382,9 @@ function CatanGame() {
             </button>
           ))}
         </div>
+        {selectedRuleset.pairedPlayers && (
+          <p className="catan-config-note">5-6 players use the Special Building Phase edition of the extension: after each turn, every other player may build and buy development cards.</p>
+        )}
       </div>
 
       {selectedRuleset.scenarios?.length > 0 && (
@@ -1269,6 +1426,26 @@ function CatanGame() {
   const edgeName = edge => (edge.tileIds.length > 1
     ? `between ${edge.tileIds.map(id => tileName(board.getTile(id))).join(' and ')}`
     : `on the coast of ${tileName(board.getTile(edge.tileIds[0]))}`);
+
+  // Resource, number, probability and harbors of the hovered or tapped hex.
+  const renderInspector = () => {
+    const tile = board.tiles.find(candidate => candidate.id === (hoverId ?? inspectId));
+    if (!tile) return <span className="catan-inspect-hint">Tap a hex for its resource, number and harbors. Pinch, Ctrl/Cmd + scroll, or + / - to zoom.</span>;
+    const pips = CatanBoard.getPipCount(tile.number);
+    const ports = [...new Set(Object.values(board.edges)
+      .filter(edge => edge.port && edge.tileIds.includes(tile.id))
+      .map(edge => (edge.port === 'any' ? 'any resource 3:1' : `${RESOURCE_LABELS[edge.port]} 2:1`)))];
+    return (
+      <>
+        <strong>{TERRAIN_NAMES[tile.resource]}{tile.resource !== 'desert' ? ` (${RESOURCE_LABELS[tile.resource]})` : ''}</strong>
+        {tile.number
+          ? <span>Number {tile.number}: {pips} in 36 rolls ({(pips / 36 * 100).toFixed(1)}%) {'\u25CF'.repeat(pips)}</span>
+          : <span>Produces nothing</span>}
+        <span>{ports.length > 0 ? `Harbor: ${ports.join(', ')}` : 'No harbor'}</span>
+        {board.robberTileId === tile.id && <span>The robber is here and blocks production.</span>}
+      </>
+    );
+  };
 
   const renderBoard = () => (
     <svg className="catan-board-svg" viewBox={`0 0 ${BOARD_VIEWBOX.width} ${BOARD_VIEWBOX.height}`} role="group" aria-label="Catan board">
@@ -1315,7 +1492,9 @@ function CatanGame() {
             key={tile.id}
             {...(actionableTiles.includes(tile.id)
               ? { role: 'button', tabIndex: 0, 'aria-label': `Move the robber to ${tileName(tile)}`, ...activate(() => handleTileClick(tile.id)) }
-              : {})}
+              : { onClick: () => setInspectId(current => (current === tile.id ? null : tile.id)) })}
+            onPointerEnter={event => { if (event.pointerType === 'mouse') setHoverId(tile.id); }}
+            onPointerLeave={event => { if (event.pointerType === 'mouse') setHoverId(null); }}
             className={isRobberTarget ? 'catan-clickable' : ''}
           >
             <clipPath id={`catan-clip-${tile.id}`}>
@@ -1595,10 +1774,10 @@ function CatanGame() {
               <p>Roll 7 to move the robber. Each player holding more than 7 cards chooses which cards to discard (down to half), one at a time, then the roller moves the robber to block one tile and steals from an adjacent opponent.</p>
               <p>On your turn you can propose a trade to one or more opponents: pick the resources you give and the resources you want in return, then choose who to offer it to.</p>
               {board.pairedPlayers && (
-                <p>5-6 player mode uses the Special Building Phase: after each player's turn, every other player in order may build and buy development cards (no trading or dev-card play).</p>
+                <p>5-6 player mode uses the Special Building Phase edition of the extension (the classic rules, not the newer paired-turns edition): after each player's turn, every other player in order may build and buy development cards (no trading or dev-card play).</p>
               )}
               <div className="catan-rules-columns">
-                {CATAN_RULESETS.map(ruleset => (
+                {CATAN_RULESETS.filter(isPlayable).map(ruleset => (
                   <div key={ruleset.id}>
                     <h3>{ruleset.name}</h3>
                     <ul>
@@ -1607,6 +1786,20 @@ function CatanGame() {
                   </div>
                 ))}
               </div>
+              <section className="catan-rules-reference" aria-label="Expansion reference">
+                <h3>Reference only: expansions</h3>
+                <p>These expansions are not playable in this app. They are listed for reference; the engine plays the base game and its 5-6 player extension.</p>
+                <div className="catan-rules-columns">
+                  {CATAN_RULESETS.filter(ruleset => !isPlayable(ruleset)).map(ruleset => (
+                    <div key={ruleset.id}>
+                      <h3>{ruleset.name}</h3>
+                      <ul>
+                        {ruleset.modules.map(module => <li key={module}>{module}</li>)}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </section>
             </div>
         </Dialog>
       )}
@@ -1889,8 +2082,31 @@ function CatanGame() {
         </div>
 
         <main className="order-2 flex flex-1 flex-col items-center justify-start gap-3 lg:sticky lg:top-4 lg:self-start">
-          <div className="catan-board-shell">
-            {renderBoard()}
+          <div
+            className={`catan-board-shell ${view.k > 1 ? 'is-zoomed' : ''}`}
+            ref={shellRef}
+            onPointerDown={onShellPointerDown}
+            onPointerMove={onShellPointerMove}
+            onPointerUp={onShellPointerEnd}
+            onPointerCancel={onShellPointerEnd}
+            onClickCapture={onShellClickCapture}
+          >
+            <div className="catan-board-pan" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.k})` }}>
+              {renderBoard()}
+            </div>
+          </div>
+          <div className="catan-board-tools">
+            <div className="catan-board-inspect" role="status" aria-live="polite">{renderInspector()}</div>
+            <div className="catan-board-buttons">
+              {undoable && (
+                <button type="button" className="catan-tool-btn" onClick={undoPlacement} title="Take back your last placement. Only available until anything else happens.">
+                  Undo {undoable.kind}
+                </button>
+              )}
+              <button type="button" className="catan-tool-btn" aria-label="Zoom out" disabled={view.k <= MIN_ZOOM} onClick={() => zoomBy(1 / 1.5)}>&minus;</button>
+              <button type="button" className="catan-tool-btn" aria-label="Zoom in" disabled={view.k >= MAX_ZOOM} onClick={() => zoomBy(1.5)}>+</button>
+              <button type="button" className="catan-tool-btn" disabled={view.k === 1} onClick={resetView}>Reset</button>
+            </div>
           </div>
           <div className="catan-hand">
             <div className="catan-panel-label mb-2 text-center">Your Hand</div>
@@ -1968,12 +2184,17 @@ function CatanGame() {
           </div>
 
           <div className="catan-panel p-4">
-            <div className="catan-panel-label mb-2">Expansion Modules</div>
+            <div className="catan-panel-label mb-2">Rules In Play</div>
             <div className="catan-module-list">
-              {activeRuleset.modules.map(module => (
+              {enforcedRuleset.modules.map(module => (
                 <span key={module}>{module}</span>
               ))}
             </div>
+            {legacyCatalog && (
+              <p className="catan-config-note mt-2" role="note">
+                This match was started from a preview catalogue entry ({activeRuleset.name}). Its expansion mechanics are not played; only the rules above are enforced.
+              </p>
+            )}
           </div>
 
           <div className="catan-panel p-4">
@@ -1991,7 +2212,7 @@ function CatanGame() {
             {rulesOpen && (
               <div className="catan-rules-chat mt-2">
                 <p className="catan-rules-context">
-                  Answering about <strong>{activeRuleset.name}</strong> — {activeScenario?.name || 'Random Island'}, {board.playerCount}p, to {board.victoryTarget} VP.
+                  Answering about <strong>{enforcedRuleset.name}</strong> — {enforcedScenario?.name || 'Random Island'}, {board.playerCount}p, to {board.victoryTarget} VP.
                 </p>
                 <div className="catan-rules-transcript" ref={rulesEndRef}>
                   {rulesMessages.length === 0 ? (

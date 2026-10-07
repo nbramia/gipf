@@ -268,8 +268,9 @@ zertzDarkMode, zertzShowMoves
 | `scripts/catan/*.mjs` | Self-play data generation and tournament harness |
 
 The playable engine is the base game (3-6 players, including the 5-6-player "Base Game Extension"
-with its own board and paired build phase). `src/games/catan/catanRulesets.js` also catalogs
-Seafarers, Cities & Knights, Traders & Barbarians, and Explorers & Pirates for the ruleset picker,
+with its own board and Special Building Phase). `src/games/catan/catanRulesets.js` also catalogs
+Seafarers, Cities & Knights, Traders & Barbarians, and Explorers & Pirates as reference material
+(not offered at setup),
 but those are scaffolding, not implemented in the board/engine (no ships, islands, barbarians, or
 commodities; the only "knight" is the base-game development card).
 

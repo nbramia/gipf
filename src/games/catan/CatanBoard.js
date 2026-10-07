@@ -567,6 +567,7 @@ export default class CatanBoard {
     this.pendingSetupSettlement = vertexId;
     this.phase = 'setup-road';
     this.lastAction = `${this.players[playerId].name} placed a settlement.`;
+    this._placementMark = { playerId, kind: 'settlement' };
     this._captureState();
     return true;
   }
@@ -598,6 +599,7 @@ export default class CatanBoard {
       this.lastAction = `${this.players[this.currentPlayer].name} places a settlement.`;
     }
 
+    this._placementMark = { playerId, kind: 'road' };
     this._captureState();
     return true;
   }
@@ -781,6 +783,7 @@ export default class CatanBoard {
     this._updateLongestRoad();
     this.lastAction = `${player.name} built a road.`;
     this._checkWin();
+    this._placementMark = { playerId: this.currentPlayer, kind: 'road' };
     this._captureState();
     return true;
   }
@@ -799,6 +802,7 @@ export default class CatanBoard {
     this._updateLongestRoad();
     this.lastAction = `${player.name} built a settlement.`;
     this._checkWin();
+    this._placementMark = { playerId: this.currentPlayer, kind: 'settlement' };
     this._captureState();
     return true;
   }
@@ -814,6 +818,7 @@ export default class CatanBoard {
     player.cities.push(vertexId);
     this.lastAction = `${player.name} upgraded to a city.`;
     this._checkWin();
+    this._placementMark = { playerId: this.currentPlayer, kind: 'city' };
     this._captureState();
     return true;
   }
@@ -1709,10 +1714,16 @@ export default class CatanBoard {
   _captureState() {
     // Search clones set _skipHistory to avoid the per-move serialize cost; undo/
     // redo history is irrelevant during MCTS rollouts and tree expansion.
+    const placement = this._placementMark;
+    this._placementMark = null;
     if (this._skipHistory) return;
     const state = this.serializeState();
     state.stateHistory = [];
     state.historyIndex = -1;
+    // Tags the entry as a road/settlement/city placement so the human's most
+    // recent placement can be taken back (see undoPlacement). Not part of the
+    // serialized board state or the match snapshot.
+    if (placement) state.placement = placement;
 
     if (this.historyIndex < this.stateHistory.length - 1) {
       this.stateHistory = this.stateHistory.slice(0, this.historyIndex + 1);
@@ -1727,6 +1738,26 @@ export default class CatanBoard {
 
   canUndo() {
     return this.historyIndex > 0;
+  }
+
+  // Limited takeback: the placement this player just made, and only while it
+  // is still the newest history entry (any roll, card, steal, trade, discard
+  // or other player's move captures a newer entry and closes the window).
+  getUndoablePlacement(playerId) {
+    if (this.phase === 'game-over' || this.winner || this.historyIndex < 1) return null;
+    const entry = this.stateHistory[this.historyIndex];
+    if (!entry || !entry.includes('"placement":')) return null;
+    const mark = JSON.parse(entry).placement;
+    return mark && mark.playerId === playerId ? mark : null;
+  }
+
+  canUndoPlacement(playerId) {
+    return this.getUndoablePlacement(playerId) !== null;
+  }
+
+  undoPlacement(playerId) {
+    if (!this.canUndoPlacement(playerId)) return false;
+    return this.undo();
   }
 
   canRedo() {

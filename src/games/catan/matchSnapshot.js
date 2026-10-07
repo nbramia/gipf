@@ -15,6 +15,8 @@ export function decodeMatch(snapshot) {
       !Array.isArray(s.stateHistory) || s.stateHistory.length !== 0) throw new Error('invalid_snapshot');
   const board = CatanBoard.fromSerializedState(JSON.parse(JSON.stringify(s)));
   board.getLegalMoves();
+  // History is not saved; start a fresh one so a placement made after resuming can be taken back.
+  board._captureState();
   return { board, ui: snapshot.ui };
 }
 // A saved move keeps only gameplay fields: AI search results carry training

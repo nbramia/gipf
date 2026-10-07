@@ -8,7 +8,7 @@ Implemented:
 
 - 19-hex classic island and 30-hex 5-6 player island profiles
 - 3-6 player base-game play with snake setup order
-- 5-6 player Special Building Phase: after each player's turn, every other player in order may build and buy development cards (no dev-card play, no trading)
+- 5-6 player Special Building Phase edition of the extension (the classic rules, labelled as such at setup and in Rules; not the newer paired-turns edition): after each player's turn, every other player in order may build and buy development cards (no dev-card play, no trading)
 - Initial resource payout from the second settlement
 - Dice production with settlement/city payouts and bank limits (a shortage voids the payout only when it affects multiple players; a single affected player receives the remaining stock)
 - Robber on 7, automatic discard for players above seven cards, robber steal
@@ -19,9 +19,10 @@ Implemented:
 - Largest army and longest road awards, including road severing: an opponent settlement that cuts the holder's road re-evaluates the award — a unique longer road takes the card, a tie sets it aside, and the incumbent keeps it on mere ties
 - Victory only on your own turn: a player pushed to the target off-turn (severing transfer, special build) wins at the start of their next turn
 - Player trades may not offer and request the same resource (no disguised gifts)
-- Ruleset/scenario catalog for the core game, Seafarers, Cities & Knights, Traders & Barbarians, Explorers & Pirates, and 5-6 player extensions
+- Ruleset/scenario catalog for the core game, Seafarers, Cities & Knights, Traders & Barbarians, Explorers & Pirates, and 5-6 player extensions. Only rulesets with `engineLevel: 'Playable'` (base game, 5-6 extension) are offered at setup; a saved ruleset id that is not playable falls back to the base game (`getPlayableRuleset`). The other entries are a labelled reference section in the Rules panel
 - Ruleset-specific victory target metadata, clamped to a base-engine-reachable ceiling (see below)
-- Undo/redo support through the same board-state snapshot pattern used by the other games
+- Limited takeback: the human may undo only their own newest road, settlement or city placement (setup placements included) while nothing else has happened since (`getUndoablePlacement` / `undoPlacement`; the placement's history entry is tagged, so any later roll, card, steal, trade, discard or other move closes it). It restores the whole prior state, so resources, bank, longest road and VP are exact. The AI has no takeback move, and availability does not survive a reload. There is no general undo or redo in the UI
+- Board zoom (buttons, pinch, Ctrl/Cmd + wheel), pan when zoomed (a drag never places a piece), and a hex inspector (tap on touch, hover on desktop) showing resource, number, roll probability and adjacent harbors
 
 Also implemented (the action space is complete and faithful so the AI learns every real decision):
 

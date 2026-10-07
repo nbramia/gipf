@@ -93,7 +93,7 @@ const CATAN_RULESETS = [
     id: 'base-5-6',
     group: 'Core Game',
     name: 'Base Game Extension',
-    edition: '5-6 players',
+    edition: '5-6 players, Special Building Phase',
     playerCounts: [5, 6],
     defaultPlayerCount: 6,
     mapProfileId: 'extended',
@@ -230,6 +230,16 @@ function getRuleset(rulesetId = 'base-classic') {
   return CATAN_RULESETS.find(ruleset => ruleset.id === rulesetId) || CATAN_RULESETS[0];
 }
 
+// Only rulesets the engine actually plays are offered at setup; the rest of the
+// catalogue is reference material (Rules panel) and old saves.
+const isPlayable = ruleset => ruleset.engineLevel === 'Playable';
+
+// A stored or saved id that is unknown or no longer playable falls back to the base game.
+function getPlayableRuleset(rulesetId) {
+  const ruleset = getRuleset(rulesetId);
+  return isPlayable(ruleset) ? ruleset : CATAN_RULESETS[0];
+}
+
 function getMapProfile(mapProfileId = 'classic') {
   return MAP_PROFILES[mapProfileId] || MAP_PROFILES.classic;
 }
@@ -266,6 +276,8 @@ export {
   RULESET_GROUPS,
   MAP_PROFILES,
   getRuleset,
+  isPlayable,
+  getPlayableRuleset,
   getMapProfile,
   getDefaultScenario,
   normalizePlayerCount,
