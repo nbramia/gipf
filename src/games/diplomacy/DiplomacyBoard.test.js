@@ -666,6 +666,104 @@ describe('Diplomacy lifecycle', () => {
     expect(board.phase).toBe('game-over');
     expect(board.winner).toBe('france');
   });
+
+  describe('turn limit', () => {
+    // France holds PAR/BRE (2 units on 3 owned centers => a build is owed) and
+    // Austria sits on BUD: a winter build would be needed in a normal year.
+    function finalFallBoard(year, maxYears) {
+      const board = emptyBoard({ phase: 'fall-orders', season: 'fall', year, maxYears });
+      board.supplyCenters = { PAR: 'france', BRE: 'france', MAR: 'france', BUD: 'austria' };
+      setUnits(board, {
+        PAR: { power: 'france', type: 'army' },
+        BRE: { power: 'france', type: 'army' },
+        BUD: { power: 'austria', type: 'army' },
+      });
+      return board;
+    }
+    const holds = {
+      france: [{ type: 'hold', unitLoc: 'PAR' }, { type: 'hold', unitLoc: 'BRE' }],
+      austria: [{ type: 'hold', unitLoc: 'BUD' }],
+    };
+
+    test('ends straight after the final Fall, skipping that year\'s winter', () => {
+      const board = finalFallBoard(1905, 1905);
+      expect(board.getAdjustments().france.buildCount).toBeGreaterThan(0); // winter would be needed
+      board.processOrders(holds);
+      expect(board.phase).toBe('game-over');
+      expect(board.endReason).toBe('turn-limit');
+      expect(board.year).toBe(1905);
+      expect(board.winner).toBe('france');
+      expect(board.winningCenters).toBe(3);
+      expect(board.lastAction).toBe('Turn limit reached — France leads with 3 supply centers.');
+    });
+
+    test('earlier years still run winter adjustments', () => {
+      const board = finalFallBoard(1904, 1905);
+      board.processOrders(holds);
+      expect(board.phase).toBe('winter-build');
+      expect(board.endReason).toBeNull();
+    });
+
+    test('counts centers after the final Fall is adjudicated', () => {
+      const board = emptyBoard({ phase: 'fall-orders', season: 'fall', year: 1905, maxYears: 1905 });
+      // Before Fall: France 3 centers, Austria 1. Austria's units sit on three more.
+      board.supplyCenters = { PAR: 'france', BRE: 'france', MAR: 'france', BUD: 'austria' };
+      setUnits(board, {
+        PAR: { power: 'france', type: 'army' },
+        BRE: { power: 'france', type: 'army' },
+        BUD: { power: 'austria', type: 'army' },
+        SER: { power: 'austria', type: 'army' },
+        RUM: { power: 'austria', type: 'army' },
+        BUL: { power: 'austria', type: 'army' },
+      });
+      board.processOrders({
+        france: [{ type: 'hold', unitLoc: 'PAR' }, { type: 'hold', unitLoc: 'BRE' }],
+        austria: ['BUD', 'SER', 'RUM', 'BUL'].map(unitLoc => ({ type: 'hold', unitLoc })),
+      });
+      expect(board.phase).toBe('game-over');
+      expect(board.winner).toBe('austria');
+      expect(board.winningCenters).toBe(4);
+    });
+
+    test('a tie at the limit names every leader', () => {
+      const board = emptyBoard({ phase: 'fall-orders', season: 'fall', year: 1905, maxYears: 1905 });
+      board.supplyCenters = { PAR: 'france', BRE: 'france', BUD: 'austria', TRI: 'austria' };
+      setUnits(board, { PAR: { power: 'france', type: 'army' }, BUD: { power: 'austria', type: 'army' } });
+      board.processOrders({ france: [{ type: 'hold', unitLoc: 'PAR' }], austria: [{ type: 'hold', unitLoc: 'BUD' }] });
+      expect(board.endReason).toBe('turn-limit');
+      expect(board.winner).toBeNull();
+      expect(board.lastAction).toBe('Turn limit reached — Austria and France share the lead with 2 supply centers.');
+    });
+
+    test('18 centers on the final Fall is a victory, not a turn-limit end', () => {
+      const board = emptyBoard({ phase: 'fall-orders', season: 'fall', year: 1905, maxYears: 1905 });
+      board.supplyCenters = {};
+      for (const c of SUPPLY_CENTERS.slice(0, 18)) board.supplyCenters[c] = 'france';
+      const c0 = SUPPLY_CENTERS[0];
+      setUnits(board, { [c0]: { power: 'france', type: unitCanOccupy('army', c0) ? 'army' : 'fleet' } });
+      board.processOrders({ france: [{ type: 'hold', unitLoc: c0 }] });
+      expect(board.endReason).toBe('victory');
+      expect(board.lastAction).toBe('France controls 18 centers.');
+    });
+
+    test('endReason survives save/restore; a legacy finished save infers it', () => {
+      const board = finalFallBoard(1905, 1905);
+      board.processOrders(holds);
+      const state = board.serializeState();
+      expect(DiplomacyBoard.fromSerializedState(state).endReason).toBe('turn-limit');
+      const { endReason, ...legacy } = state;
+      expect(DiplomacyBoard.fromSerializedState(legacy).endReason).toBe('turn-limit');
+      expect(DiplomacyBoard.fromSerializedState({ ...legacy, winningCenters: 18 }).endReason).toBe('victory');
+    });
+
+    test('a legacy save parked in the final winter still ends after it', () => {
+      const board = finalFallBoard(1905, 1905);
+      board.phase = 'winter-build';
+      board.processAdjustments({});
+      expect(board.phase).toBe('game-over');
+      expect(board.endReason).toBe('turn-limit');
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
