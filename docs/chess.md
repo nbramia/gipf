@@ -30,6 +30,8 @@ src/games/chess/
   coach/
     classify.js          # Eval-swing -> blunder..best; formatEval
     analyzeMove.js       # Build engine-grounded coaching payloads; pv -> SAN
+    legalMoves.js        # Legal SAN moves of a FEN (grounds the prompt)
+    richText.jsx         # Safe markdown-subset renderer for coach text
     templates.js         # Deterministic fallback prose (never fabricates)
     coachClient.js       # BYO key + POST /api/chessCoach + fallback + thread loop
     mistakeStore.js      # Persistent mistake library + spaced-repetition scheduler
@@ -88,6 +90,13 @@ After every move (human and AI):
 **Truthfulness:** every move named in commentary is a real MultiPV candidate and
 every eval is the engine's own number. The template fallback cannot fabricate a
 line, and the API prompt instructs the model to use only the supplied facts.
+The payload also says who moved (`mover` engine/user, `playerColor`) so engine
+moves are narrated as the opponent's, and carries the legal SAN moves of the
+positions before and after the move (`coach/legalMoves.js`) so the model only
+names moves that exist; the thread context gets the same. The classification
+label is passed to the prompt and must agree with the prose. Replies are plain
+text; `coach/richText.jsx` renders any stray markdown subset (bold, italic,
+code, lists, line breaks) as React elements, never as HTML.
 
 ### Bring-your-own API key (security)
 

@@ -76,6 +76,7 @@ import { playSound, moveSoundKind } from './coach/sound.js';
 import { formatEval, CLASSIFICATION_LEGEND } from './coach/classify.js';
 import { describeEngineError } from './engine/stockfishLoader.js';
 import { requestCommentary, runThreadTurn, hasApiKey } from './coach/coachClient.js';
+import { CoachText } from './coach/richText.jsx';
 import './chess.css';
 
 const PIECE_GLYPH = { p: '♟', n: '♞', b: '♝', r: '♜', q: '♛', k: '♚' };
@@ -832,6 +833,8 @@ function ChessGame() {
                     fenAfter,
                     movePlayed: payload.movePlayed && payload.movePlayed.san,
                     classification: payload.classification,
+                    mover: payload.mover,
+                    playerColor: payload.playerColor,
                     evalBefore: payload.evalBefore,
                     evalAfter: payload.evalAfter,
                     bestMove: payload.bestMove
@@ -2534,7 +2537,7 @@ function ChessGame() {
                             style={{ color: 'var(--color-text-muted)' }}
                             title="Show this position"
                           >
-                            {Math.ceil(e.ply / 2)}.{e.kind === 'ai-move' ? '..' : ''} {e.san}
+                            {Math.ceil(e.ply / 2)}.{e.ply % 2 === 0 ? '..' : ''} {e.san}
                           </button>
                           {e.label && e.label !== 'engine' && (
                             <span className={`text-xs font-semibold ${TONE_CLASS[e.tone] || ''}`}>
@@ -2548,9 +2551,9 @@ function ChessGame() {
                             </span>
                           )}
                         </div>
-                        <p style={{ color: 'var(--color-text-secondary)' }}>
-                          {e.pending ? 'Analyzing…' : e.text}
-                        </p>
+                        <div style={{ color: 'var(--color-text-secondary)' }}>
+                          {e.pending ? 'Analyzing…' : <CoachText text={e.text} />}
+                        </div>
                         {!e.pending && e.analysis && (
                           <button
                             onClick={() => setThreadEntryId(e.id)}
@@ -3051,7 +3054,7 @@ function ChessGame() {
             <div className="flex items-start justify-between p-4 border-b" style={{ borderColor: 'var(--color-border)' }}>
               <div>
                 <h3 className="font-heading text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-                  {Math.ceil(threadEntry.ply / 2)}.{threadEntry.kind === 'ai-move' ? '..' : ''} {threadEntry.san}
+                  {Math.ceil(threadEntry.ply / 2)}.{threadEntry.ply % 2 === 0 ? '..' : ''} {threadEntry.san}
                 </h3>
                 <p className="font-body text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
                   Ask follow-ups — answers are checked against Stockfish live.
@@ -3068,7 +3071,7 @@ function ChessGame() {
 
             <div className="flex-1 overflow-y-auto p-4 space-y-3">
               <div className="coach-entry font-body text-sm" style={{ color: 'var(--color-text-secondary)' }}>
-                {threadEntry.text}
+                <CoachText text={threadEntry.text} />
               </div>
               {(threadEntry.thread || []).map((m, i) => (
                 <div
@@ -3080,7 +3083,7 @@ function ChessGame() {
                       : { color: 'var(--color-text-secondary)' }
                   }
                 >
-                  {m.content}
+                  {m.role === 'user' ? m.content : <CoachText text={m.content} />}
                 </div>
               ))}
               {threadBusy && (

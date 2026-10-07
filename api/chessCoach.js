@@ -18,8 +18,65 @@ export const config = { api: { bodyParser: { sizeLimit: '32kb' } } };
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages';
 const DEFAULT_MODEL = 'claude-haiku-4-5-20251001'; // fast + inexpensive for per-move use
 
+// Whole-request deadline: vercel.json gives this function MAX_DURATION_MS. The
+// upstream call gets whatever is left after the guard / key lookup that already
+// ran, minus a margin so we can still answer before the platform kills us.
+const MAX_DURATION_MS = 20000; // keep in sync with vercel.json
+const DEADLINE_MARGIN_MS = 1500;
+export function upstreamTimeoutMs(startedAt, now = Date.now()) {
+  return MAX_DURATION_MS - DEADLINE_MARGIN_MS - (now - startedAt);
+}
+// When the budget is already spent there is no safe upstream call to make:
+// fail as a timeout (-> 504) instead of scheduling past the platform deadline.
+function upstreamSignal(startedAt) {
+  const ms = upstreamTimeoutMs(startedAt);
+  if (ms <= 0) throw Object.assign(new Error('deadline exhausted'), { name: 'TimeoutError' });
+  return AbortSignal.timeout(ms);
+}
+
+const TIMEOUT_CODES = new Set(['UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT']);
+// True for an aborted / timed-out upstream call, including fetch's TypeError
+// wrapper whose cause is the real timeout.
+export function isTimeoutError(err, depth = 0) {
+  if (!err || typeof err !== 'object' || depth > 3) return false;
+  if (err.name === 'TimeoutError' || err.name === 'AbortError') return true;
+  if (typeof err.code === 'string' && TIMEOUT_CODES.has(err.code)) return true;
+  return isTimeoutError(err.cause, depth + 1);
+}
+
+// Shared house style + legality rules for every coach reply.
+const STYLE_RULES =
+  'Write plain text with no markdown (no asterisks, no headings, no bullet syntax). ' +
+  'Only name moves that appear in the supplied legal-move lists or in engine output you were given.';
+
+// Untrusted client-supplied SAN list -> short, bounded, well-formed strings.
+function cleanSanList(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((m) => typeof m === 'string' && /^[A-Za-z0-9+#=-]{2,10}$/.test(m))
+    .slice(0, 120);
+}
+
+// Who made the move, relative to the human student.
+function moverNote(mover, playerColor, sideToMove) {
+  const colour = (c) => (c === 'b' ? 'Black' : 'White');
+  const student = playerColor === 'w' || playerColor === 'b' ? colour(playerColor) : null;
+  const opponent = student ? colour(playerColor === 'w' ? 'b' : 'w') : null;
+  if (mover === 'engine') {
+    return (
+      `The student${student ? ` plays ${student}` : ''}. This move was made by the ENGINE OPPONENT` +
+      `${opponent ? ` (${opponent})` : ''}, NOT by the student. Never say "you played" about it; ` +
+      'call it "the opponent" or "the engine".'
+    );
+  }
+  if (mover === 'user') {
+    return `The student${student ? ` plays ${student}` : ''} and made this move themselves; address them as "you".`;
+  }
+  return `Side to move: ${colour(sideToMove)}.`;
+}
+
 // Build the coaching prompt from engine-grounded facts only.
-function buildPrompt(body) {
+export function buildPrompt(body) {
   const {
     kind, // 'ai-move' | 'player-move'
     fen,
@@ -41,15 +98,29 @@ function buildPrompt(body) {
     hint,
     refutationPv,
     mateBudget,
+    mover,
+    playerColor,
+    legalMoves,
+    legalMovesAfter,
   } = body;
 
   const lines = [];
   lines.push(`Position (FEN): ${fen}`);
   lines.push(`Side to move at this point: ${sideToMove === 'b' ? 'Black' : 'White'}`);
+  if (mover === 'engine' || mover === 'user') lines.push(moverNote(mover, playerColor, sideToMove));
   if (movePlayed) lines.push(`Move played: ${movePlayed.san || movePlayed}`);
   if (typeof evalBefore === 'string') lines.push(`Eval before (White POV): ${evalBefore}`);
   if (typeof evalAfter === 'string') lines.push(`Eval after (White POV): ${evalAfter}`);
-  if (classification) lines.push(`Engine classification of the move: ${classification}`);
+  if (classification) {
+    lines.push(
+      `Engine classification of the move: ${classification}. Your prose MUST agree with this label ` +
+        '(do not call a "mistake" or "blunder" fine, or a "best"/"excellent" move bad).'
+    );
+  }
+  const legalBefore = cleanSanList(legalMoves);
+  const legalAfter = cleanSanList(legalMovesAfter);
+  if (legalBefore.length) lines.push(`Legal moves in the position above (before the move): ${legalBefore.join(' ')}`);
+  if (legalAfter.length) lines.push(`Legal moves in the position after the move: ${legalAfter.join(' ')}`);
   if (bestMove) {
     lines.push(`Engine's best move here: ${bestMove.san} (eval ${bestMove.eval}), line: ${(bestMove.pv || []).join(' ')}`);
   }
@@ -85,7 +156,10 @@ function buildPrompt(body) {
     );
   }
 
-  const openingNote = openingStats
+  const hardNegative = ['inaccuracy', 'mistake', 'blunder'].includes(classification);
+  const openingNote = hardNegative
+    ? ''
+    : openingStats
     ? '\n\nThis is an OPENING position with established theory. Do NOT call a recognized ' +
       'master move a mistake or inaccuracy — many moves are viable here. Describe how ' +
       'mainstream the move is using the master-game data, name the plans behind it, and ' +
@@ -99,12 +173,12 @@ function buildPrompt(body) {
 
   const task =
     kind === 'player-move'
-      ? "Evaluate the human player's move as a friendly coach: name the quality, explain what they may have missed, and give the stronger move and its idea. Be encouraging but honest."
+      ? "Evaluate the human player's move (addressing the student as \"you\") as a friendly coach: name the quality, explain what they may have missed, and give the stronger move and its idea. Be encouraging but honest."
       : kind === 'puzzle-hint'
         ? 'The student asked for a hint in a tactics puzzle. Rephrase the allowed hint content as one short, encouraging sentence. You MUST NOT name any move, piece, or square that is not already in the allowed hint content — under no circumstances reveal the solution.'
         : kind === 'puzzle-fail'
           ? "The student's move failed a tactics puzzle. Using ONLY the engine refutation line given, explain in one or two sentences why the move falls short, then point them back to the puzzle theme. Do NOT reveal, name, or guess the correct move."
-          : "Explain the move you (the engine) just played: why it's good, which other moves you considered (use the candidates above), and why you chose this one over them.";
+          : "Explain, for the student, the move their engine opponent just played (refer to it as \"the opponent\" or \"the engine\", never as the student's move): what it does, which other moves the engine considered (use the candidates above), and what the student should watch for next.";
 
   const goalNote = learningGoal
     ? `\n\nThe student told you they want to focus on: "${learningGoal}". Tailor your explanation toward that goal when relevant.`
@@ -121,7 +195,7 @@ function buildPrompt(body) {
     goalNote +
     weaknessNote +
     openingNote +
-    `\n\nRespond in 2–4 sentences of plain, instructive prose. Refer to moves in standard algebraic notation.`
+    `\n\nRespond in 2–4 sentences of plain, instructive prose. Refer to moves in standard algebraic notation. ${STYLE_RULES}`
   );
 }
 
@@ -187,12 +261,24 @@ const QUERY_OPENINGS_TOOL = {
   },
 };
 
-function buildThreadSystem(context) {
+export function buildThreadSystem(context) {
   const c = context || {};
   const facts = [];
   if (c.fenBefore) facts.push(`Position before the move (FEN): ${c.fenBefore}`);
   if (c.fenAfter) facts.push(`Position after the move (FEN): ${c.fenAfter}`);
+  if (c.mover === 'engine' || c.mover === 'user') facts.push(moverNote(c.mover, c.playerColor, undefined));
   if (c.movePlayed) facts.push(`Move played: ${c.movePlayed}`);
+  const legalBefore = cleanSanList(c.legalMoves);
+  const legalAfter = cleanSanList(c.legalMovesAfter);
+  if (legalBefore.length) facts.push(`Legal moves before the move: ${legalBefore.join(' ')}`);
+  if (legalAfter.length) facts.push(`Legal moves after the move: ${legalAfter.join(' ')}`);
+  const nextMoves = cleanSanList(c.movedPieceNextMoves);
+  if (nextMoves.length) {
+    facts.push(
+      `If the side that just moved were to move again, the moved piece could go: ${nextMoves.join(' ')}. ` +
+        'Use this for "where can it retreat / go next" questions; never name a destination not listed.'
+    );
+  }
   if (c.classification) facts.push(`Engine classification: ${c.classification}`);
   if (c.evalBefore) facts.push(`Eval before (White POV): ${c.evalBefore}`);
   if (c.evalAfter) facts.push(`Eval after (White POV): ${c.evalAfter}`);
@@ -213,12 +299,15 @@ function buildThreadSystem(context) {
     'conversation. To discuss any idea or "what if", call the appropriate tool and ' +
     'reason from its result. If a tool returns an error or you cannot get the data, ' +
     'say so rather than guessing. Refer to moves in standard algebraic ' +
-    'notation.\n\nContext for the move under discussion:\n' +
+    'notation. When suggesting a move for one of the two anchor positions, pick only ' +
+    'from that position\'s legal-move list below; for deeper lines use only moves from ' +
+    'tool output. The "Engine classification" label is authoritative: keep your wording ' +
+    `consistent with it. ${STYLE_RULES}\n\nContext for the move under discussion:\n` +
     facts.join('\n')
   );
 }
 
-async function handleThread(req, res, body, apiKey) {
+async function handleThread(req, res, body, apiKey, startedAt) {
   const messages = Array.isArray(body.messages) ? body.messages : null;
   if (!messages || messages.length === 0) {
     res.status(400).json({ error: 'bad_request', message: 'Missing conversation messages.' });
@@ -230,7 +319,7 @@ async function handleThread(req, res, body, apiKey) {
   ];
 
   const upstream = await fetch(ANTHROPIC_URL, {
-    signal: AbortSignal.timeout(12000),
+    signal: upstreamSignal(startedAt),
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -269,7 +358,7 @@ async function handleThread(req, res, body, apiKey) {
 // browser. Guests query Lichess directly with their device-only token.
 const EXPLORER_URL = 'https://explorer.lichess.ovh/masters';
 const FEN_RE = /^[A-Za-z0-9/ -]{10,100}$/;
-async function handleExplorer(req, res, body) {
+async function handleExplorer(req, res, body, startedAt) {
   if (typeof body.fen !== 'string' || !FEN_RE.test(body.fen)) {
     res.status(400).json({ error: 'bad_request', message: 'Missing position.' });
     return;
@@ -277,7 +366,7 @@ async function handleExplorer(req, res, body) {
   const token = await requestKey(req, res, {}, 'lichess', 'token');
   if (!token) return;
   const upstream = await fetch(`${EXPLORER_URL}?fen=${encodeURIComponent(body.fen)}&moves=12&topGames=0`, {
-    signal: AbortSignal.timeout(12000),
+    signal: upstreamSignal(startedAt),
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
   });
   if (!upstream.ok) {
@@ -288,6 +377,7 @@ async function handleExplorer(req, res, body) {
 }
 
 export default async function handler(req, res) {
+  const startedAt = Date.now();
   const explorer = req.body && typeof req.body === 'object' && req.body.mode === 'explorer';
   if (req.method === 'POST' && !await guardRequest(req, res, explorer ? { bucket: 'explorer', limit: 60 } : { bucket: 'ai', limit: 30 })) return;
   res.setHeader('Cache-Control', 'no-store');
@@ -305,7 +395,7 @@ export default async function handler(req, res) {
   try {
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body || {};
     if (body.mode === 'explorer') {
-      await handleExplorer(req, res, body);
+      await handleExplorer(req, res, body, startedAt);
       return;
     }
     // A guest's key is in the body; a signed-in player's is read from the account.
@@ -314,7 +404,7 @@ export default async function handler(req, res) {
 
     // Threaded Q&A path (tool-use) vs. the original single-shot commentary path.
     if (body.mode === 'thread') {
-      await handleThread(req, res, body, apiKey);
+      await handleThread(req, res, body, apiKey, startedAt);
       return;
     }
 
@@ -326,7 +416,7 @@ export default async function handler(req, res) {
     const prompt = buildPrompt(body);
 
     const upstream = await fetch(ANTHROPIC_URL, {
-    signal: AbortSignal.timeout(12000),
+    signal: upstreamSignal(startedAt),
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -367,6 +457,10 @@ export default async function handler(req, res) {
   } catch (err) {
     // Never include the request body (which holds the key) in error output.
     applyCors(req, res);
+    if (isTimeoutError(err)) {
+      res.status(504).json({ error: 'upstream_timeout', message: 'The model took too long to respond.' });
+      return;
+    }
     res.status(500).json({ error: 'server_error', message: 'Failed to generate commentary.' });
   }
 }

@@ -9,6 +9,7 @@
 import { describeAiMove, describePlayerMove } from './templates.js';
 import { describePuzzleFail, hintLeaksSolution } from './puzzleCoach.js';
 import { runTool } from './analysisTools.js';
+import { legalSan, movedPieceNextMoves } from './legalMoves.js';
 import { getLichessToken } from './openingCoach.js';
 import { accountKeys, ACCOUNT_REQUEST_HEADERS } from '../../../accountKeys.js';
 
@@ -83,11 +84,15 @@ export async function requestCommentary(payload) {
   if (!apiKey && !accountKeys().anthropic) return fallback();
 
   try {
-    const res = await fetch('/api/chessCoach', {
-      method: 'POST',
-      headers: ACCOUNT_REQUEST_HEADERS,
-      body: JSON.stringify({ ...wirePayload, ...(apiKey ? { apiKey } : {}) }),
-    });
+    const send = () =>
+      fetch('/api/chessCoach', {
+        method: 'POST',
+        headers: ACCOUNT_REQUEST_HEADERS,
+        body: JSON.stringify({ ...wirePayload, ...(apiKey ? { apiKey } : {}) }),
+      });
+    let res = await send();
+    // A gateway timeout produced nothing, so one retry cannot duplicate output.
+    if (res.status === 504) res = await send();
     if (!res.ok) return fallback();
     const data = await res.json();
     if (!data || !data.commentary) return fallback();
@@ -128,24 +133,40 @@ export async function runThreadTurn({ context, history, question, analyze, onToo
     return { error: 'no_key', text: 'Add your Anthropic API key to ask questions about this move.' };
   }
 
+  // Legal moves for both anchor positions travel with the context so the model
+  // only names moves that exist (computed here, not persisted with the entry).
+  const threadContext = {
+    ...context,
+    ...(context && context.fenBefore ? { legalMoves: legalSan(context.fenBefore) } : {}),
+    ...(context && context.fenAfter ? { legalMovesAfter: legalSan(context.fenAfter) } : {}),
+    ...(context && context.fenBefore && context.movePlayed
+      ? { movedPieceNextMoves: movedPieceNextMoves(context.fenBefore, context.movePlayed) }
+      : {}),
+  };
   const messages = [...(history || []), { role: 'user', content: question }];
   const toolCalls = [];
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round += 1) {
     let res;
     try {
-      res = await fetch('/api/chessCoach', {
-        method: 'POST',
-        headers: ACCOUNT_REQUEST_HEADERS,
-        body: JSON.stringify({ mode: 'thread', context, messages, ...(apiKey ? { apiKey } : {}) }),
-      });
+      const send = () =>
+        fetch('/api/chessCoach', {
+          method: 'POST',
+          headers: ACCOUNT_REQUEST_HEADERS,
+          body: JSON.stringify({ mode: 'thread', context: threadContext, messages, ...(apiKey ? { apiKey } : {}) }),
+        });
+      res = await send();
+      // The request produced nothing (the tool loop only advances on success), so retry once.
+      if (res.status === 504) res = await send();
     } catch (_) {
       return { error: 'network', text: 'Could not reach the coach. Check your connection.', messages };
     }
     if (!res.ok) {
       const msg = res.status === 401
         ? 'Your API key was rejected. Check it under Sign in / add key.'
-        : 'The coach had trouble responding. Try again.';
+        : res.status === 504
+          ? 'The coach took too long to respond. Try again.'
+          : 'The coach had trouble responding. Try again.';
       return { error: 'upstream', text: msg, messages };
     }
 
