@@ -40,6 +40,7 @@ function buildPrompt(body) {
     stage,
     hint,
     refutationPv,
+    mateBudget,
   } = body;
 
   const lines = [];
@@ -68,6 +69,9 @@ function buildPrompt(body) {
   }
   if (kind === 'puzzle-fail' && Array.isArray(refutationPv) && refutationPv.length) {
     lines.push(`Engine refutation of the played move: ${refutationPv.join(' ')}`);
+  }
+  if (kind === 'puzzle-fail' && mateBudget) {
+    lines.push('The puzzle requires checkmate within a set number of moves. The played move does not mate within that limit; do NOT say the win is lost or the chance is gone.');
   }
   if (openingStats) {
     const alts = (openingStats.alternatives || [])

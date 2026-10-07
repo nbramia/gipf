@@ -8,11 +8,15 @@
 // ReferenceError (the bug this guards) would reject render() and fail the test.
 
 import React from 'react';
-import { render } from '@testing-library/react';
+import { render, fireEvent, act, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
+let boardProps = {};
 jest.mock('react-chessboard', () => ({
-  Chessboard: () => <div data-testid="chessboard-stub" />,
+  Chessboard: (props) => {
+    boardProps = props;
+    return <div data-testid="chessboard-stub" />;
+  },
 }));
 
 import ChessGame from './ChessGame';
@@ -53,5 +57,77 @@ describe('ChessGame — render smoke', () => {
     expect(localStorage.getItem('playApiKey')).toBe('sk-ant-synthetic');
     expect(localStorage.getItem('chessLichessToken')).toBe('lip_synthetic');
     expect(localStorage.getItem('chessRating')).toBe('1400');
+  });
+});
+
+describe('ChessGame — PGN import and clock behavior', () => {
+  const mount = () =>
+    render(
+      <MemoryRouter>
+        <ChessGame />
+      </MemoryRouter>
+    );
+
+  const importPgn = async (utils, text, side) => {
+    const input = utils.container.querySelector('input[type="file"]');
+    const file = new File([text], 'g.pgn', { type: 'text/plain' });
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [file] } });
+    });
+    const dialog = await utils.findByRole('dialog');
+    return { dialog, choose: () => fireEvent.click(Array.from(dialog.querySelectorAll('button')).find((b) => b.textContent.startsWith(side))) };
+  };
+
+  beforeEach(() => localStorage.clear());
+
+  test('importing a completed game in rated mode never changes the rating', async () => {
+    localStorage.setItem('chessRated', 'true');
+    const utils = mount();
+    const { choose } = await importPgn(utils, '1. f3 e5 2. g4 Qh4# 0-1', 'Black');
+    await act(async () => { choose(); });
+    expect(utils.container.textContent).toContain('Checkmate — Black wins');
+    expect(JSON.parse(localStorage.getItem('chessRating') || '1000')).toBe(1000);
+    expect(utils.container.textContent).not.toMatch(/\+20/);
+  });
+
+  test('an imported game keeps its declared result instead of continuing', async () => {
+    const utils = mount();
+    const { choose } = await importPgn(utils, '[Result "1-0"]\n\n1. e4 1-0', 'White');
+    await act(async () => { choose(); });
+    expect(utils.container.textContent).toContain('Imported result — White wins');
+    expect(utils.container.textContent).not.toContain('Black to move');
+  });
+
+  test('cancelling the import dialog keeps the current game', async () => {
+    const utils = mount();
+    const { dialog } = await importPgn(utils, '1. e4 e5 2. Nf3 *', 'White');
+    fireEvent.click(Array.from(dialog.querySelectorAll('button')).find((b) => b.textContent === 'Cancel'));
+    expect(utils.queryByRole('dialog')).toBeNull();
+    expect(utils.container.textContent).toContain('No moves yet.');
+  });
+
+  test('clicking a pawn onto the last rank asks for a promotion piece', async () => {
+    const utils = mount();
+    const { choose } = await importPgn(
+      utils,
+      '[SetUp "1"]\n[FEN "7k/P7/8/8/8/8/7p/4K3 w - - 0 1"]\n\n*',
+      'White'
+    );
+    await act(async () => { choose(); });
+    await act(async () => { boardProps.onSquareClick('a7'); });
+    await act(async () => { boardProps.onSquareClick('a8'); });
+    expect(boardProps.showPromotionDialog).toBe(true);
+    expect(boardProps.promotionToSquare).toBe('a8');
+    expect(utils.container.textContent).toContain('No moves yet.');
+    await act(async () => { boardProps.onPromotionPieceSelect('wN', undefined, 'a8'); });
+    await waitFor(() => expect(utils.container.textContent).toContain('a8=N'));
+  });
+
+  test('changing the clock preset does not alter the game in progress', () => {
+    const utils = mount();
+    const select = utils.container.querySelector('select option[value="3+2"]').parentElement;
+    fireEvent.change(select, { target: { value: '3+2' } });
+    expect(utils.queryByLabelText('White clock')).toBeNull();
+    expect(localStorage.getItem('chessTimeControl')).toBe('3+2');
   });
 });

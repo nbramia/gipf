@@ -76,6 +76,28 @@ export default class ChessBoard {
     return this.chess.isGameOver();
   }
 
+  // Whether `color` ('w'|'b') could still checkmate in some legal continuation,
+  // which is what a win on time requires (FIDE 6.9). Conservative material test:
+  // a bare king, or king plus a single minor piece against a bare king, cannot.
+  canWinOnTime(color) {
+    const own = { n: 0, other: 0 };
+    let oppPieces = 0;
+    for (const row of this.chess.board()) {
+      for (const sq of row) {
+        if (!sq || sq.type === 'k') continue;
+        if (sq.color === color) {
+          if (sq.type === 'n' || sq.type === 'b') own.n += 1;
+          else own.other += 1;
+        } else {
+          oppPieces += 1;
+        }
+      }
+    }
+    if (own.other > 0 || own.n >= 2) return true;
+    if (own.n === 0) return false;
+    return oppPieces > 0; // lone minor piece can only mate with the opponent's help
+  }
+
   // Returns a structured result describing how (and if) the game ended.
   result() {
     if (!this.chess.isGameOver()) return null;

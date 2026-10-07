@@ -104,6 +104,17 @@ describe('describePuzzleFail / buildFailPayload', () => {
     expect(text).toContain('back-rank mate');
   });
 
+  test('a mate-budget failure says it does not mate in time, not that the chance is gone', () => {
+    const text = describePuzzleFail({
+      movePlayed: { san: 'Qd2' },
+      refutationPv: ['Ka7', 'Qb4'],
+      theme: 'Queen mate',
+      mateBudget: true,
+    });
+    expect(text).toContain("Qd2 doesn't mate within the required number of moves");
+    expect(text).not.toMatch(/chance is gone|slip/);
+  });
+
   test('stays coherent with no refutation line', () => {
     const text = describePuzzleFail({ movePlayed: { san: 'Kh1' }, refutationPv: [], theme: 'Fork' });
     expect(text).toContain("Kh1 doesn't work");
@@ -122,6 +133,10 @@ describe('describePuzzleFail / buildFailPayload', () => {
     });
     expect(payload).toMatchObject({ kind: 'puzzle-fail', movePlayed: { san: 'e4' }, theme: 'Fork' });
     expect(payload.refutationPv).toEqual(['e5', 'Nf3']);
+    expect(payload.mateBudget).toBeUndefined();
+    expect(
+      buildFailPayload({ puzzle: { theme: 'Mate', mateIn: 2 }, fen: startFen, fenAfter: afterE4, playedSan: 'e4', analysisAfter: null }).mateBudget
+    ).toBe(true);
   });
 });
 

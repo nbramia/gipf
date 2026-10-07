@@ -5,19 +5,70 @@
 // validation wrapper. Kept separate from the Board so the Board stays pure and
 // DOM-free, and so the file-reading parts can be stubbed in tests.
 
-// Build a PGN string with a couple of standard headers prepended. chess.js's
-// own pgn() output is already valid; we just optionally add Event/Date headers.
-export function withHeaders(pgnBody, { white = 'Human', black = 'Stockfish', date } = {}) {
+// PGN result token for the app's own game result ({winner:'white'|'black'|null})
+// or null while the game is live.
+export function resultToken(gameResult) {
+  if (!gameResult) return '*';
+  if (gameResult.winner === 'white') return '1-0';
+  if (gameResult.winner === 'black') return '0-1';
+  return '1/2-1/2';
+}
+
+const RESULT_RE = /(1-0|0-1|1\/2-1\/2|\*)/;
+const OWN_TAGS = new Set(['Event', 'Site', 'Date', 'Round', 'White', 'Black', 'Result']);
+
+// Build one PGN with a single header set. `pgnBody` may already carry chess.js's
+// own headers (placeholder Event/Site/... and Result "*"); those are replaced by
+// ours, SetUp/FEN are kept, and the authoritative `result` (the app's game
+// result, else the body's own) is written both as the Result tag and as the
+// terminal movetext marker.
+export function withHeaders(pgnBody, { white = 'Human', black = 'Stockfish', date, result } = {}) {
+  const kept = [];
+  const moveLines = [];
+  let bodyResult = null;
+  for (const line of String(pgnBody || '').trim().split('\n')) {
+    const m = line.match(/^\[(\w+)\s+"([^"]*)"\]\s*$/);
+    if (!m) {
+      moveLines.push(line);
+      continue;
+    }
+    if (m[1] === 'Result') bodyResult = m[2];
+    if (!OWN_TAGS.has(m[1])) kept.push(line);
+  }
+  const res = result || (bodyResult && RESULT_RE.test(bodyResult) ? bodyResult : '*');
+  const movetext = moveLines
+    .join('\n')
+    .trim()
+    .replace(/\s*(1-0|0-1|1\/2-1\/2|\*)\s*$/, '');
   const headers = [
     '[Event "Play Chess"]',
     '[Site "play.ramia.us/chess"]',
     date ? `[Date "${date}"]` : null,
     `[White "${white}"]`,
     `[Black "${black}"]`,
+    `[Result "${res}"]`,
+    ...kept,
   ]
     .filter(Boolean)
     .join('\n');
-  return `${headers}\n\n${pgnBody}`.trim() + '\n';
+  return `${headers}\n\n${`${movetext} ${res}`.trim()}\n`;
+}
+
+// The result an imported PGN declares: the [Result] tag, else a trailing
+// movetext marker. Returns 'white' | 'black' | 'draw' | null (unfinished/unknown).
+export function parseDeclaredResult(pgnText) {
+  if (typeof pgnText !== 'string') return null;
+  const tag = matchHeader(pgnText, 'Result');
+  let token = tag && RESULT_RE.test(tag) ? tag.trim() : null;
+  if (!token || token === '*') {
+    const body = pgnText.replace(/^\s*(\[[^\n]*\]\s*\n)+/, '');
+    const m = body.trim().match(/(1-0|0-1|1\/2-1\/2|\*)$/);
+    token = m ? m[1] : token;
+  }
+  if (token === '1-0') return 'white';
+  if (token === '0-1') return 'black';
+  if (token === '1/2-1/2') return 'draw';
+  return null;
 }
 
 // Trigger a .pgn download in the browser. No-op outside the DOM.

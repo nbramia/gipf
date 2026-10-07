@@ -205,3 +205,16 @@ describe('resumable game history', () => {
     expect(restored.positions).toEqual(b.positions);
   });
 });
+
+describe('ChessBoard.canWinOnTime', () => {
+  test.each([
+    ['7k/8/8/8/8/8/R7/K7 w - - 0 1', 'b', false], // bare king cannot mate
+    ['7k/8/8/8/8/8/R7/K7 w - - 0 1', 'w', true],
+    ['7k/8/8/8/8/8/B7/K7 w - - 0 1', 'w', false], // lone bishop vs bare king
+    ['7k/p7/8/8/8/8/B7/K7 w - - 0 1', 'w', true], // opponent pawn could help
+    ['7k/8/8/8/8/8/NN6/K7 w - - 0 1', 'w', true],
+    ['7k/8/8/8/8/8/P7/K7 w - - 0 1', 'w', true],
+  ])('%s as %s -> %s', (fen, color, expected) => {
+    expect(new ChessBoard(fen).canWinOnTime(color)).toBe(expected);
+  });
+});
