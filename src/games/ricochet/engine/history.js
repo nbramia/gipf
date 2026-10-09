@@ -39,18 +39,32 @@ export function loadRating() {
   return { rating: DEFAULT_RATING, rounds: 0 };
 }
 
+const TOLERANCE = 1e-9;
+const isInt = (v) => Number.isInteger(v);
+
+// Stored quality/pace/score must match what scoring.js computes from the inputs.
+function consistent(e) {
+  const r = scoreRound(e);
+  return (
+    Math.abs(r.quality - e.quality) <= TOLERANCE &&
+    Math.abs(r.pace - e.pace) <= TOLERANCE &&
+    Math.abs(r.score - e.score) <= TOLERANCE
+  );
+}
+
 export function validEntry(e) {
   return Boolean(
     e && typeof e === 'object' &&
-    isNum(e.at) && isNum(e.optimal) && e.optimal > 0 &&
-    isNum(e.moves) && e.moves >= 0 && isNum(e.timeMs) && e.timeMs >= 0 &&
+    isNum(e.at) && isInt(e.optimal) && e.optimal >= 1 &&
+    isInt(e.moves) && e.moves >= 0 && isNum(e.timeMs) && e.timeMs >= 0 &&
     typeof e.revealed === 'boolean' &&
     isNum(e.quality) && e.quality >= 0 && e.quality <= 1 &&
     isNum(e.pace) && e.pace >= 0 && e.pace <= 1 &&
     isNum(e.score) && e.score >= 0 && e.score <= 1 &&
-    isNum(e.ratingBefore) && e.ratingBefore >= MIN_RATING &&
-    isNum(e.ratingAfter) && e.ratingAfter >= MIN_RATING &&
-    (e.revealed || e.moves >= e.optimal)
+    isInt(e.ratingBefore) && e.ratingBefore >= MIN_RATING &&
+    isInt(e.ratingAfter) && e.ratingAfter >= MIN_RATING &&
+    (e.revealed || e.moves >= e.optimal) &&
+    consistent(e)
   );
 }
 
@@ -62,11 +76,13 @@ export function loadHistory() {
 
 // Scores the round, updates and persists rating + history, returns the entry.
 // Returns null (touching nothing) for impossible input.
-export function recordRound({ optimal, moves, timeMs, revealed = false, gaveUp = false, at = Date.now() }) {
+export function recordRound(input) {
+  if (!input || typeof input !== 'object') return null;
+  const { optimal, moves, timeMs, revealed = false, gaveUp = false, at = Date.now() } = input;
   const abandoned = Boolean(revealed || gaveUp);
   if (
-    !isNum(optimal) || optimal <= 0 || !isNum(timeMs) || timeMs < 0 || !isNum(at) ||
-    !isNum(moves) || moves < 0 || (!abandoned && moves < optimal)
+    !isInt(optimal) || optimal < 1 || !isNum(timeMs) || timeMs < 0 || !isNum(at) ||
+    !isInt(moves) || moves < 0 || (!abandoned && moves < optimal)
   ) {
     return null;
   }

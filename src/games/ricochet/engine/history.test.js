@@ -64,6 +64,17 @@ describe('invalid input', () => {
     expect(localStorage.getItem(RATING_KEY)).toBeNull();
   });
 
+  test.each([[undefined], [null], [5], ['x']])('non-object input %p returns null', (input) => {
+    expect(recordRound(input)).toBeNull();
+    expect(localStorage.getItem(HISTORY_KEY)).toBeNull();
+    expect(localStorage.getItem(RATING_KEY)).toBeNull();
+  });
+
+  test('fractional optimal or moves is rejected', () => {
+    expect(recordRound({ optimal: 4.5, moves: 5, timeMs: 1000 })).toBeNull();
+    expect(recordRound({ optimal: 4, moves: 5.5, timeMs: 1000 })).toBeNull();
+  });
+
   test('revealed round may have fewer moves than optimal', () => {
     expect(recordRound({ optimal: 4, moves: 0, timeMs: 1000, revealed: true })).not.toBeNull();
   });
@@ -104,6 +115,26 @@ describe('corrupt storage', () => {
       entry({ moves: 3 }),
     ]));
     expect(loadHistory()).toEqual([good]);
+  });
+
+  test.each([
+    ['fractional optimal', { optimal: 4.5, moves: 5 }],
+    ['fractional moves', { moves: 4.5 }],
+    ['fractional ratingBefore', { ratingBefore: 1200.5 }],
+    ['fractional ratingAfter', { ratingAfter: 1210.5 }],
+    ['quality inconsistent with moves', { moves: 8, quality: 1, score: 1 }],
+    ['pace inconsistent with time', { timeMs: 400000, quality: 1, score: 1, pace: 1 }],
+    ['score inconsistent with quality x pace', { score: 0.9 }],
+    ['revealed but nonzero score', { revealed: true }],
+  ])('stored %s is dropped', (_n, over) => {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify([entry(over)]));
+    expect(loadHistory()).toEqual([]);
+  });
+
+  test('consistent entries survive, including a slow, sloppy one', () => {
+    const e = entry({ moves: 8, timeMs: 160000, quality: 0.5, pace: 0.3, score: 0.15 });
+    localStorage.setItem(HISTORY_KEY, JSON.stringify([e]));
+    expect(loadHistory()).toEqual([e]);
   });
 
   test('getItem throwing does not throw', () => {
