@@ -24,6 +24,7 @@
   --rc-yellow: #f0b90b;
   --rc-black: #1c222c;
   --rc-black-edge: #1c222c;
+  --rc-black-trace: #1c222c;
   --rc-barrier-edge: #1c222c;
   --rc-shadow: 0 8px 24px rgba(40, 32, 12, 0.14);
 
@@ -55,6 +56,7 @@
   --rc-yellow: #ffd23f;
   --rc-black: #0b0d12;
   --rc-black-edge: #d9deea;
+  --rc-black-trace: #aab3c5;
   --rc-barrier-edge: #05070a;
   --rc-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
 }
@@ -343,3 +345,5 @@
   min-height: 36px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--rc-line); background: var(--rc-bg); color: var(--rc-ink); font: inherit;
 }
 .game-ricochet .ricochet-seg button:disabled { opacity: 0.5; cursor: not-allowed; }
+.game-ricochet .ricochet-trace[data-robot="black"] .ricochet-trace-line { stroke: var(--rc-black-trace); }
+.game-ricochet .ricochet-trace[data-robot="black"] .ricochet-trace-head { fill: var(--rc-black-trace); }
