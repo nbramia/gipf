@@ -579,11 +579,11 @@ describe('progress panel', () => {
 });
 
 describe('dealing that never finishes', () => {
-  test('after 8 seconds the error state offers Try again', () => {
+  test('after 15 seconds the error state offers Try again', () => {
     jest.useFakeTimers();
     try {
       mount();
-      act(() => { jest.advanceTimersByTime(7900); });
+      act(() => { jest.advanceTimersByTime(14900); });
       expect(screen.getByText('Dealing a puzzle…')).toBeTruthy();
       act(() => { jest.advanceTimersByTime(200); });
       expect(screen.getByRole('alert').textContent).toMatch(/taking too long/);
@@ -830,5 +830,103 @@ describe('plan mode (the default)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Plan' }));
     expect(localStorage.getItem('ricochetInputMode')).toBe('plan');
     expect(at('red')).toBe(cellOf(0, 0));
+  });
+});
+
+describe('final hardening', () => {
+  const at = (name) => Number(screen.getByTestId(`robot-${name}`).getAttribute('data-cell'));
+  const advance = (ms) => act(() => { jest.advanceTimersByTime(ms); });
+
+  describe('plan mode', () => {
+    beforeEach(() => { localStorage.removeItem('ricochetInputMode'); jest.useFakeTimers(); });
+    afterEach(() => { jest.useRealTimers(); });
+
+    test('a mouse press on a game control does not take focus, so Enter still submits', () => {
+      mount();
+      deliver(ROUND);
+      const controls = [
+        screen.getByRole('button', { name: 'Select red robot' }),
+        screen.getByRole('button', { name: 'Move east' }),
+        screen.getByRole('button', { name: 'Move south' }),
+      ];
+      for (const b of controls) expect(fireEvent.mouseDown(b)).toBe(false); // default (focus) prevented
+      fireEvent.click(controls[0]); fireEvent.click(controls[1]); fireEvent.click(controls[2]);
+      expect(screen.getByRole('list', { name: 'Planned moves' }).textContent).toBe('R→R↓');
+      for (const name of ['Undo', 'Clear', 'Submit']) {
+        expect(fireEvent.mouseDown(screen.getByRole('button', { name }))).toBe(false);
+      }
+      press('Enter');
+      advance(3000);
+      expect(history()).toHaveLength(1);
+      expect(history()[0].moves).toBe(2);
+    });
+
+    test('keyboard activation of a focused control is untouched by the Enter shortcut', () => {
+      mount();
+      deliver(ROUND);
+      press('ArrowRight');
+      const chip = screen.getByRole('button', { name: 'Select green robot' });
+      act(() => { fireEvent.keyDown(chip, { key: 'Enter' }); }); // a focused button handles its own Enter
+      expect(history()).toHaveLength(0);
+      expect(screen.getByTestId('plan-count').textContent).toMatch(/1 step/);
+    });
+
+    test('two Enters in one tick record the solve once', () => {
+      mount();
+      deliver(ROUND);
+      press('ArrowRight'); press('ArrowDown');
+      pressTogether('Enter', 'Enter');
+      advance(3000);
+      expect(history()).toHaveLength(1);
+    });
+
+    test('the recorded time is the moment of submission, not the end of the replay', () => {
+      mount();
+      deliver(ROUND);
+      advance(2000);
+      press('ArrowRight'); press('ArrowDown');
+      press('Enter');
+      advance(5000); // replay and results
+      expect(screen.getByRole('region', { name: 'Round results' })).toBeTruthy();
+      expect(history()[0].timeMs).toBe(2000);
+    });
+
+    test('a failed submit shows a visible message until the plan is edited', () => {
+      mount();
+      deliver(ROUND);
+      press('ArrowRight');
+      press('Enter');
+      advance(3000);
+      expect(screen.getByTestId('plan-notice').textContent).toMatch(/Not solved/);
+      press('ArrowDown');
+      expect(screen.queryByTestId('plan-notice')).toBeNull();
+    });
+
+    test('the results panel sits directly in the side column, with no empty controls around it', () => {
+      mount();
+      deliver(ROUND);
+      press('ArrowRight'); press('ArrowDown'); press('Enter');
+      advance(3000);
+      const panel = screen.getByRole('region', { name: 'Round results' });
+      expect(panel.parentElement.classList.contains('ricochet-side')).toBe(true);
+      expect(panel.parentElement.children).toHaveLength(1);
+    });
+  });
+
+  test('Try again after a dealing timeout can still retry on a fresh board', () => {
+    jest.useFakeTimers();
+    try {
+      mount();
+      deliver({ needsNewBoard: true }); // the retry on a fresh board is now pending
+      advance(15100);
+      expect(screen.getByRole('alert').textContent).toMatch(/taking too long/);
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+      deliver({ needsNewBoard: true });
+      expect(screen.queryByRole('alert')).toBeNull(); // a fresh board is tried, not an immediate error
+      expect(screen.getByText('Dealing a puzzle…')).toBeTruthy();
+      expect(worker().postMessage.mock.calls).toHaveLength(2);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

@@ -84,12 +84,13 @@
 .game-ricochet .ricochet-main {
   display: grid; gap: 14px; align-items: start;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: "hud" "board" "plan" "controls" "results" "sr";
+  grid-template-areas: "hud" "board" "side" "sr";
 }
 @media (min-width: 900px) {
   .game-ricochet .ricochet-main {
     grid-template-columns: minmax(0, 1fr) 340px;
-    grid-template-areas: "board hud" "board plan" "board controls" "board results" "sr sr";
+    grid-template-areas: "board hud" "board side" "board spare" "sr sr";
+    grid-template-rows: auto auto 1fr auto;
     column-gap: 24px;
   }
   .game-ricochet .ricochet-board-wrap { max-width: min(100%, calc(100vh - 110px)); }
@@ -152,8 +153,12 @@
   animation: ricochet-spin 0.8s linear infinite;
 }
 
+.game-ricochet .ricochet-side { grid-area: side; display: grid; gap: 14px; min-width: 0; }
+.game-ricochet .ricochet-plan-notice { flex: 0 0 100%; order: 3; font-size: 13px; font-weight: 600; color: var(--rc-danger); }
+.game-ricochet .ricochet-plan { flex-wrap: wrap; }
+.game-ricochet .ricochet-plan ol { flex: 1 1 120px; min-width: 0; }
 .game-ricochet .ricochet-controls {
-  grid-area: controls; display: grid; grid-template-columns: 1fr auto; gap: 12px 16px; align-items: center;
+  display: grid; grid-template-columns: 1fr auto; gap: 12px 16px; align-items: center;
   background: var(--rc-panel); border: 1px solid var(--rc-line); border-radius: 12px; padding: 12px 14px;
 }
 .game-ricochet .ricochet-robot-chips { display: grid; grid-template-columns: repeat(2, 48px); gap: 8px; }
@@ -183,7 +188,7 @@
 .game-ricochet .ricochet-actions .ricochet-btn { flex: 1; min-width: 80px; min-height: 44px; }
 
 .game-ricochet .ricochet-results {
-  grid-area: results; background: var(--rc-panel); border: 1px solid var(--rc-accent); border-radius: 12px; padding: 14px;
+  background: var(--rc-panel); border: 1px solid var(--rc-accent); border-radius: 12px; padding: 14px;
   animation: ricochet-rise 0.25s ease-out;
 }
 @keyframes ricochet-rise { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
@@ -278,7 +283,7 @@
 @keyframes ricochet-bump-w { 40% { transform: translateX(-6px); } }
 
 .game-ricochet .ricochet-plan {
-  grid-area: plan; display: flex; align-items: flex-start; gap: 8px; min-height: 40px; padding: 6px 10px;
+  display: flex; align-items: flex-start; gap: 8px; min-height: 40px; padding: 6px 10px;
   background: var(--rc-panel); border: 1px solid var(--rc-line); border-radius: 12px;
 }
 .game-ricochet .ricochet-plan-label { flex: 0 0 auto; padding-top: 4px; font-size: 12px; font-weight: 700; color: var(--rc-muted); white-space: nowrap; }

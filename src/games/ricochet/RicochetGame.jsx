@@ -21,7 +21,7 @@ const KEY_TO_DIR = {
 };
 const DIR_GLYPH = { N: '▲', E: '▶', S: '▼', W: '◀' };
 const REPLAY_STEP_MS = 800;
-const DEAL_TIMEOUT_MS = 8000;
+const DEAL_TIMEOUT_MS = 15000;
 
 const makeSeed = () => Math.floor(Math.random() * 1e9) + 1;
 const reducedMotion = () => {
@@ -34,6 +34,9 @@ const reducedMotion = () => {
 const readDark = () => {
   try { return localStorage.getItem(DARK_KEY) !== 'false'; } catch { return true; }
 };
+// A mouse press on a game control must not leave it focused: Enter then submits the
+// plan instead of re-activating that button. Keyboard activation is unaffected.
+const keepFocus = e => e.preventDefault();
 const readMode = () => {
   try { return localStorage.getItem(MODE_KEY) === 'live' ? 'live' : 'plan'; } catch { return 'plan'; }
 };
@@ -224,6 +227,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   const [mode, setMode] = useState(readMode);
   const [plan, setPlan] = useState([]);
   const [bump, setBump] = useState(null);
+  const [notice, setNotice] = useState('');
   const modeRef = useRef(mode);
   modeRef.current = mode;
   const planRef = useRef(plan);
@@ -293,7 +297,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   // ---- dealing ---------------------------------------------------------------
   const deal = useCallback(() => {
     replayToken.current++;
-    setPhase('dealing');
+    setPhase((phaseRef.current = 'dealing'));
     setResults(null);
     setOverlayCells(null);
     setErrorText('');
@@ -301,8 +305,9 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     later(() => {
       if (dealId.current !== myDeal || phaseRef.current !== 'dealing') return;
       cancel();
+      retriedBoard.current = false;
       setErrorText('Dealing is taking too long.');
-      setPhase('error');
+      setPhase((phaseRef.current = 'error'));
     }, DEAL_TIMEOUT_MS);
     const state = { ...board.serializeState(), stateHistory: [], historyIndex: -1 };
     requestRound(state, desiredLength(loadRating().rating), (picked) => {
@@ -310,7 +315,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
         if (retriedBoard.current) {
           retriedBoard.current = false;
           setErrorText('Could not find a puzzle on a fresh board.');
-          setPhase('error');
+          setPhase((phaseRef.current = 'error'));
           return;
         }
         retriedBoard.current = true;
@@ -324,12 +329,13 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
       setSelected(board.getTarget().color || 'red');
       setPlan([]);
       setBump(null);
+      setNotice('');
       setStatus('New puzzle. Target: ' + targetLabel(board.getTarget()) + '.');
       startClock();
-      setPhase('play');
+      setPhase((phaseRef.current = 'play'));
     }, (message) => {
       setErrorText(message || 'Could not deal a puzzle.');
-      setPhase('error');
+      setPhase((phaseRef.current = 'error'));
     });
   }, [board, requestRound, startClock, cancel, later]);
 
@@ -341,11 +347,11 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     const entry = recordRound({ optimal: round.length, moves: board.moves.length, timeMs });
     const playerMoves = board.moves.map(({ robot, dir }) => ({ robot, dir }));
     setRating(loadRating());
-    setPhase('settling');
+    setPhase((phaseRef.current = 'settling'));
     setStatus(`Solved in ${board.moves.length} moves.`);
     later(() => {
       setResults({ entry, revealed: false, moves: board.moves.length, timeMs, playerMoves });
-      setPhase('results');
+      setPhase((phaseRef.current = 'results'));
     }, lastSlideMs + 200);
   }, [board, round, later, stopClock]);
 
@@ -381,6 +387,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   const addStep = useCallback((robot, dir) => {
     if (phaseRef.current !== 'play') return;
     setSelected(robot);
+    setNotice('');
     setPlan(p => (p.length >= MAX_PLAN ? p : [...p, { robot, dir }]));
     setStatus(`${COLOR_LABEL[robot]} ${DIR_NAME[dir]} added to the plan.`);
   }, []);
@@ -392,11 +399,13 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
 
   const removeStep = useCallback(() => {
     if (phaseRef.current !== 'play') return;
+    setNotice('');
     setPlan(p => p.slice(0, -1));
   }, []);
   const clearPlan = useCallback(() => {
     if (phaseRef.current !== 'play') return;
     setPlan([]);
+    setNotice('');
     setStatus('Plan cleared.');
   }, []);
 
@@ -414,9 +423,10 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
       frames.push({ robots: { ...scratch.robots }, blocked: !rec, step: steps[i], rec });
       if (scratch.isSolved()) { solvedAt = i + 1; break; }
     }
+    setNotice('');
     const token = ++replayToken.current;
     const quick = reducedMotion();
-    setPhase('submit');
+    setPhase((phaseRef.current = 'submit'));
     setOverlayCells({ ...board.roundStart });
     setReplayStep(0);
     setSlideMs(0);
@@ -432,10 +442,11 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
       finishSolved = () => {
         setOverlayCells(null);
         setResults({ entry, revealed: false, moves: solvedAt, timeMs, playerMoves });
-        setPhase('results');
+        setPhase((phaseRef.current = 'results'));
       };
     } else {
       setStatus('Not solved. The board is back at the start; edit the plan and submit again.');
+      setNotice('Not solved. Edit your plan and submit again.');
     }
 
     const run = (i) => {
@@ -447,7 +458,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
           setSlideMs(quick ? 0 : 150);
           if (finishSolved) { finishSolved(); return; }
           setOverlayCells(null);
-          setPhase('play');
+          setPhase((phaseRef.current = 'play'));
         }, finishSolved ? 200 : (quick ? 300 : PLAN_HOLD_MS));
         return;
       }
@@ -479,7 +490,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     const token = ++replayToken.current;
     const scratch = new RicochetBoard({ walls: board.walls, targets: board.targets, robots: board.roundStart });
     scratch.startRound(board.currentTargetId);
-    setPhase('replay');
+    setPhase((phaseRef.current = 'replay'));
     setOverlayCells({ ...board.roundStart });
     setReplayStep(0);
     setSlideMs(0);
@@ -491,7 +502,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
           if (replayToken.current !== token) return;
           setOverlayCells(null);
           setSlideMs(0);
-          setPhase('results');
+          setPhase((phaseRef.current = 'results'));
           after && after();
         }, 900);
         return;
@@ -652,9 +663,11 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
             )}
           </div>
 
+          <div className="ricochet-side">
           {planning && !finished && (
             <section className="ricochet-plan" aria-label="Plan">
               <span className="ricochet-plan-label" data-testid="plan-count">Plan · {plan.length} step{plan.length === 1 ? '' : 's'}</span>
+              {notice && <span className="ricochet-plan-notice" data-testid="plan-notice">{notice}</span>}
               {plan.length === 0 ? <span className="ricochet-plan-empty">Pick a robot, then add directions.</span> : (
                 <ol aria-label="Planned moves">
                   {plan.map((m, i) => (
@@ -679,6 +692,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
                   aria-label={`Select ${r} robot`}
                   aria-pressed={selected === r}
                   disabled={!live}
+                  onMouseDown={keepFocus}
                   onClick={() => setSelected(r)}
                 ><span aria-hidden="true">{ROBOT_LETTER[r]}</span></button>
               ))}
@@ -691,6 +705,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
                   className={`ricochet-dir ricochet-dir-${d}`}
                   aria-label={`Move ${DIR_NAME[d]}`}
                   disabled={!live || !selected || (!planning && !legalDirs.has(d))}
+                  onMouseDown={keepFocus}
                   onClick={() => input(selected, d)}
                 ><span aria-hidden="true">{DIR_GLYPH[d]}</span></button>
               ))}
@@ -698,14 +713,14 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
             <div className="ricochet-actions">
               {planning ? (
                 <>
-                  <button type="button" className="ricochet-btn" disabled={!live || plan.length === 0} onClick={removeStep}>Undo</button>
-                  <button type="button" className="ricochet-btn" disabled={!live || plan.length === 0} onClick={clearPlan}>Clear</button>
-                  <button type="button" className="ricochet-btn ricochet-btn-primary" disabled={!live || plan.length === 0} onClick={submitPlan}>Submit</button>
+                  <button type="button" className="ricochet-btn" disabled={!live || plan.length === 0} onMouseDown={keepFocus} onClick={removeStep}>Undo</button>
+                  <button type="button" className="ricochet-btn" disabled={!live || plan.length === 0} onMouseDown={keepFocus} onClick={clearPlan}>Clear</button>
+                  <button type="button" className="ricochet-btn ricochet-btn-primary" disabled={!live || plan.length === 0} onMouseDown={keepFocus} onClick={submitPlan}>Submit</button>
                 </>
               ) : (
                 <>
-                  <button type="button" className="ricochet-btn" disabled={!live || !canUndoInRound(board)} onClick={undo}>Undo</button>
-                  <button type="button" className="ricochet-btn" disabled={!live || board.moves.length === 0} onClick={reset}>Reset</button>
+                  <button type="button" className="ricochet-btn" disabled={!live || !canUndoInRound(board)} onMouseDown={keepFocus} onClick={undo}>Undo</button>
+                  <button type="button" className="ricochet-btn" disabled={!live || board.moves.length === 0} onMouseDown={keepFocus} onClick={reset}>Reset</button>
                 </>
               )}
               <button type="button" className="ricochet-btn ricochet-btn-danger" disabled={!live} onClick={() => setConfirmGiveUp(true)}>Give up</button>
@@ -744,6 +759,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
               </div>
             </section>
           )}
+          </div>
           <p className="ricochet-sr" role="status" aria-live="polite">{status}</p>
         </main>
       </div>
