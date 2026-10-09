@@ -71,7 +71,9 @@ function buildLowerBound(stops, target) {
 // `{ cell, color }`; a null color is the vortex, which any robot may claim.
 // Returns { moves: [{robot, dir}], length } for a minimum-length solution,
 // { timedOut: true } if the time limit ran out first, or null if there is no
-// solution within maxDepth moves.
+// solution within maxDepth moves. The deadline is checked every 2048 nodes, so a
+// limit is honoured to within that granularity, and a solution found just past
+// the deadline is still returned.
 export function solve({ walls, robots, target }, { maxDepth = 20, timeLimitMs = Infinity } = {}) {
   const goalCell = target.cell;
   const goalIdx = target.color == null ? -1 : ROBOTS.indexOf(target.color);

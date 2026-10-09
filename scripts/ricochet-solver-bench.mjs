@@ -38,7 +38,7 @@ for (let b = 0; b < boards; b++) {
     const result = solve({ walls: board.walls, robots: board.robots, target }, { timeLimitMs });
     const ms = performance.now() - t0;
     if (!result) { beyondDepth++; continue; } // no solution within the default 20 moves
-    if (result.timedOut) { timeouts++; times.push(ms); continue; }
+    if (result.timedOut) { timeouts++; continue; } // excluded from the percentiles
     if (result.length < 2) { r--; board.claimed.push(target.id); continue; }
     times.push(ms);
     lengths.set(result.length, (lengths.get(result.length) || 0) + 1);
@@ -49,8 +49,12 @@ for (let b = 0; b < boards; b++) {
 
 times.sort((a, b) => a - b);
 const pct = p => times[Math.min(times.length - 1, Math.floor(p * times.length))];
-console.log(`rounds: ${times.length}  timeouts: ${timeouts}  (limit ${timeLimitMs} ms)  beyond 20 moves: ${beyondDepth}`);
-console.log(`solve time ms  median ${pct(0.5).toFixed(2)}  p95 ${pct(0.95).toFixed(2)}  max ${times[times.length - 1].toFixed(2)}`);
+console.log(`solved rounds: ${times.length}  timeouts: ${timeouts} (limit ${timeLimitMs} ms, excluded from times)  beyond 20 moves: ${beyondDepth}`);
+if (times.length > 0) {
+  console.log(`solve time ms  median ${pct(0.5).toFixed(2)}  p95 ${pct(0.95).toFixed(2)}  max ${times[times.length - 1].toFixed(2)}`);
+} else {
+  console.log('solve time ms  no solved rounds');
+}
 console.log('optimal length distribution:');
 for (const len of [...lengths.keys()].sort((a, b) => a - b)) {
   console.log(`  ${String(len).padStart(2)}: ${lengths.get(len)}`);

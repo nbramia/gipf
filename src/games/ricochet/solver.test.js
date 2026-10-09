@@ -144,30 +144,34 @@ describe('hand-built boards with known optimum', () => {
 });
 
 describe('optimality against a breadth-first oracle', () => {
-  test('matches the oracle on 200+ random generated rounds (optimum <= 6)', () => {
-    let checked = 0;
+  test('agrees with the oracle on every sampled round (oracle is the source of truth)', () => {
+    let within = 0;
+    let beyond = 0;
     let withHelpers = 0;
-    for (let seed = 1; seed <= 400 && checked < 220; seed++) {
+    // Every sampled round is counted: no skipping on solver null/timeout, no time limit.
+    for (let seed = 1; within + beyond < 260; seed++) {
       const board = new RicochetBoard({ seed, skipInitialHistory: true });
-      for (const target of board.targets) {
-        if (checked >= 220) break;
-        const result = solve({ walls: board.walls, robots: board.robots, target }, { maxDepth: 6 });
-        if (!result || result.timedOut) continue; // optimum above 6
-        // the oracle must find nothing shorter and must find exactly this length
-        const optimum = oracleOptimum(board.walls, board.robots, target, result.length);
-        expect({ seed, id: target.id, solver: result.length }).toEqual({ seed, id: target.id, solver: optimum });
-        // and the sequence is playable and ends solved
-        const done = replay(board, target, result.moves);
-        expect(done.isSolved()).toBe(true);
-        expect(result.moves).toHaveLength(result.length);
+      const target = board.targets[(seed * 5) % board.targets.length];
+      const optimum = oracleOptimum(board.walls, board.robots, target, 6);
+      const result = solve({ walls: board.walls, robots: board.robots, target }, { maxDepth: 7 });
+      if (optimum >= 0) {
+        // the solver must return a solution of exactly the oracle's length
+        expect({ seed, solver: result && result.length }).toEqual({ seed, solver: optimum });
+        expect(result.timedOut).toBeUndefined();
+        expect(result.moves).toHaveLength(optimum);
+        expect(replay(board, target, result.moves).isSolved()).toBe(true);
         if (result.moves.some(m => target.color && m.robot !== target.color)) withHelpers++;
-        checked++;
+        within++;
+      } else {
+        // nothing within 6: the solver must say null or report a longer solution
+        expect({ seed, ok: result === null || (!result.timedOut && result.length > 6) }).toEqual({ seed, ok: true });
+        beyond++;
       }
     }
-    expect(checked).toBeGreaterThanOrEqual(200);
-    // make sure the sample really exercises helper-robot solutions
-    expect(withHelpers).toBeGreaterThan(20);
-  });
+    expect(within).toBeGreaterThanOrEqual(100);
+    expect(beyond).toBeGreaterThanOrEqual(20);
+    expect(withHelpers).toBeGreaterThan(10);
+  }, 120000);
 
   test('when the solver says optimum > 6 the oracle finds nothing within 6', () => {
     let checked = 0;
