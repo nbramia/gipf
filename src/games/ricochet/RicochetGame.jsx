@@ -269,7 +269,12 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     const state = { ...board.serializeState(), stateHistory: [], historyIndex: -1 };
     requestRound(state, desiredLength(loadRating().rating), (picked) => {
       if (picked && picked.needsNewBoard) {
-        if (retriedBoard.current) { setErrorText('Could not find a puzzle on a fresh board.'); setPhase('error'); return; }
+        if (retriedBoard.current) {
+          retriedBoard.current = false;
+          setErrorText('Could not find a puzzle on a fresh board.');
+          setPhase('error');
+          return;
+        }
         retriedBoard.current = true;
         board.startNewGame(makeSeed());
         deal();
@@ -389,7 +394,8 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   }, [playSolution]);
 
   const nextPuzzle = useCallback(() => {
-    if (phaseRef.current !== 'results') return;
+    if (phaseRef.current !== 'results' && phaseRef.current !== 'replay') return;
+    // Cancelling a replay leaves the board where the round ended; deal() drops the overlay.
     deal();
   }, [deal]);
 
@@ -424,7 +430,8 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   const legal = live ? board.getLegalMoves().filter(m => m.robot === selected) : [];
   const arrows = legal.map(m => ({ dir: m.dir, to: board.getDestination(m.robot, m.dir) }));
   const legalDirs = new Set(legal.map(m => m.dir));
-  const moveCount = overlayCells ? replayStep : board.moves.length;
+  const finished = phase === 'results' || phase === 'replay';
+  const moveCount = finished && results ? results.moves : board.moves.length;
   const provisional = isProvisional(rating.rounds);
   const entry = results && results.entry;
 
@@ -496,6 +503,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
             )}
           </div>
 
+          {!finished && (
           <section className="ricochet-controls" aria-label="Controls">
             <div className="ricochet-robot-chips" role="group" aria-label="Choose a robot">
               {ROBOTS.map(r => (
@@ -528,6 +536,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
               <button type="button" className="ricochet-btn ricochet-btn-danger" disabled={!live} onClick={() => setConfirmGiveUp(true)}>Give up</button>
             </div>
           </section>
+          )}
 
           {(phase === 'results' || phase === 'replay') && results && (
             <section className="ricochet-results" aria-label="Round results">
@@ -556,7 +565,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
               </div>
               <div className="ricochet-actions">
                 <button type="button" className="ricochet-btn" disabled={phase === 'replay'} onClick={showSolution}>Show solution</button>
-                <button type="button" className="ricochet-btn ricochet-btn-primary" disabled={phase === 'replay'} onClick={nextPuzzle} autoFocus>Next puzzle</button>
+                <button type="button" className="ricochet-btn ricochet-btn-primary" onClick={nextPuzzle} autoFocus>Next puzzle</button>
               </div>
             </section>
           )}

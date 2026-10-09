@@ -117,8 +117,9 @@ test('give up asks first, then records a revealed zero-score entry', async () =>
   expect(history()).toHaveLength(1);
   expect(history()[0]).toMatchObject({ revealed: true, score: 0, optimal: 2 });
   expect(screen.getByTestId('res-score').textContent).toBe('0%');
-  // the optimal line is being replayed: Next puzzle waits for it
-  expect(screen.getByRole('button', { name: 'Next puzzle' }).disabled).toBe(true);
+  // the optimal line is being replayed; Next puzzle stays available, Show solution does not
+  expect(screen.getByRole('button', { name: 'Next puzzle' }).disabled).toBe(false);
+  expect(screen.getByRole('button', { name: 'Show solution' }).disabled).toBe(true);
 });
 
 describe('with fake timers', () => {
@@ -362,8 +363,9 @@ describe('solution replay (fake timers)', () => {
     press('y'); press('ArrowLeft');
     fireEvent.click(screen.getByRole('button', { name: 'Give up' }));
     fireEvent.click(screen.getByRole('button', { name: 'Reveal solution' }));
-    expect(screen.getByRole('button', { name: 'Next puzzle' }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: 'Show solution' }).disabled).toBe(true);
     advance(5000);
+    expect(screen.getByRole('button', { name: 'Show solution' }).disabled).toBe(false);
     expect(screen.getByRole('button', { name: 'Next puzzle' }).disabled).toBe(false);
     expect(at('red')).toBe(cellOf(15, 15));
     expect(at('yellow')).toBe(cellOf(1, 1)); // the player's yellow move is not kept
@@ -374,5 +376,109 @@ describe('solution replay (fake timers)', () => {
     expect(at('red')).toBe(cellOf(15, 15));
     expect(at('yellow')).toBe(cellOf(1, 1));
     expect(history()).toHaveLength(1);
+  });
+});
+
+describe('finished rounds', () => {
+  test('the results panel takes the place of the controls, which return with the next round', async () => {
+    mount();
+    deliver(ROUND);
+    expect(screen.getByRole('region', { name: 'Controls' })).toBeTruthy();
+    press('ArrowRight'); press('ArrowDown');
+    await results();
+    expect(screen.queryByRole('region', { name: 'Controls' })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Next puzzle' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next puzzle' }));
+    deliver({ targetId: 1, length: 3, solution: [] });
+    expect(screen.getByRole('region', { name: 'Controls' })).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Round results' })).toBeNull();
+  });
+
+  test('after a reveal the HUD keeps the player move count, not the replay step', () => {
+    jest.useFakeTimers();
+    try {
+      mount();
+      deliver(ROUND);
+      press('y'); press('ArrowLeft');
+      fireEvent.click(screen.getByRole('button', { name: 'Give up' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Reveal solution' }));
+      act(() => { jest.advanceTimersByTime(1300); });
+      expect(screen.getByText(/move 2 of 2/)).toBeTruthy(); // the replay is underway
+      expect(screen.getByTestId('move-count').textContent).toBe('1');
+      act(() => { jest.advanceTimersByTime(4000); });
+      expect(screen.getByTestId('move-count').textContent).toBe('1');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('Next puzzle during a Show-solution replay cancels it and keeps the round-end positions', () => {
+    jest.useFakeTimers();
+    try {
+      mount();
+      deliver(ROUND);
+      const at = (n) => Number(screen.getByTestId(`robot-${n}`).getAttribute('data-cell'));
+      press('y'); press('ArrowLeft'); press('r'); press('ArrowRight'); press('ArrowDown');
+      act(() => { jest.advanceTimersByTime(2000); });
+      fireEvent.click(screen.getByRole('button', { name: 'Show solution' }));
+      act(() => { jest.advanceTimersByTime(500); });
+      expect(at('red')).toBe(cellOf(0, 15)); // mid-replay
+      fireEvent.click(screen.getByRole('button', { name: 'Next puzzle' }));
+      expect(screen.getByText('Dealing a puzzle…')).toBeTruthy();
+      expect(at('red')).toBe(cellOf(15, 15));
+      expect(at('yellow')).toBe(cellOf(1, 0)); // the player's own end position
+      deliver({ targetId: 1, length: 3, solution: [] });
+      act(() => { jest.advanceTimersByTime(6000); }); // the cancelled replay must not touch anything
+      expect(at('red')).toBe(cellOf(15, 15));
+      expect(at('yellow')).toBe(cellOf(1, 0));
+      expect(screen.getByTestId('hud-target').textContent).toMatch(/Red square/);
+      expect(screen.getByRole('region', { name: 'Controls' })).toBeTruthy();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+});
+
+describe('an exhausted pile', () => {
+  const seed = 500000001;
+  beforeEach(() => { jest.spyOn(Math, 'random').mockReturnValue(0.5); });
+  afterEach(() => { jest.restoreAllMocks(); });
+
+  test('needsNewBoard deals a fresh board and then a round on it', async () => {
+    const fresh = new RicochetBoard({ seed });
+    mount();
+    deliver(ROUND);
+    press('ArrowRight'); press('ArrowDown');
+    await results();
+    fireEvent.click(screen.getByRole('button', { name: 'Next puzzle' }));
+    const firstId = lastRequestId();
+    deliver({ needsNewBoard: true });
+    // a second request goes out on the new board, with no claimed targets
+    expect(lastRequestId()).toBeGreaterThan(firstId);
+    const sent = worker().postMessage.mock.calls.slice(-1)[0][0].data.boardState;
+    expect(sent.seed).toBe(seed);
+    expect(sent.claimed).toEqual([]);
+    expect(screen.getByText('Dealing a puzzle…')).toBeTruthy();
+
+    deliver({ targetId: 3, length: 4, solution: [] });
+    expect(screen.queryByText('Dealing a puzzle…')).toBeNull();
+    const t = fresh.targets[3];
+    expect(screen.getByTestId('hud-target').textContent.toLowerCase()).toContain(t.color ? `${t.color} ${t.shape}` : 'vortex');
+    for (const name of ['red', 'green', 'blue', 'yellow']) {
+      expect(Number(screen.getByTestId(`robot-${name}`).getAttribute('data-cell'))).toBe(fresh.robots[name]);
+    }
+    expect(history()).toHaveLength(1);
+  });
+
+  test('a second needsNewBoard in a row shows an error, and Try again deals again', async () => {
+    mount();
+    deliver({ needsNewBoard: true });
+    deliver({ needsNewBoard: true });
+    expect(screen.getByRole('alert').textContent).toMatch(/Could not find a puzzle/);
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(screen.getByText('Dealing a puzzle…')).toBeTruthy();
+    deliver({ targetId: 0, length: 3, solution: [] });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('region', { name: 'Controls' })).toBeTruthy();
   });
 });
