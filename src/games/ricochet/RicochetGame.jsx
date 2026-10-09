@@ -8,6 +8,9 @@ import { recordRound, loadRating, loadHistory, summarize, historyFor, setupsWith
 import { readVariant, writeVariant, sameVariant, setupKey, setupLabel } from './engine/variants.js';
 import RicochetBoardView, { TargetGlyph, ROBOT_LETTER, DIR_NAME, COLOR_LABEL } from './RicochetBoardView.jsx';
 import useSolverWorker from './hooks/useSolverWorker.js';
+import useSprint from './hooks/useSprint.js';
+import { prefetchState, readGameMode, sprintKey, sprintLength, writeGameMode } from './engine/sprint.js';
+import { ModeBar, ModeSwitch, ProgressTabs, SprintHudTiles, SprintResults, SprintStart, SprintToast } from './SprintPanel.jsx';
 import ConfirmDialog from '../../ConfirmDialog.jsx';
 import './ricochet.css';
 
@@ -193,6 +196,7 @@ function HowToPlay({ variant }) {
       <p><strong>Two input modes.</strong> <em>Plan (default): moves are hidden until you submit.</em> <em>Live: robots move as you enter moves (choose it in Settings).</em></p>
       <p><strong>Plan mode (default).</strong> The board does not move while you enter a line. Pick a robot (tap it, or press R, G, B or Y), then add steps with an arrow key or W A S D, the pad, a tap on the board, or a swipe. Steps appear in the plan list, and nothing says whether a step is legal; a step that cannot move still counts as a move. U or Backspace removes the last step, Esc clears the plan, and Enter or Submit plays it on the board. If the target robot stops on the target at some step the round is solved with that many moves; later steps are ignored. Otherwise the board returns to the start, your plan stays for editing, and the clock keeps running.</p>
       <p><strong>Live mode.</strong> Choose it in Settings. Each move slides immediately, only legal directions are offered, U or Backspace undoes a move, and Esc resets the round.</p>
+      <p><strong>Sprint.</strong> Choose Sprint above the board for a timed run: solve as many puzzles as you can in 5:00 of active time (the clock stops while a puzzle is being dealt and while the tab is hidden). Puzzles start at 3 moves and grow by one move for every 2 you solve, up to 9. Each solve scores 100 x quality x pace for that puzzle. Skip gives up the puzzle for 0 points and shows nothing. A puzzle unfinished at the buzzer counts for nothing. Sprint uses your current board and input settings, never changes your rating or round history, and keeps your top 10 scores per setup.</p>
       <p className="ricochet-credit">Ricochet Robots was designed by Alex Randolph. This is an independent, solo implementation.</p>
     </div>
   );
@@ -297,6 +301,11 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   const [elapsed, setElapsed] = useState(0);
   const [mode, setMode] = useState(readMode);
   const [pathTraces, setPathTraces] = useState(readTraces);
+  const [gameMode, setGameMode] = useState(readGameMode);
+  const gameModeRef = useRef(gameMode);
+  gameModeRef.current = gameMode;
+  const [confirmEnd, setConfirmEnd] = useState(false);
+  const [progressTab, setProgressTab] = useState('rounds');
   // Traces of a submitted plan (every non-blocked step, numbered by plan position); the
   // board only draws the ones the replay has reached. Kept after a failed submit.
   const [planTraces, setPlanTraces] = useState([]);
@@ -316,6 +325,12 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   const bumpCount = useRef(0);
 
   const { requestRound, cancel } = useSolverWorker();
+  // Sprint: the session, and the next puzzle dealt ahead while the current one is solved.
+  const sprintEndRef = useRef(null);
+  const sprint = useSprint({ onEnd: () => sprintEndRef.current && sprintEndRef.current() });
+  const sprintRef = useRef(sprint);
+  sprintRef.current = sprint;
+  const prefetchRef = useRef(null);
   const dealId = useRef(0);
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
@@ -382,8 +397,30 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   }, []);
 
   // ---- dealing ---------------------------------------------------------------
+  // Sprint: while a puzzle is solved, the next is dealt from where its optimal line ends,
+  // aimed at the length for one more solve.
+  const startPrefetch = useCallback((current) => {
+    const desired = sprintLength(sprintRef.current.solvedForRamp() + 1);
+    const ahead = { desired, state: prefetchState(board, current.solution), status: 'pending', round: null, waiter: null };
+    prefetchRef.current = ahead;
+    requestRound(ahead.state, desired, (round) => {
+      ahead.status = 'done';
+      ahead.round = round;
+      const w = ahead.waiter;
+      ahead.waiter = null;
+      if (w) w.ok(round);
+    }, () => {
+      ahead.status = 'failed';
+      const w = ahead.waiter;
+      ahead.waiter = null;
+      if (w) w.err();
+    });
+  }, [board, requestRound]);
+
   const deal = useCallback(() => {
     replayToken.current++;
+    const sprintOn = sprintRef.current.isRunning();
+    if (sprintOn) sprintRef.current.pause(); // dealing time is not Sprint time
     setPhase((phaseRef.current = 'dealing'));
     setResults(null);
     setOverlayCells(null);
@@ -399,8 +436,8 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
       setErrorText('Dealing is taking too long.');
       setPhase((phaseRef.current = 'error'));
     }, DEAL_TIMEOUT_MS);
-    const state = { ...board.serializeState(), stateHistory: [], historyIndex: -1 };
-    requestRound(state, desiredLength(loadRating(setupRef.current).rating), (picked) => {
+    const accept = (picked) => {
+      if (sprintOn && dealId.current !== myDeal) return;
       if (picked && picked.needsNewBoard) {
         if (retriedBoard.current) {
           retriedBoard.current = false;
@@ -423,17 +460,48 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
       setStatus('New puzzle. Target: ' + targetLabel(board.getTarget()) + '.');
       startClock();
       setPhase((phaseRef.current = 'play'));
-    }, (message) => {
+      if (sprintOn) {
+        sprintRef.current.resume();
+        startPrefetch(picked);
+      }
+    };
+    const fail = (message) => {
+      if (sprintOn && dealId.current !== myDeal) return;
       setErrorText(message || 'Could not deal a puzzle.');
       setPhase((phaseRef.current = 'error'));
-    });
-  }, [board, requestRound, startClock, cancel, later]);
+    };
+    const ask = (desired) => requestRound({ ...board.serializeState(), stateHistory: [], historyIndex: -1 }, desired, accept, fail);
+    if (!sprintOn) {
+      ask(desiredLength(loadRating(setupRef.current).rating));
+      return;
+    }
+    const wanted = sprintLength(sprintRef.current.solvedForRamp());
+    const ahead = prefetchRef.current;
+    prefetchRef.current = null;
+    if (ahead && ahead.desired === wanted && ahead.status !== 'failed') {
+      // The next puzzle was dealt while the last one was solved: robots start where its line ended.
+      board.robots = { ...ahead.state.robots };
+      board.claimed = [...ahead.state.claimed];
+      if (ahead.status === 'done') accept(ahead.round);
+      else ahead.waiter = { ok: accept, err: () => ask(wanted) };
+      return;
+    }
+    ask(wanted);
+  }, [board, requestRound, startClock, cancel, later, startPrefetch]);
 
-  useEffect(() => { deal(); }, [deal]);
+  useEffect(() => { if (gameModeRef.current === 'classic') deal(); }, [deal]);
 
   // ---- moves -----------------------------------------------------------------
   const finishSolve = useCallback((lastSlideMs) => {
     const timeMs = stopClock();
+    if (sprintRef.current.isRunning()) {
+      // Sprint: points are banked now, shown and the next puzzle dealt once the slide settles.
+      sprintRef.current.bank({ optimal: round.length, moves: board.moves.length, timeMs });
+      setPhase((phaseRef.current = 'settling'));
+      setStatus(`Solved in ${board.moves.length} moves.`);
+      later(() => { sprintRef.current.release(); deal(); }, lastSlideMs + 200);
+      return;
+    }
     const entry = recordRound({ optimal: round.length, moves: board.moves.length, timeMs, variant: setupRef.current });
     const playerMoves = board.moves.map(({ robot, dir }) => ({ robot, dir }));
     bumpRating();
@@ -443,7 +511,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
       setResults({ entry, revealed: false, moves: board.moves.length, timeMs, playerMoves });
       setPhase((phaseRef.current = 'results'));
     }, lastSlideMs + 200);
-  }, [board, round, later, stopClock]);
+  }, [board, round, later, stopClock, deal]);
 
   const move = useCallback((robot, dir) => {
     if (phaseRef.current !== 'play') return;
@@ -536,11 +604,21 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
       // Recorded now, at the moment of submission. The clock, rating, status text and
       // board are only updated when the replay ends, so none of them hints at the outcome.
       const timeMs = clockNow();
-      const entry = recordRound({ optimal: round.length, moves: solvedAt, timeMs, variant: setupRef.current });
+      // Sprint banks the solve now (it is not a Classic round: no rating, no history).
+      const sprintOn = sprintRef.current.isRunning();
+      const entry = sprintOn ? null : recordRound({ optimal: round.length, moves: solvedAt, timeMs, variant: setupRef.current });
+      if (sprintOn) sprintRef.current.bank({ optimal: round.length, moves: solvedAt, timeMs });
       const playerMoves = steps.slice(0, solvedAt).map(({ robot, dir }) => ({ robot, dir }));
       finishSolved = () => {
         clock.current = { running: false, accum: timeMs, since: null };
         setElapsed(timeMs);
+        if (sprintOn) {
+          for (const m of playerMoves) board.applyMove(m);
+          setOverlayCells(null);
+          sprintRef.current.release();
+          deal();
+          return;
+        }
         bumpRating();
         for (const m of playerMoves) board.applyMove(m); // claim the target on the real board
         setStatus(`Solved in ${solvedAt} moves.`);
@@ -577,10 +655,10 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
       }, quick ? 40 : PLAN_STEP_MS);
     };
     run(0);
-  }, [board, round, later, clockNow, animate]);
+  }, [board, round, later, clockNow, animate, deal]);
 
   const changeMode = useCallback((next) => {
-    if (next === modeRef.current || phaseRef.current === 'submit') return;
+    if (next === modeRef.current || phaseRef.current === 'submit' || sprintRef.current.isRunning()) return;
     if (phaseRef.current === 'play' && board.moves.length > 0) board.resetRound();
     setPlan([]);
     setPlanTraces([]);
@@ -592,7 +670,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   // A new variant deals a new board of that shape right away; the current round is dropped,
   // never rewritten.
   const changeVariant = useCallback((patch) => {
-    if (phaseRef.current === 'submit') return;
+    if (phaseRef.current === 'submit' || sprintRef.current.isRunning()) return;
     const next = { ...variantRef.current, ...patch };
     if (sameVariant(next, variantRef.current)) return;
     variantRef.current = next;
@@ -610,6 +688,65 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     setPathTraces(on);
     try { localStorage.setItem(TRACES_KEY, on ? 'on' : 'off'); } catch { /* unavailable */ }
   }, []);
+
+  // ---- sprint -------------------------------------------------------------------
+  // When a session ends (buzzer or End early) whatever the round was doing is dropped.
+  sprintEndRef.current = () => {
+    timers.current.forEach(clearTimeout);
+    timers.current.clear();
+    replayToken.current++;
+    dealId.current++;
+    prefetchRef.current = null;
+    cancel();
+    planRef.current = [];
+    setPlan([]);
+    setPlanTraces([]);
+    setOverlayCells(null);
+    setSlide(null);
+    setConfirmEnd(false);
+    setPhase((phaseRef.current = 'idle'));
+  };
+
+  const changeGameMode = useCallback((next) => {
+    if (next === gameModeRef.current || phaseRef.current === 'submit' || phaseRef.current === 'settling' || sprintRef.current.isRunning()) return;
+    replayToken.current++;
+    gameModeRef.current = next;
+    setGameMode(next);
+    writeGameMode(next);
+    if (next === 'classic') {
+      sprintRef.current.reset();
+      deal();
+    } else {
+      dealId.current++;
+      cancel();
+      setOverlayCells(null);
+      setPhase((phaseRef.current = 'idle'));
+    }
+  }, [deal, cancel]);
+
+  const startSprint = useCallback(() => {
+    Object.assign(board, createBoard()); // every Sprint starts on a fresh board
+    planRef.current = [];
+    setPlan([]);
+    setPlanTraces([]);
+    retriedBoard.current = false;
+    prefetchRef.current = null;
+    sprintRef.current.start(sprintKey(variantRef.current, modeRef.current));
+    deal();
+  }, [board, createBoard, deal]);
+
+  const skipPuzzle = useCallback(() => {
+    if (phaseRef.current !== 'play' || !sprintRef.current.isRunning()) return;
+    sprintRef.current.skip();
+    stopClock();
+    // The skipped target is spent; nothing is revealed.
+    if (board.moves.length > 0) board.resetRound();
+    if (!board.claimed.includes(board.currentTargetId)) board.claimed.push(board.currentTargetId);
+    planRef.current = [];
+    setPlan([]);
+    setPlanTraces([]);
+    deal();
+  }, [board, deal, stopClock]);
 
   // ---- solution replay (reveal and "Show solution") ------------------------
   const playSolution = useCallback((after) => {
@@ -681,7 +818,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-    if (panel || confirmGiveUp) return;
+    if (panel || confirmGiveUp || confirmEnd) return;
     const key = e.key.toLowerCase();
     if (phaseRef.current !== 'play') return;
     if (KEY_TO_ROBOT[key] && board.robotNames.includes(KEY_TO_ROBOT[key])) { e.preventDefault(); selectedRef.current = KEY_TO_ROBOT[key]; setSelected(KEY_TO_ROBOT[key]); return; }
@@ -716,6 +853,9 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   const moveCount = finished && results ? results.moves : planning ? plan.length : board.moves.length;
   const provisional = isProvisional(rating.rounds);
   const entry = results && results.entry;
+  const sprintMode = gameMode === 'sprint';
+  const sprintRunning = sprintMode && sprint.status === 'running';
+  const sprintSetup = sprintKey(variant, mode);
 
   // Path traces: only what the board itself has reached. A replay shows steps up to
   // `replayStep`, which advances together with the robots.
@@ -778,6 +918,20 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
           </div>
         </header>
 
+        <ModeBar
+          phoneHidden={!(sprintMode && !sprintRunning)}
+          mode={gameMode}
+          onChange={changeGameMode}
+          disabled={sprintRunning || locked || phase === 'settling'}
+        />
+
+        {sprintMode && !sprintRunning ? (
+          <main className="ricochet-sprint-main">
+            {sprint.status === 'results' && sprint.result
+              ? <SprintResults result={sprint.result} sprintKey={sprint.key} onDone={sprint.reset} />
+              : <SprintStart sprintKey={sprintSetup} onStart={startSprint} />}
+          </main>
+        ) : (
         <main className="ricochet-main">
           <section className="ricochet-hud" aria-label="Round status">
             <div className="ricochet-hud-target">
@@ -792,8 +946,14 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
               ) : <strong className="ricochet-muted">Dealing…</strong>}
             </div>
             <div className="ricochet-hud-num"><span className="ricochet-hud-label">Moves</span><strong data-testid="move-count">{moveCount}</strong></div>
-            <div className="ricochet-hud-num"><span className="ricochet-hud-label">Time</span><strong data-testid="clock">{fmtTime(elapsed)}</strong></div>
-            <div className="ricochet-hud-num"><span className="ricochet-hud-label">Rating</span><strong data-testid="hud-rating">{rating.rating}</strong>{setup && <span className="ricochet-setup-tag" data-testid="hud-setup" title={`Rating for ${setupLabel(setup)}`}>variant</span>}{provisional && <ProvisionalTag />}</div>
+            {sprintRunning ? (
+              <SprintHudTiles remainingMs={sprint.remainingMs} points={sprint.points} solved={sprint.solved} />
+            ) : (
+              <>
+                <div className="ricochet-hud-num"><span className="ricochet-hud-label">Time</span><strong data-testid="clock">{fmtTime(elapsed)}</strong></div>
+                <div className="ricochet-hud-num"><span className="ricochet-hud-label">Rating</span><strong data-testid="hud-rating">{rating.rating}</strong>{setup && <span className="ricochet-setup-tag" data-testid="hud-setup" title={`Rating for ${setupLabel(setup)}`}>variant</span>}{provisional && <ProvisionalTag />}</div>
+              </>
+            )}
           </section>
 
           <div className={`ricochet-board-wrap${phase === 'dealing' ? ' is-dealing' : ''}`}>
@@ -811,6 +971,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
               interactive={live}
               showCurrent={phase !== 'dealing' && phase !== 'error'}
             />
+            {sprintRunning && <SprintToast toast={sprint.toast} />}
             {phase === 'dealing' && (
               <div className="ricochet-dealing" role="status"><span className="ricochet-spinner" aria-hidden="true" />Dealing a puzzle…</div>
             )}
@@ -882,7 +1043,10 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
                   <button type="button" className="ricochet-btn" disabled={!live || board.moves.length === 0} onMouseDown={keepFocus} onClick={reset}>Reset</button>
                 </>
               )}
-              <button type="button" className="ricochet-btn ricochet-btn-danger" disabled={!live} onClick={() => setConfirmGiveUp(true)}>Give up</button>
+              {sprintRunning
+                ? <button type="button" className="ricochet-btn" disabled={!live} onMouseDown={keepFocus} onClick={skipPuzzle}>Skip</button>
+                : <button type="button" className="ricochet-btn ricochet-btn-danger" disabled={!live} onClick={() => setConfirmGiveUp(true)}>Give up</button>}
+              {sprintRunning && <button type="button" className="ricochet-btn ricochet-btn-danger" onClick={() => setConfirmEnd(true)}>End early</button>}
             </div>
           </section>
           )}
@@ -933,14 +1097,19 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
           </div>
           <p className="ricochet-sr" role="status" aria-live="polite">{status}</p>
         </main>
+        )}
       </div>
 
       {panel === 'settings' && (
         <Panel title="Settings" onClose={() => setPanel(null)}>
           <div className="ricochet-setting">
+            <ModeSwitch mode={gameMode} onChange={changeGameMode} disabled={sprintRunning || locked || phase === 'settling'} />
+            <p>Game mode: Classic keeps your rating and history; Sprint is a timed five-minute run with a personal leaderboard. Locked while a Sprint runs.</p>
+          </div>
+          <div className="ricochet-setting">
             <div className="ricochet-seg" role="group" aria-label="Input mode">
-              <button type="button" aria-pressed={mode === 'plan'} onClick={() => changeMode('plan')}>Plan</button>
-              <button type="button" aria-pressed={mode === 'live'} onClick={() => changeMode('live')}>Live</button>
+              <button type="button" aria-pressed={mode === 'plan'} disabled={sprintRunning} onClick={() => changeMode('plan')}>Plan</button>
+              <button type="button" aria-pressed={mode === 'live'} disabled={sprintRunning} onClick={() => changeMode('live')}>Live</button>
             </div>
             <p>Plan: enter a whole line, then submit it; the board only moves on submit. Live: every move slides immediately. Changing mode clears the plan and resets the current round.</p>
           </div>
@@ -953,29 +1122,54 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
           </div>
           <div className="ricochet-setting">
             <div className="ricochet-seg" role="group" aria-label="Board size">
-              <button type="button" aria-pressed={variant.size === 16} disabled={locked} onClick={() => changeVariant({ size: 16 })}>16×16</button>
-              <button type="button" aria-pressed={variant.size === 12} disabled={locked} onClick={() => changeVariant({ size: 12 })}>12×12</button>
+              <button type="button" aria-pressed={variant.size === 16} disabled={locked || sprintRunning} onClick={() => changeVariant({ size: 16 })}>16×16</button>
+              <button type="button" aria-pressed={variant.size === 12} disabled={locked || sprintRunning} onClick={() => changeVariant({ size: 12 })}>12×12</button>
             </div>
             <p>Board size. A change deals a new board right away.</p>
           </div>
           <div className="ricochet-setting">
             <div className="ricochet-seg" role="group" aria-label="Fifth robot">
-              <button type="button" aria-pressed={!variant.fifthRobot} disabled={locked} onClick={() => changeVariant({ fifthRobot: false })}>None</button>
-              <button type="button" aria-pressed={variant.fifthRobot} disabled={locked} onClick={() => changeVariant({ fifthRobot: true })}>Black</button>
+              <button type="button" aria-pressed={!variant.fifthRobot} disabled={locked || sprintRunning} onClick={() => changeVariant({ fifthRobot: false })}>None</button>
+              <button type="button" aria-pressed={variant.fifthRobot} disabled={locked || sprintRunning} onClick={() => changeVariant({ fifthRobot: true })}>Black</button>
             </div>
             <p>Fifth robot: a black robot that blocks and is blocked like the others, and takes only the vortex.</p>
           </div>
           <div className="ricochet-setting">
             <div className="ricochet-seg" role="group" aria-label="Diagonal barriers">
-              <button type="button" aria-pressed={!variant.diagonals} disabled={locked} onClick={() => changeVariant({ diagonals: false })}>None</button>
-              <button type="button" aria-pressed={variant.diagonals} disabled={locked} onClick={() => changeVariant({ diagonals: true })}>Diagonals</button>
+              <button type="button" aria-pressed={!variant.diagonals} disabled={locked || sprintRunning} onClick={() => changeVariant({ diagonals: false })}>None</button>
+              <button type="button" aria-pressed={variant.diagonals} disabled={locked || sprintRunning} onClick={() => changeVariant({ diagonals: true })}>Diagonals</button>
             </div>
             <p>Diagonal barriers: coloured bars that turn robots of any other colour 90 degrees. Every setup other than the standard one (16×16, four robots, no barriers, Plan) has its own rating.</p>
           </div>
         </Panel>
       )}
       {panel === 'help' && <Panel title="How to play" onClose={() => setPanel(null)}><HowToPlay variant={variant} /></Panel>}
-      {panel === 'progress' && <Panel title="Progress" onClose={() => setPanel(null)}><ProgressPanel setup={setup} history={progressHistory} /></Panel>}
+      {panel === 'progress' && (
+        <Panel title="Progress" onClose={() => setPanel(null)}>
+          <ProgressTabs tab={progressTab} onTab={setProgressTab} sprintKey={sprintSetup}>
+            <ProgressPanel setup={setup} history={progressHistory} />
+          </ProgressTabs>
+        </Panel>
+      )}
+      {confirmEnd && (
+        <ConfirmDialog
+          title="End this Sprint?"
+          body="Your finished puzzles count; the puzzle in progress scores nothing."
+          confirmLabel="End Sprint"
+          onCancel={() => setConfirmEnd(false)}
+          onConfirm={() => sprint.end()}
+          overlayStyle={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+          classes={{
+            overlay: 'ricochet-overlay',
+            panel: 'ricochet-modal ricochet-confirm',
+            title: 'ricochet-confirm-title',
+            body: 'ricochet-confirm-body',
+            actions: 'ricochet-actions',
+            cancel: 'ricochet-btn',
+            confirm: 'ricochet-btn ricochet-btn-danger',
+          }}
+        />
+      )}
       {confirmGiveUp && (
         <ConfirmDialog
           title="Give up this puzzle?"

@@ -42,7 +42,7 @@ Each AI power can hold a real conversation (bring your own Anthropic API key) an
 
 ### Ricochet
 
-A solo sliding-robot puzzle. Four robots on a walled 16 by 16 board slide until something stops them; each round, land the robot of the target's colour on its symbol (the vortex takes any robot) in as few moves as you can. An exact solver deals each puzzle near your level, and a rating tracks both move quality and speed. Options add a 12 by 12 board, a black fifth robot and diagonal barriers, each setup with its own rating. Nothing leaves your device.
+A solo sliding-robot puzzle. Four robots on a walled 16 by 16 board slide until something stops them; each round, land the robot of the target's colour on its symbol (the vortex takes any robot) in as few moves as you can. An exact solver deals each puzzle near your level, and a rating tracks both move quality and speed. Options add a 12 by 12 board, a black fifth robot and diagonal barriers, each setup with its own rating. Sprint mode is a five-minute run through as many puzzles as you can solve, with a personal top 10 per setup. Nothing leaves your device.
 
 ## How the AI works
 

@@ -225,6 +225,7 @@ export const PROGRESS_KEYS = [
   'splendorDarkMode', 'splendorDifficulty', 'splendorPlayerCount',
   'diplomacyDarkMode', 'diplomacyShowOrders', 'diplomacyShowLastMoves', 'diplomacySettings', 'diplomacyGameState',
   'ricochetDarkMode', 'ricochetInputMode', 'ricochetPathTraces', 'ricochetVariant', 'ricochetRating', 'ricochetVariantRatings', 'ricochetHistory',
+  'ricochetGameMode', 'ricochetSprintBoard',
 ];
 const SECRET_KEYS = ['playApiKey', 'chessApiKey', 'catanApiKey', 'chessLichessToken'];
 // Device keys and the account-key marker: neither belongs on a signed-in device's next identity.

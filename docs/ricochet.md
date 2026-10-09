@@ -1,6 +1,6 @@
 # Ricochet
 
-Solo Ricochet Robots at `/ricochet`. Four robots on a 16 by 16 walled board by default; Settings can switch to a 12 by 12 board, add a fifth (black) robot and add diagonal barriers (see Board variants); each round shows one target symbol, and the player slides robots until the matching colour stops on it (the vortex accepts any robot). It is device-only: no account, cloud or resumable-match integration.
+Solo Ricochet Robots at `/ricochet`, with a Classic mode (rated rounds) and a timed Sprint mode. Four robots on a 16 by 16 walled board by default; Settings can switch to a 12 by 12 board, add a fifth (black) robot and add diagonal barriers (see Board variants); each round shows one target symbol, and the player slides robots until the matching colour stops on it (the vortex accepts any robot). It is device-only: no account, cloud or resumable-match integration.
 
 ## Rules coverage
 
@@ -33,6 +33,8 @@ The board takes an optional config `{ size: 16 | 12, fifthRobot: false | true, d
 | `engine/rounds.js` | `chooseNextRound`: the unclaimed target whose optimum is closest to the desired length |
 | `engine/scoring.js`, `engine/rating.js`, `engine/history.js` | Per-round score, rating, persisted history (ratings and history per setup) |
 | `engine/variants.js` | Stored variant, setup keys and labels |
+| `engine/sprint.js` | Sprint: difficulty ramp, per-puzzle points, session summary, leaderboard storage and validation, next-puzzle prefetch state |
+| `hooks/useSprint.js`, `SprintPanel.jsx` | Sprint session hook (active-time clock, banked solves, toast) and its screens |
 | `engine/solver.worker.js`, `hooks/` | Dealing runs in a Web Worker; `useSolverWorker` drops replies from abandoned requests |
 | `RicochetGame.jsx`, `RicochetBoardView.jsx`, `ricochet.css` | UI |
 
@@ -66,6 +68,21 @@ Settings has three options besides input mode and path traces: **Board size** (1
 
 A setup is the board variant plus the input mode. **Standard** is 16 by 16, four robots, no barriers, Plan mode: it uses `ricochetRating` and `ricochetHistory` unchanged (entries have no `variant` field). Every other combination, Live mode included, has its own rating in `ricochetVariantRatings` (`{ [key]: {rating, rounds} }`) and its history entries carry `variant`. The key is `<size>-r<4|5>-d<0|1>-<plan|live>`, for example `16-r4-d0-live` or `12-r5-d1-plan`; `16-r4-d0-plan` is never used. `validEntry` accepts only that format in `variant`; invalid stored ratings are ignored. The HUD rating, dealing difficulty and the results use the current setup's rating; the HUD shows a "variant" tag when it is not the standard one. The Progress panel is labelled with the setup, and a selector lists the other setups that have history. All setups share the 500-entry history cap.
 
+## Sprint
+
+A second game mode, chosen with the Classic | Sprint switch above the board and stored in `ricochetGameMode` (`classic` | `sprint`, default `classic`). With `classic` no Sprint UI shows. The switch is locked while a Sprint runs.
+
+- **Session.** The Start screen shows the best score of the current setup (board variant plus input mode, the same setup key as the ratings but with `16-r4-d0-plan` named explicitly) and a Start button. Start builds a fresh board and begins a 5:00 countdown. Sprint uses the current variant and input mode (Plan or Live); both are locked until it ends.
+- **Active time.** The countdown runs from the moment a puzzle is shown until the next deal starts, so dealing time is excluded, and it pauses while the tab is hidden. A timeout fires at exactly 5:00 of active time. Replays of a submitted plan and the slide after a Live solve count as active time.
+- **Dealing.** The first puzzle is dealt at length 3. While a puzzle is solved, the next is requested from the worker, dealt from the robots' positions at the end of the current puzzle's optimal line (target claimed) and aimed at the length for one more solve. When the puzzle is finished the next appears at once and the robots start from that line's end. If a Skip leaves the ramp length different from the prefetched one, a fresh deal is requested; if the prefetch fails, or has not returned yet, the game waits for it or asks again, with the clock paused.
+- **Ramp.** Optimal length `min(9, 3 + floor(solved / 2))`.
+- **Points.** `round(100 x quality x pace)` per solved puzzle (`scoreRound`), pace measured on that puzzle's own time. A solve counts at the moment it is made (for a plan, at submission), if the clock has not run out; its points and the "+87" toast appear when the slide or replay ends, so a replay does not give the result away. A failed plan submit costs only time. An unfinished puzzle at the buzzer counts for nothing.
+- **Skip.** Replaces Give up: 0 points, nothing revealed, the target is spent.
+- **End.** The session ends at the buzzer or on End early (after a confirm). Cancelling the confirm changes nothing. Nothing is written until the session ends, so a refresh or leaving the page mid-session records nothing. A session with no solved puzzle is not recorded.
+- **Results.** Solved, skipped, points, average quality, best puzzle, solved optimally, "New personal best!" when the session ranks first, and the setup's top 10 with the session highlighted.
+- **Leaderboard.** `ricochetSprintBoard` is `{ [setupKey]: [ {at, points, solved, skipped, avgQuality} ] }`: top 10 per setup, ordered by points, then more solved, then the earlier date. Setup keys are `<size>-r<4|5>-d<0|1>-<plan|live>`, including the standard `16-r4-d0-plan`. Loading drops anything malformed (unknown keys, bad records, non-JSON) and re-sorts and caps what is left. The Progress panel's Sprint tab lists the leaderboard of every setup, the current one first.
+- **Isolation.** Sprint never reads or writes `ricochetRating`, `ricochetVariantRatings` or `ricochetHistory`.
+
 ## Scoring and rating
 
 - `quality = clamp(optimal / moves, 0, 1)`.
@@ -77,4 +94,4 @@ A setup is the board variant plus the input mode. **Standard** is 16 by 16, four
 
 ## Tests
 
-`CI=true npm test` covers the engine suites (including `golden.test.js` for the default config, `variants.generator.test.js`, `variants.slide.test.js`, `variants.solver.test.js` with an independent breadth-first oracle for all eight configs, and `variants.state.test.js`) and `RicochetGame.ui.test.jsx` and `RicochetGame.variants.test.jsx` (worker mocked; settings, per-setup ratings, black robot input, barrier rendering and deflected slides) plus `engine/history.variants.test.js`: keyboard and click solves, one history entry per solve, give-up, undo/reset with the clock, hidden-tab time, and stale worker replies.
+`CI=true npm test` covers the engine suites (including `golden.test.js` for the default config, `variants.generator.test.js`, `variants.slide.test.js`, `variants.solver.test.js` with an independent breadth-first oracle for all eight configs, and `variants.state.test.js`) and `engine/sprint.test.js` (ramp, points, leaderboard ordering, caps and corruption) and `RicochetGame.sprint.test.jsx` (fake timers: the 5:00 active-time clock, dealing and hidden-tab exclusion, buzzer, skip, ramp lengths sent to the worker, no rating or history writes), plus `RicochetGame.ui.test.jsx` and `RicochetGame.variants.test.jsx` (worker mocked; settings, per-setup ratings, black robot input, barrier rendering and deflected slides) plus `engine/history.variants.test.js`: keyboard and click solves, one history entry per solve, give-up, undo/reset with the clock, hidden-tab time, and stale worker replies.
