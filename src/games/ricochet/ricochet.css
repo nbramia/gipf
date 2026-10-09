@@ -313,3 +313,4 @@
 .game-ricochet .ricochet-trace-toggle { background: none; border: 0; border-bottom: 2px solid transparent; font: inherit; font-weight: 700; color: var(--rc-muted); cursor: pointer; text-align: left; align-self: flex-start; min-height: 32px; }
 .game-ricochet .ricochet-trace-toggle[aria-pressed="true"] { color: var(--rc-ink); border-bottom-color: var(--rc-accent); }
 .game-ricochet .ricochet-trace-toggle:focus-visible { outline: 3px solid var(--rc-accent); outline-offset: 2px; }
+.game-ricochet .ricochet-trace-cross { stroke-width: 2.4; }

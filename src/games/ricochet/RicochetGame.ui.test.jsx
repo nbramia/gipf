@@ -2,6 +2,7 @@ import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import RicochetGame from './RicochetGame.jsx';
+import RicochetBoardView from './RicochetBoardView.jsx';
 import { PROGRESS_KEYS } from '../../account.js';
 import RicochetBoard from './RicochetBoard.js';
 import { emptyWalls, cellOf } from './engine/geometry.js';
@@ -1042,6 +1043,8 @@ describe('path traces', () => {
   const RED_E = ['red', 1, cellOf(0, 0), cellOf(0, 15)];
   const BLUE_N = ['blue', 2, cellOf(14, 1), cellOf(2, 1)];
   const RED_W = ['red', 3, cellOf(0, 15), cellOf(0, 0)];
+  const centre = cell => [8 + (cell % 16) * 40 + 20, 8 + Math.floor(cell / 16) * 40 + 20];
+  const points = el => el.getAttribute('points').split(' ').map(p => p.split(',').map(Number));
   const failedPlan = () => { press('ArrowRight'); press('b'); press('ArrowUp'); press('r'); press('ArrowLeft'); };
 
   beforeEach(() => { jest.useFakeTimers(); });
@@ -1119,14 +1122,46 @@ describe('path traces', () => {
       expect(traces()).toHaveLength(0); // the new replay has not reached its first step
     });
 
-    test('a blocked step draws no line but later steps keep their plan numbers', () => {
+    test('a blocked step draws a numbered bump marker, not a line or arrowhead', () => {
       localStorage.removeItem('ricochetInputMode');
       mount();
       deliver(ROUND);
       press('ArrowUp'); // red is already at the top wall
       press('ArrowRight');
       submit(); advance(2000);
-      expect(summary()).toEqual([['red', 2, cellOf(0, 0), cellOf(0, 15)]]);
+      const [bump, move] = traces();
+      expect(bump.getAttribute('data-blocked')).toBe('true');
+      expect(bump.getAttribute('data-step')).toBe('1');
+      expect(bump.getAttribute('data-robot')).toBe('red');
+      expect(bump.getAttribute('data-from')).toBe(String(cellOf(0, 0)));
+      expect(bump.querySelector('.ricochet-trace-head')).toBeNull();
+      expect(bump.querySelector('.ricochet-trace-stub').getAttribute('stroke')).toBe('var(--rc-red)');
+      expect(bump.querySelectorAll('.ricochet-trace-cross')).toHaveLength(2);
+      expect(bump.textContent).toBe('1');
+      // the stub points up (toward the wall) from the robot's cell and stays short
+      const [a, b] = points(bump.querySelector('.ricochet-trace-stub'));
+      expect(a[0]).toBeCloseTo(b[0]); expect(b[1]).toBeLessThan(a[1]);
+      expect(a[1] - centre(cellOf(0, 0))[1]).toBeCloseTo(-14);
+      expect(move.getAttribute('data-blocked')).toBeNull();
+      expect(move.getAttribute('data-step')).toBe('2');
+    });
+
+    test('a step blocked by another robot is also a bump, and appears only when the replay reaches it', () => {
+      localStorage.removeItem('ricochetInputMode');
+      mount();
+      deliver(ROUND);
+      press('y'); press('ArrowUp'); // yellow to the top row, right beside red
+      press('r'); press('ArrowRight'); // red is blocked by yellow
+      submit();
+      advance(300);
+      expect(traces().map(t => t.getAttribute('data-robot'))).toEqual(['yellow']);
+      advance(299);
+      expect(traces()).toHaveLength(1);
+      advance(1);
+      const blocked = traces().filter(t => t.getAttribute('data-blocked') === 'true');
+      expect(blocked.map(t => t.getAttribute('data-robot'))).toEqual(['red']);
+      expect(blocked[0].getAttribute('data-step')).toBe('2');
+      expect(blocked[0].getAttribute('data-dir')).toBe('E');
     });
 
     test('no trace appears before the replay reaches its step', () => {
@@ -1247,5 +1282,115 @@ describe('path traces', () => {
       expect(group.compareDocumentPosition(robot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(group.getAttribute('pointer-events')).toBe('none');
     });
+
+    test('a trace\'s polyline starts at the start cell centre and stops short of the stop cell centre, in the robot colour', () => {
+      localStorage.removeItem('ricochetInputMode');
+      mount();
+      deliver(ROUND);
+      press('ArrowRight'); press('ArrowDown');
+      submit(); advance(2000);
+      const [first, second] = traces();
+      for (const [t, robot, from, to] of [[first, 'red', cellOf(0, 0), cellOf(0, 15)], [second, 'red', cellOf(0, 15), cellOf(15, 15)]]) {
+        const line = t.querySelector('.ricochet-trace-line');
+        expect(line.getAttribute('stroke')).toBe(`var(--rc-${robot})`);
+        expect(t.querySelector('.ricochet-trace-head').getAttribute('fill')).toBe(`var(--rc-${robot})`);
+        const pts = points(line);
+        const [sx, sy] = centre(from);
+        const [ex, ey] = centre(to);
+        expect(pts[0][0]).toBeCloseTo(sx); expect(pts[0][1]).toBeCloseTo(sy);
+        const end = pts[pts.length - 1];
+        const inset = Math.hypot(ex - end[0], ey - end[1]);
+        expect(inset).toBeGreaterThan(14); // stays clear of the robot
+        expect(inset).toBeLessThanOrEqual(26);
+        // and it is collinear with the move
+        expect(Math.abs((end[0] - sx) * (ey - sy) - (end[1] - sy) * (ex - sx))).toBeLessThan(1e-6);
+        // the arrowhead tip is the 15px inset
+        const tip = points(t.querySelector('.ricochet-trace-head'))[0];
+        expect(Math.hypot(ex - tip[0], ey - tip[1])).toBeCloseTo(15);
+      }
+    });
+
+    test('a step that retraces an earlier one is offset sideways, and no badge sits under a robot', () => {
+      localStorage.removeItem('ricochetInputMode');
+      mount();
+      deliver(ROUND);
+      press('ArrowRight'); press('ArrowLeft'); // out along row 0 and straight back
+      submit(); advance(2000);
+      const [out, back] = traces().map(t => points(t.querySelector('.ricochet-trace-line')));
+      const rowY = centre(cellOf(0, 0))[1];
+      expect(out[0][1]).toBeCloseTo(rowY);
+      expect(out[out.length - 1][1]).toBeCloseTo(rowY); // the first is not shifted
+      expect(Math.abs(back[0][1] - rowY)).toBeGreaterThanOrEqual(4); // the retrace is
+      expect(back[0][1]).not.toBeCloseTo(out[0][1]);
+      // badges: centred on their line, at least a robot radius plus margin from the stop centre
+      traces().forEach((t, i) => {
+        const g = t.querySelector('g[transform]');
+        const [bx, by] = g.getAttribute('transform').match(/-?[\d.]+/g).map(Number);
+        const stop = centre(i === 0 ? cellOf(0, 15) : cellOf(0, 0));
+        expect(Math.hypot(bx - stop[0], by - stop[1])).toBeGreaterThanOrEqual(20);
+      });
+    });
+
+    test('doubling back on a column offsets perpendicular to that column', () => {
+      localStorage.removeItem('ricochetInputMode');
+      mount();
+      deliver(ROUND);
+      press('ArrowDown'); press('ArrowUp');
+      submit(); advance(2000);
+      const [down, up] = traces().map(t => points(t.querySelector('.ricochet-trace-line')));
+      expect(down[0][0]).toBeCloseTo(centre(cellOf(0, 0))[0]);
+      expect(up[0][0]).not.toBeCloseTo(down[0][0]);
+      expect(up[0][1]).toBeCloseTo(centre(cellOf(14, 0))[1]); // same axis position, shifted only sideways
+    });
+  });
+});
+
+describe('RicochetBoardView path traces', () => {
+  const view = (traces) => render(
+    <RicochetBoardView
+      board={scripted()}
+      robotCells={scripted().robots}
+      selected={null}
+      arrows={[]}
+      onSelect={() => {}}
+      onMove={() => {}}
+      slideMs={0}
+      interactive={false}
+      showCurrent
+      traces={traces}
+    />,
+  );
+  const c = (r, col) => [8 + col * 40 + 20, 8 + r * 40 + 20];
+
+  test('renders nothing without traces', () => {
+    const { container } = view(null);
+    expect(container.querySelector('.ricochet-traces')).toBeNull();
+  });
+
+  test('a path with a bend renders as one polyline through every point', () => {
+    const path = [cellOf(2, 2), cellOf(2, 6), cellOf(6, 6), cellOf(6, 3)];
+    const { container } = view([{ robot: 'blue', n: 1, path }]);
+    const line = container.querySelector('.ricochet-trace-line');
+    expect(line.getAttribute('stroke')).toBe('var(--rc-blue)');
+    const pts = line.getAttribute('points').split(' ').map(p => p.split(',').map(Number));
+    expect(pts).toHaveLength(4); // start, two bends, and the shortened end
+    expect(pts[0]).toEqual(c(2, 2));
+    expect(pts[1]).toEqual(c(2, 6));
+    expect(pts[2]).toEqual(c(6, 6));
+    // the last point lies on the final (westward) segment, short of its end centre
+    expect(pts[3][1]).toBeCloseTo(c(6, 3)[1]);
+    expect(pts[3][0]).toBeLessThan(c(6, 6)[0]);
+    expect(pts[3][0]).toBeGreaterThan(c(6, 3)[0]);
+    // the arrowhead follows the last segment's direction
+    const head = container.querySelector('.ricochet-trace-head').getAttribute('points').split(' ').map(p => p.split(',').map(Number));
+    expect(head[0][0]).toBeLessThan(pts[3][0]);
+  });
+
+  test('a diagonal path point list is drawn through its points too', () => {
+    const path = [cellOf(1, 1), cellOf(4, 4), cellOf(4, 8)];
+    const { container } = view([{ robot: 'green', n: 3, path }]);
+    const pts = container.querySelector('.ricochet-trace-line').getAttribute('points').split(' ').map(p => p.split(',').map(Number));
+    expect(pts[0]).toEqual(c(1, 1));
+    expect(pts[1]).toEqual(c(4, 4));
   });
 });

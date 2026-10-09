@@ -69,27 +69,106 @@ function wallSegments(walls) {
 const ARROW_TIP_BACK = 15; // the arrowhead stops short of the end centre, which the robot covers
 const ARROW_LEN = 9;
 const ARROW_HALF = 5;
-const BADGE_BACK = 21;
-const BADGE_SIDE = 12;
+const BADGE_END_GAP = 24; // the number badge keeps this far from the stop centre (robot radius is 14)
+const OVERLAP_STEP = 5; // lateral shift per earlier trace this one runs along
+const BUMP_FROM = 14;
+const BUMP_TO = 20;
+const BUMP_X = 24;
+const BUMP_ARM = 3;
 
-// One move's trace. `path` is a list of cells: the start, any bend, the end.
-function PathTrace({ trace }) {
-  const pts = trace.path.map(cell => [cx(cell), cy(cell)]);
-  const [ex, ey] = pts[pts.length - 1];
-  const [px, py] = pts[pts.length - 2] || pts[0];
-  const len = Math.hypot(ex - px, ey - py) || 1;
-  const ux = (ex - px) / len;
-  const uy = (ey - py) / len;
+const cellXY = cell => [cx(cell), cy(cell)];
+// Do two straight segments (pixel pairs) lie on one line and share more than a point?
+function overlap([a0, a1], [b0, b1]) {
+  const dx = a1[0] - a0[0];
+  const dy = a1[1] - a0[1];
+  const len = Math.hypot(dx, dy);
+  if (!len) return false;
+  const cross = p => (dx * (p[1] - a0[1]) - dy * (p[0] - a0[0])) / len;
+  if (Math.abs(cross(b0)) > 1 || Math.abs(cross(b1)) > 1) return false;
+  const along = p => (dx * (p[0] - a0[0]) + dy * (p[1] - a0[1])) / len;
+  const [lo, hi] = [along(b0), along(b1)].sort((m, n) => m - n);
+  return Math.min(hi, len) - Math.max(lo, 0) > 1;
+}
+const segmentsOf = trace => {
+  const pts = trace.path.map(cellXY);
+  return pts.slice(1).map((p, i) => [pts[i], p]);
+};
+// How many earlier traces each trace runs along; used to shift it sideways so a retraced
+// or doubled segment stays visible.
+function overlapCounts(traces) {
+  const segs = traces.map(t => (t.blocked ? [] : segmentsOf(t)));
+  return traces.map((_, i) => {
+    let k = 0;
+    for (let j = 0; j < i; j++) {
+      if (segs[i].some(a => segs[j].some(b => overlap(a, b)))) k++;
+    }
+    return Math.min(k, 4);
+  });
+}
+
+// A step that could not move: a short stub toward the obstacle and a cross.
+function BumpTrace({ trace }) {
+  const [x, y] = cellXY(trace.path[0]);
+  const [ux, uy] = DIR_VEC[trace.dir];
   const nx = -uy;
   const ny = ux;
+  const colour = `var(--rc-${trace.robot})`;
+  const bx = x + ux * BUMP_X;
+  const by = y + uy * BUMP_X;
+  const a = BUMP_ARM;
+  const stub = `${x + ux * BUMP_FROM},${y + uy * BUMP_FROM} ${x + ux * BUMP_TO},${y + uy * BUMP_TO}`;
+  const cross1 = `${bx - a},${by - a} ${bx + a},${by + a}`;
+  const cross2 = `${bx - a},${by + a} ${bx + a},${by - a}`;
+  // beside the robot, clear of it
+  const badgeX = x + ux * 6 + nx * 21;
+  const badgeY = y + uy * 6 + ny * 21;
+  return (
+    <g
+      className="ricochet-trace is-blocked"
+      data-testid="path-trace"
+      data-blocked="true"
+      data-robot={trace.robot}
+      data-step={trace.n}
+      data-from={trace.path[0]}
+      data-dir={trace.dir}
+    >
+      <polyline points={stub} className="ricochet-trace-halo" />
+      <polyline points={stub} className="ricochet-trace-line ricochet-trace-stub" stroke={colour} />
+      <polyline points={cross1} className="ricochet-trace-line ricochet-trace-cross" stroke={colour} />
+      <polyline points={cross2} className="ricochet-trace-line ricochet-trace-cross" stroke={colour} />
+      <g transform={`translate(${badgeX} ${badgeY})`}>
+        <circle r="7" className="ricochet-trace-badge" stroke={colour} />
+        <text y="3.4" textAnchor="middle" className="ricochet-trace-num">{trace.n}</text>
+      </g>
+    </g>
+  );
+}
+
+// One move's trace. `path` is a list of cells: the start, any bend, the end.
+function PathTrace({ trace, shift }) {
+  if (trace.blocked) return <BumpTrace trace={trace} />;
+  const raw = trace.path.map(cellXY);
+  const [ex0, ey0] = raw[raw.length - 1];
+  const [px0, py0] = raw[raw.length - 2] || raw[0];
+  const len0 = Math.hypot(ex0 - px0, ey0 - py0) || 1;
+  const ux = (ex0 - px0) / len0;
+  const uy = (ey0 - py0) / len0;
+  const nx = -uy;
+  const ny = ux;
+  const pts = raw.map(([x, y]) => [x + nx * shift, y + ny * shift]);
+  const [ex, ey] = pts[pts.length - 1];
+  const [px, py] = pts[pts.length - 2] || pts[0];
   const tipX = ex - ux * ARROW_TIP_BACK;
   const tipY = ey - uy * ARROW_TIP_BACK;
   const baseX = tipX - ux * ARROW_LEN;
   const baseY = tipY - uy * ARROW_LEN;
   const head = `${tipX},${tipY} ${baseX + nx * ARROW_HALF},${baseY + ny * ARROW_HALF} ${baseX - nx * ARROW_HALF},${baseY - ny * ARROW_HALF}`;
   const line = [...pts.slice(0, -1), [baseX, baseY]].map(p => p.join(',')).join(' ');
-  const bx = ex - ux * BADGE_BACK + nx * BADGE_SIDE;
-  const by = ey - uy * BADGE_BACK + ny * BADGE_SIDE;
+  // Number badge on the last segment, midway but never within a robot's reach of the stop cell.
+  const segLen = Math.hypot(ex - px, ey - py);
+  const d = Math.max(Math.min(segLen / 2, segLen - BADGE_END_GAP), 8);
+  const bx = px + ux * d;
+  const by = py + uy * d;
   const colour = `var(--rc-${trace.robot})`;
   return (
     <g
@@ -119,6 +198,7 @@ export default function RicochetBoardView({
   const swiped = useRef(false);
   const svgRef = useRef(null);
 
+  const shifts = React.useMemo(() => (traces ? overlapCounts(traces) : []), [traces]);
   const wallPath = React.useMemo(() => wallSegments(board.walls), [board.walls]);
   const current = showCurrent ? board.getTarget() : null;
 
@@ -228,7 +308,7 @@ export default function RicochetBoardView({
 
       {traces && traces.length > 0 && (
         <g className="ricochet-traces" data-testid="path-traces" pointerEvents="none">
-          {traces.map(t => <PathTrace key={`${t.optimal ? 'o' : 'y'}${t.n}`} trace={t} />)}
+          {traces.map((t, i) => <PathTrace key={`${t.optimal ? 'o' : 'y'}${t.n}`} trace={t} shift={shifts[i] * OVERLAP_STEP} />)}
         </g>
       )}
 

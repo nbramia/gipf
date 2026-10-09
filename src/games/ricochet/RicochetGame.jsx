@@ -44,19 +44,21 @@ const readMode = () => {
 const readTraces = () => {
   try { return localStorage.getItem(TRACES_KEY) === 'on'; } catch { return false; }
 };
-// One trace per move that actually moved a robot: `path` is the list of cells the robot
-// passed through as turning points (start, any bend, end), `n` the 1-based step number.
+// One trace per step. `path` is the list of cells the robot passed through as turning
+// points (start, any bend, end), `n` the 1-based step number. A step that could not move
+// (plan mode only) is a one-cell trace marked `blocked`, drawn as a bump.
 const traceOf = (rec, n) => ({ robot: rec.robot, n, path: [rec.from, rec.to] });
+// Plays one step on a scratch board; returns the move record (or false) and its trace.
+function playTraced(scratch, step, n) {
+  const from = scratch.robots[step.robot];
+  const rec = scratch.applyMove(step);
+  return { rec, trace: rec ? traceOf(rec, n) : { robot: step.robot, n, path: [from], blocked: true, dir: step.dir } };
+}
 // Traces for a line of steps played from the round's start on a scratch board.
 function tracesFor(board, steps) {
   const scratch = new RicochetBoard({ walls: board.walls, targets: board.targets, robots: board.roundStart });
   scratch.startRound(board.currentTargetId);
-  const out = [];
-  steps.forEach((step, i) => {
-    const rec = scratch.applyMove(step);
-    if (rec) out.push(traceOf(rec, i + 1));
-  });
-  return out;
+  return steps.map((step, i) => playTraced(scratch, step, i + 1).trace);
 }
 const pct = x => `${Math.round(x * 100)}%`;
 const fmtTime = ms => {
@@ -463,9 +465,9 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     const traces = [];
     let solvedAt = 0;
     for (let i = 0; i < steps.length; i++) {
-      const rec = scratch.applyMove(steps[i]);
+      const { rec, trace } = playTraced(scratch, steps[i], i + 1);
       frames.push({ robots: { ...scratch.robots }, blocked: !rec, step: steps[i], rec });
-      if (rec) traces.push(traceOf(rec, i + 1));
+      traces.push(trace);
       if (scratch.isSolved()) { solvedAt = i + 1; break; }
     }
     setNotice('');
