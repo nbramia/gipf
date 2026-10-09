@@ -12,6 +12,7 @@ const ChessGame = lazy(() => import('./games/chess/ChessGame.jsx'));
 const CatanGame = lazy(() => import('./games/catan/CatanGame.jsx'));
 const SplendorGame = lazy(() => import('./games/splendor/SplendorGame.jsx'));
 const DiplomacyGame = lazy(() => import('./games/diplomacy/DiplomacyGame.jsx'));
+const RicochetGame = lazy(() => import('./games/ricochet/RicochetGame.jsx'));
 const GamesMigration = lazy(() => import('./GamesMigration.jsx'));
 
 function App() {
@@ -37,6 +38,7 @@ function App() {
             <Route path="/catan" element={<CatanGame />} />
             <Route path="/splendor" element={<SplendorGame />} />
             <Route path="/diplomacy" element={<DiplomacyGame />} />
+            <Route path="/ricochet" element={<RicochetGame />} />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Routes>

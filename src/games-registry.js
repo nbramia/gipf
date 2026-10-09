@@ -37,4 +37,9 @@ export const games = [
     path: '/diplomacy',
     description: 'Command armies and fleets across Europe. Enter simultaneous orders, resolve, and race to 18 supply centers.',
   },
+  {
+    name: 'RICOCHET',
+    path: '/ricochet',
+    description: 'Slide four robots across a walled board to land the right one on its target. A solo puzzle that rates your skill.',
+  },
 ];

@@ -288,7 +288,7 @@ try {
   assert.deepEqual(provider.prompts, ['none', 'none', 'none', null, 'login']);
   pass('clicked sign-in is silent; "Use a different account" sends prompt=login');
 
-  for (const path of ['/yinsh', '/zertz', '/chess', '/catan', '/splendor', '/diplomacy']) {
+  for (const path of ['/yinsh', '/zertz', '/chess', '/catan', '/splendor', '/diplomacy', '/ricochet']) {
     await page.goto(`${ORIGIN}${path}`);
     await page.reload();
     await page.waitForLoadState('networkidle');

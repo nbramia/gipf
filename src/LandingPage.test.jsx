@@ -1,4 +1,4 @@
-// LandingPage: the six game cards, plus a single link to /login. Sign-in and
+// LandingPage: one card per registry game, plus a single link to /login. Sign-in and
 // keys live only on /login; the catalogue never renders credential inputs.
 
 import '@testing-library/jest-dom';
@@ -29,6 +29,14 @@ test('renders every registry game at its root route, before the optional account
   const catalogue = screen.getByRole('navigation', { name: 'Choose a game' });
   const optional = screen.getByRole('region', { name: 'Your account' });
   expect(catalogue.compareDocumentPosition(optional) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+test('Ricochet has its own card and motif, not the fallback map', () => {
+  renderLanding();
+  const link = screen.getByRole('link', { name: 'Play RICOCHET' });
+  expect(link).toHaveAttribute('href', '/ricochet');
+  const fallback = screen.getByRole('link', { name: 'Play DIPLOMACY' });
+  expect(link.querySelector('svg').innerHTML).not.toBe(fallback.querySelector('svg').innerHTML);
 });
 
 test('signed out, offers a single Sign in link to /login and no credential inputs', () => {

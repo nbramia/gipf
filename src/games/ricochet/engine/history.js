@@ -1,8 +1,8 @@
 // history.js — localStorage persistence and summaries for Ricochet solo play.
 // Every storage access is guarded; bad stored data is ignored, never thrown.
 
-import { scoreRound } from './scoring';
-import { DEFAULT_RATING, MIN_RATING, updateRating } from './rating';
+import { scoreRound } from './scoring.js';
+import { DEFAULT_RATING, MIN_RATING, updateRating } from './rating.js';
 
 export const RATING_KEY = 'ricochetRating';
 export const HISTORY_KEY = 'ricochetHistory';

@@ -1,0 +1,239 @@
+/* Ricochet - crisp "instrument panel" look: quiet paper/slate ground, high-contrast
+   walls, saturated robots. All variables and keyframes are scoped under
+   .game-ricochet (see docs/architecture.md). */
+
+.game-ricochet {
+  --rc-bg: #efebe2;
+  --rc-panel: #fbf9f4;
+  --rc-ink: #1c222c;
+  --rc-muted: #667085;
+  --rc-line: #d6cfc0;
+  --rc-accent: #2f5fd0;
+  --rc-accent-ink: #ffffff;
+  --rc-danger: #b3362f;
+  --rc-up: #1d7a46;
+  --rc-down: #b3362f;
+  --rc-board: #fbf9f4;
+  --rc-cell-alt: #eee9dd;
+  --rc-center: #28303c;
+  --rc-wall: #1c222c;
+  --rc-glyph-edge: #1c222c;
+  --rc-red: #e0393e;
+  --rc-green: #1f9d55;
+  --rc-blue: #2f6fe0;
+  --rc-yellow: #f0b90b;
+  --rc-shadow: 0 8px 24px rgba(40, 32, 12, 0.14);
+
+  min-height: 100vh;
+  background: var(--rc-bg);
+  color: var(--rc-ink);
+  font-family: 'Outfit', system-ui, sans-serif;
+}
+
+.game-ricochet.dark {
+  --rc-bg: #0f1218;
+  --rc-panel: #181d26;
+  --rc-ink: #e9edf5;
+  --rc-muted: #98a2b3;
+  --rc-line: #2a3140;
+  --rc-accent: #7aa2ff;
+  --rc-accent-ink: #0b1020;
+  --rc-danger: #ff8a84;
+  --rc-up: #5fd391;
+  --rc-down: #ff8a84;
+  --rc-board: #131821;
+  --rc-cell-alt: #181e29;
+  --rc-center: #0a0d12;
+  --rc-wall: #f1c768;
+  --rc-glyph-edge: #0b0e14;
+  --rc-red: #ff5a5f;
+  --rc-green: #3ddc84;
+  --rc-blue: #5b95ff;
+  --rc-yellow: #ffd23f;
+  --rc-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+}
+
+.game-ricochet *, .game-ricochet *::before, .game-ricochet *::after { box-sizing: border-box; }
+
+.game-ricochet .ricochet-app { max-width: 1120px; margin: 0 auto; padding: 14px 16px 32px; }
+
+.game-ricochet .ricochet-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px;
+}
+.game-ricochet .ricochet-header-left, .game-ricochet .ricochet-header-right { display: flex; align-items: center; gap: 10px; }
+.game-ricochet .ricochet-back { white-space: nowrap; color: var(--rc-muted); text-decoration: none; font-size: 15px; min-height: 40px; display: inline-flex; align-items: center; }
+.game-ricochet .ricochet-back:hover { color: var(--rc-ink); }
+.game-ricochet .ricochet-title {
+  margin: 0; font-family: 'Syne', 'Outfit', sans-serif; font-size: 26px; font-weight: 700; letter-spacing: -0.02em;
+}
+
+.game-ricochet .ricochet-btn {
+  white-space: nowrap;
+  min-height: 40px; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--rc-line);
+  background: var(--rc-panel); color: var(--rc-ink); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.game-ricochet .ricochet-btn:hover:not(:disabled) { border-color: var(--rc-accent); }
+.game-ricochet .ricochet-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.game-ricochet .ricochet-btn-primary { background: var(--rc-accent); border-color: var(--rc-accent); color: var(--rc-accent-ink); }
+.game-ricochet .ricochet-btn-danger { color: var(--rc-danger); }
+.game-ricochet .ricochet-btn-icon { width: 40px; padding: 0; font-size: 18px; }
+.game-ricochet button:focus-visible, .game-ricochet a:focus-visible {
+  outline: 3px solid var(--rc-accent); outline-offset: 2px;
+}
+
+.game-ricochet .ricochet-main {
+  display: grid; gap: 14px; align-items: start;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "hud" "board" "controls" "results" "sr";
+}
+@media (min-width: 900px) {
+  .game-ricochet .ricochet-main {
+    grid-template-columns: minmax(0, 1fr) 340px;
+    grid-template-areas: "board hud" "board controls" "board results" "sr sr";
+    column-gap: 24px;
+  }
+  .game-ricochet .ricochet-board-wrap { max-width: min(100%, calc(100vh - 110px)); }
+}
+
+.game-ricochet .ricochet-hud {
+  grid-area: hud; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 12px;
+  background: var(--rc-panel); border: 1px solid var(--rc-line); border-radius: 12px; padding: 10px 14px;
+}
+.game-ricochet .ricochet-hud-target { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; justify-content: space-between; }
+.game-ricochet .ricochet-hud-target-row { display: inline-flex; align-items: center; gap: 10px; font-size: 17px; text-transform: capitalize; }
+.game-ricochet .ricochet-hud-label { display: block; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--rc-muted); }
+.game-ricochet .ricochet-hud-num strong { font-size: 22px; font-variant-numeric: tabular-nums; }
+
+.game-ricochet .ricochet-board-wrap {
+  grid-area: board; position: relative; width: 100%; margin: 0 auto; border-radius: 10px; overflow: hidden;
+  box-shadow: var(--rc-shadow); background: var(--rc-board); line-height: 0;
+}
+.game-ricochet .ricochet-board-wrap.is-dealing .ricochet-svg { opacity: 0.45; filter: saturate(0.5); }
+.game-ricochet .ricochet-svg { width: 100%; height: auto; display: block; touch-action: none; user-select: none; -webkit-user-select: none; transition: opacity 0.2s; }
+.game-ricochet .ricochet-walls {
+  fill: none; stroke: var(--rc-wall); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round;
+}
+
+.game-ricochet .ricochet-target { opacity: 0.55; }
+.game-ricochet .ricochet-target.is-claimed { opacity: 0.18; }
+.game-ricochet .ricochet-target.is-current { opacity: 1; }
+.game-ricochet .ricochet-target-ring {
+  fill: color-mix(in srgb, var(--rc-accent) 14%, transparent); stroke: var(--rc-accent); stroke-width: 2.5;
+  transform-box: fill-box; transform-origin: center; animation: ricochet-pulse 1.6s ease-in-out infinite;
+}
+@keyframes ricochet-pulse { 0%, 100% { transform: scale(0.94); opacity: 1; } 50% { transform: scale(1.08); opacity: 0.6; } }
+
+.game-ricochet .ricochet-robot {
+  cursor: pointer; transition-property: transform; transition-timing-function: cubic-bezier(0.22, 0.8, 0.3, 1);
+}
+.game-ricochet .ricochet-robot-body { stroke: var(--rc-glyph-edge); stroke-width: 2.2; }
+.game-ricochet .ricochet-robot-shadow { fill: rgba(0, 0, 0, 0.28); }
+.game-ricochet .ricochet-robot-letter {
+  font-family: 'Syne', sans-serif; font-size: 16px; font-weight: 800; fill: #fff;
+  stroke: var(--rc-glyph-edge); stroke-width: 3; paint-order: stroke; pointer-events: none;
+}
+.game-ricochet .ricochet-select-ring {
+  fill: none; stroke: var(--rc-accent); stroke-width: 3; stroke-dasharray: 6 4;
+  transform-box: fill-box; transform-origin: center; animation: ricochet-spin 7s linear infinite;
+}
+@keyframes ricochet-spin { to { transform: rotate(360deg); } }
+
+.game-ricochet .ricochet-arrow { cursor: pointer; }
+.game-ricochet .ricochet-arrow-hit { fill: transparent; }
+.game-ricochet .ricochet-arrow-shape { fill: var(--rc-accent); stroke: var(--rc-panel); stroke-width: 1.6; stroke-linejoin: round; }
+.game-ricochet .ricochet-arrow:hover .ricochet-arrow-shape { fill: var(--rc-ink); }
+
+.game-ricochet .ricochet-dealing {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  font-size: 18px; font-weight: 600; line-height: 1.3; color: var(--rc-ink);
+}
+.game-ricochet .ricochet-spinner {
+  width: 30px; height: 30px; border-radius: 50%; border: 3px solid var(--rc-line); border-top-color: var(--rc-accent);
+  animation: ricochet-spin 0.8s linear infinite;
+}
+
+.game-ricochet .ricochet-controls {
+  grid-area: controls; display: grid; grid-template-columns: 1fr auto; gap: 12px 16px; align-items: center;
+  background: var(--rc-panel); border: 1px solid var(--rc-line); border-radius: 12px; padding: 12px 14px;
+}
+.game-ricochet .ricochet-robot-chips { display: grid; grid-template-columns: repeat(2, 48px); gap: 8px; }
+.game-ricochet .ricochet-chip {
+  width: 48px; height: 48px; border-radius: 50%; border: 3px solid transparent; font: 800 18px 'Syne', sans-serif; cursor: pointer;
+  color: #fff; text-shadow: 0 0 3px #000, 0 0 3px #000;
+}
+.game-ricochet .ricochet-chip-red { background: var(--rc-red); }
+.game-ricochet .ricochet-chip-green { background: var(--rc-green); }
+.game-ricochet .ricochet-chip-blue { background: var(--rc-blue); }
+.game-ricochet .ricochet-chip-yellow { background: var(--rc-yellow); }
+.game-ricochet .ricochet-chip.is-active { border-color: var(--rc-ink); box-shadow: 0 0 0 3px var(--rc-accent); }
+.game-ricochet .ricochet-chip:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.game-ricochet .ricochet-dpad {
+  display: grid; grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(3, 52px); gap: 4px;
+  grid-template-areas: ". n ." "w . e" ". s .";
+}
+.game-ricochet .ricochet-dir {
+  border-radius: 10px; border: 1px solid var(--rc-line); background: var(--rc-bg); color: var(--rc-ink); font-size: 20px; cursor: pointer;
+}
+.game-ricochet .ricochet-dir:hover:not(:disabled) { background: var(--rc-accent); color: var(--rc-accent-ink); border-color: var(--rc-accent); }
+.game-ricochet .ricochet-dir:disabled { opacity: 0.25; cursor: not-allowed; }
+.game-ricochet .ricochet-dir-N { grid-area: n; } .game-ricochet .ricochet-dir-E { grid-area: e; }
+.game-ricochet .ricochet-dir-S { grid-area: s; } .game-ricochet .ricochet-dir-W { grid-area: w; }
+.game-ricochet .ricochet-actions { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; }
+.game-ricochet .ricochet-actions .ricochet-btn { flex: 1; min-width: 80px; min-height: 44px; }
+
+.game-ricochet .ricochet-results {
+  grid-area: results; background: var(--rc-panel); border: 1px solid var(--rc-accent); border-radius: 12px; padding: 14px;
+  animation: ricochet-rise 0.25s ease-out;
+}
+@keyframes ricochet-rise { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+.game-ricochet .ricochet-results h2 { margin: 0 0 6px; font-family: 'Syne', sans-serif; font-size: 20px; }
+.game-ricochet .ricochet-results-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 10px 0; }
+.game-ricochet .ricochet-results-grid dt { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--rc-muted); }
+.game-ricochet .ricochet-results-grid dd { margin: 0; font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.game-ricochet .ricochet-rating-line { margin: 0 0 12px; font-weight: 600; }
+.game-ricochet .ricochet-up { color: var(--rc-up); }
+.game-ricochet .ricochet-down { color: var(--rc-down); }
+.game-ricochet .ricochet-muted { color: var(--rc-muted); font-size: 14px; margin: 4px 0; }
+
+.game-ricochet .ricochet-sr {
+  grid-area: sr; position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; margin: 0;
+}
+
+.game-ricochet .ricochet-overlay {
+  position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.game-ricochet .ricochet-modal {
+  width: 100%; max-width: 480px; max-height: 88vh; overflow-y: auto; background: var(--rc-panel); color: var(--rc-ink);
+  border: 1px solid var(--rc-line); border-radius: 14px; padding: 18px; box-shadow: var(--rc-shadow);
+}
+.game-ricochet .ricochet-modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.game-ricochet .ricochet-modal h2 { margin: 0; font-family: 'Syne', sans-serif; font-size: 20px; }
+.game-ricochet .ricochet-modal h3 { margin: 16px 0 6px; font-size: 14px; }
+.game-ricochet .ricochet-prose { font-size: 15px; line-height: 1.5; }
+.game-ricochet .ricochet-prose ul { padding-left: 20px; }
+.game-ricochet .ricochet-credit { color: var(--rc-muted); font-size: 13px; }
+.game-ricochet .ricochet-confirm-title { font-weight: 700; font-size: 17px; margin-bottom: 6px; }
+.game-ricochet .ricochet-confirm-body { margin-bottom: 14px; font-size: 15px; }
+.game-ricochet .ricochet-stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 8px; }
+.game-ricochet .ricochet-stat-n { display: block; font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.game-ricochet .ricochet-stat-l { display: block; font-size: 11px; color: var(--rc-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.game-ricochet .ricochet-spark { width: 100%; height: 56px; margin-top: 6px; background: var(--rc-bg); border-radius: 8px; }
+.game-ricochet .ricochet-recent { list-style: none; margin: 0; padding: 0; font-size: 14px; }
+.game-ricochet .ricochet-recent li { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 6px; padding: 6px 0; border-top: 1px solid var(--rc-line); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 480px) {
+  .game-ricochet .ricochet-app { padding: 10px 10px 28px; }
+  .game-ricochet .ricochet-title { font-size: 22px; }
+  .game-ricochet .ricochet-header { flex-wrap: wrap; }
+  .game-ricochet .ricochet-header-right .ricochet-btn { padding: 8px 10px; }
+  .game-ricochet .ricochet-controls { padding: 10px; gap: 10px; }
+  .game-ricochet .ricochet-robot-chips { grid-template-columns: repeat(2, 46px); }
+  .game-ricochet .ricochet-dpad { grid-template-columns: repeat(3, 48px); grid-template-rows: repeat(3, 48px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-ricochet .ricochet-target-ring, .game-ricochet .ricochet-select-ring, .game-ricochet .ricochet-results { animation: none; }
+  .game-ricochet .ricochet-robot { transition: none !important; }
+  .game-ricochet .ricochet-spinner { animation-duration: 2s; }
+}
