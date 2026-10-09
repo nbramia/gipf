@@ -132,7 +132,7 @@ describe('corrupt storage', () => {
   });
 
   test('consistent entries survive, including a slow, sloppy one', () => {
-    const e = entry({ moves: 8, timeMs: 160000, quality: 0.5, pace: 0.3, score: 0.15 });
+    const e = entry({ moves: 8, timeMs: 320000, quality: 0.5, pace: 0.3, score: 0.15 });
     localStorage.setItem(HISTORY_KEY, JSON.stringify([e]));
     expect(loadHistory()).toEqual([e]);
   });
