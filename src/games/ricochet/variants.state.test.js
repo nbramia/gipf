@@ -73,7 +73,7 @@ describe.each(CONFIGS.map(c => [configKey(c), c]))('config %s', (_name, config) 
     expect(board.moves).toHaveLength(round.length);
   });
 
-  test('a board restored from state deals the same round as the original (worker path)', () => {
+  test('a board restored from state deals the same round as the original', () => {
     const board = fresh(5);
     const a = chooseNextRound(board.clone(), 3, { timeLimitMs: 2000 });
     const b = chooseNextRound(roundTrip(board), 3, { timeLimitMs: 2000 });

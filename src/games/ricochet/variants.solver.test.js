@@ -16,19 +16,21 @@ jest.setTimeout(300000);
 
 const ROUNDS_PER_CONFIG = 150;
 const MAX_LENGTH = 6;
-const MAX_LENGTH_6 = 40; // length-6 proofs are the expensive ones; cap them per config
 
 function makeOracle(board) {
   const layout = makeLayout(board.size, board.walls, board.barriers);
   const n = board.robotNames.length;
   const cells = board.size * board.size;
 
+  const occ = new Uint8Array(cells);
   const move = (state, i, d) => {
-    const occ = new Uint8Array(cells);
-    for (let j = 0; j < n; j++) if (j !== i) occ[state[j]] = 1;
+    for (let j = 0; j < n; j++) occ[state[j]] = 1;
+    occ[state[i]] = 0;
     const route = slideCells(layout, state[i], d, i, occ);
+    for (let j = 0; j < n; j++) occ[state[j]] = 0;
     return route ? route[route.length - 1] : state[i];
   };
+  const keyOf = state => { let k = 0; for (let j = 0; j < n; j++) k = k * 256 + state[j]; return k; };
 
   const isGoal = (state, target) => (target.color == null
     ? state.includes(target.cell)
@@ -38,7 +40,7 @@ function makeOracle(board) {
   const optimum = (start, target, limit) => {
     if (isGoal(start, target)) return 0;
     let frontier = [start];
-    const seen = new Set([start.join(',')]);
+    const seen = new Set([keyOf(start)]);
     for (let depth = 1; depth <= limit; depth++) {
       const next = [];
       for (const state of frontier) {
@@ -49,7 +51,7 @@ function makeOracle(board) {
             const child = state.slice();
             child[i] = to;
             if (isGoal(child, target)) return depth;
-            const key = child.join(',');
+            const key = keyOf(child);
             if (seen.has(key)) continue;
             seen.add(key);
             next.push(child);
@@ -78,8 +80,6 @@ function makeOracle(board) {
 describe.each(CONFIGS.map(c => [configKey(c), c]))('solver vs oracle, config %s', (_name, config) => {
   test(`matches the oracle on ${ROUNDS_PER_CONFIG} rounds of optimal length <= ${MAX_LENGTH}`, () => {
     let checked = 0;
-    let six = 0;
-    let beyond = 0;
     const lengths = new Map();
     for (let seed = 1; checked < ROUNDS_PER_CONFIG && seed < 400; seed++) {
       const board = new RicochetBoard({ seed, config, skipInitialHistory: true });
@@ -92,15 +92,12 @@ describe.each(CONFIGS.map(c => [configKey(c), c]))('solver vs oracle, config %s'
           { maxDepth: MAX_LENGTH },
         );
         if (!result) {
-          // nothing within 6 moves: the oracle agrees that nothing is within 4
-          if (beyond++ < 60) expect(oracle.optimum(start, target, 4)).toBe(-1);
+          // nothing within 6 moves: the oracle agrees (every such round is checked)
+          expect({ seed, id: target.id, within6: oracle.optimum(start, target, MAX_LENGTH) })
+            .toEqual({ seed, id: target.id, within6: -1 });
           continue;
         }
         expect(result.timedOut).toBeUndefined();
-        if (result.length === MAX_LENGTH) {
-          if (six >= MAX_LENGTH_6) continue;
-          six++;
-        }
         expect(oracle.replay(start, target, result.moves)).toBe(true);
         expect(result.moves).toHaveLength(result.length);
         expect({ seed, id: target.id, shorter: oracle.optimum(start, target, result.length - 1) })
