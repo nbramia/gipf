@@ -192,12 +192,14 @@ function PathTrace({ trace, shift, size }) {
 }
 
 const BARRIER_LETTER = { red: 'R', green: 'G', blue: 'B', yellow: 'Y' };
-// A second cue besides the letter: each colour's centre stitch has its own dash pattern.
-const BARRIER_DASH = { red: undefined, green: '5 4', blue: '1.5 4', yellow: '9 3 2 3' };
+// A cue besides colour: each colour's bar is cut by dark gaps in its own rhythm (red is solid).
+const BARRIER_DASH = { red: undefined, green: '10 4', blue: '3 3', yellow: '13 3 3 3' };
 const BARRIER_INSET = 6;
+const BARRIER_ROT = { '/': -45, '\\': 45 };
 
-// A diagonal barrier: a coloured bar corner to corner across its cell, outlined for
-// contrast, with the colour's initial and a colour-specific stitch so it reads without colour.
+// A diagonal barrier: a slim bar corner to corner across its cell with square ends, on a
+// dark underlay for contrast. The colour shows in the bar, its dash rhythm and a tiny initial
+// written along it; no disc, so it cannot be mistaken for a robot.
 function Barrier({ barrier, size }) {
   const x = PAD + colOf(barrier.cell, size) * S;
   const y = PAD + rowOf(barrier.cell, size) * S;
@@ -216,15 +218,14 @@ function Barrier({ barrier, size }) {
     >
       <title>{`${COLOR_LABEL[barrier.color]} barrier ${barrier.orient}`}</title>
       <line x1={x1} y1={y1} x2={x2} y2={y2} className="ricochet-barrier-edge" />
-      <line x1={x1} y1={y1} x2={x2} y2={y2} className="ricochet-barrier-bar" stroke={colour} />
       <line
-        x1={x1} y1={y1} x2={x2} y2={y2} className="ricochet-barrier-stitch"
+        x1={x1} y1={y1} x2={x2} y2={y2} className="ricochet-barrier-bar" stroke={colour}
         strokeDasharray={BARRIER_DASH[barrier.color]}
       />
-      <g transform={`translate(${x + S / 2} ${y + S / 2})`}>
-        <circle r="7" className="ricochet-barrier-badge" stroke={colour} />
-        <text y="3.6" textAnchor="middle" className="ricochet-barrier-letter">{BARRIER_LETTER[barrier.color]}</text>
-      </g>
+      <text
+        transform={`translate(${x + S / 2} ${y + S / 2}) rotate(${BARRIER_ROT[barrier.orient]})`}
+        y="3" textAnchor="middle" className="ricochet-barrier-letter"
+      >{BARRIER_LETTER[barrier.color]}</text>
     </g>
   );
 }
@@ -268,7 +269,7 @@ export default function RicochetBoardView({
       pts.map(([x, y], i) => ({ transform: `translate(${x}px, ${y}px)`, offset: dist[i] / total })),
       { duration: slideMs, easing: SLIDE_EASING },
     );
-  }, [slide]);
+  }, [slide, slideMs, animated, size]);
 
   const cellAt = (clientX, clientY) => {
     const rect = svgRef.current.getBoundingClientRect();

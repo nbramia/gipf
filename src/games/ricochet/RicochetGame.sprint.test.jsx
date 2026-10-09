@@ -151,6 +151,28 @@ describe('start screen', () => {
   });
 });
 
+describe('setup', () => {
+  test('changing the setup on the Start screen deals nothing and renames the setup', () => {
+    mount();
+    click('Settings');
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Settings' })).getByRole('button', { name: 'Plan' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Settings' })).getByRole('button', { name: '12×12' }));
+    expect(requests()).toBe(0);
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Settings' })).getByRole('button', { name: 'Close' }));
+    expect(screen.getByTestId('sprint-setup').textContent).toBe('12×12, Plan');
+  });
+
+  test('the session keeps the setup it started with: results go to that setup\'s leaderboard', () => {
+    mount();
+    begin();
+    deliver(puzzle(1));
+    solve(0);
+    click('End early');
+    click('End Sprint');
+    expect(Object.keys(board10())).toEqual([STANDARD_LIVE]);
+  });
+});
+
 describe('the 5:00 clock counts active time only', () => {
   test('ends at exactly 5:00 after the puzzle is shown, not before', () => {
     mount();

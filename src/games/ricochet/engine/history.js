@@ -83,10 +83,24 @@ export function validEntry(e) {
   );
 }
 
+// The cap applies to each setup on its own, so playing variants never pushes standard
+// entries out: only the oldest entries of an over-full setup are dropped.
+function capPerSetup(history) {
+  const seen = new Map();
+  const keep = new Array(history.length);
+  for (let i = history.length - 1; i >= 0; i--) {
+    const k = history[i].variant || null;
+    const n = (seen.get(k) || 0) + 1;
+    seen.set(k, n);
+    keep[i] = n <= HISTORY_CAP;
+  }
+  return history.filter((_, i) => keep[i]);
+}
+
 export function loadHistory() {
   const h = readJSON(HISTORY_KEY);
   if (!Array.isArray(h)) return [];
-  return h.filter(validEntry).slice(-HISTORY_CAP);
+  return capPerSetup(h.filter(validEntry));
 }
 
 // The entries of one setup: `variant` null is the standard setup (entries with no field).
@@ -124,7 +138,7 @@ export function recordRound(input) {
   if (variant) entry.variant = variant;
   const history = loadHistory();
   history.push(entry);
-  writeJSON(HISTORY_KEY, history.slice(-HISTORY_CAP));
+  writeJSON(HISTORY_KEY, capPerSetup(history));
   const next = { rating: ratingAfter, rounds: rounds + 1 };
   if (variant) writeJSON(VARIANT_RATINGS_KEY, { ...loadVariantRatings(), [variant]: next });
   else writeJSON(RATING_KEY, next);

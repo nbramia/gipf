@@ -137,3 +137,35 @@ describe('per-setup rating and history', () => {
     expect(setupsWithHistory([])).toEqual([]);
   });
 });
+
+describe('the history cap is per setup', () => {
+  const seed = (variant, n, at0 = 0) => {
+    const base = recordRound({ ...ROUND, variant });
+    localStorage.removeItem(HISTORY_KEY);
+    return Array.from({ length: n }, (_, i) => ({ ...base, at: at0 + i, ...(variant ? { variant } : {}) }));
+  };
+  const store = (entries) => localStorage.setItem(HISTORY_KEY, JSON.stringify(entries));
+
+  test('playing variants never pushes standard entries out', () => {
+    const standard = seed(null, 500);
+    const live = seed(LIVE, 500, 1000);
+    store([...standard, ...live]);
+    expect(loadHistory()).toHaveLength(1000);
+    recordRound({ ...ROUND, variant: LIVE, at: 5000 });
+    const h = loadHistory();
+    expect(historyFor(h, null)).toHaveLength(500);
+    expect(historyFor(h, null)[0].at).toBe(0); // the oldest standard entry is still there
+    expect(historyFor(h, LIVE)).toHaveLength(500);
+    expect(historyFor(h, LIVE)[0].at).toBe(1001); // only the oldest Live entry went
+    expect(historyFor(h, LIVE).slice(-1)[0].at).toBe(5000);
+  });
+
+  test('a standard setup over the cap drops its own oldest entries only', () => {
+    store([...seed(null, 500), ...seed(LIVE, 3, 1000)]);
+    recordRound({ ...ROUND, at: 9000 });
+    const h = loadHistory();
+    expect(historyFor(h, null)).toHaveLength(500);
+    expect(historyFor(h, null)[0].at).toBe(1);
+    expect(historyFor(h, LIVE)).toHaveLength(3);
+  });
+});
