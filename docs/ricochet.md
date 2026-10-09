@@ -1,6 +1,6 @@
 # Ricochet
 
-Solo Ricochet Robots at `/ricochet`. Four robots on a 16 by 16 walled board (the engine also supports 12 by 12 boards, a fifth robot and diagonal barriers, below); each round shows one target symbol, and the player slides robots until the matching colour stops on it (the vortex accepts any robot). It is device-only: no account, cloud or resumable-match integration.
+Solo Ricochet Robots at `/ricochet`. Four robots on a 16 by 16 walled board by default; Settings can switch to a 12 by 12 board, add a fifth (black) robot and add diagonal barriers (see Board variants); each round shows one target symbol, and the player slides robots until the matching colour stops on it (the vortex accepts any robot). It is device-only: no account, cloud or resumable-match integration.
 
 ## Rules coverage
 
@@ -31,7 +31,8 @@ The board takes an optional config `{ size: 16 | 12, fifthRobot: false | true, d
 | `engine/generator.js` | Seeded board: four rotated quadrants, L-shaped target corners, edge stubs, diagonal barriers |
 | `engine/solver.js` | Optimal solver (iterative deepening DFS, lower-bound tables, transposition table, time limit) |
 | `engine/rounds.js` | `chooseNextRound`: the unclaimed target whose optimum is closest to the desired length |
-| `engine/scoring.js`, `engine/rating.js`, `engine/history.js` | Per-round score, rating, persisted history |
+| `engine/scoring.js`, `engine/rating.js`, `engine/history.js` | Per-round score, rating, persisted history (ratings and history per setup) |
+| `engine/variants.js` | Stored variant, setup keys and labels |
 | `engine/solver.worker.js`, `hooks/` | Dealing runs in a Web Worker; `useSolverWorker` drops replies from abandoned requests |
 | `RicochetGame.jsx`, `RicochetBoardView.jsx`, `ricochet.css` | UI |
 
@@ -50,6 +51,21 @@ A round is dealt by the worker with `chooseNextRound(board, desiredLength(rating
 
 **Path traces.** An optional setting (`ricochetPathTraces`, `off` | `on`, default `off`, changed in Settings). When on, each move of the latest movement sequence is drawn under the robots as a semi-transparent line in the robot's colour from its start cell to its stop cell, with an arrowhead and a step number. A trace is a list of cell path points (start, any bend, end), drawn as one polyline, so deflections can be drawn later. The arrowhead stops 15 px short of the stop cell centre (the robot covers the centre) and the step number sits on the line, clear of the stop cell. A plan step that cannot move (wall or robot in the way) is drawn as a numbered bump: a short stub toward the obstacle ending in a cross, in the robot's colour. A trace that runs along an earlier one (for example a move and its reverse) is shifted sideways by 5 px per earlier overlapping trace so every step stays visible. Traces cover a plan submit (revealed step by step with the replay, kept on the snapped-back board after a failed submit until the plan is edited or submitted again), the Show solution and Give up replays (step by step), and live moves (following Undo, Reset and Redo). In the results panel the "You" and "Optimal" labels toggle their traces (Optimal is dashed); a solve shows "You" first and a reveal shows "Optimal". A new round clears everything. With the setting off no trace elements are rendered.
 
+## Variant settings
+
+Settings has three options besides input mode and path traces: **Board size** (16 by 16 or 12 by 12), **Fifth robot** (None or Black) and **Diagonal barriers** (None or Diagonals). The choice is stored in `ricochetVariant` (JSON `{size, fifthRobot, diagonals}`, validated field by field; anything else is the default). A change deals a new board of that shape at once; the round in progress is dropped without being recorded. Switching Plan and Live does the same (a fresh puzzle under the new setup; a deal in flight is superseded and its reply ignored). Setup changes are disabled while a solve is being shown (plan replay, settling).
+
+- **Black robot.** Its own chip, the `K` key, a `K` label on the board, in the plan list and in the notation chips. It selects and moves like the others by key, chip, tap and swipe, in Plan and Live mode. The chip block stays the height of the direction pad (the black chip takes a third row).
+- **Barriers.** Drawn as a slim bar with square ends across the cell (`/` or `\`) on a dark underlay, with a tiny colour initial written along it (no disc, so it never reads as a robot) and a colour-specific dash rhythm (red is solid), so colour and orientation read without telling colours apart.
+- **Slides.** A slide that turns at a barrier is animated along its path (`move.path` from the engine, one keyframe per corner with the Web Animations API; without it the robot moves straight to the stop). Plan submit, Show solution and Give up replays use the same path. Path traces use the same corner list, so they bend at barriers.
+- **12 by 12.** The same 40 unit cell in a smaller viewBox, so the board fills the same width and its cells are larger.
+- **Plan mode.** The black robot and barriers add no legality hints: no arrows, no disabled pad, and a step is accepted whether or not it can move.
+- **Help.** How to play describes the black robot and barriers only when they are on, and always mentions the separate ratings.
+
+### Ratings per setup
+
+A setup is the board variant plus the input mode. **Standard** is 16 by 16, four robots, no barriers, Plan mode: it uses `ricochetRating` and `ricochetHistory` unchanged (entries have no `variant` field). Every other combination, Live mode included, has its own rating in `ricochetVariantRatings` (`{ [key]: {rating, rounds} }`) and its history entries carry `variant`. The key is `<size>-r<4|5>-d<0|1>-<plan|live>`, for example `16-r4-d0-live` or `12-r5-d1-plan`; `16-r4-d0-plan` is never used. `validEntry` accepts only that format in `variant`; invalid stored ratings are ignored. A round is recorded under the setup it was dealt for. The HUD rating, dealing difficulty and the results use the current setup's rating; the HUD names a non-standard setup under the target (for example `12×12 · Black · Barriers · Live`). The Progress panel is labelled with the setup, and a selector lists the other setups that have history. The 500-entry history cap applies to each setup separately, so variant play never pushes standard entries out.
+
 ## Scoring and rating
 
 - `quality = clamp(optimal / moves, 0, 1)`.
@@ -57,8 +73,8 @@ A round is dealt by the worker with `chooseNextRound(board, desiredLength(rating
 - `score = quality x pace`; a revealed round scores 0.
 - Rating starts at 1200 (floor 100). Round difficulty is `500 + 150 x optimal`; expected score is `1 / (1 + 10^((difficulty - rating) / 400))`; the change is `round(K x (score - expected))` with K 40 for the first 20 rounds (provisional), 24 up to 50, then 16.
 - The next round targets an optimal length of `round((rating - 500) / 150)`, clamped to 2 to 12.
-- History keeps the last 500 rounds in `ricochetHistory`; the rating and round count live in `ricochetRating`. The progress panel summarizes the last 20 rounds.
+- History keeps the last 500 rounds per setup in `ricochetHistory` (entries of non-standard setups carry a `variant` field); the standard setup's rating and round count live in `ricochetRating`, every other setup's in `ricochetVariantRatings`. The progress panel summarizes the last 20 rounds of the viewed setup.
 
 ## Tests
 
-`CI=true npm test` covers the engine suites (including `golden.test.js` for the default config, `variants.generator.test.js`, `variants.slide.test.js`, `variants.solver.test.js` with an independent breadth-first oracle for all eight configs, and `variants.state.test.js`) and `RicochetGame.ui.test.jsx` (worker mocked): keyboard and click solves, one history entry per solve, give-up, undo/reset with the clock, hidden-tab time, and stale worker replies.
+`CI=true npm test` covers the engine suites (including `golden.test.js` for the default config, `variants.generator.test.js`, `variants.slide.test.js`, `variants.solver.test.js` with an independent breadth-first oracle for all eight configs, and `variants.state.test.js`) and `RicochetGame.ui.test.jsx` and `RicochetGame.variants.test.jsx` (worker mocked; settings, per-setup ratings, black robot input, barrier rendering and deflected slides) plus `engine/history.variants.test.js`: keyboard and click solves, one history entry per solve, give-up, undo/reset with the clock, hidden-tab time, and stale worker replies.

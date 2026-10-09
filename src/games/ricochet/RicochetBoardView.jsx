@@ -1,18 +1,18 @@
 // RicochetBoardView.jsx - SVG board for Ricochet: walls, targets, robots, arrows.
 // Presentational only; all rules live in RicochetBoard.
 
-import React, { useEffect, useRef } from 'react';
-import { SIZE, CELLS, ROBOTS, CENTER_CELLS, rowOf, colOf, hasWall } from './engine/geometry.js';
+import React, { useEffect, useLayoutEffect, useRef } from 'react';
+import { SIZE, ROBOTS, centerCellsOf, rowOf, colOf, hasWall } from './engine/geometry.js';
 
-export const ROBOT_LETTER = { red: 'R', green: 'G', blue: 'B', yellow: 'Y' };
+export const ROBOT_LETTER = { red: 'R', green: 'G', blue: 'B', yellow: 'Y', black: 'K' };
 export const DIR_NAME = { N: 'north', E: 'east', S: 'south', W: 'west' };
-export const COLOR_LABEL = { red: 'Red', green: 'Green', blue: 'Blue', yellow: 'Yellow' };
+export const COLOR_LABEL = { red: 'Red', green: 'Green', blue: 'Blue', yellow: 'Yellow', black: 'Black' };
 
 const S = 40;
 const PAD = 8;
-const FULL = SIZE * S + PAD * 2;
-const cx = cell => PAD + colOf(cell) * S + S / 2;
-const cy = cell => PAD + rowOf(cell) * S + S / 2;
+const fullOf = size => size * S + PAD * 2;
+const cx = (cell, size = SIZE) => PAD + colOf(cell, size) * S + S / 2;
+const cy = (cell, size = SIZE) => PAD + rowOf(cell, size) * S + S / 2;
 const SWIPE_PX = 24;
 
 const DIR_VEC = { N: [0, -1], E: [1, 0], S: [0, 1], W: [-1, 0] };
@@ -53,15 +53,15 @@ export function TargetGlyph({ shape, color, r = 12 }) {
   );
 }
 
-function wallSegments(walls) {
+function wallSegments(walls, size) {
   const segs = [];
-  for (let cell = 0; cell < CELLS; cell++) {
-    const x = PAD + colOf(cell) * S;
-    const y = PAD + rowOf(cell) * S;
+  for (let cell = 0; cell < size * size; cell++) {
+    const x = PAD + colOf(cell, size) * S;
+    const y = PAD + rowOf(cell, size) * S;
     if (hasWall(walls, cell, 1)) segs.push(`M${x + S} ${y}V${y + S}`);
     if (hasWall(walls, cell, 2)) segs.push(`M${x} ${y + S}H${x + S}`);
-    if (colOf(cell) === 0 && hasWall(walls, cell, 3)) segs.push(`M${x} ${y}V${y + S}`);
-    if (rowOf(cell) === 0 && hasWall(walls, cell, 0)) segs.push(`M${x} ${y}H${x + S}`);
+    if (colOf(cell, size) === 0 && hasWall(walls, cell, 3)) segs.push(`M${x} ${y}V${y + S}`);
+    if (rowOf(cell, size) === 0 && hasWall(walls, cell, 0)) segs.push(`M${x} ${y}H${x + S}`);
   }
   return segs.join('');
 }
@@ -76,7 +76,7 @@ const BUMP_TO = 20;
 const BUMP_X = 24;
 const BUMP_ARM = 3;
 
-const cellXY = cell => [cx(cell), cy(cell)];
+const cellXY = (cell, size = SIZE) => [cx(cell, size), cy(cell, size)];
 // Do two straight segments (pixel pairs) lie on one line and share more than a point?
 function overlap([a0, a1], [b0, b1]) {
   const dx = a1[0] - a0[0];
@@ -89,14 +89,14 @@ function overlap([a0, a1], [b0, b1]) {
   const [lo, hi] = [along(b0), along(b1)].sort((m, n) => m - n);
   return Math.min(hi, len) - Math.max(lo, 0) > 1;
 }
-const segmentsOf = trace => {
-  const pts = trace.path.map(cellXY);
+const segmentsOf = (trace, size) => {
+  const pts = trace.path.map(c => cellXY(c, size));
   return pts.slice(1).map((p, i) => [pts[i], p]);
 };
 // How many earlier traces each trace runs along; used to shift it sideways so a retraced
 // or doubled segment stays visible.
-function overlapCounts(traces) {
-  const segs = traces.map(t => (t.blocked ? [] : segmentsOf(t)));
+function overlapCounts(traces, size) {
+  const segs = traces.map(t => (t.blocked ? [] : segmentsOf(t, size)));
   return traces.map((_, i) => {
     let k = 0;
     for (let j = 0; j < i; j++) {
@@ -107,8 +107,8 @@ function overlapCounts(traces) {
 }
 
 // A step that could not move: a short stub toward the obstacle and a cross.
-function BumpTrace({ trace }) {
-  const [x, y] = cellXY(trace.path[0]);
+function BumpTrace({ trace, size }) {
+  const [x, y] = cellXY(trace.path[0], size);
   const [ux, uy] = DIR_VEC[trace.dir];
   const nx = -uy;
   const ny = ux;
@@ -145,9 +145,9 @@ function BumpTrace({ trace }) {
 }
 
 // One move's trace. `path` is a list of cells: the start, any bend, the end.
-function PathTrace({ trace, shift }) {
-  if (trace.blocked) return <BumpTrace trace={trace} />;
-  const raw = trace.path.map(cellXY);
+function PathTrace({ trace, shift, size }) {
+  if (trace.blocked) return <BumpTrace trace={trace} size={size} />;
+  const raw = trace.path.map(c => cellXY(c, size));
   const [ex0, ey0] = raw[raw.length - 1];
   const [px0, py0] = raw[raw.length - 2] || raw[0];
   const len0 = Math.hypot(ex0 - px0, ey0 - py0) || 1;
@@ -191,29 +191,98 @@ function PathTrace({ trace, shift }) {
   );
 }
 
+const BARRIER_LETTER = { red: 'R', green: 'G', blue: 'B', yellow: 'Y' };
+// A cue besides colour: each colour's bar is cut by dark gaps in its own rhythm (red is solid).
+const BARRIER_DASH = { red: undefined, green: '10 4', blue: '3 3', yellow: '13 3 3 3' };
+const BARRIER_INSET = 6;
+const BARRIER_ROT = { '/': -45, '\\': 45 };
+
+// A diagonal barrier: a slim bar corner to corner across its cell with square ends, on a
+// dark underlay for contrast. The colour shows in the bar, its dash rhythm and a tiny initial
+// written along it; no disc, so it cannot be mistaken for a robot.
+function Barrier({ barrier, size }) {
+  const x = PAD + colOf(barrier.cell, size) * S;
+  const y = PAD + rowOf(barrier.cell, size) * S;
+  const a = BARRIER_INSET;
+  const [x1, y1, x2, y2] = barrier.orient === '/'
+    ? [x + a, y + S - a, x + S - a, y + a]
+    : [x + a, y + a, x + S - a, y + S - a];
+  const colour = `var(--rc-${barrier.color})`;
+  return (
+    <g
+      className="ricochet-barrier"
+      data-testid="barrier"
+      data-cell={barrier.cell}
+      data-orient={barrier.orient}
+      data-color={barrier.color}
+    >
+      <title>{`${COLOR_LABEL[barrier.color]} barrier ${barrier.orient}`}</title>
+      <line x1={x1} y1={y1} x2={x2} y2={y2} className="ricochet-barrier-edge" />
+      <line
+        x1={x1} y1={y1} x2={x2} y2={y2} className="ricochet-barrier-bar" stroke={colour}
+        strokeDasharray={BARRIER_DASH[barrier.color]}
+      />
+      <text
+        transform={`translate(${x + S / 2} ${y + S / 2}) rotate(${BARRIER_ROT[barrier.orient]})`}
+        y="3" textAnchor="middle" className="ricochet-barrier-letter"
+      >{BARRIER_LETTER[barrier.color]}</text>
+    </g>
+  );
+}
+
+const SLIDE_EASING = 'cubic-bezier(0.22, 0.8, 0.3, 1)';
+const canAnimate = () => typeof Element !== 'undefined' && typeof Element.prototype.animate === 'function';
+
 export default function RicochetBoardView({
   board, robotCells, selected, arrows, onSelect, onMove, slideMs, interactive, showCurrent, bump, traces = null,
+  slide = null,
 }) {
   const swipe = useRef(null);
   const swiped = useRef(false);
   const svgRef = useRef(null);
+  const robotEls = useRef({});
+  const size = board.size || SIZE;
+  const FULL = fullOf(size);
+  const names = board.robotNames || ROBOTS;
+  const barriers = board.barriers || [];
+  const centre = centerCellsOf(size);
+  const centreStart = size / 2 - 1;
+  const animated = canAnimate();
 
-  const shifts = React.useMemo(() => (traces ? overlapCounts(traces) : []), [traces]);
-  const wallPath = React.useMemo(() => wallSegments(board.walls), [board.walls]);
+  const shifts = React.useMemo(() => (traces ? overlapCounts(traces, size) : []), [traces, size]);
+  const wallPath = React.useMemo(() => wallSegments(board.walls, size), [board.walls, size]);
   const current = showCurrent ? board.getTarget() : null;
+
+  // A slide that bends at a barrier follows its path: one keyframe per corner, spaced by
+  // distance, instead of the straight CSS transition between its two ends.
+  useLayoutEffect(() => {
+    if (!slide || !slideMs || !animated) return;
+    const el = robotEls.current[slide.robot];
+    if (!el) return;
+    const pts = slide.path.map(c => [cx(c, size), cy(c, size)]);
+    const dist = [0];
+    for (let i = 1; i < pts.length; i++) {
+      dist.push(dist[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+    }
+    const total = dist[dist.length - 1] || 1;
+    el.animate(
+      pts.map(([x, y], i) => ({ transform: `translate(${x}px, ${y}px)`, offset: dist[i] / total })),
+      { duration: slideMs, easing: SLIDE_EASING },
+    );
+  }, [slide, slideMs, animated, size]);
 
   const cellAt = (clientX, clientY) => {
     const rect = svgRef.current.getBoundingClientRect();
     const k = FULL / rect.width;
     const col = Math.floor(((clientX - rect.left) * k - PAD) / S);
     const row = Math.floor(((clientY - rect.top) * k - PAD) / S);
-    return col >= 0 && col < SIZE && row >= 0 && row < SIZE ? row * SIZE + col : -1;
+    return col >= 0 && col < size && row >= 0 && row < size ? row * size + col : -1;
   };
 
   const onPointerDown = (e) => {
     if (!interactive || e.button !== 0 || !e.isPrimary) return;
     const cell = cellAt(e.clientX, e.clientY);
-    const robot = ROBOTS.find(r => robotCells[r] === cell) || null;
+    const robot = names.find(r => robotCells[r] === cell) || null;
     swipe.current = { x: e.clientX, y: e.clientY, robot, pointerId: e.pointerId };
   };
   // A tap on empty board slides the selected robot along the dominant axis from
@@ -223,13 +292,13 @@ export default function RicochetBoardView({
     if (e.target && e.target.closest && e.target.closest('.ricochet-arrow, .ricochet-robot')) return;
     const cell = cellAt(e.clientX, e.clientY);
     if (cell < 0) return;
-    const occupant = ROBOTS.find(r => robotCells[r] === cell);
+    const occupant = names.find(r => robotCells[r] === cell);
     if (occupant) { onSelect(occupant); return; }
     if (!selected) return;
     const rect = svgRef.current.getBoundingClientRect();
     const k = FULL / rect.width;
-    const dx = (e.clientX - rect.left) * k - cx(robotCells[selected]);
-    const dy = (e.clientY - rect.top) * k - cy(robotCells[selected]);
+    const dx = (e.clientX - rect.left) * k - cx(robotCells[selected], size);
+    const dy = (e.clientY - rect.top) * k - cy(robotCells[selected], size);
     const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'E' : 'W') : (dy > 0 ? 'S' : 'N');
     onMove(selected, dir);
   };
@@ -272,23 +341,26 @@ export default function RicochetBoardView({
       className="ricochet-svg"
       viewBox={`0 0 ${FULL} ${FULL}`}
       role="img"
-      aria-label="Ricochet board, 16 by 16 grid"
+      aria-label={`Ricochet board, ${size} by ${size} grid`}
+      data-size={size}
       onPointerDown={onPointerDown}
       onPointerUp={onPointerUp}
       onPointerCancel={(e) => { if (swipe.current && e.pointerId === swipe.current.pointerId) swipe.current = null; }}
     >
-      <rect x={PAD} y={PAD} width={SIZE * S} height={SIZE * S} fill="var(--rc-board)" />
-      {Array.from({ length: CELLS }, (_, cell) => (
-        (rowOf(cell) + colOf(cell)) % 2 === 0
-          ? <rect key={cell} x={PAD + colOf(cell) * S} y={PAD + rowOf(cell) * S} width={S} height={S} fill="var(--rc-cell-alt)" />
+      <rect x={PAD} y={PAD} width={size * S} height={size * S} fill="var(--rc-board)" />
+      {Array.from({ length: size * size }, (_, cell) => (
+        (rowOf(cell, size) + colOf(cell, size)) % 2 === 0
+          ? <rect key={cell} x={PAD + colOf(cell, size) * S} y={PAD + rowOf(cell, size) * S} width={S} height={S} fill="var(--rc-cell-alt)" />
           : null
       ))}
       <rect
-        x={PAD + 7 * S} y={PAD + 7 * S} width={2 * S} height={2 * S}
-        fill="var(--rc-center)" data-center={CENTER_CELLS.length}
+        x={PAD + centreStart * S} y={PAD + centreStart * S} width={2 * S} height={2 * S}
+        fill="var(--rc-center)" data-center={centre.length}
       />
 
       <path d={wallPath} className="ricochet-walls" />
+
+      {barriers.map(b => <Barrier key={b.cell} barrier={b} size={size} />)}
 
       {board.targets.map((t) => {
         const isCurrent = showCurrent && t.id === board.currentTargetId;
@@ -296,7 +368,7 @@ export default function RicochetBoardView({
         return (
           <g
             key={t.id}
-            transform={`translate(${cx(t.cell)} ${cy(t.cell)})`}
+            transform={`translate(${cx(t.cell, size)} ${cy(t.cell, size)})`}
             className={`ricochet-target${isCurrent ? ' is-current' : ''}${claimed ? ' is-claimed' : ''}`}
             data-testid={isCurrent ? 'current-target' : undefined}
           >
@@ -308,15 +380,15 @@ export default function RicochetBoardView({
 
       {traces && traces.length > 0 && (
         <g className="ricochet-traces" data-testid="path-traces" pointerEvents="none">
-          {traces.map((t, i) => <PathTrace key={`${t.optimal ? 'o' : 'y'}${t.n}`} trace={t} shift={shifts[i] * OVERLAP_STEP} />)}
+          {traces.map((t, i) => <PathTrace key={`${t.optimal ? 'o' : 'y'}${t.n}`} trace={t} shift={shifts[i] * OVERLAP_STEP} size={size} />)}
         </g>
       )}
 
       {current && interactive && selected && arrows.map(({ dir, to }) => {
         const [vx, vy] = DIR_VEC[dir];
         const from = robotCells[selected];
-        const ax = cx(from) + vx * S * 0.92;
-        const ay = cy(from) + vy * S * 0.92;
+        const ax = cx(from, size) + vx * S * 0.92;
+        const ay = cy(from, size) + vy * S * 0.92;
         const rot = { N: 0, E: 90, S: 180, W: 270 }[dir];
         return (
           <g
@@ -333,18 +405,19 @@ export default function RicochetBoardView({
         );
       })}
 
-      {ROBOTS.map((name) => {
+      {names.map((name) => {
         const cell = robotCells[name];
         const isSel = selected === name;
         return (
           <g
             key={name}
+            ref={(el) => { robotEls.current[name] = el; }}
             className={`ricochet-robot${isSel ? ' is-selected' : ''}`}
             data-testid={`robot-${name}`}
             data-cell={cell}
             style={{
-              transform: `translate(${cx(cell)}px, ${cy(cell)}px)`,
-              transitionDuration: `${slideMs}ms`,
+              transform: `translate(${cx(cell, size)}px, ${cy(cell, size)}px)`,
+              transitionDuration: `${animated && slide && slide.robot === name ? 0 : slideMs}ms`,
             }}
             onClick={guard(() => onSelect(name))}
           >
@@ -355,7 +428,7 @@ export default function RicochetBoardView({
             >
               {isSel && <circle r="19.5" className="ricochet-select-ring" />}
               <ellipse cy="12" rx="11" ry="4" className="ricochet-robot-shadow" />
-              <circle r="14" fill={`var(--rc-${name})`} className="ricochet-robot-body" />
+              <circle r="14" fill={`var(--rc-${name})`} className="ricochet-robot-body" data-robot={name} />
               <text y="5.5" textAnchor="middle" className="ricochet-robot-letter">{ROBOT_LETTER[name]}</text>
             </g>
           </g>

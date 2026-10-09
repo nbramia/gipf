@@ -3,6 +3,7 @@
 
 import { scoreRound } from './scoring.js';
 import { DEFAULT_RATING, MIN_RATING, updateRating } from './rating.js';
+import { VARIANT_RATINGS_KEY, isVariantKey } from './variants.js';
 
 export const RATING_KEY = 'ricochetRating';
 export const HISTORY_KEY = 'ricochetHistory';
@@ -28,15 +29,28 @@ function writeJSON(key, value) {
   }
 }
 
-export function loadRating() {
-  const r = readJSON(RATING_KEY);
-  if (
-    r && typeof r === 'object' && isNum(r.rating) && r.rating >= MIN_RATING &&
-    Number.isInteger(r.rounds) && r.rounds >= 0
-  ) {
-    return { rating: r.rating, rounds: r.rounds };
+const validRating = (r) => Boolean(
+  r && typeof r === 'object' && isNum(r.rating) && r.rating >= MIN_RATING &&
+  Number.isInteger(r.rounds) && r.rounds >= 0
+);
+
+// Only well-formed setups survive; anything else in the stored map is ignored.
+function loadVariantRatings() {
+  const m = readJSON(VARIANT_RATINGS_KEY);
+  const out = {};
+  if (!m || typeof m !== 'object' || Array.isArray(m)) return out;
+  for (const k of Object.keys(m)) {
+    if (isVariantKey(k) && validRating(m[k])) out[k] = { rating: m[k].rating, rounds: m[k].rounds };
   }
-  return { rating: DEFAULT_RATING, rounds: 0 };
+  return out;
+}
+
+// The standard setup (`variant` null) lives in ricochetRating; every other setup has its
+// own entry in ricochetVariantRatings.
+export function loadRating(variant = null) {
+  if (variant) return loadVariantRatings()[variant] || { rating: DEFAULT_RATING, rounds: 0 };
+  const r = readJSON(RATING_KEY);
+  return validRating(r) ? { rating: r.rating, rounds: r.rounds } : { rating: DEFAULT_RATING, rounds: 0 };
 }
 
 const TOLERANCE = 1e-9;
@@ -64,29 +78,55 @@ export function validEntry(e) {
     isInt(e.ratingBefore) && e.ratingBefore >= MIN_RATING &&
     isInt(e.ratingAfter) && e.ratingAfter >= MIN_RATING &&
     (e.revealed || e.moves >= e.optimal) &&
+    (e.variant === undefined || isVariantKey(e.variant)) &&
     consistent(e)
   );
+}
+
+// The cap applies to each setup on its own, so playing variants never pushes standard
+// entries out: only the oldest entries of an over-full setup are dropped.
+function capPerSetup(history) {
+  const seen = new Map();
+  const keep = new Array(history.length);
+  for (let i = history.length - 1; i >= 0; i--) {
+    const k = history[i].variant || null;
+    const n = (seen.get(k) || 0) + 1;
+    seen.set(k, n);
+    keep[i] = n <= HISTORY_CAP;
+  }
+  return history.filter((_, i) => keep[i]);
 }
 
 export function loadHistory() {
   const h = readJSON(HISTORY_KEY);
   if (!Array.isArray(h)) return [];
-  return h.filter(validEntry).slice(-HISTORY_CAP);
+  return capPerSetup(h.filter(validEntry));
 }
 
-// Scores the round, updates and persists rating + history, returns the entry.
+// The entries of one setup: `variant` null is the standard setup (entries with no field).
+export const historyFor = (history, variant = null) => history.filter((e) => (e.variant || null) === variant);
+
+// The setups that have history, the standard one first.
+export function setupsWithHistory(history) {
+  const keys = [...new Set(history.map((e) => e.variant || null))];
+  return keys.sort((a, b) => (a === null ? -1 : b === null ? 1 : a < b ? -1 : 1));
+}
+
+// Scores the round, updates and persists the rating + history of the round's setup
+// (`variant`: null for the standard one, else its key), returns the entry.
 // Returns null (touching nothing) for impossible input.
 export function recordRound(input) {
   if (!input || typeof input !== 'object') return null;
-  const { optimal, moves, timeMs, revealed = false, gaveUp = false, at = Date.now() } = input;
+  const { optimal, moves, timeMs, revealed = false, gaveUp = false, at = Date.now(), variant = null } = input;
   const abandoned = Boolean(revealed || gaveUp);
   if (
     !isInt(optimal) || optimal < 1 || !isNum(timeMs) || timeMs < 0 || !isNum(at) ||
-    !isInt(moves) || moves < 0 || (!abandoned && moves < optimal)
+    !isInt(moves) || moves < 0 || (!abandoned && moves < optimal) ||
+    (variant !== null && !isVariantKey(variant))
   ) {
     return null;
   }
-  const { rating, rounds } = loadRating();
+  const { rating, rounds } = loadRating(variant);
   const { quality, pace, score } = scoreRound({ optimal, moves, timeMs, revealed, gaveUp });
   const { rating: ratingAfter } = updateRating(rating, optimal, score, rounds);
   const entry = {
@@ -95,10 +135,13 @@ export function recordRound(input) {
     quality, pace, score,
     ratingBefore: rating, ratingAfter,
   };
+  if (variant) entry.variant = variant;
   const history = loadHistory();
   history.push(entry);
-  writeJSON(HISTORY_KEY, history.slice(-HISTORY_CAP));
-  writeJSON(RATING_KEY, { rating: ratingAfter, rounds: rounds + 1 });
+  writeJSON(HISTORY_KEY, capPerSetup(history));
+  const next = { rating: ratingAfter, rounds: rounds + 1 };
+  if (variant) writeJSON(VARIANT_RATINGS_KEY, { ...loadVariantRatings(), [variant]: next });
+  else writeJSON(RATING_KEY, next);
   return entry;
 }
 
