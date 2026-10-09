@@ -229,10 +229,150 @@ test('the progress panel shows rating, the provisional marker and recent rounds'
   await results();
   fireEvent.click(screen.getByRole('button', { name: 'Progress' }));
   const dialog = screen.getByRole('dialog', { name: 'Progress' });
-  expect(screen.getByTestId('progress-rating').textContent).toMatch(/\?$/);
+  expect(screen.getByTestId('progress-rating').textContent).not.toMatch(/\?/);
+  expect(dialog.textContent).toMatch(/provisional/);
   expect(dialog.textContent).toMatch(/2 \/ 2 moves/);
 });
 
 test('Ricochet device keys are cleared and retained with the rest of the account progress', () => {
   expect(PROGRESS_KEYS).toEqual(expect.arrayContaining(['ricochetDarkMode', 'ricochetRating', 'ricochetHistory']));
+});
+
+test('the HUD and results show a provisional tag instead of a question mark', async () => {
+  mount();
+  deliver(ROUND);
+  expect(screen.getByTestId('hud-rating').textContent).toBe('1200');
+  expect(screen.getByText('provisional').getAttribute('title')).toMatch(/20 rounds/);
+  press('ArrowRight');
+  press('ArrowDown');
+  const panel = await results();
+  expect(panel.textContent).toMatch(/provisional/);
+});
+
+describe('comparing your line with the optimal one', () => {
+  const steps = (label) => [...screen.getByRole('list', { name: label }).querySelectorAll('li')];
+  test('lists both lines and marks where they diverge', async () => {
+    mount();
+    deliver(ROUND);
+    press('y'); press('ArrowLeft'); press('r'); press('ArrowRight'); press('ArrowDown');
+    await results();
+    expect(screen.getByRole('list', { name: 'You moves' }).textContent).toBe('Y←R→R↓');
+    expect(screen.getByRole('list', { name: 'Optimal moves' }).textContent).toBe('R→R↓');
+    expect(steps('You moves').map(li => li.classList.contains('is-diverged'))).toEqual([true, false, false]);
+    expect(steps('Optimal moves').map(li => li.classList.contains('is-diverged'))).toEqual([true, false]);
+  });
+  test('an optimal solve marks nothing', async () => {
+    mount();
+    deliver(ROUND);
+    press('ArrowRight'); press('ArrowDown');
+    await results();
+    expect(screen.getByRole('list', { name: 'You moves' }).textContent).toBe('R→R↓');
+    expect(document.querySelectorAll('.is-diverged')).toHaveLength(0);
+  });
+  test('give up shows only the optimal line', async () => {
+    mount();
+    deliver(ROUND);
+    fireEvent.click(screen.getByRole('button', { name: 'Give up' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal solution' }));
+    await results();
+    expect(screen.queryByRole('list', { name: 'You moves' })).toBeNull();
+    expect(screen.getByRole('list', { name: 'Optimal moves' }).textContent).toBe('R→R↓');
+  });
+});
+
+describe('pointer input on the board', () => {
+  const centre = (row, col) => [8 + col * 40 + 20, 8 + row * 40 + 20];
+  let svg;
+  beforeAll(() => {
+    if (!window.PointerEvent) window.PointerEvent = class extends MouseEvent {};
+  });
+  beforeEach(() => {
+    mount();
+    deliver(ROUND);
+    svg = screen.getByRole('img', { name: /Ricochet board/ });
+    svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 656, height: 656, right: 656, bottom: 656 });
+  });
+  const tapAt = ([x, y]) => { fireEvent.pointerDown(svg, { clientX: x, clientY: y }); fireEvent.pointerUp(svg, { clientX: x, clientY: y }); };
+  const redCell = () => Number(screen.getByTestId('robot-red').getAttribute('data-cell'));
+
+  test('tapping empty board moves the selected robot along the dominant axis', () => {
+    tapAt(centre(1, 12));
+    expect(redCell()).toBe(cellOf(0, 15));
+    expect(screen.getByTestId('move-count').textContent).toBe('1');
+  });
+  test('tapping vertically moves along the vertical axis', () => {
+    tapAt(centre(9, 2));
+    expect(redCell()).toBe(cellOf(14, 0)); // stops against green in the corner
+  });
+  test('tapping a robot cell selects it and moves nothing', () => {
+    tapAt(centre(0, 0));
+    expect(screen.getByTestId('move-count').textContent).toBe('0');
+    tapAt(centre(1, 1)); // yellow's cell
+    expect(screen.getByRole('button', { name: 'Select yellow robot' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByTestId('move-count').textContent).toBe('0');
+  });
+  test('a swipe from a robot slides it in the swipe direction', () => {
+    const [x, y] = centre(0, 0);
+    fireEvent.pointerDown(svg, { clientX: x, clientY: y });
+    fireEvent.pointerUp(svg, { clientX: x + 80, clientY: y + 5 });
+    expect(redCell()).toBe(cellOf(0, 15));
+  });
+  test('a swipe elsewhere moves the selected robot', () => {
+    const [x, y] = centre(8, 3);
+    fireEvent.pointerDown(svg, { clientX: x, clientY: y });
+    fireEvent.pointerUp(svg, { clientX: x + 5, clientY: y + 80 });
+    expect(redCell()).toBe(cellOf(14, 0));
+  });
+  test('tapping an on-board arrow moves exactly once', () => {
+    const arrow = screen.getByTestId('arrow-E');
+    fireEvent.pointerDown(arrow, { clientX: 100, clientY: 28 });
+    fireEvent.pointerUp(arrow, { clientX: 100, clientY: 28 });
+    fireEvent.click(arrow);
+    expect(screen.getByTestId('move-count').textContent).toBe('1');
+  });
+});
+
+describe('solution replay (fake timers)', () => {
+  beforeEach(() => { jest.useFakeTimers(); });
+  afterEach(() => { jest.useRealTimers(); });
+  const advance = (ms) => act(() => { jest.advanceTimersByTime(ms); });
+  const at = (name) => Number(screen.getByTestId(`robot-${name}`).getAttribute('data-cell'));
+
+  test('Show solution replays from the start, then restores the solved position', () => {
+    mount();
+    deliver(ROUND);
+    press('y'); press('ArrowLeft'); press('r'); press('ArrowRight'); press('ArrowDown');
+    advance(2000);
+    expect(at('yellow')).toBe(cellOf(1, 0));
+    fireEvent.click(screen.getByRole('button', { name: 'Show solution' }));
+    expect(at('yellow')).toBe(cellOf(1, 1)); // back at the round's start
+    expect(at('red')).toBe(cellOf(0, 0));
+    advance(500);
+    expect(at('red')).toBe(cellOf(0, 15)); // first optimal move
+    advance(5000);
+    expect(at('red')).toBe(cellOf(15, 15));
+    expect(at('yellow')).toBe(cellOf(1, 0)); // the player's own end position again
+    expect(screen.getByRole('button', { name: 'Next puzzle' }).disabled).toBe(false);
+    expect(history()).toHaveLength(1);
+  });
+
+  test('a revealed round ends on the optimal positions and the next round starts from them', () => {
+    mount();
+    deliver(ROUND);
+    press('y'); press('ArrowLeft');
+    fireEvent.click(screen.getByRole('button', { name: 'Give up' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal solution' }));
+    expect(screen.getByRole('button', { name: 'Next puzzle' }).disabled).toBe(true);
+    advance(5000);
+    expect(screen.getByRole('button', { name: 'Next puzzle' }).disabled).toBe(false);
+    expect(at('red')).toBe(cellOf(15, 15));
+    expect(at('yellow')).toBe(cellOf(1, 1)); // the player's yellow move is not kept
+    expect(at('green')).toBe(cellOf(15, 0));
+    fireEvent.click(screen.getByRole('button', { name: 'Next puzzle' }));
+    deliver({ targetId: 1, length: 3, solution: [] });
+    expect(screen.getByTestId('hud-target').textContent).toMatch(/Red square/);
+    expect(at('red')).toBe(cellOf(15, 15));
+    expect(at('yellow')).toBe(cellOf(1, 1));
+    expect(history()).toHaveLength(1);
+  });
 });

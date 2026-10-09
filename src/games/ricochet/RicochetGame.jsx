@@ -75,6 +75,42 @@ function Panel({ title, onClose, children }) {
   );
 }
 
+const ARROW = { N: '↑', E: '→', S: '↓', W: '←' };
+
+// Compact notation: a coloured robot chip and an arrow per move. The first step
+// that differs from `other` is marked.
+function MoveLine({ label, moves, other }) {
+  let diverge = -1;
+  if (other) {
+    const n = Math.min(moves.length, other.length);
+    diverge = moves.length === other.length ? -1 : n;
+    for (let i = 0; i < n; i++) {
+      if (moves[i].robot !== other[i].robot || moves[i].dir !== other[i].dir) { diverge = i; break; }
+    }
+  }
+  return (
+    <div className="ricochet-moveline">
+      <span className="ricochet-moveline-label">{label}</span>
+      <ol aria-label={`${label} moves`}>
+        {moves.map((m, i) => (
+          <li
+            key={i}
+            className={`ricochet-step${i === diverge ? ' is-diverged' : ''}`}
+            title={`${COLOR_LABEL[m.robot]} ${DIR_NAME[m.dir]}`}
+          >
+            <span className={`ricochet-step-chip ricochet-step-${m.robot}`}>{ROBOT_LETTER[m.robot]}</span>
+            <span className="ricochet-step-arrow">{ARROW[m.dir]}</span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+const ProvisionalTag = () => (
+  <span className="ricochet-prov" title="Provisional rating: it settles after 20 rounds">provisional</span>
+);
+
 function HowToPlay() {
   return (
     <div className="ricochet-prose">
@@ -99,9 +135,14 @@ function Sparkline({ series }) {
   const span = Math.max(1, hi - lo);
   const path = pts.map((v, i) => `${i === 0 ? 'M' : 'L'}${(i / (pts.length - 1)) * 220 + 4} ${46 - ((v - lo) / span) * 40 + 2}`).join('');
   return (
-    <svg className="ricochet-spark" viewBox="0 0 228 52" role="img" aria-label={`Rating trend, ${lo} to ${hi}`}>
-      <path d={path} fill="none" stroke="var(--rc-accent)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-    </svg>
+    <div>
+      <svg className="ricochet-spark" viewBox="0 0 228 52" role="img" aria-label={`Rating trend, ${lo} to ${hi}`}>
+        <path d={path} fill="none" stroke="var(--rc-accent)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+      </svg>
+      <p className="ricochet-muted ricochet-spark-labels" data-testid="spark-labels">
+        <span>Start {pts[0]}</span><span>Low {lo}</span><span>High {hi}</span><span>Now {pts[pts.length - 1]}</span>
+      </p>
+    </div>
   );
 }
 
@@ -111,14 +152,14 @@ function ProgressPanel({ rating, history }) {
   return (
     <div>
       <div className="ricochet-stat-grid">
-        <div><span className="ricochet-stat-n" data-testid="progress-rating">{rating.rating}{isProvisional(rating.rounds) ? '?' : ''}</span><span className="ricochet-stat-l">{isProvisional(rating.rounds) ? `Provisional (${rating.rounds}/${PROVISIONAL_ROUNDS} rounds)` : 'Rating'}</span></div>
+        <div><span className="ricochet-stat-n" data-testid="progress-rating">{rating.rating}</span><span className="ricochet-stat-l">{isProvisional(rating.rounds) ? `Rating, provisional (${rating.rounds}/${PROVISIONAL_ROUNDS} rounds)` : 'Rating'}</span></div>
         <div><span className="ricochet-stat-n">{s.roundsPlayed ? pct(s.avgQuality) : '-'}</span><span className="ricochet-stat-l">Avg quality</span></div>
         <div><span className="ricochet-stat-n">{s.roundsPlayed ? s.avgSecondsPerOptimalMove.toFixed(1) : '-'}</span><span className="ricochet-stat-l">Sec per optimal move</span></div>
         <div><span className="ricochet-stat-n">{s.roundsPlayed ? pct(s.optimalShare) : '-'}</span><span className="ricochet-stat-l">Optimal</span></div>
         <div><span className="ricochet-stat-n">{s.revealedCount}</span><span className="ricochet-stat-l">Revealed</span></div>
       </div>
       <p className="ricochet-muted">Averages cover the last {s.roundsPlayed} round{s.roundsPlayed === 1 ? '' : 's'} (up to 20).</p>
-      <Sparkline series={s.ratingSeries} />
+      <Sparkline series={history.length ? [history[0].ratingBefore, ...s.ratingSeries] : []} />
       <h3>Recent rounds</h3>
       {recent.length === 0 ? <p className="ricochet-muted">No rounds yet.</p> : (
         <ul className="ricochet-recent">
@@ -253,11 +294,12 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   const finishSolve = useCallback((lastSlideMs) => {
     const timeMs = stopClock();
     const entry = recordRound({ optimal: round.length, moves: board.moves.length, timeMs });
+    const playerMoves = board.moves.map(({ robot, dir }) => ({ robot, dir }));
     setRating(loadRating());
     setPhase('settling');
     setStatus(`Solved in ${board.moves.length} moves.`);
     later(() => {
-      setResults({ entry, revealed: false, moves: board.moves.length, timeMs });
+      setResults({ entry, revealed: false, moves: board.moves.length, timeMs, playerMoves });
       setPhase('results');
     }, lastSlideMs + 200);
   }, [board, round, later, stopClock]);
@@ -395,8 +437,14 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
             <h1 className="ricochet-title">Ricochet</h1>
           </div>
           <div className="ricochet-header-right">
-            <button type="button" className="ricochet-btn" onClick={() => setPanel('progress')}>Progress</button>
-            <button type="button" className="ricochet-btn" onClick={() => setPanel('help')}>How to play</button>
+            <button type="button" className="ricochet-btn ricochet-btn-collapse" aria-label="Progress" onClick={() => setPanel('progress')}>
+              <span className="ricochet-btn-text">Progress</span>
+              <svg className="ricochet-btn-glyph" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 17V10M8 17V4M13 17V8M18 17V12" stroke="currentColor" strokeWidth="3" strokeLinecap="round" fill="none" /></svg>
+            </button>
+            <button type="button" className="ricochet-btn ricochet-btn-collapse" aria-label="How to play" onClick={() => setPanel('help')}>
+              <span className="ricochet-btn-text">How to play</span>
+              <span className="ricochet-btn-glyph" aria-hidden="true">?</span>
+            </button>
             <button
               type="button"
               className="ricochet-btn ricochet-btn-icon"
@@ -422,7 +470,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
             </div>
             <div className="ricochet-hud-num"><span className="ricochet-hud-label">Moves</span><strong data-testid="move-count">{moveCount}</strong></div>
             <div className="ricochet-hud-num"><span className="ricochet-hud-label">Time</span><strong data-testid="clock">{fmtTime(elapsed)}</strong></div>
-            <div className="ricochet-hud-num"><span className="ricochet-hud-label">Rating</span><strong data-testid="hud-rating">{rating.rating}{provisional ? '?' : ''}</strong></div>
+            <div className="ricochet-hud-num"><span className="ricochet-hud-label">Rating</span><strong data-testid="hud-rating">{rating.rating}</strong>{provisional && <ProvisionalTag />}</div>
           </section>
 
           <div className={`ricochet-board-wrap${phase === 'dealing' ? ' is-dealing' : ''}`}>
@@ -499,8 +547,13 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
                   <span className={entry.ratingAfter >= entry.ratingBefore ? 'ricochet-up' : 'ricochet-down'}>
                     ({entry.ratingAfter - entry.ratingBefore >= 0 ? '+' : ''}{entry.ratingAfter - entry.ratingBefore})
                   </span>
+                  {isProvisional(rating.rounds) && <> <ProvisionalTag /></>}
                 </p>
               )}
+              <div className="ricochet-compare">
+                {!results.revealed && <MoveLine label="You" moves={results.playerMoves} other={round.solution} />}
+                <MoveLine label="Optimal" moves={round.solution} other={results.revealed ? null : results.playerMoves} />
+              </div>
               <div className="ricochet-actions">
                 <button type="button" className="ricochet-btn" disabled={phase === 'replay'} onClick={showSolution}>Show solution</button>
                 <button type="button" className="ricochet-btn ricochet-btn-primary" disabled={phase === 'replay'} onClick={nextPuzzle} autoFocus>Next puzzle</button>

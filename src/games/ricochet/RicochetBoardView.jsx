@@ -90,13 +90,30 @@ export default function RicochetBoardView({
     const robot = ROBOTS.find(r => robotCells[r] === cell) || null;
     swipe.current = { x: e.clientX, y: e.clientY, robot };
   };
+  // A tap on empty board slides the selected robot along the dominant axis from
+  // its centre to the tap point; a tap on a robot (or its arrows) is handled by
+  // their own click handlers, and the robot's own cell is a dead zone.
+  const tap = (e) => {
+    if (e.target && e.target.closest && e.target.closest('.ricochet-arrow, .ricochet-robot')) return;
+    const cell = cellAt(e.clientX, e.clientY);
+    if (cell < 0) return;
+    const occupant = ROBOTS.find(r => robotCells[r] === cell);
+    if (occupant) { onSelect(occupant); return; }
+    if (!selected) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const k = FULL / rect.width;
+    const dx = (e.clientX - rect.left) * k - cx(robotCells[selected]);
+    const dy = (e.clientY - rect.top) * k - cy(robotCells[selected]);
+    const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'E' : 'W') : (dy > 0 ? 'S' : 'N');
+    onMove(selected, dir);
+  };
   const onPointerUp = (e) => {
     const s = swipe.current;
     swipe.current = null;
     if (!s || !interactive) return;
     const dx = e.clientX - s.x;
     const dy = e.clientY - s.y;
-    if (Math.max(Math.abs(dx), Math.abs(dy)) < SWIPE_PX) return;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < SWIPE_PX) { tap(e); return; }
     const dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'E' : 'W') : (dy > 0 ? 'S' : 'N');
     const robot = s.robot || selected;
     if (!robot) return;
@@ -154,8 +171,8 @@ export default function RicochetBoardView({
       {current && interactive && selected && arrows.map(({ dir, to }) => {
         const [vx, vy] = DIR_VEC[dir];
         const from = robotCells[selected];
-        const ax = cx(from) + vx * S * 0.82;
-        const ay = cy(from) + vy * S * 0.82;
+        const ax = cx(from) + vx * S * 0.92;
+        const ay = cy(from) + vy * S * 0.92;
         const rot = { N: 0, E: 90, S: 180, W: 270 }[dir];
         return (
           <g
@@ -166,8 +183,8 @@ export default function RicochetBoardView({
             data-to={to}
             onClick={guard(() => onMove(selected, dir))}
           >
-            <circle r={S * 0.5} className="ricochet-arrow-hit" />
-            <polygon points="0,-9 8,5 0,1.5 -8,5" transform={`rotate(${rot})`} className="ricochet-arrow-shape" />
+            <circle r={S * 0.55} className="ricochet-arrow-hit" />
+            <polygon points="0,-14 13,8 0,2.5 -13,8" transform={`rotate(${rot})`} className="ricochet-arrow-shape" />
           </g>
         );
       })}

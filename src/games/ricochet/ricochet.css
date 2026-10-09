@@ -223,14 +223,49 @@
 .game-ricochet .ricochet-recent li { display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 6px; padding: 6px 0; border-top: 1px solid var(--rc-line); font-variant-numeric: tabular-nums; }
 
 @media (max-width: 480px) {
-  .game-ricochet .ricochet-app { padding: 10px 10px 28px; }
-  .game-ricochet .ricochet-title { font-size: 22px; }
-  .game-ricochet .ricochet-header { flex-wrap: wrap; }
-  .game-ricochet .ricochet-header-right .ricochet-btn { padding: 8px 10px; }
-  .game-ricochet .ricochet-controls { padding: 10px; gap: 10px; }
-  .game-ricochet .ricochet-robot-chips { grid-template-columns: repeat(2, 46px); }
-  .game-ricochet .ricochet-dpad { grid-template-columns: repeat(3, 48px); grid-template-rows: repeat(3, 48px); }
+  .game-ricochet .ricochet-app { padding: 8px 8px 20px; }
+  .game-ricochet .ricochet-header { margin-bottom: 8px; gap: 6px; flex-wrap: nowrap; }
+  .game-ricochet .ricochet-header-left, .game-ricochet .ricochet-header-right { gap: 6px; }
+  .game-ricochet .ricochet-title { font-size: 20px; }
+  .game-ricochet .ricochet-btn-collapse { width: 40px; padding: 0; }
+  .game-ricochet .ricochet-btn-collapse .ricochet-btn-text { display: none; }
+  .game-ricochet .ricochet-btn-collapse .ricochet-btn-glyph { display: inline-block; vertical-align: middle; font-size: 18px; font-weight: 700; }
+  .game-ricochet .ricochet-main { gap: 8px; }
+  .game-ricochet .ricochet-hud { grid-template-columns: 1fr auto auto auto; gap: 8px 12px; padding: 6px 10px; align-items: center; }
+  .game-ricochet .ricochet-hud-target { grid-column: auto; gap: 6px; }
+  .game-ricochet .ricochet-hud-target > .ricochet-hud-label { display: none; }
+  .game-ricochet .ricochet-hud-target-row { font-size: 14px; gap: 6px; }
+  .game-ricochet .ricochet-hud-target-row svg { width: 26px; height: 26px; }
+  .game-ricochet .ricochet-hud-num strong { font-size: 18px; }
+  .game-ricochet .ricochet-controls { padding: 8px; gap: 8px 10px; }
+  .game-ricochet .ricochet-robot-chips { grid-template-columns: repeat(2, 44px); gap: 6px; }
+  .game-ricochet .ricochet-chip { width: 44px; height: 44px; }
+  .game-ricochet .ricochet-dpad { grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 44px); gap: 3px; }
+  .game-ricochet .ricochet-actions .ricochet-btn { min-height: 42px; }
 }
+
+.game-ricochet .ricochet-btn-glyph { display: none; }
+.game-ricochet .ricochet-prov {
+  display: inline-block; margin-left: 6px; padding: 1px 6px; border: 1px solid var(--rc-line); border-radius: 999px;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--rc-muted); cursor: help; vertical-align: middle;
+}
+.game-ricochet .ricochet-hud-num .ricochet-prov { display: block; margin: 2px 0 0; width: max-content; }
+.game-ricochet .ricochet-compare { display: grid; gap: 6px; margin: 0 0 12px; }
+.game-ricochet .ricochet-moveline { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; }
+.game-ricochet .ricochet-moveline-label { flex: 0 0 56px; padding-top: 4px; font-weight: 700; color: var(--rc-muted); }
+.game-ricochet .ricochet-moveline ol { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; }
+.game-ricochet .ricochet-step { display: inline-flex; align-items: center; gap: 2px; padding: 2px 4px 2px 2px; border-radius: 999px; border: 1px solid var(--rc-line); background: var(--rc-bg); }
+.game-ricochet .ricochet-step.is-diverged { border-color: var(--rc-accent); box-shadow: 0 0 0 1px var(--rc-accent); }
+.game-ricochet .ricochet-step-chip {
+  width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  font: 800 11px 'Syne', sans-serif; color: #fff; text-shadow: 0 0 2px #000, 0 0 2px #000;
+}
+.game-ricochet .ricochet-step-red { background: var(--rc-red); }
+.game-ricochet .ricochet-step-green { background: var(--rc-green); }
+.game-ricochet .ricochet-step-blue { background: var(--rc-blue); }
+.game-ricochet .ricochet-step-yellow { background: var(--rc-yellow); }
+.game-ricochet .ricochet-step-arrow { font-weight: 700; font-size: 14px; }
+.game-ricochet .ricochet-spark-labels { display: flex; justify-content: space-between; gap: 8px; font-variant-numeric: tabular-nums; }
 
 @media (prefers-reduced-motion: reduce) {
   .game-ricochet .ricochet-target-ring, .game-ricochet .ricochet-select-ring, .game-ricochet .ricochet-results { animation: none; }

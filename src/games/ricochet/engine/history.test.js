@@ -164,7 +164,7 @@ describe('summarize', () => {
     expect(s.ratingSeries).toEqual([1210, 1190, 1200, 1180]);
     expect(s.roundsPlayed).toBe(4);
     expect(s.avgQuality).toBeCloseTo((1 + 0.5 + 1) / 3, 10); // revealed round excluded
-    expect(s.avgSecondsPerOptimalMove).toBeCloseTo(2.75, 10);
+    expect(s.avgSecondsPerOptimalMove).toBeCloseTo(3, 10); // revealed round excluded: (2 + 2 + 5) / 3
     expect(s.optimalShare).toBeCloseTo(0.5, 10); // revealed round does not count
     expect(s.revealedCount).toBe(1);
   });
@@ -183,6 +183,11 @@ describe('summarize', () => {
     expect(s.avgQuality).toBeCloseTo(0.5, 10);
     expect(s.roundsPlayed).toBe(2);
     expect(s.revealedCount).toBe(1);
+  });
+
+  test('avgSecondsPerOptimalMove ignores revealed rounds', () => {
+    const s = summarize([entry({ timeMs: 8000, optimal: 4 }), entry({ revealed: true, timeMs: 80000, optimal: 4 })]);
+    expect(s.avgSecondsPerOptimalMove).toBeCloseTo(2, 10);
   });
 
   test('empty history yields zeros', () => {

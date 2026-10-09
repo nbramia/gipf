@@ -110,7 +110,7 @@ export function summarize(history, { window = DEFAULT_WINDOW } = {}) {
     ratingSeries: history.map((e) => e.ratingAfter),
     roundsPlayed: recent.length,
     avgQuality: mean(recent.filter((e) => !e.revealed).map((e) => e.quality)),
-    avgSecondsPerOptimalMove: mean(recent.map((e) => e.timeMs / 1000 / e.optimal)),
+    avgSecondsPerOptimalMove: mean(recent.filter((e) => !e.revealed).map((e) => e.timeMs / 1000 / e.optimal)),
     optimalShare: recent.length
       ? recent.filter((e) => e.moves === e.optimal && !e.revealed).length / recent.length
       : 0,
