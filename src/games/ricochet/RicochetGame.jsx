@@ -12,6 +12,7 @@ import './ricochet.css';
 
 const DARK_KEY = 'ricochetDarkMode';
 const MODE_KEY = 'ricochetInputMode';
+const TRACES_KEY = 'ricochetPathTraces';
 const PLAN_STEP_MS = 300;
 const PLAN_HOLD_MS = 800;
 const MAX_PLAN = 60;
@@ -40,6 +41,23 @@ const keepFocus = e => e.preventDefault();
 const readMode = () => {
   try { return localStorage.getItem(MODE_KEY) === 'live' ? 'live' : 'plan'; } catch { return 'plan'; }
 };
+const readTraces = () => {
+  try { return localStorage.getItem(TRACES_KEY) === 'on'; } catch { return false; }
+};
+// One trace per move that actually moved a robot: `path` is the list of cells the robot
+// passed through as turning points (start, any bend, end), `n` the 1-based step number.
+const traceOf = (rec, n) => ({ robot: rec.robot, n, path: [rec.from, rec.to] });
+// Traces for a line of steps played from the round's start on a scratch board.
+function tracesFor(board, steps) {
+  const scratch = new RicochetBoard({ walls: board.walls, targets: board.targets, robots: board.roundStart });
+  scratch.startRound(board.currentTargetId);
+  const out = [];
+  steps.forEach((step, i) => {
+    const rec = scratch.applyMove(step);
+    if (rec) out.push(traceOf(rec, i + 1));
+  });
+  return out;
+}
 const pct = x => `${Math.round(x * 100)}%`;
 const fmtTime = ms => {
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -100,7 +118,7 @@ const ARROW = { N: '↑', E: '→', S: '↓', W: '←' };
 
 // Compact notation: a coloured robot chip and an arrow per move. The first step
 // that differs from `other` is marked.
-function MoveLine({ label, moves, other }) {
+function MoveLine({ label, moves, other, traceShown, onTraceToggle }) {
   let diverge = -1;
   if (other) {
     const n = Math.min(moves.length, other.length);
@@ -111,7 +129,15 @@ function MoveLine({ label, moves, other }) {
   }
   return (
     <div className="ricochet-moveline">
-      <span className="ricochet-moveline-label">{label}</span>
+      {onTraceToggle ? (
+        <button
+          type="button"
+          className="ricochet-moveline-label ricochet-trace-toggle"
+          aria-pressed={traceShown}
+          aria-label={`Show ${label} path trace`}
+          onClick={onTraceToggle}
+        >{label}</button>
+      ) : <span className="ricochet-moveline-label">{label}</span>}
       <ol aria-label={`${label} moves`}>
         {moves.map((m, i) => (
           <li
@@ -226,6 +252,12 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   const [errorText, setErrorText] = useState('');
   const [elapsed, setElapsed] = useState(0);
   const [mode, setMode] = useState(readMode);
+  const [pathTraces, setPathTraces] = useState(readTraces);
+  // Traces of a submitted plan (every non-blocked step, numbered by plan position); the
+  // board only draws the ones the replay has reached. Kept after a failed submit.
+  const [planTraces, setPlanTraces] = useState([]);
+  // Results panel toggles; null means the default (your line after a solve, the optimal line after a reveal).
+  const [traceToggle, setTraceToggle] = useState({ you: null, optimal: null });
   const [plan, setPlan] = useState([]);
   const [bump, setBump] = useState(null);
   const [notice, setNotice] = useState('');
@@ -301,6 +333,8 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     setPhase((phaseRef.current = 'dealing'));
     setResults(null);
     setOverlayCells(null);
+    setPlanTraces([]);
+    setTraceToggle({ you: null, optimal: null });
     setErrorText('');
     const myDeal = ++dealId.current;
     later(() => {
@@ -389,6 +423,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     if (phaseRef.current !== 'play') return;
     setSelected(robot);
     setNotice('');
+    setPlanTraces([]);
     if (planRef.current.length < MAX_PLAN) {
       planRef.current = [...planRef.current, { robot, dir }];
       setPlan(planRef.current);
@@ -404,6 +439,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   const removeStep = useCallback(() => {
     if (phaseRef.current !== 'play') return;
     setNotice('');
+    setPlanTraces([]);
     planRef.current = planRef.current.slice(0, -1);
     setPlan(planRef.current);
   }, []);
@@ -412,6 +448,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     planRef.current = [];
     setPlan(planRef.current);
     setNotice('');
+    setPlanTraces([]);
     setStatus('Plan cleared.');
   }, []);
 
@@ -423,13 +460,16 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     const scratch = new RicochetBoard({ walls: board.walls, targets: board.targets, robots: board.roundStart });
     scratch.startRound(board.currentTargetId);
     const frames = [];
+    const traces = [];
     let solvedAt = 0;
     for (let i = 0; i < steps.length; i++) {
       const rec = scratch.applyMove(steps[i]);
       frames.push({ robots: { ...scratch.robots }, blocked: !rec, step: steps[i], rec });
+      if (rec) traces.push(traceOf(rec, i + 1));
       if (scratch.isSolved()) { solvedAt = i + 1; break; }
     }
     setNotice('');
+    setPlanTraces(traces);
     const token = ++replayToken.current;
     const quick = reducedMotion();
     setPhase((phaseRef.current = 'submit'));
@@ -489,10 +529,16 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     if (next === modeRef.current || phaseRef.current === 'submit') return;
     if (phaseRef.current === 'play' && board.moves.length > 0) board.resetRound();
     setPlan([]);
+    setPlanTraces([]);
     setMode(next);
     try { localStorage.setItem(MODE_KEY, next); } catch { /* unavailable */ }
     repaint();
   }, [board]);
+
+  const changePathTraces = useCallback((on) => {
+    setPathTraces(on);
+    try { localStorage.setItem(TRACES_KEY, on ? 'on' : 'off'); } catch { /* unavailable */ }
+  }, []);
 
   // ---- solution replay (reveal and "Show solution") ------------------------
   const playSolution = useCallback((after) => {
@@ -534,6 +580,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     if (phaseRef.current !== 'play') return;
     const timeMs = stopClock();
     const entered = modeRef.current === 'plan' ? planRef.current.length : board.moves.length;
+    setPlanTraces([]);
     const entry = recordRound({ optimal: round.length, moves: entered, timeMs, revealed: true });
     setRating(loadRating());
     setResults({ entry, revealed: true, moves: entered, timeMs });
@@ -600,6 +647,36 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   const provisional = isProvisional(rating.rounds);
   const entry = results && results.entry;
 
+  // Path traces: only what the board itself has reached. A replay shows steps up to
+  // `replayStep`, which advances together with the robots.
+  const optimalTraces = useMemo(
+    () => (pathTraces && round && finished ? tracesFor(board, round.solution) : []),
+    [pathTraces, round, finished, board],
+  );
+  const youTraces = useMemo(
+    () => (pathTraces && results && results.playerMoves && finished ? tracesFor(board, results.playerMoves) : []),
+    [pathTraces, results, finished, board],
+  );
+  const showYou = traceToggle.you ?? !(results && results.revealed);
+  const showOptimal = traceToggle.optimal ?? !!(results && results.revealed);
+  let boardTraces = null;
+  if (pathTraces) {
+    if (phase === 'submit') boardTraces = planTraces.filter(t => t.n <= replayStep);
+    else if (phase === 'replay') boardTraces = optimalTraces.filter(t => t.n <= replayStep);
+    else if (phase === 'results') {
+      boardTraces = [
+        ...(showOptimal ? optimalTraces.map(t => ({ ...t, optimal: true })) : []),
+        ...(showYou ? youTraces : []),
+      ];
+    } else if (phase === 'play' || phase === 'settling') {
+      boardTraces = planning ? planTraces : board.moves.map((rec, i) => traceOf(rec, i + 1));
+    } else boardTraces = [];
+  }
+  const toggleTrace = which => setTraceToggle(t => ({
+    ...t,
+    [which]: !(t[which] ?? (which === 'you' ? !(results && results.revealed) : !!(results && results.revealed))),
+  }));
+
   return (
     <div className={`game-ricochet ${darkMode ? 'dark' : ''}`}>
       <div className="ricochet-app">
@@ -658,6 +735,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
               onSelect={(r) => { if (live) setSelected(r); }}
               onMove={input}
               bump={bump}
+              traces={boardTraces}
               slideMs={slideMs}
               interactive={live}
               showCurrent={phase !== 'dealing' && phase !== 'error'}
@@ -760,8 +838,20 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
                 </p>
               )}
               <div className="ricochet-compare">
-                {!results.revealed && <MoveLine label="You" moves={results.playerMoves} other={round.solution} />}
-                <MoveLine label="Optimal" moves={round.solution} other={results.revealed ? null : results.playerMoves} />
+                {!results.revealed && <MoveLine
+                  label="You"
+                  moves={results.playerMoves}
+                  other={round.solution}
+                  traceShown={showYou}
+                  onTraceToggle={pathTraces && phase === 'results' ? () => toggleTrace('you') : null}
+                />}
+                <MoveLine
+                  label="Optimal"
+                  moves={round.solution}
+                  other={results.revealed ? null : results.playerMoves}
+                  traceShown={showOptimal}
+                  onTraceToggle={pathTraces && phase === 'results' ? () => toggleTrace('optimal') : null}
+                />
               </div>
               <div className="ricochet-actions">
                 <button type="button" className="ricochet-btn" disabled={phase === 'replay'} onClick={showSolution}>Show solution</button>
@@ -782,6 +872,13 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
               <button type="button" aria-pressed={mode === 'live'} onClick={() => changeMode('live')}>Live</button>
             </div>
             <p>Plan: enter a whole line, then submit it; the board only moves on submit. Live: every move slides immediately. Changing mode clears the plan and resets the current round.</p>
+          </div>
+          <div className="ricochet-setting">
+            <div className="ricochet-seg" role="group" aria-label="Path traces">
+              <button type="button" aria-pressed={!pathTraces} onClick={() => changePathTraces(false)}>Off</button>
+              <button type="button" aria-pressed={pathTraces} onClick={() => changePathTraces(true)}>On</button>
+            </div>
+            <p>Path traces: draw each move of the latest sequence as a coloured line with its step number. Off by default.</p>
           </div>
         </Panel>
       )}

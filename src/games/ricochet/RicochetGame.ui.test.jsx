@@ -1032,3 +1032,220 @@ describe('no spoilers and input hygiene in plan mode', () => {
     expect(text).toMatch(/Live: robots move as you enter moves/);
   });
 });
+
+describe('path traces', () => {
+  const traces = () => [...document.querySelectorAll('[data-testid="path-trace"]')];
+  const summary = () => traces().map(t => [t.getAttribute('data-robot'), Number(t.getAttribute('data-step')), Number(t.getAttribute('data-from')), Number(t.getAttribute('data-to'))]);
+  const at = (name) => Number(screen.getByTestId(`robot-${name}`).getAttribute('data-cell'));
+  const submit = () => fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+  const advance = (ms) => act(() => { jest.advanceTimersByTime(ms); });
+  const RED_E = ['red', 1, cellOf(0, 0), cellOf(0, 15)];
+  const BLUE_N = ['blue', 2, cellOf(14, 1), cellOf(2, 1)];
+  const RED_W = ['red', 3, cellOf(0, 15), cellOf(0, 0)];
+  const failedPlan = () => { press('ArrowRight'); press('b'); press('ArrowUp'); press('r'); press('ArrowLeft'); };
+
+  beforeEach(() => { jest.useFakeTimers(); });
+  afterEach(() => { jest.useRealTimers(); });
+
+  test('the setting is off by default and stored under ricochetPathTraces', () => {
+    mount();
+    deliver(ROUND);
+    expect(localStorage.getItem('ricochetPathTraces')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(screen.getByRole('button', { name: 'Off' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'On' }));
+    expect(localStorage.getItem('ricochetPathTraces')).toBe('on');
+    expect(PROGRESS_KEYS).toContain('ricochetPathTraces');
+  });
+
+  test('with the setting off no trace elements exist in any phase or mode', () => {
+    localStorage.removeItem('ricochetInputMode');
+    mount();
+    deliver(ROUND);
+    const none = () => {
+      expect(document.querySelector('.ricochet-traces, .ricochet-trace, [data-testid="path-trace"]')).toBeNull();
+      expect(screen.queryByRole('button', { name: /path trace/ })).toBeNull();
+    };
+    failedPlan(); none();
+    submit(); advance(300); none(); advance(600); none(); advance(1500); none();
+    press('ArrowRight'); press('ArrowDown'); submit(); advance(300); none(); advance(5000); none();
+    expect(screen.getByRole('region', { name: 'Round results' })).toBeTruthy();
+    none();
+    fireEvent.click(screen.getByRole('button', { name: 'Show solution' }));
+    advance(500); none(); advance(5000); none();
+  });
+
+  test('live mode with the setting off draws nothing either', () => {
+    mount();
+    deliver(ROUND);
+    press('ArrowRight');
+    expect(document.querySelector('.ricochet-traces')).toBeNull();
+  });
+
+  describe('on', () => {
+    beforeEach(() => { localStorage.setItem('ricochetPathTraces', 'on'); });
+
+    test('a failed plan leaves one trace per moving step until the plan is next edited', () => {
+      localStorage.removeItem('ricochetInputMode');
+      mount();
+      deliver(ROUND);
+      failedPlan();
+      expect(traces()).toHaveLength(0); // nothing while entering
+      submit();
+      advance(3 * 300 + 800 + 50);
+      expect(at('red')).toBe(cellOf(0, 0)); // snapped back
+      expect(summary()).toEqual([RED_E, BLUE_N, RED_W]);
+      advance(5000);
+      expect(summary()).toEqual([RED_E, BLUE_N, RED_W]);
+      press('ArrowDown'); // next edit
+      expect(traces()).toHaveLength(0);
+    });
+
+    test('Backspace, Escape and a new submit also clear a failed plan\'s traces', () => {
+      localStorage.removeItem('ricochetInputMode');
+      mount();
+      deliver(ROUND);
+      press('ArrowRight'); submit(); advance(2000);
+      expect(traces()).toHaveLength(1);
+      press('Backspace');
+      expect(traces()).toHaveLength(0);
+      press('ArrowRight'); submit(); advance(2000);
+      expect(traces()).toHaveLength(1);
+      press('Escape');
+      expect(traces()).toHaveLength(0);
+      press('ArrowRight'); submit(); advance(2000);
+      expect(traces()).toHaveLength(1);
+      submit();
+      expect(traces()).toHaveLength(0); // the new replay has not reached its first step
+    });
+
+    test('a blocked step draws no line but later steps keep their plan numbers', () => {
+      localStorage.removeItem('ricochetInputMode');
+      mount();
+      deliver(ROUND);
+      press('ArrowUp'); // red is already at the top wall
+      press('ArrowRight');
+      submit(); advance(2000);
+      expect(summary()).toEqual([['red', 2, cellOf(0, 0), cellOf(0, 15)]]);
+    });
+
+    test('no trace appears before the replay reaches its step', () => {
+      localStorage.removeItem('ricochetInputMode');
+      mount();
+      deliver(ROUND);
+      failedPlan();
+      submit();
+      expect(traces()).toHaveLength(0);
+      advance(299);
+      expect(traces()).toHaveLength(0);
+      advance(1);
+      expect(summary()).toEqual([RED_E]);
+      advance(299);
+      expect(summary()).toEqual([RED_E]);
+      advance(1);
+      expect(summary()).toEqual([RED_E, BLUE_N]);
+      advance(299);
+      expect(summary()).toEqual([RED_E, BLUE_N]);
+      advance(1);
+      expect(summary()).toEqual([RED_E, BLUE_N, RED_W]);
+    });
+
+    test('a solving plan reveals its traces step by step, then the results show them', () => {
+      localStorage.removeItem('ricochetInputMode');
+      mount();
+      deliver(ROUND);
+      press('ArrowRight'); press('ArrowDown'); press('ArrowLeft'); // the third step is ignored
+      submit();
+      advance(299);
+      expect(traces()).toHaveLength(0);
+      advance(1);
+      expect(summary()).toEqual([RED_E]);
+      advance(300);
+      expect(summary()).toEqual([RED_E, ['red', 2, cellOf(0, 15), cellOf(15, 15)]]);
+      advance(2000);
+      expect(screen.getByRole('region', { name: 'Round results' })).toBeTruthy();
+      expect(summary()).toHaveLength(2); // your line stays shown
+    });
+
+    test('Show solution and Give up draw the optimal line only as the replay reaches it', () => {
+      mount();
+      deliver(ROUND);
+      press('ArrowRight');
+      fireEvent.click(screen.getByRole('button', { name: 'Give up' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Reveal solution' }));
+      expect(traces()).toHaveLength(0);
+      advance(449);
+      expect(traces()).toHaveLength(0);
+      advance(1);
+      expect(summary()).toEqual([RED_E]);
+      advance(799);
+      expect(summary()).toEqual([RED_E]);
+      advance(1);
+      expect(summary()).toHaveLength(2);
+      advance(3000);
+      // a revealed round keeps the optimal line shown, dashed
+      expect(summary()).toHaveLength(2);
+      expect(traces()[0].getAttribute('data-source')).toBe('optimal');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Next puzzle' }));
+      deliver({ targetId: 1, length: 3, solution: [] });
+      expect(traces()).toHaveLength(0);
+    });
+
+    test('the You and Optimal lines toggle their traces in the results', () => {
+      mount();
+      deliver(ROUND);
+      press('y'); press('ArrowLeft'); press('r'); press('ArrowRight'); press('ArrowDown');
+      advance(2000);
+      const you = screen.getByRole('button', { name: 'Show You path trace' });
+      const opt = screen.getByRole('button', { name: 'Show Optimal path trace' });
+      expect(you.getAttribute('aria-pressed')).toBe('true');
+      expect(opt.getAttribute('aria-pressed')).toBe('false');
+      expect(traces().map(t => t.getAttribute('data-source'))).toEqual(['you', 'you', 'you']);
+      fireEvent.click(opt);
+      expect(opt.getAttribute('aria-pressed')).toBe('true');
+      expect(traces().filter(t => t.getAttribute('data-source') === 'optimal')).toHaveLength(2);
+      fireEvent.click(you);
+      expect(traces().map(t => t.getAttribute('data-source'))).toEqual(['optimal', 'optimal']);
+      fireEvent.click(opt);
+      expect(traces()).toHaveLength(0);
+    });
+
+    test('live mode traces follow moves and clear on Undo, Reset and a new round', () => {
+      mount();
+      deliver(ROUND);
+      expect(traces()).toHaveLength(0);
+      press('y'); press('ArrowLeft');
+      expect(summary()).toEqual([['yellow', 1, cellOf(1, 1), cellOf(1, 0)]]);
+      press('r'); press('ArrowRight');
+      expect(summary()).toEqual([['yellow', 1, cellOf(1, 1), cellOf(1, 0)], ['red', 2, cellOf(0, 0), cellOf(0, 15)]]);
+      press('u');
+      expect(summary()).toHaveLength(1);
+      press('u');
+      expect(traces()).toHaveLength(0);
+      press('y'); press('ArrowLeft');
+      expect(traces()).toHaveLength(1);
+      press('Escape'); // Reset
+      expect(traces()).toHaveLength(0);
+      press('u'); // undo the reset
+      expect(summary()).toHaveLength(1);
+      press('Escape');
+      press('r'); press('ArrowRight'); press('ArrowDown'); // solve
+      advance(2000);
+      expect(summary()).toHaveLength(2);
+      fireEvent.click(screen.getByRole('button', { name: 'Next puzzle' }));
+      deliver({ targetId: 1, length: 3, solution: [] });
+      expect(traces()).toHaveLength(0);
+    });
+
+    test('traces are drawn under the robots and do not take pointer input', () => {
+      mount();
+      deliver(ROUND);
+      press('ArrowRight');
+      const group = document.querySelector('.ricochet-traces');
+      const robot = screen.getByTestId('robot-red');
+      expect(group.compareDocumentPosition(robot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(group.getAttribute('pointer-events')).toBe('none');
+    });
+  });
+});

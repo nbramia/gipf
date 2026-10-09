@@ -66,8 +66,54 @@ function wallSegments(walls) {
   return segs.join('');
 }
 
+const ARROW_TIP_BACK = 15; // the arrowhead stops short of the end centre, which the robot covers
+const ARROW_LEN = 9;
+const ARROW_HALF = 5;
+const BADGE_BACK = 21;
+const BADGE_SIDE = 12;
+
+// One move's trace. `path` is a list of cells: the start, any bend, the end.
+function PathTrace({ trace }) {
+  const pts = trace.path.map(cell => [cx(cell), cy(cell)]);
+  const [ex, ey] = pts[pts.length - 1];
+  const [px, py] = pts[pts.length - 2] || pts[0];
+  const len = Math.hypot(ex - px, ey - py) || 1;
+  const ux = (ex - px) / len;
+  const uy = (ey - py) / len;
+  const nx = -uy;
+  const ny = ux;
+  const tipX = ex - ux * ARROW_TIP_BACK;
+  const tipY = ey - uy * ARROW_TIP_BACK;
+  const baseX = tipX - ux * ARROW_LEN;
+  const baseY = tipY - uy * ARROW_LEN;
+  const head = `${tipX},${tipY} ${baseX + nx * ARROW_HALF},${baseY + ny * ARROW_HALF} ${baseX - nx * ARROW_HALF},${baseY - ny * ARROW_HALF}`;
+  const line = [...pts.slice(0, -1), [baseX, baseY]].map(p => p.join(',')).join(' ');
+  const bx = ex - ux * BADGE_BACK + nx * BADGE_SIDE;
+  const by = ey - uy * BADGE_BACK + ny * BADGE_SIDE;
+  const colour = `var(--rc-${trace.robot})`;
+  return (
+    <g
+      className={`ricochet-trace${trace.optimal ? ' is-optimal' : ''}`}
+      data-testid="path-trace"
+      data-robot={trace.robot}
+      data-step={trace.n}
+      data-from={trace.path[0]}
+      data-to={trace.path[trace.path.length - 1]}
+      data-source={trace.optimal ? 'optimal' : 'you'}
+    >
+      <polyline points={line} className="ricochet-trace-halo" />
+      <polyline points={line} className="ricochet-trace-line" stroke={colour} />
+      <polygon points={head} className="ricochet-trace-head" fill={colour} />
+      <g transform={`translate(${bx} ${by})`}>
+        <circle r="7" className="ricochet-trace-badge" stroke={colour} />
+        <text y="3.4" textAnchor="middle" className="ricochet-trace-num">{trace.n}</text>
+      </g>
+    </g>
+  );
+}
+
 export default function RicochetBoardView({
-  board, robotCells, selected, arrows, onSelect, onMove, slideMs, interactive, showCurrent, bump,
+  board, robotCells, selected, arrows, onSelect, onMove, slideMs, interactive, showCurrent, bump, traces = null,
 }) {
   const swipe = useRef(null);
   const swiped = useRef(false);
@@ -179,6 +225,12 @@ export default function RicochetBoardView({
           </g>
         );
       })}
+
+      {traces && traces.length > 0 && (
+        <g className="ricochet-traces" data-testid="path-traces" pointerEvents="none">
+          {traces.map(t => <PathTrace key={`${t.optimal ? 'o' : 'y'}${t.n}`} trace={t} />)}
+        </g>
+      )}
 
       {current && interactive && selected && arrows.map(({ dir, to }) => {
         const [vx, vy] = DIR_VEC[dir];

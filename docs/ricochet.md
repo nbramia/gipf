@@ -36,6 +36,8 @@ A round is dealt by the worker with `chooseNextRound(board, desiredLength(rating
 
 **Both modes.** Solving shows the results panel in place of the controls; "Show solution" replays the optimal line from the round's start and restores the solved position, and "Next puzzle" is available during a replay and cancels it. "Give up" asks for confirmation, replays the optimal line, scores 0 and records the round as revealed (with the number of steps entered). Dark mode is stored in `ricochetDarkMode`.
 
+**Path traces.** An optional setting (`ricochetPathTraces`, `off` | `on`, default `off`, changed in Settings). When on, each move of the latest movement sequence is drawn under the robots as a semi-transparent line in the robot's colour from its start cell to its stop cell, with an arrowhead and a step number. A trace is a list of cell path points (start, any bend, end) so deflections can be drawn later. Traces cover a plan submit (revealed step by step with the replay, kept on the snapped-back board after a failed submit until the plan is edited or submitted again), the Show solution and Give up replays (step by step), and live moves (following Undo, Reset and Redo). In the results panel the "You" and "Optimal" labels toggle their traces (Optimal is dashed); a solve shows "You" first and a reveal shows "Optimal". A new round clears everything. With the setting off no trace elements are rendered.
+
 ## Scoring and rating
 
 - `quality = clamp(optimal / moves, 0, 1)`.
