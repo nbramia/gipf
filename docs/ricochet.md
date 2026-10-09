@@ -1,6 +1,6 @@
 # Ricochet
 
-Solo Ricochet Robots at `/ricochet`. Four robots on a 16 by 16 walled board; each round shows one target symbol, and the player slides robots until the matching colour stops on it (the vortex accepts any robot). It is device-only: no account, cloud or resumable-match integration.
+Solo Ricochet Robots at `/ricochet`. Four robots on a 16 by 16 walled board (the engine also supports 12 by 12 boards, a fifth robot and diagonal barriers, below); each round shows one target symbol, and the player slides robots until the matching colour stops on it (the vortex accepts any robot). It is device-only: no account, cloud or resumable-match integration.
 
 ## Rules coverage
 
@@ -10,14 +10,26 @@ Solo Ricochet Robots at `/ricochet`. Four robots on a 16 by 16 walled board; eac
 - The next round starts from wherever the robots ended. A claimed target is not dealt again; when none is usable a fresh board is generated.
 - **Bounce rule.** The published game requires at least one ricochet before a target counts. Here a round whose optimal solution is one move is never dealt (`engine/rounds.js`), so any stop on the target solves it.
 
+## Board variants (engine)
+
+The board takes an optional config `{ size: 16 | 12, fifthRobot: false | true, diagonals: false | true }` (`engine/config.js`; default `{16, false, false}`; `CONFIGS` lists all eight). `new RicochetBoard({ seed, config })` builds it; the config and barrier list are part of `serializeState()`, and a state without them restores as the default board. `startNewGame` keeps the variant. The default config produces exactly the classic board, locked by `golden.test.js` against `fixtures/golden-default.json` (seeds 1 to 200: walls, targets, robot placement, optimal length of every target).
+
+- **12x12.** Four 6x6 quadrants around a walled 2x2 centre (rows and columns 5 and 6). Each quadrant has 2 coloured L-corners (each colour twice, with two different shapes) and one quadrant also holds the vortex: 9 targets. One wall stub per quadrant, so one on each side of the board. Targets keep the 16x16 spacing rules scaled to the quadrant: off the outer ring, not touching the centre block, no two touching. All geometry takes a `size`.
+- **Fifth robot (black).** A full robot: it moves, each of its moves counts, it blocks and is blocked. It starts on a random free cell (not a target, barrier or centre cell), drawn after the four colours so their placement is unchanged. It claims the vortex but never a coloured target. `board.robotNames` lists the robots in order (black last).
+- **Diagonal barriers.** One cell each, orientation `/` or `\`, one of the four colours: 2 per quadrant on 16x16, 1 on 12x12, never on a target, the outer ring or the centre, never orthogonally adjacent to each other, colours spread evenly. They come from their own random stream, so the walls and targets of a seed are the same with or without them. A robot of the barrier's colour passes through; any other robot, black always, turns 90 degrees and keeps sliding (`/`: N to E, E to N, S to W, W to S; `\`: N to W, W to N, S to E, E to S). A deflection is not an extra move. A robot may not stop on a barrier cell: if the slide ends on one (wall or robot right behind it, including right after a deflection) it stops on the cell before it, and if that is its starting cell the move is illegal. A slide that re-enters the same (cell, direction) loops and is illegal.
+- **For the UI.** `board.size`, `board.robotNames`, `board.barriers` (`{cell, orient, color}`), `board.getSlidePath(robot, dir)` (start, each turn cell, stop; `null` if illegal), and on a board with barriers each move record carries the same `path`. `geometry.js` exports `centerCellsOf(size)`, `cellOf`/`rowOf`/`colOf` with a `size` argument, and the slide primitive `slideCells` for the full cell-by-cell route.
+- **Solver.** Without barriers it is the original search (per-cell stop table, one lower-bound table). With barriers, routes are precomputed per robot colour and clipped by other robots, and the lower bound is one table per colour (black deflects at every barrier; a move may end on any non-barrier cell of its route), so it stays admissible. Four robots keep a one-word transposition key; five use two words with double hashing. Without barriers interchangeable robots are sorted into the key, with barriers cells are kept by colour. `solve` takes `size` and `barriers` beside `walls`, `robots` and `target`; a `black` entry in `robots` means five robots.
+- **Bench.** `node scripts/ricochet-solver-bench.mjs --all 1` reports every config; `--size 12 --five 1 --diag 1` picks one.
+
 ## Modules (`src/games/ricochet/`)
 
 | File | Purpose |
 |------|---------|
 | `RicochetBoard.js` | Pure rules/state: seeded board, robots, `applyMove`, `startRound`, `resetRound`, undo/redo, serialize/clone |
-| `engine/geometry.js` | Grid indexing, wall bitmasks, slide |
-| `engine/generator.js` | Seeded board: four rotated quadrants, L-shaped target corners, edge stubs |
-| `engine/solver.js` | Optimal solver (iterative deepening DFS, lower-bound table, transposition table, time limit) |
+| `engine/config.js` | Variant config: defaults, the eight combinations, normalization |
+| `engine/geometry.js` | Grid indexing by size, wall bitmasks, slide, barrier-aware slide routes |
+| `engine/generator.js` | Seeded board: four rotated quadrants, L-shaped target corners, edge stubs, diagonal barriers |
+| `engine/solver.js` | Optimal solver (iterative deepening DFS, lower-bound tables, transposition table, time limit) |
 | `engine/rounds.js` | `chooseNextRound`: the unclaimed target whose optimum is closest to the desired length |
 | `engine/scoring.js`, `engine/rating.js`, `engine/history.js` | Per-round score, rating, persisted history |
 | `engine/solver.worker.js`, `hooks/` | Dealing runs in a Web Worker; `useSolverWorker` drops replies from abandoned requests |
@@ -49,4 +61,4 @@ A round is dealt by the worker with `chooseNextRound(board, desiredLength(rating
 
 ## Tests
 
-`CI=true npm test` covers the engine suites and `RicochetGame.ui.test.jsx` (worker mocked): keyboard and click solves, one history entry per solve, give-up, undo/reset with the clock, hidden-tab time, and stale worker replies.
+`CI=true npm test` covers the engine suites (including `golden.test.js` for the default config, `variants.generator.test.js`, `variants.slide.test.js`, `variants.solver.test.js` with an independent breadth-first oracle for all eight configs, and `variants.state.test.js`) and `RicochetGame.ui.test.jsx` (worker mocked): keyboard and click solves, one history entry per solve, give-up, undo/reset with the clock, hidden-tab time, and stale worker replies.
