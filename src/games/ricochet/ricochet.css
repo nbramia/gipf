@@ -301,3 +301,16 @@
   .game-ricochet .ricochet-robot { transition: none !important; }
   .game-ricochet .ricochet-spinner { animation-duration: 2s; }
 }
+
+/* Path traces: under the robots, semi-transparent, readable on both boards. */
+.game-ricochet .ricochet-traces { opacity: 0.78; }
+.game-ricochet .ricochet-trace-halo { fill: none; stroke: var(--rc-board); stroke-opacity: 0.7; stroke-width: 7; stroke-linecap: round; stroke-linejoin: round; }
+.game-ricochet .ricochet-trace-line { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+.game-ricochet .ricochet-trace.is-optimal .ricochet-trace-line { stroke-dasharray: 6 5; }
+.game-ricochet .ricochet-trace-head { stroke: var(--rc-board); stroke-width: 1; stroke-linejoin: round; }
+.game-ricochet .ricochet-trace-badge { fill: var(--rc-board); stroke-width: 1.8; }
+.game-ricochet .ricochet-trace-num { fill: var(--rc-ink); font: 700 9px/1 system-ui, sans-serif; }
+.game-ricochet .ricochet-trace-toggle { background: none; border: 0; border-bottom: 2px solid transparent; font: inherit; font-weight: 700; color: var(--rc-muted); cursor: pointer; text-align: left; align-self: flex-start; min-height: 32px; }
+.game-ricochet .ricochet-trace-toggle[aria-pressed="true"] { color: var(--rc-ink); border-bottom-color: var(--rc-accent); }
+.game-ricochet .ricochet-trace-toggle:focus-visible { outline: 3px solid var(--rc-accent); outline-offset: 2px; }
+.game-ricochet .ricochet-trace-cross { stroke-width: 2.4; }
