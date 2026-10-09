@@ -1,8 +1,8 @@
 // history.js — localStorage persistence and summaries for Ricochet solo play.
 // Every storage access is guarded; bad stored data is ignored, never thrown.
 
-import { scoreRound } from './scoring';
-import { DEFAULT_RATING, MIN_RATING, updateRating } from './rating';
+import { scoreRound } from './scoring.js';
+import { DEFAULT_RATING, MIN_RATING, updateRating } from './rating.js';
 
 export const RATING_KEY = 'ricochetRating';
 export const HISTORY_KEY = 'ricochetHistory';
@@ -102,7 +102,8 @@ export function recordRound(input) {
   return entry;
 }
 
-const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+// null when there is nothing to average (for example every recent round was revealed).
+const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 
 export function summarize(history, { window = DEFAULT_WINDOW } = {}) {
   const recent = history.slice(-window);
@@ -110,7 +111,7 @@ export function summarize(history, { window = DEFAULT_WINDOW } = {}) {
     ratingSeries: history.map((e) => e.ratingAfter),
     roundsPlayed: recent.length,
     avgQuality: mean(recent.filter((e) => !e.revealed).map((e) => e.quality)),
-    avgSecondsPerOptimalMove: mean(recent.map((e) => e.timeMs / 1000 / e.optimal)),
+    avgSecondsPerOptimalMove: mean(recent.filter((e) => !e.revealed).map((e) => e.timeMs / 1000 / e.optimal)),
     optimalShare: recent.length
       ? recent.filter((e) => e.moves === e.optimal && !e.revealed).length / recent.length
       : 0,

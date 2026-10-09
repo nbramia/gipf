@@ -16,6 +16,7 @@ The codebase has eight development areas:
 | **Catan Game Logic** | `src/games/catan/CatanBoard.js`, `engine/mcts.js` | `CI=true npm test` |
 | **Splendor Game Logic** | `src/games/splendor/SplendorBoard.js`, `engine/mcts.js` | `CI=true npm test` |
 | **Diplomacy Game Logic** | `src/games/diplomacy/DiplomacyBoard.js`, `engine/aiPlayer.js`, `agents/` | `CI=true npm test` |
+| **Ricochet Game Logic** | `src/games/ricochet/RicochetBoard.js`, `engine/` (generator, solver, scoring, rating) | `CI=true npm test` |
 | **UI (any game)** | `src/games/<name>/<Name>Game.jsx` | `npm start` (manual) |
 | **Yinsh AI Engine** | `src/games/yinsh/engine/mcts.js`, `aiPlayer.js` | `npm run test:engine` |
 | **Routing / Landing** | `src/App.jsx`, `src/LandingPage.jsx` | `npm run build` |

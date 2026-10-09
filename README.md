@@ -40,6 +40,10 @@ Classic seven-power Diplomacy on the standard 1901 Europe map. Command armies an
 
 Each AI power can hold a real conversation (bring your own Anthropic API key) and negotiates privately with the others behind your back. What a power says is bound to what it does: a trust ledger tracks which promises were kept or broken, a separate model decides whether to honor or break each deal, and honored deals are forced onto the board as real support orders. The tactical side is a best-response search over cloned board states in a Web Worker. See [How the AI works](#how-the-ai-works) below.
 
+### Ricochet
+
+A solo sliding-robot puzzle. Four robots on a walled 16 by 16 board slide until something stops them; each round, land the robot of the target's colour on its symbol (the vortex takes any robot) in as few moves as you can. An exact solver deals each puzzle near your level, and a rating tracks both move quality and speed. Nothing leaves your device.
+
 ## How the AI works
 
 Each game has its own opponent, and they fall into three families.
@@ -61,7 +65,7 @@ npm install
 npm start
 ```
 
-Opens at `http://localhost:3000` with a landing page. Navigate to `/yinsh`, `/zertz`, `/chess`, `/catan`, `/splendor`, or `/diplomacy`. Every game plays fully in the browser with no configuration and no account.
+Opens at `http://localhost:3000` with a landing page. Navigate to `/yinsh`, `/zertz`, `/chess`, `/catan`, `/splendor`, `/diplomacy`, or `/ricochet`. Every game plays fully in the browser with no configuration and no account.
 
 The bring-your-own-key features (the chess coach, the Catan and Splendor rules chat, and Diplomacy negotiation) call Anthropic through Vercel serverless functions, so they only work on a deployment or under `vercel dev`, not plain `npm start`. As a guest your key stays on your device. An optional account (sign-in at `/login`) stores the key encrypted on the server and syncs progress across devices.
 
@@ -112,6 +116,7 @@ src/
     catan/                 # Board + UI + engine/ (MCTS in a Web Worker)
     splendor/              # Board + UI + engine/ (maxⁿ MCTS), coach/ (rules chat)
     diplomacy/             # Adjudication engine, engine/ (tactical AI), agents/ (LLM negotiation)
+    ricochet/              # Solo Ricochet: board, generator, solver (Web Worker), scoring and rating, UI
 api/                       # Vercel serverless functions (AI moves + bring-your-own-key LLM)
 scripts/                   # Self-play, tournaments, continuous-train loops (per game)
 training/                  # PyTorch training pipeline -> ONNX export (per game)
@@ -125,7 +130,7 @@ React + React Router (code-split), Tailwind CSS, SVG rendering. The AI spans thr
 
 ## Documentation
 
-Deeper writeups live in [`docs/`](docs/): [architecture](docs/architecture.md), the [AI engine](docs/ai-engine.md), [accounts](docs/public-accounts.md), and per-game notes for [chess](docs/chess.md), [Catan](docs/catan.md), [Splendor](docs/splendor.md), and [Diplomacy](docs/diplomacy.md). Instructions for AI coding agents working in this repo are in [AGENTS.md](AGENTS.md).
+Deeper writeups live in [`docs/`](docs/): [architecture](docs/architecture.md), the [AI engine](docs/ai-engine.md), [accounts](docs/public-accounts.md), and per-game notes for [chess](docs/chess.md), [Catan](docs/catan.md), [Splendor](docs/splendor.md), [Diplomacy](docs/diplomacy.md), and [Ricochet](docs/ricochet.md). Instructions for AI coding agents working in this repo are in [AGENTS.md](AGENTS.md).
 
 Current matches in Chess, Yinsh, Zertz, and Catan resume locally after refresh.
 Signing in also enables cloud matches, preferences and existing statistics, with
@@ -134,7 +139,7 @@ explicit conflict choices and recoverable alternatives. See
 
 ## Credits
 
-Game designs by Kris Burm (GIPF Project: Yinsh, Zertz), Klaus Teuber (Catan), Marc André (Splendor), and Allan B. Calhamer (Diplomacy). Chess play via [Stockfish](https://stockfishchess.org/). Built by Nathan Ramia.
+Game designs by Kris Burm (GIPF Project: Yinsh, Zertz), Klaus Teuber (Catan), Marc André (Splendor), Allan B. Calhamer (Diplomacy), and Alex Randolph (Ricochet Robots). Chess play via [Stockfish](https://stockfishchess.org/). Built by Nathan Ramia.
 
 ## License
 

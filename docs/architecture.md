@@ -19,6 +19,7 @@ src/
     catan/             # Catan base game, 3-6 players (logic + UI + AI + CSS + tests); ruleset catalog also lists unimplemented expansions
     splendor/          # 2-4 player Splendor game (logic + UI + AI + CSS + tests)
     diplomacy/         # 7-power Diplomacy: from-scratch adjudication engine + tactical best-response AI + LLM negotiation agents
+    ricochet/          # Solo Ricochet: board, generator, solver Web Worker, scoring/rating, UI (device-only)
 api/                   # Vercel serverless functions
 scripts/               # CLI tools (self-play, training, tournaments)
 training/              # PyTorch training pipeline
@@ -36,6 +37,7 @@ const ChessGame = lazy(() => import('./games/chess/ChessGame.jsx'));
 const CatanGame = lazy(() => import('./games/catan/CatanGame.jsx'));
 const SplendorGame = lazy(() => import('./games/splendor/SplendorGame.jsx'));
 const DiplomacyGame = lazy(() => import('./games/diplomacy/DiplomacyGame.jsx'));
+const RicochetGame = lazy(() => import('./games/ricochet/RicochetGame.jsx'));
 ```
 
 Visiting `/zertz` does not load the Yinsh MCTS engine. Zertz loads its own inference code and ONNX runtime when NN evaluation is requested. `LandingPage` is eagerly loaded since it's the entry point.
@@ -56,6 +58,7 @@ Each game defines CSS custom properties with overlapping names (`--color-bg-page
 - Catan: `.game-catan` and `.game-catan.dark` (in `src/games/catan/catan.css`)
 - Splendor: `.game-splendor` and `.game-splendor.dark` (in `src/games/splendor/splendor.css`)
 - Diplomacy: `.game-diplomacy` and `.game-diplomacy.dark` (in `src/games/diplomacy/diplomacy.css`)
+- Ricochet: `.game-ricochet` and `.game-ricochet.dark` (in `src/games/ricochet/ricochet.css`)
 
 Animation keyframes are prefixed (`yinsh-piece-fade-in`, `zertz-piece-fade-in`) and animation classes are scoped (`.game-yinsh .piece-enter`). The only shared keyframe is `slide-in-right` in `src/index.css`.
 

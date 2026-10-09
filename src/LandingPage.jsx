@@ -27,6 +27,11 @@ function BoardMotif({ path }) {
         <rect x="57" y="15" width="39" height="58" rx="4" fill="none" stroke="currentColor" strokeWidth="2" />
         <path d="M67 34l10-8 10 8-10 15z" fill="currentColor" opacity=".6" />
         {[27, 43, 59].map((x, i) => <circle key={x} cx={x} cy={64 + i * 3} r="13" fill="var(--landing-paper)" stroke="currentColor" strokeWidth="3" />)}
+      </> : path === '/ricochet' ? <>
+        <g fill="none" stroke="currentColor" opacity=".22">{[0, 1, 2, 3, 4].map(i => <path key={i} d={`M${24 + i * 18} 12v72M24 ${12 + i * 15}h72`} />)}</g>
+        <path d="M60 12v15M42 48h18M96 63H78M24 30h18" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+        <circle cx="42" cy="48" r="8" fill="currentColor" /><circle cx="78" cy="63" r="8" fill="var(--landing-paper)" stroke="currentColor" strokeWidth="3" />
+        <path d="M80 30l7 12H73z" fill="currentColor" opacity=".6" />
       </> : <>
         <path d="M15 26l27-12 24 13 36-5M15 26l10 35 29 20 22-20 26-39M42 14l-2 32 36 15M40 46L25 61M66 27L54 81" fill="none" stroke="currentColor" strokeWidth="2" opacity=".4" />
         <path d="M61 51h30l-8 10H69zM76 28v22h-12z" fill="currentColor" /><circle cx="36" cy="37" r="7" fill="currentColor" />

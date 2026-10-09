@@ -164,7 +164,7 @@ describe('summarize', () => {
     expect(s.ratingSeries).toEqual([1210, 1190, 1200, 1180]);
     expect(s.roundsPlayed).toBe(4);
     expect(s.avgQuality).toBeCloseTo((1 + 0.5 + 1) / 3, 10); // revealed round excluded
-    expect(s.avgSecondsPerOptimalMove).toBeCloseTo(2.75, 10);
+    expect(s.avgSecondsPerOptimalMove).toBeCloseTo(3, 10); // revealed round excluded: (2 + 2 + 5) / 3
     expect(s.optimalShare).toBeCloseTo(0.5, 10); // revealed round does not count
     expect(s.revealedCount).toBe(1);
   });
@@ -185,10 +185,24 @@ describe('summarize', () => {
     expect(s.revealedCount).toBe(1);
   });
 
+  test('avgSecondsPerOptimalMove ignores revealed rounds', () => {
+    const s = summarize([entry({ timeMs: 8000, optimal: 4 }), entry({ revealed: true, timeMs: 80000, optimal: 4 })]);
+    expect(s.avgSecondsPerOptimalMove).toBeCloseTo(2, 10);
+  });
+
+  test('averages are null, not zero, when every round in the window was revealed', () => {
+    const s = summarize([entry({ revealed: true, quality: 1, score: 0 }), entry({ revealed: true, quality: 1, score: 0 })]);
+    expect(s.roundsPlayed).toBe(2);
+    expect(s.revealedCount).toBe(2);
+    expect(s.avgQuality).toBeNull();
+    expect(s.avgSecondsPerOptimalMove).toBeNull();
+    expect(s.optimalShare).toBe(0);
+  });
+
   test('empty history yields zeros', () => {
     expect(summarize([])).toEqual({
-      ratingSeries: [], roundsPlayed: 0, avgQuality: 0,
-      avgSecondsPerOptimalMove: 0, optimalShare: 0, revealedCount: 0,
+      ratingSeries: [], roundsPlayed: 0, avgQuality: null,
+      avgSecondsPerOptimalMove: null, optimalShare: 0, revealedCount: 0,
     });
   });
 });

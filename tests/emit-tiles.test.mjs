@@ -5,7 +5,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { buildManifest } from '../scripts/emit-tiles.mjs';
 
-const canonical = ['/yinsh', '/zertz', '/chess', '/catan', '/splendor', '/diplomacy'];
+const canonical = ['/yinsh', '/zertz', '/chess', '/catan', '/splendor', '/diplomacy', '/ricochet'];
 
 test('every game tile links to its root route', () => {
   assert.deepEqual(buildManifest().tiles.map(t => t.href), canonical);
