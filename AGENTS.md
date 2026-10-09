@@ -377,10 +377,10 @@ Solo and device-only: no MatchBoundary, cloud or account integration.
 | `RicochetBoard.js` | Pure rules/state -- seeded board, robot slides, rounds, undo/redo, serialize/clone |
 | `engine/generator.js`, `geometry.js` | Seeded board generation and grid/wall primitives |
 | `engine/solver.js`, `rounds.js` | Optimal solver and next-round selection near a desired length |
-| `engine/scoring.js`, `rating.js`, `history.js` | Per-round score, Elo-style rating, localStorage history |
+| `engine/scoring.js`, `rating.js`, `history.js`, `variants.js` | Per-round score, Elo-style rating, localStorage history and ratings per setup, stored variant |
 | `engine/solver.worker.js`, `hooks/` | Dealing in a Web Worker (`useSolverWorker.js`, mockable `createAIWorker.js`) |
 | `RicochetGame.jsx`, `RicochetBoardView.jsx`, `ricochet.css` | React UI and SVG board, scoped under `.game-ricochet` |
-| `RicochetGame.ui.test.jsx` | RTL tests with the worker mocked |
+| `RicochetGame.ui.test.jsx`, `RicochetGame.variants.test.jsx` | RTL tests with the worker mocked |
 
 See [docs/ricochet.md](docs/ricochet.md) for rules, generator, solver and formulas.
 
@@ -568,8 +568,10 @@ diplomacyGameState    # versioned in-progress save (board snapshot + UI phase + 
 ricochetDarkMode,
 ricochetInputMode,    # plan | live (default plan)
 ricochetPathTraces,   # off | on (default off)
-ricochetRating,       # {rating, rounds}
-ricochetHistory       # last 500 scored rounds
+ricochetVariant,      # {size: 16|12, fifthRobot, diagonals} (default 16/false/false)
+ricochetRating,       # {rating, rounds} of the standard setup (16x16, no black robot, no barriers, Plan)
+ricochetVariantRatings, # {[setupKey]: {rating, rounds}} for every other setup, Live included
+ricochetHistory       # last 500 scored rounds; entries of other setups carry `variant`
 ```
 
 **Shared (app-wide):**

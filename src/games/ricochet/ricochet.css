@@ -22,6 +22,9 @@
   --rc-green: #1f9d55;
   --rc-blue: #2f6fe0;
   --rc-yellow: #f0b90b;
+  --rc-black: #1c222c;
+  --rc-black-edge: #1c222c;
+  --rc-barrier-edge: #1c222c;
   --rc-shadow: 0 8px 24px rgba(40, 32, 12, 0.14);
 
   min-height: 100vh;
@@ -50,6 +53,9 @@
   --rc-green: #3ddc84;
   --rc-blue: #5b95ff;
   --rc-yellow: #ffd23f;
+  --rc-black: #0b0d12;
+  --rc-black-edge: #d9deea;
+  --rc-barrier-edge: #05070a;
   --rc-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
 }
 
@@ -314,3 +320,26 @@
 .game-ricochet .ricochet-trace-toggle[aria-pressed="true"] { color: var(--rc-ink); border-bottom-color: var(--rc-accent); }
 .game-ricochet .ricochet-trace-toggle:focus-visible { outline: 3px solid var(--rc-accent); outline-offset: 2px; }
 .game-ricochet .ricochet-trace-cross { stroke-width: 2.4; }
+
+/* Variants: the black robot, diagonal barriers and the setup labels. */
+.game-ricochet .ricochet-chip-black { background: var(--rc-black); border-color: var(--rc-black-edge); }
+.game-ricochet .ricochet-chip-black.is-active { border-color: var(--rc-ink); }
+.game-ricochet .ricochet-step-black { background: var(--rc-black); box-shadow: 0 0 0 1px var(--rc-black-edge); }
+.game-ricochet .ricochet-robot-body[data-robot="black"] { stroke: var(--rc-black-edge); }
+/* Five chips: the black one takes the third row, centred, so the block is no taller than the pad. */
+.game-ricochet .ricochet-robot-chips.has-five .ricochet-chip-black { grid-column: 1 / -1; justify-self: center; }
+.game-ricochet .ricochet-barrier { pointer-events: none; }
+.game-ricochet .ricochet-barrier-edge { stroke: var(--rc-barrier-edge); stroke-width: 10; stroke-linecap: round; }
+.game-ricochet .ricochet-barrier-bar { stroke-width: 6; stroke-linecap: round; }
+.game-ricochet .ricochet-barrier-stitch { stroke: var(--rc-barrier-edge); stroke-opacity: 0.55; stroke-width: 1.4; fill: none; }
+.game-ricochet .ricochet-barrier-badge { fill: var(--rc-board); stroke-width: 1.8; }
+.game-ricochet .ricochet-barrier-letter { fill: var(--rc-ink); font: 800 9px/1 'Syne', system-ui, sans-serif; }
+.game-ricochet .ricochet-setup-tag {
+  display: block; margin-top: 2px; width: max-content; padding: 1px 6px; border: 1px solid var(--rc-accent); border-radius: 999px;
+  font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--rc-accent); cursor: help;
+}
+.game-ricochet .ricochet-setup-line { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; font-size: 14px; }
+.game-ricochet .ricochet-setup-line select {
+  min-height: 36px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--rc-line); background: var(--rc-bg); color: var(--rc-ink); font: inherit;
+}
+.game-ricochet .ricochet-seg button:disabled { opacity: 0.5; cursor: not-allowed; }
