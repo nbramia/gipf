@@ -1,8 +1,9 @@
 // RicochetBoard.js
 // Pure rules/state engine for solo Ricochet Robots. No React, no UI.
 //
-// The board (walls, targets) is generated from the seed and is immutable. The
-// mutable state is the four robot cells, the round in progress and the history.
+// The board (walls, targets, diagonal barriers) is generated from the seed and
+// config and is immutable. The mutable state is the robot cells (four, or five
+// with the black robot), the round in progress and the history.
 //
 // Bounce rule: the published game says a robot must ricochet at least once, so
 // a target a robot could reach directly cannot be claimed. We implement that the
@@ -10,20 +11,38 @@
 // never dealt (see engine/rounds.js), so here any stop on the target solves it.
 
 import {
-  CELLS, ROBOTS, DIRS, DIR_INDEX, CENTER_CELLS, slide,
+  ROBOTS, ALL_ROBOTS, DIRS, DIR_INDEX, centerCellsOf, makeLayout, slideCells, waypoints,
 } from './engine/geometry.js';
 import { generateBoard } from './engine/generator.js';
+import { normalizeConfig, DEFAULT_CONFIG } from './engine/config.js';
 
-export { ROBOTS, DIRS };
+export { ROBOTS, ALL_ROBOTS, DIRS, DEFAULT_CONFIG };
 
 export default class RicochetBoard {
-  // `walls`, `targets` and `robots` override the generated board / random start;
-  // they exist for hand-built layouts in tests and scripts.
-  constructor({ seed = 1, skipInitialHistory = false, walls = null, targets = null, robots = null } = {}) {
+  // `config` ({ size: 16 | 12, fifthRobot, diagonals }; default 16 / false / false)
+  // picks the board variant. `walls`, `targets`, `barriers` and `robots` override
+  // the generated board / random start; they exist for hand-built layouts in
+  // tests and scripts (a hand-built `walls` array also fixes the size).
+  constructor({
+    seed = 1, skipInitialHistory = false, walls = null, targets = null, robots = null,
+    config = null, barriers = null,
+  } = {}) {
     this.seed = seed;
-    const generated = walls && targets ? null : generateBoard(seed);
+    const cfg = normalizeConfig(config);
+    if (walls && walls.length !== cfg.size * cfg.size) {
+      cfg.size = Math.round(Math.sqrt(walls.length));
+      if (cfg.size !== 12 && cfg.size !== 16) throw new Error(`Unsupported wall array of ${walls.length} cells`);
+    }
+    this.config = cfg;
+    this.size = cfg.size;
+    this.cells = cfg.size * cfg.size;
+    const generated = walls && targets ? null : generateBoard(seed, cfg);
     this.walls = walls ? Uint8Array.from(walls) : generated.walls;
     this.targets = (targets || generated.targets).map(t => ({ ...t }));
+    this.barriers = (barriers || (generated ? generated.barriers : [])).map(b => ({ ...b }));
+    this._layout = makeLayout(this.size, this.walls, this.barriers);
+    // Robot names in order; black (the fifth robot) is last.
+    this.robotNames = cfg.fifthRobot ? ALL_ROBOTS : ROBOTS;
 
     // PRNG state lives on the board (and in the serialized state) so tie-breaks
     // and robot placement continue the same stream after a restore.
@@ -55,13 +74,16 @@ export default class RicochetBoard {
     return ((n ^ (n >>> 14)) >>> 0) / 4294967296;
   }
 
-  // Four distinct cells that are neither targets nor the centre block.
+  // One distinct cell per robot (black last) that is not a target, a barrier or
+  // the centre block.
   _placeRobots() {
-    const blocked = new Set([...CENTER_CELLS, ...this.targets.map(t => t.cell)]);
+    const blocked = new Set([
+      ...centerCellsOf(this.size), ...this.targets.map(t => t.cell), ...this.barriers.map(b => b.cell),
+    ]);
     const free = [];
-    for (let c = 0; c < CELLS; c++) if (!blocked.has(c)) free.push(c);
+    for (let c = 0; c < this.cells; c++) if (!blocked.has(c)) free.push(c);
     const robots = {};
-    for (const name of ROBOTS) {
+    for (const name of this.robotNames) {
       const i = Math.floor(this.random() * free.length);
       robots[name] = free.splice(i, 1)[0];
     }
@@ -78,28 +100,44 @@ export default class RicochetBoard {
     return this.solved;
   }
 
-  _occupied() {
-    const occ = new Uint8Array(CELLS);
-    for (const name of ROBOTS) occ[this.robots[name]] = 1;
+  // Cells held by every robot except `except` (a slide may pass its own start).
+  _occupied(except = null) {
+    const occ = new Uint8Array(this.cells);
+    for (const name of this.robotNames) if (name !== except) occ[this.robots[name]] = 1;
     return occ;
   }
 
-  // Where `robot` would stop sliding `dir` ('N'|'E'|'S'|'W') from where it is now.
+  // Every cell `robot` moves through sliding `dir`, start first and stop last, or
+  // null if the move is illegal (blocked at once, or a barrier loop).
+  _route(robot, dir, occ = this._occupied(robot)) {
+    return slideCells(this._layout, this.robots[robot], DIR_INDEX[dir], this.robotNames.indexOf(robot), occ);
+  }
+
+  // Where `robot` would stop sliding `dir` ('N'|'E'|'S'|'W') from where it is now;
+  // its own cell when the move is illegal.
   getDestination(robot, dir) {
-    if (!ROBOTS.includes(robot) || !DIRS.includes(dir)) return null;
-    return slide(this.walls, this.robots[robot], DIR_INDEX[dir], this._occupied());
+    if (!this.robotNames.includes(robot) || !DIRS.includes(dir)) return null;
+    const route = this._route(robot, dir);
+    return route ? route[route.length - 1] : this.robots[robot];
+  }
+
+  // The slide as drawn: [start, each cell where the robot turned off a barrier,
+  // stop], or null if the move is illegal. Without barriers this is [start, stop].
+  getSlidePath(robot, dir) {
+    if (!this.robotNames.includes(robot) || !DIRS.includes(dir)) return null;
+    const route = this._route(robot, dir);
+    return route ? waypoints(route) : null;
   }
 
   // Every (robot, direction) that actually moves the robot. Empty once solved
   // or before a round has started.
   getLegalMoves() {
     if (this.currentTargetId == null || this.solved) return [];
-    const occ = this._occupied();
     const moves = [];
-    for (const robot of ROBOTS) {
-      const from = this.robots[robot];
+    for (const robot of this.robotNames) {
+      const occ = this._occupied(robot);
       for (let d = 0; d < 4; d++) {
-        if (slide(this.walls, from, d, occ) !== from) moves.push({ robot, dir: DIRS[d] });
+        if (this._route(robot, DIRS[d], occ)) moves.push({ robot, dir: DIRS[d] });
       }
     }
     return moves;
@@ -107,19 +145,24 @@ export default class RicochetBoard {
 
   // ---- play ----------------------------------------------------------------
 
-  // Returns the move record {robot, dir, from, to}, or false if illegal.
+  // Returns the move record {robot, dir, from, to}, or false if illegal. On a
+  // board with diagonal barriers the record also has `path`, the slide's corner
+  // points (see getSlidePath).
   applyMove({ robot, dir } = {}) {
     if (this.currentTargetId == null || this.solved) return false;
-    if (!ROBOTS.includes(robot) || !DIRS.includes(dir)) return false;
+    if (!this.robotNames.includes(robot) || !DIRS.includes(dir)) return false;
     const from = this.robots[robot];
-    const to = this.getDestination(robot, dir);
-    if (to === from) return false;
+    const route = this._route(robot, dir);
+    if (!route) return false;
+    const to = route[route.length - 1];
 
     this.robots[robot] = to;
     const record = { robot, dir, from, to };
+    if (this._layout.diag !== null) record.path = waypoints(route);
     this.moves.push(record);
 
     const target = this.targets[this.currentTargetId];
+    // The vortex takes any robot, black included; black never claims a colour.
     const claimant = target.color == null ? robot : target.color;
     if (robot === claimant && to === target.cell) {
       this.solved = true;
@@ -154,23 +197,25 @@ export default class RicochetBoard {
     this._captureState();
   }
 
-  // Fresh board for a new seed; keeps nothing from the old one.
+  // Fresh board for a new seed in the same variant; keeps nothing else.
   startNewGame(seed = Date.now()) {
-    Object.assign(this, new RicochetBoard({ seed }));
+    Object.assign(this, new RicochetBoard({ seed, config: this.config }));
   }
 
   // ---- hashing / serialization / history -----------------------------------
 
   getStateHash() {
-    const robots = ROBOTS.map(r => this.robots[r]).join(',');
+    const robots = this.robotNames.map(r => this.robots[r]).join(',');
     return `${this.seed}|${robots}|${this.currentTargetId}|${this.claimed.join(',')}|${this.solved ? 1 : 0}`;
   }
 
   serializeState() {
     return {
       seed: this.seed,
+      config: { ...this.config },
       walls: Array.from(this.walls),
       targets: this.targets.map(t => ({ ...t })),
+      barriers: this.barriers.map(b => ({ ...b })),
       rngState: this.rngState,
       robots: { ...this.robots },
       roundStart: { ...this.roundStart },
@@ -191,6 +236,8 @@ export default class RicochetBoard {
       walls: state.walls,
       targets: state.targets,
       robots: state.robots,
+      config: state.config, // absent in saves from before the variants: the default board
+      barriers: state.barriers || [],
     });
     board.rngState = state.rngState;
     board.roundStart = { ...state.roundStart };

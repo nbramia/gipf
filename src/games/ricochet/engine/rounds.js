@@ -22,7 +22,7 @@ export function chooseNextRound(board, desiredLength, { timeLimitMs = 2000 } = {
     // the search there instead of solving every target to its full optimum.
     const cap = Math.min(MAX_LENGTH, desiredLength + bestGap);
     const result = solve(
-      { walls: board.walls, robots: board.robots, target },
+      { walls: board.walls, robots: board.robots, target, size: board.size, barriers: board.barriers },
       { maxDepth: cap, timeLimitMs },
     );
     if (!result || result.timedOut || result.length < 2) continue;
