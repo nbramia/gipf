@@ -815,6 +815,7 @@ describe('plan mode (the default)', () => {
     expect(localStorage.getItem('ricochetInputMode')).toBe('live');
     fireEvent.keyDown(screen.getByRole('dialog', { name: 'Settings' }), { key: 'Escape' });
     expect(screen.queryByRole('region', { name: 'Plan' })).toBeNull();
+    deliver(ROUND); // a setup change deals a fresh puzzle
     press('ArrowRight');
     expect(at('red')).toBe(cellOf(0, 15)); // moves immediately
     expect(screen.getByRole('button', { name: 'Reset' })).toBeTruthy();

@@ -47,6 +47,18 @@ export function setupKey(config, mode) {
   return key === STANDARD ? null : key;
 }
 
+// Compact name for the HUD, for example "12×12 · Black · Barriers · Live"; '' for the standard setup.
+export function setupShortLabel(key) {
+  const m = key ? KEY_RE.exec(key) : null;
+  if (!m) return '';
+  const parts = [];
+  if (m[1] === '12') parts.push('12×12');
+  if (m[2] === '5') parts.push('Black');
+  if (m[3] === '1') parts.push('Barriers');
+  if (m[4] === 'live') parts.push('Live');
+  return parts.join(' · ') || 'Plan';
+}
+
 // Human name of a setup: null is the standard one.
 export function setupLabel(key) {
   const m = key ? KEY_RE.exec(key) : null;

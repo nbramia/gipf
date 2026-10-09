@@ -497,3 +497,148 @@ describe('barriers on the board', () => {
     expect(Number(bar.getAttribute('y1'))).toBeGreaterThan(Number(bar.getAttribute('y2')));
   });
 });
+
+describe('a setup change mid-round deals a fresh puzzle and never records the old round', () => {
+  test('Live to Plan after peeking: the old round is dropped, a stale reply is ignored, and the new deal uses the standard rating', () => {
+    localStorage.setItem('ricochetRating', JSON.stringify({ rating: 1800, rounds: 60 }));
+    localStorage.setItem('ricochetInputMode', 'live');
+    mount();
+    deliver(ROUND);
+    const liveRequest = lastRequest();
+    expect(liveRequest.data.desiredLength).toBe(5); // the Live setup starts at 1200
+    press('ArrowRight'); // peek
+    openSettings();
+    setting('Input mode', 'Plan');
+    closeDialog();
+    expect(screen.getByText('Dealing a puzzle…')).toBeTruthy();
+    expect(lastRequest().requestId).toBeGreaterThan(liveRequest.requestId);
+    expect(lastRequest().data.desiredLength).toBe(9); // from the standard 1800
+    expect(at('red')).toBe(cellOf(0, 0)); // the peek was undone
+    // the reply for the dropped Live round arrives late
+    deliver(ROUND, liveRequest.requestId);
+    expect(screen.getByText('Dealing a puzzle…')).toBeTruthy();
+    press('ArrowRight'); press('ArrowDown'); press('Enter');
+    expect(planText()).toBe('');
+    deliver(ROUND);
+    press('ArrowRight'); press('ArrowDown'); press('Enter');
+    advance(3000);
+    expect(screen.getByRole('region', { name: 'Round results' })).toBeTruthy();
+    expect(stored('ricochetHistory')).toHaveLength(1);
+    expect('variant' in stored('ricochetHistory')[0]).toBe(false);
+    expect(stored('ricochetRating').rounds).toBe(61);
+    expect(localStorage.getItem('ricochetVariantRatings')).toBeNull();
+  });
+
+  test('Plan to Live records the next solve under Live only', () => {
+    mount();
+    deliver(ROUND);
+    openSettings();
+    setting('Input mode', 'Live');
+    closeDialog();
+    deliver(ROUND);
+    press('ArrowRight'); press('ArrowDown');
+    advance(1000);
+    expect(localStorage.getItem('ricochetRating')).toBeNull();
+    expect(stored('ricochetHistory')[0].variant).toBe('16-r4-d0-live');
+  });
+
+  test('a change while a deal is in flight supersedes it: the stale reply is ignored and the new deal uses the new setup', () => {
+    localStorage.setItem('ricochetVariantRatings', JSON.stringify({ '12-r4-d0-plan': { rating: 800, rounds: 25 } }));
+    mount();
+    const first = lastRequest();
+    expect(first.data.desiredLength).toBe(5);
+    openSettings();
+    setting('Board size', '12×12');
+    expect(lastRequest().requestId).toBeGreaterThan(first.requestId);
+    expect(lastRequest().data.desiredLength).toBe(2);
+    deliver(ROUND, first.requestId);
+    expect(screen.getByText('Dealing a puzzle…')).toBeTruthy();
+    const state = lastRequest().data.boardState;
+    deliver({ targetId: state.targets[0].id, length: 3, solution: [] });
+    closeDialog();
+    expect(screen.getByRole('img', { name: /12 by 12/ })).toBeTruthy();
+  });
+
+  test('a round is recorded under the setup it was dealt for', () => {
+    localStorage.setItem('ricochetInputMode', 'live');
+    mount();
+    deliver(ROUND);
+    fireEvent.click(screen.getByRole('button', { name: 'Give up' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal solution' }));
+    expect(stored('ricochetHistory')[0].variant).toBe('16-r4-d0-live');
+    expect(localStorage.getItem('ricochetRating')).toBeNull();
+  });
+});
+
+describe('settings are locked while a solve is being shown', () => {
+  test('a Live solve that is settling keeps its results; a setting change does nothing then', () => {
+    localStorage.setItem('ricochetInputMode', 'live');
+    mount();
+    deliver(ROUND);
+    press('ArrowRight'); press('ArrowDown');
+    expect(screen.queryByRole('region', { name: 'Round results' })).toBeNull(); // settling
+    const requests = worker().postMessage.mock.calls.length;
+    openSettings();
+    const board = within(screen.getByRole('group', { name: 'Board size' })).getByRole('button', { name: '12×12' });
+    const mode = within(screen.getByRole('group', { name: 'Input mode' })).getByRole('button', { name: 'Plan' });
+    expect(board.disabled).toBe(true);
+    expect(mode.disabled).toBe(true);
+    fireEvent.click(board);
+    fireEvent.click(mode);
+    expect(localStorage.getItem('ricochetVariant')).toBeNull();
+    expect(localStorage.getItem('ricochetInputMode')).toBe('live');
+    expect(worker().postMessage.mock.calls.length).toBe(requests);
+    closeDialog();
+    advance(1000);
+    expect(screen.getByRole('region', { name: 'Round results' })).toBeTruthy();
+    expect(screen.getByTestId('res-moves').textContent).toBe('2');
+    expect(stored('ricochetHistory')).toHaveLength(1);
+  });
+});
+
+describe('the HUD names a non-standard setup', () => {
+  test.each([
+    [{ size: 16, fifthRobot: false, diagonals: false }, 'live', 'Live'],
+    [{ size: 12, fifthRobot: false, diagonals: false }, 'plan', '12×12'],
+    [{ size: 16, fifthRobot: true, diagonals: false }, 'plan', 'Black'],
+    [{ size: 16, fifthRobot: false, diagonals: true }, 'plan', 'Barriers'],
+    [{ size: 12, fifthRobot: true, diagonals: true }, 'live', '12×12 · Black · Barriers · Live'],
+  ])('%j in %s mode', (config, mode, text) => {
+    localStorage.setItem('ricochetVariant', JSON.stringify(config));
+    localStorage.setItem('ricochetInputMode', mode);
+    render(<MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><RicochetGame /></MemoryRouter>);
+    const state = lastRequest().data.boardState;
+    deliver({ targetId: state.targets[0].id, length: 3, solution: [] });
+    expect(screen.getByTestId('hud-setup').textContent).toBe(text);
+  });
+
+  test('the standard setup shows no tag', () => {
+    mount();
+    deliver(ROUND);
+    expect(screen.queryByTestId('hud-setup')).toBeNull();
+  });
+});
+
+describe('barriers are not robots', () => {
+  test('no disc or badge, square ends, and each colour has its own bar pattern', () => {
+    const board = buildBoard({
+      robots: { red: [10, 2], ...FAR },
+      barriers: [[3, 3, '/', 'red'], [3, 9, '\\', 'green'], [12, 3, '/', 'blue'], [12, 9, '\\', 'yellow']],
+      config: { size: 16, fifthRobot: false, diagonals: true },
+      target: { at: [0, 6], color: 'red' },
+    });
+    localStorage.setItem('ricochetInputMode', 'live');
+    mount(() => board);
+    deliver(BEND_ROUND(1));
+    const bars = screen.getAllByTestId('barrier');
+    expect(bars).toHaveLength(4);
+    const dashes = new Set();
+    for (const b of bars) {
+      expect(b.querySelector('circle')).toBeNull();
+      expect(b.querySelector('.ricochet-barrier-badge')).toBeNull();
+      expect(b.querySelector('.ricochet-barrier-letter').textContent).toBe(b.getAttribute('data-color')[0].toUpperCase());
+      dashes.add(b.querySelector('.ricochet-barrier-bar').getAttribute('stroke-dasharray'));
+    }
+    expect(dashes.size).toBe(4);
+  });
+});

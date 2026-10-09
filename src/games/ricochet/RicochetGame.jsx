@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 import RicochetBoard, { DIRS } from './RicochetBoard.js';
 import { desiredLength, isProvisional, PROVISIONAL_ROUNDS } from './engine/rating.js';
 import { recordRound, loadRating, loadHistory, summarize, historyFor, setupsWithHistory } from './engine/history.js';
-import { readVariant, writeVariant, sameVariant, setupKey, setupLabel } from './engine/variants.js';
+import { readVariant, writeVariant, sameVariant, setupKey, setupLabel, setupShortLabel } from './engine/variants.js';
 import RicochetBoardView, { TargetGlyph, ROBOT_LETTER, DIR_NAME, COLOR_LABEL } from './RicochetBoardView.jsx';
 import useSolverWorker from './hooks/useSolverWorker.js';
 import ConfirmDialog from '../../ConfirmDialog.jsx';
@@ -310,7 +310,9 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   const setup = setupKey(variant, mode);
   const setupRef = useRef(setup);
   setupRef.current = setup;
-  const rating = useMemo(() => loadRating(setup), [setup, ratingTick]);
+  // The setup the round on the board was dealt under; every record of that round uses it.
+  const roundSetupRef = useRef(setup);
+  const rating = useMemo(() => { void ratingTick; return loadRating(setup); }, [setup, ratingTick]); // ratingTick: re-read after a record
   const planRef = useRef(plan);
   planRef.current = plan;
   const bumpCount = useRef(0);
@@ -400,7 +402,8 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
       setPhase((phaseRef.current = 'error'));
     }, DEAL_TIMEOUT_MS);
     const state = { ...board.serializeState(), stateHistory: [], historyIndex: -1 };
-    requestRound(state, desiredLength(loadRating(setupRef.current).rating), (picked) => {
+    const dealSetup = setupRef.current;
+    requestRound(state, desiredLength(loadRating(dealSetup).rating), (picked) => {
       if (picked && picked.needsNewBoard) {
         if (retriedBoard.current) {
           retriedBoard.current = false;
@@ -414,6 +417,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
         return;
       }
       retriedBoard.current = false;
+      roundSetupRef.current = dealSetup;
       board.startRound(picked.targetId);
       setRound(picked);
       setSelected(board.getTarget().color || 'red');
@@ -434,12 +438,14 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   // ---- moves -----------------------------------------------------------------
   const finishSolve = useCallback((lastSlideMs) => {
     const timeMs = stopClock();
-    const entry = recordRound({ optimal: round.length, moves: board.moves.length, timeMs, variant: setupRef.current });
+    const entry = recordRound({ optimal: round.length, moves: board.moves.length, timeMs, variant: roundSetupRef.current });
     const playerMoves = board.moves.map(({ robot, dir }) => ({ robot, dir }));
     bumpRating();
     setPhase((phaseRef.current = 'settling'));
     setStatus(`Solved in ${board.moves.length} moves.`);
+    const myDeal = dealId.current;
     later(() => {
+      if (dealId.current !== myDeal) return;
       setResults({ entry, revealed: false, moves: board.moves.length, timeMs, playerMoves });
       setPhase((phaseRef.current = 'results'));
     }, lastSlideMs + 200);
@@ -536,7 +542,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
       // Recorded now, at the moment of submission. The clock, rating, status text and
       // board are only updated when the replay ends, so none of them hints at the outcome.
       const timeMs = clockNow();
-      const entry = recordRound({ optimal: round.length, moves: solvedAt, timeMs, variant: setupRef.current });
+      const entry = recordRound({ optimal: round.length, moves: solvedAt, timeMs, variant: roundSetupRef.current });
       const playerMoves = steps.slice(0, solvedAt).map(({ robot, dir }) => ({ robot, dir }));
       finishSolved = () => {
         clock.current = { running: false, accum: timeMs, since: null };
@@ -579,22 +585,30 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     run(0);
   }, [board, round, later, clockNow, animate]);
 
+  // Any setup change (mode or variant) drops the current round unrecorded and deals a fresh
+  // puzzle under the new setup, superseding a deal still in flight. Not while a solve is
+  // being shown (submit, settling).
   const changeMode = useCallback((next) => {
-    if (next === modeRef.current || phaseRef.current === 'submit') return;
+    if (next === modeRef.current || phaseRef.current === 'submit' || phaseRef.current === 'settling') return;
     if (phaseRef.current === 'play' && board.moves.length > 0) board.resetRound();
+    modeRef.current = next;
+    setupRef.current = setupKey(variantRef.current, next); // deal() reads it before the next render
+    planRef.current = [];
     setPlan([]);
     setPlanTraces([]);
     setMode(next);
     try { localStorage.setItem(MODE_KEY, next); } catch { /* unavailable */ }
     repaint();
-  }, [board]);
+    deal();
+  }, [board, deal]);
 
   // A new variant deals a new board of that shape right away; the current round is dropped,
   // never rewritten.
   const changeVariant = useCallback((patch) => {
-    if (phaseRef.current === 'submit') return;
+    if (phaseRef.current === 'submit' || phaseRef.current === 'settling') return;
     const next = { ...variantRef.current, ...patch };
     if (sameVariant(next, variantRef.current)) return;
+    if (phaseRef.current === 'play' && board.moves.length > 0) board.resetRound();
     variantRef.current = next;
     setupRef.current = setupKey(next, modeRef.current); // deal() reads it before the next render
     setVariant(next);
@@ -651,7 +665,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     const timeMs = stopClock();
     const entered = modeRef.current === 'plan' ? planRef.current.length : board.moves.length;
     setPlanTraces([]);
-    const entry = recordRound({ optimal: round.length, moves: entered, timeMs, revealed: true, variant: setupRef.current });
+    const entry = recordRound({ optimal: round.length, moves: entered, timeMs, revealed: true, variant: roundSetupRef.current });
     bumpRating();
     setResults({ entry, revealed: true, moves: entered, timeMs });
     // Settle the round on the optimal line so the target is claimed and the next
@@ -712,7 +726,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   const arrows = legal.map(m => ({ dir: m.dir, to: board.getDestination(m.robot, m.dir) }));
   const legalDirs = new Set(legal.map(m => m.dir));
   const finished = phase === 'results' || phase === 'replay';
-  const locked = phase === 'submit';
+  const locked = phase === 'submit' || phase === 'settling';
   const moveCount = finished && results ? results.moves : planning ? plan.length : board.moves.length;
   const provisional = isProvisional(rating.rounds);
   const entry = results && results.entry;
@@ -790,10 +804,11 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
                   <strong>{targetLabel(target)}</strong>
                 </span>
               ) : <strong className="ricochet-muted">Dealing…</strong>}
+              {setup && <span className="ricochet-setup-tag" data-testid="hud-setup" title={`Rating for ${setupLabel(setup)}`}>{setupShortLabel(setup)}</span>}
             </div>
             <div className="ricochet-hud-num"><span className="ricochet-hud-label">Moves</span><strong data-testid="move-count">{moveCount}</strong></div>
             <div className="ricochet-hud-num"><span className="ricochet-hud-label">Time</span><strong data-testid="clock">{fmtTime(elapsed)}</strong></div>
-            <div className="ricochet-hud-num"><span className="ricochet-hud-label">Rating</span><strong data-testid="hud-rating">{rating.rating}</strong>{setup && <span className="ricochet-setup-tag" data-testid="hud-setup" title={`Rating for ${setupLabel(setup)}`}>variant</span>}{provisional && <ProvisionalTag />}</div>
+            <div className="ricochet-hud-num"><span className="ricochet-hud-label">Rating</span><strong data-testid="hud-rating">{rating.rating}</strong>{provisional && <ProvisionalTag />}</div>
           </section>
 
           <div className={`ricochet-board-wrap${phase === 'dealing' ? ' is-dealing' : ''}`}>
@@ -939,10 +954,10 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
         <Panel title="Settings" onClose={() => setPanel(null)}>
           <div className="ricochet-setting">
             <div className="ricochet-seg" role="group" aria-label="Input mode">
-              <button type="button" aria-pressed={mode === 'plan'} onClick={() => changeMode('plan')}>Plan</button>
-              <button type="button" aria-pressed={mode === 'live'} onClick={() => changeMode('live')}>Live</button>
+              <button type="button" aria-pressed={mode === 'plan'} disabled={locked} onClick={() => changeMode('plan')}>Plan</button>
+              <button type="button" aria-pressed={mode === 'live'} disabled={locked} onClick={() => changeMode('live')}>Live</button>
             </div>
-            <p>Plan: enter a whole line, then submit it; the board only moves on submit. Live: every move slides immediately. Changing mode clears the plan and resets the current round.</p>
+            <p>Plan: enter a whole line, then submit it; the board only moves on submit. Live: every move slides immediately. Changing mode, like any setup change, drops the current round and deals a new puzzle.</p>
           </div>
           <div className="ricochet-setting">
             <div className="ricochet-seg" role="group" aria-label="Path traces">

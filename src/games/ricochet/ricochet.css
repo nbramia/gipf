@@ -331,11 +331,9 @@
 /* Five chips: the black one takes the third row, centred, so the block is no taller than the pad. */
 .game-ricochet .ricochet-robot-chips.has-five .ricochet-chip-black { grid-column: 1 / -1; justify-self: center; }
 .game-ricochet .ricochet-barrier { pointer-events: none; }
-.game-ricochet .ricochet-barrier-edge { stroke: var(--rc-barrier-edge); stroke-width: 10; stroke-linecap: round; }
-.game-ricochet .ricochet-barrier-bar { stroke-width: 6; stroke-linecap: round; }
-.game-ricochet .ricochet-barrier-stitch { stroke: var(--rc-barrier-edge); stroke-opacity: 0.55; stroke-width: 1.4; fill: none; }
-.game-ricochet .ricochet-barrier-badge { fill: var(--rc-board); stroke-width: 1.8; }
-.game-ricochet .ricochet-barrier-letter { fill: var(--rc-ink); font: 800 9px/1 'Syne', system-ui, sans-serif; }
+.game-ricochet .ricochet-barrier-edge { stroke: var(--rc-barrier-edge); stroke-width: 8; stroke-linecap: butt; }
+.game-ricochet .ricochet-barrier-bar { stroke-width: 5; stroke-linecap: butt; }
+.game-ricochet .ricochet-barrier-letter { fill: #fff; stroke: var(--rc-barrier-edge); stroke-width: 2.4; paint-order: stroke; font: 800 8px/1 'Syne', system-ui, sans-serif; }
 .game-ricochet .ricochet-setup-tag {
   display: block; margin-top: 2px; width: max-content; padding: 1px 6px; border: 1px solid var(--rc-accent); border-radius: 999px;
   font-size: 10px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--rc-accent); cursor: help;
@@ -347,3 +345,10 @@
 .game-ricochet .ricochet-seg button:disabled { opacity: 0.5; cursor: not-allowed; }
 .game-ricochet .ricochet-trace[data-robot="black"] .ricochet-trace-line { stroke: var(--rc-black-trace); }
 .game-ricochet .ricochet-trace[data-robot="black"] .ricochet-trace-head { fill: var(--rc-black-trace); }
+.game-ricochet .ricochet-hud-target { flex-wrap: wrap; }
+.game-ricochet .ricochet-hud-target .ricochet-setup-tag { flex: 0 0 auto; max-width: 100%; width: auto; margin-top: 0; white-space: normal; border-radius: 8px; }
+@media (max-width: 480px) {
+  /* One row of buttons: Undo, Clear/Reset, Submit and Give up fit side by side. */
+  .game-ricochet .ricochet-actions { flex-wrap: nowrap; }
+  .game-ricochet .ricochet-actions .ricochet-btn { min-width: 0; padding-left: 4px; padding-right: 4px; }
+}
