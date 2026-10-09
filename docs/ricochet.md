@@ -73,7 +73,7 @@ A setup is the board variant plus the input mode. **Standard** is 16 by 16, four
 - `score = quality x pace`; a revealed round scores 0.
 - Rating starts at 1200 (floor 100). Round difficulty is `500 + 150 x optimal`; expected score is `1 / (1 + 10^((difficulty - rating) / 400))`; the change is `round(K x (score - expected))` with K 40 for the first 20 rounds (provisional), 24 up to 50, then 16.
 - The next round targets an optimal length of `round((rating - 500) / 150)`, clamped to 2 to 12.
-- History keeps the last 500 rounds in `ricochetHistory`; the rating and round count live in `ricochetRating`. The progress panel summarizes the last 20 rounds.
+- History keeps the last 500 rounds per setup in `ricochetHistory` (entries of non-standard setups carry a `variant` field); the standard setup's rating and round count live in `ricochetRating`, every other setup's in `ricochetVariantRatings`. The progress panel summarizes the last 20 rounds of the viewed setup.
 
 ## Tests
 

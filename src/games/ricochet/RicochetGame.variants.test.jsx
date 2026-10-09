@@ -642,3 +642,72 @@ describe('barriers are not robots', () => {
     expect(dashes.size).toBe(4);
   });
 });
+
+describe('black robot: select then move directly', () => {
+  const moveEast = (mode) => {
+    press('ArrowRight');
+    if (mode === 'plan') {
+      expect(planText()).toBe('K→');
+      expect(at('black')).toBe(cellOf(5, 5));
+    } else {
+      expect(at('black')).toBe(cellOf(5, 15));
+    }
+  };
+
+  test.each(['plan', 'live'])('chip then a direction moves black with no K press (%s)', (mode) => {
+    localStorage.setItem('ricochetInputMode', mode);
+    mount(blackBoard);
+    deliver({ targetId: 0, length: 2, solution: [] });
+    press('g'); // something else is selected first
+    fireEvent.click(screen.getByRole('button', { name: 'Select black robot' }));
+    moveEast(mode);
+  });
+
+  test.each(['plan', 'live'])('tapping black then a direction moves black with no K press (%s)', (mode) => {
+    if (!window.PointerEvent) {
+      window.PointerEvent = class extends MouseEvent {
+        constructor(type, init = {}) { super(type, init); this.pointerId = init.pointerId; this.isPrimary = init.isPrimary ?? true; }
+      };
+    }
+    localStorage.setItem('ricochetInputMode', mode);
+    mount(blackBoard);
+    deliver({ targetId: 0, length: 2, solution: [] });
+    press('g');
+    const svg = screen.getByRole('img', { name: /Ricochet board/ });
+    svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 656, height: 656, right: 656, bottom: 656 });
+    const [bx, by] = centre(5 * 16 + 5);
+    fireEvent.pointerDown(svg, { clientX: bx, clientY: by });
+    fireEvent.pointerUp(svg, { clientX: bx, clientY: by });
+    expect(screen.getByRole('button', { name: 'Select black robot' }).getAttribute('aria-pressed')).toBe('true');
+    moveEast(mode);
+  });
+});
+
+describe('keys on a non-Latin layout fall back to the physical key', () => {
+  const pressCode = (key, code) => act(() => { fireEvent.keyDown(window, { key, code }); });
+
+  test('robot keys, WASD and U work by e.code when e.key is not a Latin letter', () => {
+    mount(blackBoard);
+    deliver({ targetId: 0, length: 2, solution: [] });
+    pressCode('к', 'KeyR'); // Cyrillic layout, the R key
+    expect(screen.getByRole('button', { name: 'Select red robot' }).getAttribute('aria-pressed')).toBe('true');
+    pressCode('л', 'KeyK');
+    expect(screen.getByRole('button', { name: 'Select black robot' }).getAttribute('aria-pressed')).toBe('true');
+    pressCode('п', 'KeyG');
+    expect(screen.getByRole('button', { name: 'Select green robot' }).getAttribute('aria-pressed')).toBe('true');
+    pressCode('в', 'KeyD'); // east
+    pressCode('ц', 'KeyW'); // north
+    expect(planText()).toBe('G→G↑');
+    pressCode('г', 'KeyU'); // undo the last step
+    expect(planText()).toBe('G→');
+  });
+
+  test('a Latin letter on another layout is still read by its key, not its position', () => {
+    mount(blackBoard);
+    deliver({ targetId: 0, length: 2, solution: [] });
+    pressCode('r', 'KeyP'); // Dvorak-like: the R character on the P key
+    expect(screen.getByRole('button', { name: 'Select red robot' }).getAttribute('aria-pressed')).toBe('true');
+    pressCode('g', 'KeyI');
+    expect(screen.getByRole('button', { name: 'Select green robot' }).getAttribute('aria-pressed')).toBe('true');
+  });
+});

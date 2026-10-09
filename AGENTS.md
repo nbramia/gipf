@@ -571,7 +571,7 @@ ricochetPathTraces,   # off | on (default off)
 ricochetVariant,      # {size: 16|12, fifthRobot, diagonals} (default 16/false/false)
 ricochetRating,       # {rating, rounds} of the standard setup (16x16, no black robot, no barriers, Plan)
 ricochetVariantRatings, # {[setupKey]: {rating, rounds}} for every other setup, Live included
-ricochetHistory       # last 500 scored rounds; entries of other setups carry `variant`
+ricochetHistory       # last 500 scored rounds per setup; non-standard setups carry `variant`
 ```
 
 **Shared (app-wide):**

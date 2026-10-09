@@ -21,6 +21,9 @@ const KEY_TO_ROBOT = { r: 'red', g: 'green', b: 'blue', y: 'yellow', k: 'black' 
 const KEY_TO_DIR = {
   arrowup: 'N', w: 'N', arrowright: 'E', d: 'E', arrowdown: 'S', s: 'S', arrowleft: 'W', a: 'W',
 };
+const CODE_KEY = {
+  KeyR: 'r', KeyG: 'g', KeyB: 'b', KeyY: 'y', KeyK: 'k', KeyW: 'w', KeyA: 'a', KeyS: 's', KeyD: 'd', KeyU: 'u',
+};
 const DIR_GLYPH = { N: '▲', E: '▶', S: '▼', W: '◀' };
 const REPLAY_STEP_MS = 800;
 const DEAL_TIMEOUT_MS = 15000;
@@ -696,7 +699,10 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     if (panel || confirmGiveUp) return;
-    const key = e.key.toLowerCase();
+    // A layout whose letters are not Latin (the key is a single non-ASCII character) falls
+    // back to the physical key.
+    const typed = e.key.toLowerCase();
+    const key = typed.length === 1 && !/[a-z]/.test(typed) && CODE_KEY[e.code] ? CODE_KEY[e.code] : typed;
     if (phaseRef.current !== 'play') return;
     if (KEY_TO_ROBOT[key] && board.robotNames.includes(KEY_TO_ROBOT[key])) { e.preventDefault(); selectedRef.current = KEY_TO_ROBOT[key]; setSelected(KEY_TO_ROBOT[key]); return; }
     if (KEY_TO_DIR[key]) {
