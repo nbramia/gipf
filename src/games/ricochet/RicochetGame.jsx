@@ -215,7 +215,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
 
   useEffect(() => {
     const pending = timers.current;
-    return () => { pending.forEach(clearTimeout); pending.clear(); replayToken.current++; }; // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { pending.forEach(clearTimeout); pending.clear(); };
   }, []);
 
   // ---- dealing ---------------------------------------------------------------
