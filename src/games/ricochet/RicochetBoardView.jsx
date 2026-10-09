@@ -1,7 +1,7 @@
 // RicochetBoardView.jsx - SVG board for Ricochet: walls, targets, robots, arrows.
 // Presentational only; all rules live in RicochetBoard.
 
-import React, { useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { SIZE, CELLS, ROBOTS, CENTER_CELLS, rowOf, colOf, hasWall } from './engine/geometry.js';
 
 export const ROBOT_LETTER = { red: 'R', green: 'G', blue: 'B', yellow: 'Y' };
@@ -123,6 +123,17 @@ export default function RicochetBoardView({
     onSelect(robot);
     onMove(robot, dir);
   };
+  // A press that started on the board but was released elsewhere must not linger and
+  // pair with some later pointerup.
+  useEffect(() => {
+    const clear = (e) => { if (swipe.current && e.pointerId === swipe.current.pointerId) swipe.current = null; };
+    window.addEventListener('pointerup', clear);
+    window.addEventListener('pointercancel', clear);
+    return () => {
+      window.removeEventListener('pointerup', clear);
+      window.removeEventListener('pointercancel', clear);
+    };
+  }, []);
   const guard = fn => (e) => {
     e.stopPropagation();
     if (swiped.current) return;

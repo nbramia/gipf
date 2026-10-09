@@ -142,6 +142,7 @@ function HowToPlay() {
         <li>Fewer moves and a faster solve score higher. Your rating tracks both, and the next puzzle is chosen near your level.</li>
         <li>The next round starts from wherever the robots ended.</li>
       </ul>
+      <p><strong>Two input modes.</strong> <em>Plan (default): moves are hidden until you submit.</em> <em>Live: robots move as you enter moves (choose it in Settings).</em></p>
       <p><strong>Plan mode (default).</strong> The board does not move while you enter a line. Pick a robot (tap it, or press R, G, B or Y), then add steps with an arrow key or W A S D, the pad, a tap on the board, or a swipe. Steps appear in the plan list, and nothing says whether a step is legal; a step that cannot move still counts as a move. U or Backspace removes the last step, Esc clears the plan, and Enter or Submit plays it on the board. If the target robot stops on the target at some step the round is solved with that many moves; later steps are ignored. Otherwise the board returns to the start, your plan stays for editing, and the clock keeps running.</p>
       <p><strong>Live mode.</strong> Choose it in Settings. Each move slides immediately, only legal directions are offered, U or Backspace undoes a move, and Esc resets the round.</p>
       <p className="ricochet-credit">Ricochet Robots was designed by Alex Randolph. This is an independent, solo implementation.</p>
@@ -388,7 +389,10 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     if (phaseRef.current !== 'play') return;
     setSelected(robot);
     setNotice('');
-    setPlan(p => (p.length >= MAX_PLAN ? p : [...p, { robot, dir }]));
+    if (planRef.current.length < MAX_PLAN) {
+      planRef.current = [...planRef.current, { robot, dir }];
+      setPlan(planRef.current);
+    }
     setStatus(`${COLOR_LABEL[robot]} ${DIR_NAME[dir]} added to the plan.`);
   }, []);
 
@@ -400,11 +404,13 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   const removeStep = useCallback(() => {
     if (phaseRef.current !== 'play') return;
     setNotice('');
-    setPlan(p => p.slice(0, -1));
+    planRef.current = planRef.current.slice(0, -1);
+    setPlan(planRef.current);
   }, []);
   const clearPlan = useCallback(() => {
     if (phaseRef.current !== 'play') return;
-    setPlan([]);
+    planRef.current = [];
+    setPlan(planRef.current);
     setNotice('');
     setStatus('Plan cleared.');
   }, []);
@@ -433,20 +439,21 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
 
     let finishSolved = null;
     if (solvedAt > 0) {
-      const timeMs = stopClock();
+      // Recorded now, at the moment of submission. The clock, rating, status text and
+      // board are only updated when the replay ends, so none of them hints at the outcome.
+      const timeMs = clockNow();
       const entry = recordRound({ optimal: round.length, moves: solvedAt, timeMs });
-      setRating(loadRating());
       const playerMoves = steps.slice(0, solvedAt).map(({ robot, dir }) => ({ robot, dir }));
-      for (const m of playerMoves) board.applyMove(m); // claim the target on the real board
-      setStatus(`Solved in ${solvedAt} moves.`);
       finishSolved = () => {
+        clock.current = { running: false, accum: timeMs, since: null };
+        setElapsed(timeMs);
+        setRating(loadRating());
+        for (const m of playerMoves) board.applyMove(m); // claim the target on the real board
+        setStatus(`Solved in ${solvedAt} moves.`);
         setOverlayCells(null);
         setResults({ entry, revealed: false, moves: solvedAt, timeMs, playerMoves });
         setPhase((phaseRef.current = 'results'));
       };
-    } else {
-      setStatus('Not solved. The board is back at the start; edit the plan and submit again.');
-      setNotice('Not solved. Edit your plan and submit again.');
     }
 
     const run = (i) => {
@@ -458,6 +465,8 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
           setSlideMs(quick ? 0 : 150);
           if (finishSolved) { finishSolved(); return; }
           setOverlayCells(null);
+          setStatus('Not solved. The board is back at the start; edit the plan and submit again.');
+          setNotice('Not solved. Edit your plan and submit again.');
           setPhase((phaseRef.current = 'play'));
         }, finishSolved ? 200 : (quick ? 300 : PLAN_HOLD_MS));
         return;
@@ -474,7 +483,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
       }, quick ? 40 : PLAN_STEP_MS);
     };
     run(0);
-  }, [board, round, later, stopClock]);
+  }, [board, round, later, clockNow]);
 
   const changeMode = useCallback((next) => {
     if (next === modeRef.current || phaseRef.current === 'submit') return;
@@ -551,6 +560,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   // ---- keyboard --------------------------------------------------------------
   const keyRef = useRef(null);
   keyRef.current = (e) => {
+    if (e.repeat) return; // holding a key must not append or submit repeatedly
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     const t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;

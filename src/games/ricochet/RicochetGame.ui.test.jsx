@@ -930,3 +930,105 @@ describe('final hardening', () => {
     }
   });
 });
+
+describe('no spoilers and input hygiene in plan mode', () => {
+  const planText = () => (screen.queryByRole('list', { name: 'Planned moves' }) || { textContent: '' }).textContent;
+  const advance = (ms) => act(() => { jest.advanceTimersByTime(ms); });
+  const statusText = () => document.querySelector('.ricochet-sr').textContent;
+  beforeEach(() => { localStorage.removeItem('ricochetInputMode'); jest.useFakeTimers(); });
+  afterEach(() => { jest.useRealTimers(); });
+
+  test('a failed submit shows its message only after the replay and the hold', () => {
+    mount();
+    deliver(ROUND);
+    press('ArrowRight');
+    press('Enter');
+    expect(screen.queryByTestId('plan-notice')).toBeNull();
+    expect(statusText()).not.toMatch(/Not solved/);
+    advance(300); // the step plays
+    expect(screen.queryByTestId('plan-notice')).toBeNull();
+    advance(700); // still holding the final position
+    expect(screen.queryByTestId('plan-notice')).toBeNull();
+    expect(statusText()).not.toMatch(/Not solved/);
+    advance(200); // hold over, the board snaps back
+    expect(screen.getByTestId('plan-notice').textContent).toMatch(/Not solved/);
+    expect(statusText()).toMatch(/Not solved/);
+  });
+
+  test('a solving submit does not move the clock, rating or status until the replay ends', () => {
+    mount();
+    deliver(ROUND);
+    advance(2000);
+    press('ArrowUp'); press('ArrowRight'); press('ArrowDown'); // a blocked step, then the solve at step 3
+    press('Enter');
+    advance(1000); // the clock keeps running during a solving replay exactly as during a failing one
+    expect(screen.getByTestId('clock').textContent).toBe('0:03');
+    expect(screen.getByTestId('hud-rating').textContent).toBe('1200');
+    expect(statusText()).not.toMatch(/Solved/);
+    advance(2000);
+    expect(screen.getByRole('region', { name: 'Round results' })).toBeTruthy();
+    expect(screen.getByTestId('hud-rating').textContent).not.toBe('1200');
+    expect(statusText()).toMatch(/Solved in 3/);
+    expect(history()[0].timeMs).toBe(2000);
+    expect(screen.getByTestId('clock').textContent).toBe('0:02'); // frozen at the submission time
+  });
+
+  test('a step and Enter in the same tick submit the step', () => {
+    mount();
+    deliver(ROUND);
+    pressTogether('ArrowRight', 'ArrowDown', 'Enter');
+    advance(3000);
+    expect(history()).toHaveLength(1);
+    expect(history()[0].moves).toBe(2);
+  });
+
+  test('a held key (auto-repeat) neither appends steps nor submits', () => {
+    mount();
+    deliver(ROUND);
+    act(() => { for (let i = 0; i < 5; i++) fireEvent.keyDown(window, { key: 'ArrowRight', repeat: true }); });
+    expect(planText()).toBe('');
+    press('ArrowRight');
+    act(() => { fireEvent.keyDown(window, { key: 'Enter', repeat: true }); });
+    advance(2000);
+    expect(planText()).toBe('R→');
+    expect(screen.queryByTestId('plan-notice')).toBeNull();
+  });
+
+  test('nothing appends to the plan during or after a replay', () => {
+    mount();
+    deliver(ROUND);
+    press('ArrowRight');
+    press('Enter');
+    press('ArrowDown'); // during the replay
+    fireEvent.click(screen.getByRole('button', { name: 'Move west' }));
+    expect(planText()).toBe('R→');
+    advance(3000);
+    expect(planText()).toBe('R→'); // the replay did not re-use the append path
+    expect(screen.getByTestId('plan-count').textContent).toMatch(/1 step\b/);
+  });
+
+  test('a press that began on the board but ended elsewhere does not pair with a later release', () => {
+    if (!window.PointerEvent) {
+      window.PointerEvent = class extends MouseEvent {
+        constructor(type, init = {}) { super(type, init); this.pointerId = init.pointerId; this.isPrimary = init.isPrimary ?? true; }
+      };
+    }
+    mount();
+    deliver(ROUND);
+    const svg = screen.getByRole('img', { name: /Ricochet board/ });
+    svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 656, height: 656, right: 656, bottom: 656 });
+    fireEvent.pointerDown(svg, { clientX: 28, clientY: 28 });
+    fireEvent.pointerUp(document.body, { clientX: 900, clientY: 28 }); // released off the board
+    fireEvent.pointerUp(svg, { clientX: 300, clientY: 300 }); // an unrelated release over the board
+    expect(planText()).toBe('');
+  });
+
+  test('How to play names both input modes explicitly', () => {
+    mount();
+    deliver(ROUND);
+    fireEvent.click(screen.getByRole('button', { name: 'How to play' }));
+    const text = screen.getByRole('dialog', { name: 'How to play' }).textContent;
+    expect(text).toMatch(/Plan \(default\): moves are hidden until you submit/);
+    expect(text).toMatch(/Live: robots move as you enter moves/);
+  });
+});
