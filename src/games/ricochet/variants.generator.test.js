@@ -81,7 +81,7 @@ describe.each(VARIANTS.map(c => [configKey(c), c]))('config %s', (_name, config)
   });
 
   test('walls are symmetric across every shared edge and the border is closed', () => {
-    for (const [seed, { walls }] of boards.slice(0, 100)) {
+    for (const [seed, { walls }] of boards) {
       expect(walls.length).toBe(size * size);
       for (let cell = 0; cell < size * size; cell++) {
         for (let d = 0; d < 4; d++) {
