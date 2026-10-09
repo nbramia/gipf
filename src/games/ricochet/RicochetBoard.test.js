@@ -62,6 +62,27 @@ describe('sliding', () => {
     expect(board.moves).toHaveLength(0);
   });
 
+  test('rejects non-allowlisted robots and directions without hanging', () => {
+    const board = buildBoard({ robots: { red: [5, 5], ...FAR }, target });
+    const before = board.getStateHash();
+    const bad = [
+      { robot: 'red', dir: 'toString' },
+      { robot: 'red', dir: '__proto__' },
+      { robot: 'red', dir: undefined },
+      { robot: 'red', dir: 'n' },
+      { robot: 'purple', dir: 'N' },
+      { robot: 'toString', dir: 'N' },
+      { robot: '__proto__', dir: 'N' },
+      { robot: undefined, dir: 'N' },
+      {},
+    ];
+    for (const m of bad) expect(board.applyMove(m)).toBe(false);
+    expect(board.applyMove()).toBe(false);
+    expect(board.getDestination('red', 'toString')).toBeNull();
+    expect(board.getStateHash()).toBe(before);
+    expect(board.moves).toHaveLength(0);
+  });
+
   test('getLegalMoves lists exactly the moving directions', () => {
     const board = buildBoard({ robots: { red: [5, 5], ...FAR }, target });
     expect(board.getLegalMoves().filter(m => m.robot === 'red')).toHaveLength(4);

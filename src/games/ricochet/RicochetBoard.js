@@ -86,6 +86,7 @@ export default class RicochetBoard {
 
   // Where `robot` would stop sliding `dir` ('N'|'E'|'S'|'W') from where it is now.
   getDestination(robot, dir) {
+    if (!ROBOTS.includes(robot) || !DIRS.includes(dir)) return null;
     return slide(this.walls, this.robots[robot], DIR_INDEX[dir], this._occupied());
   }
 
@@ -109,7 +110,7 @@ export default class RicochetBoard {
   // Returns the move record {robot, dir, from, to}, or false if illegal.
   applyMove({ robot, dir } = {}) {
     if (this.currentTargetId == null || this.solved) return false;
-    if (!(robot in this.robots) || !(dir in DIR_INDEX)) return false;
+    if (!ROBOTS.includes(robot) || !DIRS.includes(dir)) return false;
     const from = this.robots[robot];
     const to = this.getDestination(robot, dir);
     if (to === from) return false;
