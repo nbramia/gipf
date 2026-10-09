@@ -85,10 +85,10 @@ export default function RicochetBoardView({
   };
 
   const onPointerDown = (e) => {
-    if (!interactive) return;
+    if (!interactive || e.button !== 0 || !e.isPrimary) return;
     const cell = cellAt(e.clientX, e.clientY);
     const robot = ROBOTS.find(r => robotCells[r] === cell) || null;
-    swipe.current = { x: e.clientX, y: e.clientY, robot };
+    swipe.current = { x: e.clientX, y: e.clientY, robot, pointerId: e.pointerId };
   };
   // A tap on empty board slides the selected robot along the dominant axis from
   // its centre to the tap point; a tap on a robot (or its arrows) is handled by
@@ -109,8 +109,9 @@ export default function RicochetBoardView({
   };
   const onPointerUp = (e) => {
     const s = swipe.current;
+    if (!s || e.button !== 0 || e.pointerId !== s.pointerId) return;
     swipe.current = null;
-    if (!s || !interactive) return;
+    if (!interactive) return;
     const dx = e.clientX - s.x;
     const dy = e.clientY - s.y;
     if (Math.max(Math.abs(dx), Math.abs(dy)) < SWIPE_PX) { tap(e); return; }
@@ -137,7 +138,7 @@ export default function RicochetBoardView({
       aria-label="Ricochet board, 16 by 16 grid"
       onPointerDown={onPointerDown}
       onPointerUp={onPointerUp}
-      onPointerCancel={() => { swipe.current = null; }}
+      onPointerCancel={(e) => { if (swipe.current && e.pointerId === swipe.current.pointerId) swipe.current = null; }}
     >
       <rect x={PAD} y={PAD} width={SIZE * S} height={SIZE * S} fill="var(--rc-board)" />
       {Array.from({ length: CELLS }, (_, cell) => (

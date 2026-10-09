@@ -1,6 +1,6 @@
 // RicochetGame.jsx - solo Ricochet: slide robots until the target colour lands on its symbol.
 
-import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import RicochetBoard, { ROBOTS, DIRS } from './RicochetBoard.js';
 import { desiredLength, isProvisional, PROVISIONAL_ROUNDS } from './engine/rating.js';
@@ -17,6 +17,7 @@ const KEY_TO_DIR = {
 };
 const DIR_GLYPH = { N: '▲', E: '▶', S: '▼', W: '◀' };
 const REPLAY_STEP_MS = 800;
+const DEAL_TIMEOUT_MS = 8000;
 
 const makeSeed = () => Math.floor(Math.random() * 1e9) + 1;
 const reducedMotion = () => {
@@ -35,6 +36,16 @@ const fmtTime = ms => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 };
 const cellDistance = (a, b) => Math.abs(((a / 16) | 0) - ((b / 16) | 0)) + Math.abs((a % 16) - (b % 16));
+// Undo may step back within the current round only (including back over a reset),
+// never into the previous round's last position.
+function canUndoInRound(board) {
+  if (!board.canUndo()) return false;
+  try {
+    return JSON.parse(board.stateHistory[board.historyIndex - 1]).currentTargetId === board.currentTargetId;
+  } catch {
+    return false;
+  }
+}
 const slideFor = (from, to) => (reducedMotion() ? 0 : 90 + 26 * cellDistance(from, to));
 
 function targetLabel(t) {
@@ -147,15 +158,15 @@ function Sparkline({ series }) {
 }
 
 function ProgressPanel({ rating, history }) {
-  const s = summarize(history);
+  const s = useMemo(() => summarize(history), [history]);
   const recent = history.slice(-10).reverse();
   return (
     <div>
       <div className="ricochet-stat-grid">
         <div><span className="ricochet-stat-n" data-testid="progress-rating">{rating.rating}</span><span className="ricochet-stat-l">{isProvisional(rating.rounds) ? `Rating, provisional (${rating.rounds}/${PROVISIONAL_ROUNDS} rounds)` : 'Rating'}</span></div>
-        <div><span className="ricochet-stat-n">{s.roundsPlayed ? pct(s.avgQuality) : '-'}</span><span className="ricochet-stat-l">Avg quality</span></div>
-        <div><span className="ricochet-stat-n">{s.roundsPlayed ? s.avgSecondsPerOptimalMove.toFixed(1) : '-'}</span><span className="ricochet-stat-l">Sec per optimal move</span></div>
-        <div><span className="ricochet-stat-n">{s.roundsPlayed ? pct(s.optimalShare) : '-'}</span><span className="ricochet-stat-l">Optimal</span></div>
+        <div><span className="ricochet-stat-n">{s.avgQuality == null ? '–' : pct(s.avgQuality)}</span><span className="ricochet-stat-l">Avg quality</span></div>
+        <div><span className="ricochet-stat-n">{s.avgSecondsPerOptimalMove == null ? '–' : s.avgSecondsPerOptimalMove.toFixed(1)}</span><span className="ricochet-stat-l">Sec per optimal move</span></div>
+        <div><span className="ricochet-stat-n">{s.roundsPlayed ? pct(s.optimalShare) : '–'}</span><span className="ricochet-stat-l">Optimal</span></div>
         <div><span className="ricochet-stat-n">{s.revealedCount}</span><span className="ricochet-stat-l">Revealed</span></div>
       </div>
       <p className="ricochet-muted">Averages cover the last {s.roundsPlayed} round{s.roundsPlayed === 1 ? '' : 's'} (up to 20).</p>
@@ -200,7 +211,8 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   const [errorText, setErrorText] = useState('');
   const [elapsed, setElapsed] = useState(0);
 
-  const { requestRound } = useSolverWorker();
+  const { requestRound, cancel } = useSolverWorker();
+  const dealId = useRef(0);
   const phaseRef = useRef(phase);
   phaseRef.current = phase;
   const clock = useRef({ running: false, accum: 0, since: null });
@@ -266,6 +278,13 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     setResults(null);
     setOverlayCells(null);
     setErrorText('');
+    const myDeal = ++dealId.current;
+    later(() => {
+      if (dealId.current !== myDeal || phaseRef.current !== 'dealing') return;
+      cancel();
+      setErrorText('Dealing is taking too long.');
+      setPhase('error');
+    }, DEAL_TIMEOUT_MS);
     const state = { ...board.serializeState(), stateHistory: [], historyIndex: -1 };
     requestRound(state, desiredLength(loadRating().rating), (picked) => {
       if (picked && picked.needsNewBoard) {
@@ -291,7 +310,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
       setErrorText(message || 'Could not deal a puzzle.');
       setPhase('error');
     });
-  }, [board, requestRound, startClock]);
+  }, [board, requestRound, startClock, cancel, later]);
 
   useEffect(() => { deal(); }, [deal]);
 
@@ -322,7 +341,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   }, [board, finishSolve]);
 
   const undo = useCallback(() => {
-    if (phaseRef.current !== 'play' || board.moves.length === 0) return;
+    if (phaseRef.current !== 'play' || !canUndoInRound(board)) return;
     board.undo();
     setSlideMs(reducedMotion() ? 0 : 120);
     setStatus(`Undid a move. ${board.moves.length} moves.`);
@@ -425,6 +444,8 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
 
   // ---- render ----------------------------------------------------------------
   const live = phase === 'play';
+  // Read once when the panel opens, not on every clock tick.
+  const progressHistory = useMemo(() => (panel === 'progress' ? loadHistory() : []), [panel]);
   const target = board.getTarget();
   const robotCells = overlayCells || board.robots;
   const legal = live ? board.getLegalMoves().filter(m => m.robot === selected) : [];
@@ -531,7 +552,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
               ))}
             </div>
             <div className="ricochet-actions">
-              <button type="button" className="ricochet-btn" disabled={!live || board.moves.length === 0} onClick={undo}>Undo</button>
+              <button type="button" className="ricochet-btn" disabled={!live || !canUndoInRound(board)} onClick={undo}>Undo</button>
               <button type="button" className="ricochet-btn" disabled={!live || board.moves.length === 0} onClick={reset}>Reset</button>
               <button type="button" className="ricochet-btn ricochet-btn-danger" disabled={!live} onClick={() => setConfirmGiveUp(true)}>Give up</button>
             </div>
@@ -574,7 +595,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
       </div>
 
       {panel === 'help' && <Panel title="How to play" onClose={() => setPanel(null)}><HowToPlay /></Panel>}
-      {panel === 'progress' && <Panel title="Progress" onClose={() => setPanel(null)}><ProgressPanel rating={rating} history={loadHistory()} /></Panel>}
+      {panel === 'progress' && <Panel title="Progress" onClose={() => setPanel(null)}><ProgressPanel rating={rating} history={progressHistory} /></Panel>}
       {confirmGiveUp && (
         <ConfirmDialog
           title="Give up this puzzle?"

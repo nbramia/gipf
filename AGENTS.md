@@ -667,7 +667,13 @@ To add a new GIPF Project game (e.g., DVONN, TZAAR):
 7. Add a `BoardMotif` branch for the new path in `src/LandingPage.jsx` (otherwise it falls through to the Diplomacy motif), and a colour in `src/landing.css` if wanted
 8. Add the route to the route lists in `tests/emit-tiles.test.mjs` and `tests/auth-browser.mjs`, and update the card-count comment in `src/LandingPage.test.jsx`
 9. Use `<name>` prefix for localStorage keys, and add every key the game stores to `PROGRESS_KEYS` in `src/account.js` (sign-out and account switching clear and retain it)
-10. Games that resume matches also join the match system: `src/matchSchema.js`, `server/matchValidation.js`, `src/games/<name>/matchSnapshot.js`, and the per-game lists in `src/migrationSchema.js` and `docs/resumable-matches.md`
+10. Games that resume matches also join the match system. Add the game's `matchSnapshot.js` (`encodeBoard`/`decodeMatch`) and register it in:
+    - `src/matchSchema.js` (`MATCH_GAMES`) and `server/matchValidation.js` (`decoders`)
+    - `api/chessProfile.js` (the match-scope game list)
+    - `server/migrationActivation.js` (`games`, and `MIGRATION_LIMITS.matches` if the count of match games grows)
+    - `src/migration.js` (`GAMES`) and `src/migrationSchema.js` (the `<game>-match` kind regex and the per-game preference allowlist)
+    - `src/migrationMatchSchema.js` (`adapters`, `states`, and the UI-state shape)
+    - `src/account.js` `PROGRESS_KEYS` (`<game>Match:v1`, `<game>MatchSync:v1`, `<game>MatchRecovery:v1`) and `docs/resumable-matches.md`
 11. Add `docs/<name>.md` and update README, `docs/architecture.md`, `docs/agents.md` and this file
 
 Games must be fully self-contained -- no imports between game directories.

@@ -102,7 +102,8 @@ export function recordRound(input) {
   return entry;
 }
 
-const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+// null when there is nothing to average (for example every recent round was revealed).
+const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
 
 export function summarize(history, { window = DEFAULT_WINDOW } = {}) {
   const recent = history.slice(-window);

@@ -285,7 +285,15 @@ describe('pointer input on the board', () => {
   const centre = (row, col) => [8 + col * 40 + 20, 8 + row * 40 + 20];
   let svg;
   beforeAll(() => {
-    if (!window.PointerEvent) window.PointerEvent = class extends MouseEvent {};
+    if (!window.PointerEvent) {
+      window.PointerEvent = class extends MouseEvent {
+        constructor(type, init = {}) {
+          super(type, init);
+          this.pointerId = init.pointerId;
+          this.isPrimary = init.isPrimary ?? true;
+        }
+      };
+    }
   });
   beforeEach(() => {
     mount();
@@ -323,6 +331,23 @@ describe('pointer input on the board', () => {
     fireEvent.pointerDown(svg, { clientX: x, clientY: y });
     fireEvent.pointerUp(svg, { clientX: x + 5, clientY: y + 80 });
     expect(redCell()).toBe(cellOf(14, 0));
+  });
+  test('right and middle clicks do not move the selected robot', () => {
+    for (const button of [1, 2]) {
+      fireEvent.pointerDown(svg, { clientX: 628, clientY: 28, button });
+      fireEvent.pointerUp(svg, { clientX: 628, clientY: 28, button });
+    }
+    expect(screen.getByTestId('move-count').textContent).toBe('0');
+    expect(redCell()).toBe(cellOf(0, 0));
+  });
+  test('a second touch does not overwrite the swipe in progress', () => {
+    const [x, y] = centre(0, 0);
+    fireEvent.pointerDown(svg, { clientX: x, clientY: y, pointerId: 1, isPrimary: true });
+    fireEvent.pointerDown(svg, { clientX: 300, clientY: 300, pointerId: 2, isPrimary: false });
+    fireEvent.pointerUp(svg, { clientX: 300, clientY: 300, pointerId: 2, isPrimary: false });
+    expect(screen.getByTestId('move-count').textContent).toBe('0');
+    fireEvent.pointerUp(svg, { clientX: x + 80, clientY: y, pointerId: 1, isPrimary: true });
+    expect(redCell()).toBe(cellOf(0, 15)); // the first finger's swipe still counts
   });
   test('tapping an on-board arrow moves exactly once', () => {
     const arrow = screen.getByTestId('arrow-E');
@@ -480,5 +505,104 @@ describe('an exhausted pile', () => {
     deliver({ targetId: 0, length: 3, solution: [] });
     expect(screen.queryByRole('alert')).toBeNull();
     expect(screen.getByRole('region', { name: 'Controls' })).toBeTruthy();
+  });
+});
+
+describe('undo and reset', () => {
+  const redCell = () => Number(screen.getByTestId('robot-red').getAttribute('data-cell'));
+  test('undo is unavailable at the start of a round and never reaches into the previous one', async () => {
+    mount();
+    deliver(ROUND);
+    expect(screen.getByRole('button', { name: 'Undo' }).disabled).toBe(true);
+    press('u');
+    expect(screen.getByTestId('move-count').textContent).toBe('0');
+    expect(screen.getByTestId('hud-target').textContent).toMatch(/Red circle/);
+    press('ArrowRight'); press('ArrowDown');
+    await results();
+    fireEvent.click(screen.getByRole('button', { name: 'Next puzzle' }));
+    deliver({ targetId: 1, length: 3, solution: [] });
+    expect(screen.getByRole('button', { name: 'Undo' }).disabled).toBe(true);
+    press('Backspace');
+    expect(screen.getByTestId('hud-target').textContent).toMatch(/Red square/);
+    expect(redCell()).toBe(cellOf(15, 15));
+  });
+  test('undo after reset restores the moves from before the reset', () => {
+    mount();
+    deliver(ROUND);
+    press('ArrowRight');
+    press('Escape');
+    expect(screen.getByTestId('move-count').textContent).toBe('0');
+    expect(redCell()).toBe(cellOf(0, 0));
+    expect(screen.getByRole('button', { name: 'Undo' }).disabled).toBe(false);
+    press('u');
+    expect(screen.getByTestId('move-count').textContent).toBe('1');
+    expect(redCell()).toBe(cellOf(0, 15));
+    fireEvent.click(screen.getByRole('button', { name: 'Reset' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(screen.getByTestId('move-count').textContent).toBe('1');
+  });
+});
+
+describe('progress panel', () => {
+  const revealed = (at) => ({
+    at, optimal: 3, moves: 0, timeMs: 5000, revealed: true, quality: 0, pace: 1, score: 0, ratingBefore: 1200, ratingAfter: 1190,
+  });
+  test('shows a dash, not 0%, when no recent round was solved', () => {
+    localStorage.setItem('ricochetHistory', JSON.stringify([revealed(1), revealed(2)]));
+    mount();
+    deliver(ROUND);
+    fireEvent.click(screen.getByRole('button', { name: 'Progress' }));
+    const dialog = screen.getByRole('dialog', { name: 'Progress' });
+    expect(dialog.textContent).toMatch(/–Avg quality/);
+    expect(dialog.textContent).toMatch(/–Sec per optimal move/);
+    expect(dialog.textContent).not.toMatch(/0\.0/);
+  });
+  test('history is read when the panel opens, not on every clock tick', () => {
+    jest.useFakeTimers();
+    const spy = jest.spyOn(Storage.prototype, 'getItem');
+    try {
+      mount();
+      deliver(ROUND);
+      fireEvent.click(screen.getByRole('button', { name: 'Progress' }));
+      const reads = () => spy.mock.calls.filter(([k]) => k === 'ricochetHistory').length;
+      const before = reads();
+      expect(before).toBeGreaterThan(0);
+      act(() => { jest.advanceTimersByTime(2000); });
+      expect(reads()).toBe(before);
+    } finally {
+      spy.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+});
+
+describe('dealing that never finishes', () => {
+  test('after 8 seconds the error state offers Try again', () => {
+    jest.useFakeTimers();
+    try {
+      mount();
+      act(() => { jest.advanceTimersByTime(7900); });
+      expect(screen.getByText('Dealing a puzzle…')).toBeTruthy();
+      act(() => { jest.advanceTimersByTime(200); });
+      expect(screen.getByRole('alert').textContent).toMatch(/taking too long/);
+      expect(worker().terminate).toHaveBeenCalled();
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+      expect(screen.getByText('Dealing a puzzle…')).toBeTruthy();
+      deliver(ROUND);
+      expect(screen.getByRole('region', { name: 'Controls' })).toBeTruthy();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+  test('a round dealt in time is not turned into an error later', () => {
+    jest.useFakeTimers();
+    try {
+      mount();
+      deliver(ROUND);
+      act(() => { jest.advanceTimersByTime(20000); });
+      expect(screen.queryByRole('alert')).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

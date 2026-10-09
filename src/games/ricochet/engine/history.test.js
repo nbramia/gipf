@@ -190,10 +190,19 @@ describe('summarize', () => {
     expect(s.avgSecondsPerOptimalMove).toBeCloseTo(2, 10);
   });
 
+  test('averages are null, not zero, when every round in the window was revealed', () => {
+    const s = summarize([entry({ revealed: true, quality: 1, score: 0 }), entry({ revealed: true, quality: 1, score: 0 })]);
+    expect(s.roundsPlayed).toBe(2);
+    expect(s.revealedCount).toBe(2);
+    expect(s.avgQuality).toBeNull();
+    expect(s.avgSecondsPerOptimalMove).toBeNull();
+    expect(s.optimalShare).toBe(0);
+  });
+
   test('empty history yields zeros', () => {
     expect(summarize([])).toEqual({
-      ratingSeries: [], roundsPlayed: 0, avgQuality: 0,
-      avgSecondsPerOptimalMove: 0, optimalShare: 0, revealedCount: 0,
+      ratingSeries: [], roundsPlayed: 0, avgQuality: null,
+      avgSecondsPerOptimalMove: null, optimalShare: 0, revealedCount: 0,
     });
   });
 });
