@@ -59,10 +59,12 @@ const begin = () => {
   click('Start Sprint');
   deliver(puzzle(0));
 };
-// Solves puzzle i by key and waits out the slide; the toast shows and the next puzzle is dealt.
+// Solves puzzle i by key and waits out the slide; the toast shows and the next puzzle is asked
+// for from where the robots ended, and dealt.
 const solve = (i) => {
   KEYS(i).forEach(press);
   advance(1000);
+  deliver(puzzle(i + 1));
 };
 
 beforeEach(() => {
@@ -165,7 +167,6 @@ describe('setup', () => {
   test('the session keeps the setup it started with: results go to that setup\'s leaderboard', () => {
     mount();
     begin();
-    deliver(puzzle(1));
     solve(0);
     click('End early');
     click('End Sprint');
@@ -191,11 +192,11 @@ describe('the 5:00 clock counts active time only', () => {
     mount();
     begin();
     advance(2000);
-    click('Skip'); // the next puzzle is still being dealt
+    click('Skip'); // the next puzzle is being dealt
     expect(screen.getByText('Dealing a puzzle…')).toBeTruthy();
     advance(12000);
     expect(clockText()).toBe('4:58');
-    deliver(puzzle(1));
+    deliver(puzzle(2));
     expect(clockText()).toBe('4:58');
     advance(3000);
     expect(clockText()).toBe('4:55');
@@ -243,28 +244,26 @@ describe('puzzles and points', () => {
   test('a solve scores round(100 x quality x pace) of that puzzle alone, with a +N toast, then the next puzzle', () => {
     mount();
     begin();
-    deliver(puzzle(1)); // the puzzle dealt ahead
     advance(90000); // slow first puzzle
     KEYS(0).forEach(press);
     const expected = Math.round(100 * scoreRound({ optimal: 2, moves: 2, timeMs: 90000 }).score);
     expect(expected).toBeGreaterThan(30);
     expect(expected).toBeLessThan(100);
     advance(1000);
+    deliver(puzzle(1));
     expect(points()).toBe(String(expected));
     expect(screen.getByTestId('sprint-toast').textContent).toBe(`+${expected}`);
     // the next puzzle is up with a fresh move count; its own clock starts at zero
     expect(screen.getByTestId('move-count').textContent).toBe('0');
     expect(screen.getByTestId('hud-target').textContent).toMatch(/Red circle/);
     // a fast, optimal solve of puzzle 1 scores the full 100
-    KEYS(1).forEach(press);
-    advance(1000);
+    solve(1);
     expect(points()).toBe(String(expected + 100));
   });
 
   test('extra moves lower quality: 4 moves for an optimal 2 is half marks', () => {
     mount();
     begin();
-    deliver(puzzle(1));
     ['ArrowRight', 'ArrowLeft', 'ArrowRight', 'ArrowDown'].forEach(press);
     advance(1000);
     expect(points()).toBe('50');
@@ -274,39 +273,27 @@ describe('puzzles and points', () => {
   test('the toast goes away by itself', () => {
     mount();
     begin();
-    deliver(puzzle(1));
     solve(0);
     expect(screen.getByTestId('sprint-toast')).toBeTruthy();
     advance(2000);
     expect(screen.queryByTestId('sprint-toast')).toBeNull();
   });
 
-  test('the next puzzle appears at once when it was dealt ahead: no dealing screen, no new request', () => {
+  test('the next puzzle is dealt from the robots where the player left them, not from the optimal line', () => {
     mount();
     begin();
-    deliver(puzzle(1));
-    const before = requests();
-    KEYS(0).forEach(press);
+    // blue takes a detour south, then red solves in 3 moves: not the optimal line
+    ['b', 'ArrowDown', 'r', 'ArrowRight', 'ArrowDown'].forEach(press);
     advance(1000);
-    expect(screen.queryByText('Dealing a puzzle…')).toBeNull();
-    // the only request since is the one for the puzzle after next
-    expect(requests()).toBe(before + 1);
-    // and the robots start where the optimal line of the last puzzle ended
+    const sent = worker().postMessage.mock.calls.slice(-1)[0][0].data.boardState;
+    expect(sent.robots.blue).toBe(cellOf(15, 12));
+    expect(sent.robots.red).toBe(cellOf(15, 15));
+    deliver(puzzle(1));
+    expect(screen.getByTestId('robot-blue').getAttribute('data-cell')).toBe(String(cellOf(15, 12)));
     expect(screen.getByTestId('robot-red').getAttribute('data-cell')).toBe(String(cellOf(15, 15)));
+    expect(points()).toBe('67');
   });
 
-  test('if the solve beats the prefetch, dealing waits for it and does not ask twice', () => {
-    mount();
-    begin();
-    const before = requests();
-    solve(0);
-    expect(screen.getByText('Dealing a puzzle…')).toBeTruthy();
-    expect(requests()).toBe(before);
-    advance(5000);
-    expect(clockText()).toBe('5:00'); // only the 0.68 s slide counted; the wait for the deal did not
-    deliver(puzzle(1));
-    expect(screen.queryByText('Dealing a puzzle…')).toBeNull();
-  });
 });
 
 describe('difficulty ramp', () => {
@@ -314,25 +301,21 @@ describe('difficulty ramp', () => {
     mount();
     begin();
     for (let i = 0; i < 5; i++) {
-      deliver(puzzle(i + 1)); // prefetch for the puzzle after this one
       solve(i);
     }
     expect(wanted().slice(0, 6)).toEqual([3, 3, 4, 4, 5, 5]);
   });
 
-  test('a skip does not advance the ramp: if the prefetch was aimed higher, a fresh puzzle is dealt at the right length', () => {
+  test('a skip does not advance the ramp', () => {
     mount();
     begin();
-    deliver(puzzle(1));
-    solve(0); // 1 solved; the puzzle ahead (for 2 solved) is now being asked for
-    expect(wanted()).toEqual([3, 3, 4]);
-    click('Skip'); // still 1 solved: the length is 3, but the one ahead was aimed at 4
-    expect(wanted()).toEqual([3, 3, 4, 3]);
-    // the skipped target is spent, and the round it left behind is back at its start
-    const sent = worker().postMessage.mock.calls.slice(-1)[0][0].data.boardState;
-    expect(sent.claimed).toEqual([0, 1]);
+    click('Skip');
     deliver(puzzle(2));
-    expect(screen.getByTestId('move-count').textContent).toBe('0');
+    click('Skip');
+    expect(wanted()).toEqual([3, 3, 3]);
+    deliver(puzzle(4));
+    solve(4);
+    expect(wanted()).toEqual([3, 3, 3, 3]); // one solve is still length 3
   });
 
   test('the ramp stops at 9', () => {
@@ -340,7 +323,6 @@ describe('difficulty ramp', () => {
     begin();
     const total = 16;
     for (let i = 0; i < total; i++) {
-      deliver(puzzle(i + 1));
       solve(i);
     }
     const all = wanted();
@@ -353,26 +335,50 @@ describe('skip', () => {
   test('scores 0, deals the next puzzle, reveals nothing and spends the target', () => {
     mount();
     begin();
-    deliver(puzzle(1));
     click('Skip');
+    const sent = worker().postMessage.mock.calls.slice(-1)[0][0].data.boardState;
+    expect(sent.claimed).toContain(0);
+    deliver(puzzle(2));
     expect(points()).toBe('0');
     expect(screen.getByTestId('sprint-toast').textContent).toBe('Skipped');
     expect(screen.queryByRole('region', { name: 'Round results' })).toBeNull();
     expect(screen.queryByTestId('res-optimal')).toBeNull();
     expect(screen.getByTestId('move-count').textContent).toBe('0');
-    // The skipped puzzle is gone: the board carries on with the next one from the line's end.
-    expect(screen.getByTestId('robot-red').getAttribute('data-cell')).toBe(String(cellOf(15, 15)));
-    solve(1);
+    solve(2);
     expect(points()).toBe('100');
+  });
+
+  test('leaves every robot exactly where it was and deals the next puzzle from those positions', () => {
+    mount();
+    begin();
+    const cells = () => ['red', 'green', 'blue', 'yellow'].map(r => screen.getByTestId(`robot-${r}`).getAttribute('data-cell'));
+    const before = cells();
+    click('Skip');
+    const sent = worker().postMessage.mock.calls.slice(-1)[0][0].data.boardState;
+    expect(sent.robots).toEqual({ red: cellOf(0, 0), green: cellOf(3, 3), blue: cellOf(12, 12), yellow: cellOf(3, 12) });
+    deliver(puzzle(2));
+    expect(cells()).toEqual(before);
+    expect(screen.getByTestId('robot-red').getAttribute('data-cell')).not.toBe(String(cellOf(15, 15)));
+  });
+
+  test('after moves were made, the robots stay where the player had put them', () => {
+    mount();
+    begin();
+    press('ArrowRight'); // red to the top-right corner
+    click('Skip');
+    const sent = worker().postMessage.mock.calls.slice(-1)[0][0].data.boardState;
+    expect(sent.robots.red).toBe(cellOf(0, 15));
+    deliver(puzzle(1));
+    expect(screen.getByTestId('robot-red').getAttribute('data-cell')).toBe(String(cellOf(0, 15)));
   });
 
   test('is counted on the results screen', () => {
     mount();
     begin();
-    deliver(puzzle(1));
     click('Skip');
     deliver(puzzle(2));
     click('Skip');
+    deliver(puzzle(4));
     advance(300000);
     expect(screen.getByTestId('sprint-res-skipped').textContent).toBe('2');
     expect(screen.getByTestId('sprint-res-solved').textContent).toBe('0');
@@ -383,7 +389,6 @@ describe('skip', () => {
     localStorage.setItem('ricochetInputMode', 'plan');
     mount();
     begin();
-    deliver(puzzle(1));
     ['ArrowRight', 'ArrowDown'].forEach(press);
     click('Submit');
     expect(screen.getByRole('button', { name: 'Skip' }).disabled).toBe(true);
@@ -391,10 +396,19 @@ describe('skip', () => {
 });
 
 describe('the buzzer', () => {
+  test('a solve made after 5:00 of active time has passed is not banked, even if the buzzer has not fired yet', () => {
+    mount();
+    begin();
+    act(() => { jest.setSystemTime(Date.now() + 300500); }); // time passes without running the buzzer timer
+    KEYS(0).forEach(press); // the solve finds time already up: the session ends, the solve is not banked
+    expect(resultsPanel()).toBeTruthy();
+    expect(screen.getByTestId('sprint-res-solved').textContent).toBe('0');
+    expect(localStorage.getItem('ricochetSprintBoard')).toBeNull();
+  });
+
   test('an unfinished puzzle scores nothing, finished ones count', () => {
     mount();
     begin();
-    deliver(puzzle(1));
     solve(0);
     press('ArrowUp'); // half way through puzzle 1
     advance(300000);
@@ -419,7 +433,6 @@ describe('the buzzer', () => {
     mount();
     begin();
     advance(300000);
-    deliver(puzzle(1));
     press('ArrowUp');
     expect(resultsPanel()).toBeTruthy();
     expect(screen.queryByTestId('hud-target')).toBeNull();
@@ -433,7 +446,6 @@ describe('plan mode', () => {
   test('a solving plan counts when submitted, shows its points and the next puzzle after the replay', () => {
     mount();
     begin();
-    deliver(puzzle(1));
     plan(KEYS(0));
     click('Submit');
     advance(100);
@@ -442,44 +454,66 @@ describe('plan mode', () => {
     advance(1200);
     expect(points()).toBe('100');
     expect(screen.getByTestId('sprint-toast').textContent).toBe('+100');
+    deliver(puzzle(1));
     expect(screen.getByTestId('plan-count').textContent).toMatch(/0 steps/);
     expect(localStorage.getItem('ricochetHistory')).toBeNull();
     expect(localStorage.getItem('ricochetRating')).toBeNull();
   });
 
-  test('a failed submit costs only time: no points, same puzzle, clock still running', () => {
+  test('a failed submit costs only thinking time: no points, same puzzle, the replay is not counted', () => {
     mount();
     begin();
     advance(1000);
     plan(['ArrowRight', 'ArrowRight']);
     click('Submit');
-    advance(3000);
+    advance(3000); // the replay ends after 1.4 s; the remaining 1.6 s are thinking time again
     expect(points()).toBe('0');
     expect(screen.getByTestId('plan-notice').textContent).toMatch(/Not solved/);
-    expect(clockText()).toBe('4:56'); // 1 s + the 3 s that followed, all counted
+    expect(clockText()).toBe('4:58');
     expect(screen.getByRole('button', { name: 'Skip' })).toBeTruthy();
   });
 
-  test('the buzzer during the replay of a plan solved before it still counts that solve', () => {
+  test('a 9-step submit costs no session time', () => {
     mount();
     begin();
-    deliver(puzzle(1));
-    advance(299700);
+    plan(Array(9).fill('ArrowRight'));
+    click('Submit');
+    advance(9 * 300 + 800); // the whole replay and the hold
+    expect(screen.getByTestId('plan-notice').textContent).toMatch(/Not solved/);
+    expect(clockText()).toBe('5:00');
+    advance(1000);
+    expect(clockText()).toBe('4:59');
+  });
+
+  test('the replay of a solving plan costs no session time either', () => {
+    mount();
+    begin();
+    advance(1000);
     plan(KEYS(0));
     click('Submit');
-    advance(1000);
-    expect(resultsPanel()).toBeTruthy();
-    expect(screen.getByTestId('sprint-res-solved').textContent).toBe('1');
+    advance(1200);
+    deliver(puzzle(1));
+    expect(clockText()).toBe('4:59');
   });
+
+  test('the slide after a Live solve is not session time', () => {
+    localStorage.setItem('ricochetInputMode', 'live');
+    mount();
+    begin();
+    KEYS(0).forEach(press);
+    advance(5000);
+    deliver(puzzle(1));
+    advance(299999); // had the 0.68 s slide counted, time would be up by now
+    expect(resultsPanel()).toBeNull();
+  });
+
 });
 
 describe('Classic data is never touched', () => {
   test('no rating, variant rating or history is written by solving, skipping, ending early or the buzzer', () => {
     mount();
     begin();
-    deliver(puzzle(1));
     solve(0);
-    deliver(puzzle(2));
     click('Skip');
     deliver(puzzle(3)); // a fresh deal: the clock was paused while it was dealt
     expect(points()).toBe('100');
@@ -498,7 +532,6 @@ describe('Classic data is never touched', () => {
     localStorage.setItem('ricochetHistory', history);
     mount();
     begin();
-    deliver(puzzle(1));
     solve(0);
     click('Skip');
     click('End early');
@@ -512,7 +545,6 @@ describe('ending early and leaving', () => {
   test('End early asks first; cancelling keeps the session and records nothing', () => {
     mount();
     begin();
-    deliver(puzzle(1));
     solve(0);
     click('End early');
     expect(screen.getByRole('dialog', { name: 'End this Sprint?' })).toBeTruthy();
@@ -526,7 +558,6 @@ describe('ending early and leaving', () => {
   test('confirming ends the session, banks finished puzzles and shows the results', () => {
     mount();
     begin();
-    deliver(puzzle(1));
     solve(0);
     click('End early');
     click('End Sprint');
@@ -549,7 +580,6 @@ describe('ending early and leaving', () => {
   test('leaving mid-session (a refresh) records nothing', () => {
     const view = mount();
     begin();
-    deliver(puzzle(1));
     solve(0);
     expect(points()).toBe('100');
     view.unmount();
@@ -576,7 +606,6 @@ describe('results and leaderboard', () => {
     mount();
     begin();
     for (let i = 0; i < solved; i++) {
-      deliver(puzzle(i + 1));
       solve(i);
     }
     advance(300000);
@@ -646,15 +675,89 @@ describe('results and leaderboard', () => {
   });
 });
 
-describe('prefetch failures', () => {
-  test('if the puzzle dealt ahead fails, a fresh request is made when it is needed', () => {
+describe('leaving a Classic round by switching mode', () => {
+  test('the abandoned Classic round is reset, not left half played', () => {
+    localStorage.removeItem('ricochetGameMode');
+    mount();
+    deliver(puzzle(0));
+    press('ArrowRight');
+    expect(screen.getByTestId('robot-red').getAttribute('data-cell')).toBe(String(cellOf(0, 15)));
+    click('Sprint');
+    click('Classic');
+    const sent = worker().postMessage.mock.calls.slice(-1)[0][0].data.boardState;
+    expect(sent.robots.red).toBe(cellOf(0, 0));
+    deliver(puzzle(0));
+    expect(screen.getByTestId('robot-red').getAttribute('data-cell')).toBe(String(cellOf(0, 0)));
+    expect(screen.getByTestId('move-count').textContent).toBe('0');
+  });
+});
+
+describe('End early', () => {
+  test('a mouse press does not leave it focused, so Enter afterwards submits the plan', () => {
+    localStorage.setItem('ricochetInputMode', 'plan');
     mount();
     begin();
-    act(() => { worker().onmessage({ data: { type: 'error', requestId: lastRequestId(), error: 'boom' } }); });
-    const before = requests();
-    solve(0);
-    expect(requests()).toBe(before + 1);
-    deliver(puzzle(1));
-    expect(screen.queryByText('Dealing a puzzle…')).toBeNull();
+    ['ArrowRight', 'ArrowDown'].forEach(press);
+    const end = screen.getByRole('button', { name: 'End early' });
+    expect(fireEvent.mouseDown(end)).toBe(false); // default prevented: no focus
+    fireEvent.click(end);
+    click('Cancel');
+    expect(document.activeElement.tagName).not.toBe('BUTTON');
+    press('Enter');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Skip' }).disabled).toBe(true); // the plan is being replayed
+  });
+
+  test('the results say "Sprint ended" for an early end and "Time\'s up" at the buzzer', () => {
+    mount();
+    begin();
+    click('End early');
+    click('End Sprint');
+    expect(screen.getByRole('heading', { name: 'Sprint ended' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: "Time's up" })).toBeNull();
+    click('Done');
+    click('Start Sprint');
+    deliver(puzzle(0));
+    advance(300000);
+    expect(screen.getByRole('heading', { name: "Time's up" })).toBeTruthy();
+  });
+});
+
+describe('S shows the solution on a round results screen', () => {
+  beforeEach(() => localStorage.removeItem('ricochetGameMode'));
+
+  test('in the results phase S starts the replay', () => {
+    mount();
+    deliver(puzzle(0));
+    press('ArrowRight');
+    press('ArrowDown');
+    advance(1000);
+    expect(screen.getByRole('region', { name: 'Round results' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Show solution' }).disabled).toBe(false);
+    press('s');
+    expect(screen.getByRole('button', { name: 'Show solution' }).disabled).toBe(true);
+    expect(screen.getByText(/Optimal line, move/)).toBeTruthy();
+  });
+
+  test('in play S still moves south (Live)', () => {
+    mount();
+    deliver(puzzle(0));
+    press('s');
+    expect(screen.getByTestId('robot-red').getAttribute('data-cell')).toBe(String(cellOf(15, 0)));
+    expect(screen.getByTestId('move-count').textContent).toBe('1');
+  });
+
+  test('in play S still appends a south step (Plan)', () => {
+    localStorage.setItem('ricochetInputMode', 'plan');
+    mount();
+    deliver(puzzle(0));
+    press('s');
+    expect(screen.getByTestId('plan-count').textContent).toMatch(/1 step/);
+  });
+
+  test('How to play mentions it', () => {
+    mount();
+    click('How to play');
+    expect(screen.getByRole('dialog', { name: 'How to play' }).textContent).toMatch(/S shows the solution/);
   });
 });

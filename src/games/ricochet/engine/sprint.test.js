@@ -1,12 +1,10 @@
 import {
   BOARD_CAP, BOARD_KEY, GAME_MODE_KEY, STANDARD_SETUP, addResult, bestFor, loadBoard, newSession,
-  prefetchState, puzzlePoints, readGameMode, sprintKey, sprintLength, summarize, validRecord,
+  puzzlePoints, readGameMode, sprintKey, sprintLength, summarize, validRecord,
   withSkip, withSolve, writeGameMode,
 } from './sprint.js';
 import { scoreRound } from './scoring.js';
 import { PROGRESS_KEYS } from '../../../account.js';
-import RicochetBoard from '../RicochetBoard.js';
-import { emptyWalls, cellOf } from './geometry.js';
 
 beforeEach(() => localStorage.clear());
 
@@ -181,22 +179,5 @@ describe('storage keys', () => {
 
   test('both keys are account progress keys', () => {
     expect(PROGRESS_KEYS).toEqual(expect.arrayContaining(['ricochetGameMode', 'ricochetSprintBoard']));
-  });
-});
-
-describe('prefetchState', () => {
-  test('is the state at the end of the optimal line with the target claimed, leaving the board alone', () => {
-    const board = new RicochetBoard({
-      walls: emptyWalls(),
-      robots: { red: cellOf(0, 0), green: cellOf(15, 0), blue: cellOf(14, 1), yellow: cellOf(1, 1) },
-      targets: [{ id: 0, color: 'red', shape: 'circle', cell: cellOf(15, 15) }, { id: 1, color: 'red', shape: 'square', cell: cellOf(8, 0) }],
-    });
-    board.startRound(0);
-    const state = prefetchState(board, [{ robot: 'red', dir: 'E' }, { robot: 'red', dir: 'S' }]);
-    expect(state.robots.red).toBe(cellOf(15, 15));
-    expect(state.claimed).toEqual([0]);
-    expect(state.stateHistory).toEqual([]);
-    expect(board.robots.red).toBe(cellOf(0, 0));
-    expect(board.claimed).toEqual([]);
   });
 });

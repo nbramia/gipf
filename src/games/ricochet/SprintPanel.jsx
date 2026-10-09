@@ -97,12 +97,12 @@ export function SprintStart({ sprintKey, onStart }) {
 }
 
 export function SprintResults({ result, sprintKey, onDone }) {
-  const { summary, board, newBest, record } = result;
+  const { summary, board, newBest, record, reason } = result;
   const records = board[sprintKey] || [];
   const highlight = record && records.find(r => r.at === record.at && r.points === record.points && r.solved === record.solved && r.skipped === record.skipped);
   return (
     <section className="ricochet-sprint-card" aria-label="Sprint results">
-      <h2>Time&apos;s up</h2>
+      <h2>{reason === 'early' ? 'Sprint ended' : "Time's up"}</h2>
       {newBest && <p className="ricochet-sprint-pb" data-testid="sprint-pb">New personal best!</p>}
       <dl className="ricochet-results-grid">
         <div><dt>Points</dt><dd data-testid="sprint-res-points">{summary.points}</dd></div>

@@ -2,7 +2,6 @@
 // active time. Ramp, per-puzzle points, session summary and the personal leaderboard
 // (`ricochetSprintBoard`). Nothing here touches the Classic rating or history.
 
-import RicochetBoard from '../RicochetBoard.js';
 import { scoreRound } from './scoring.js';
 import { isVariantKey, parseVariant, setupKey } from './variants.js';
 
@@ -118,15 +117,4 @@ export function addResult(key, summary, at = Date.now()) {
   try { localStorage.setItem(BOARD_KEY, JSON.stringify(board)); } catch { /* unavailable or full */ }
   const rank = list.findIndex(r => r.at === record.at && r.points === record.points && r.solved === record.solved && r.skipped === record.skipped);
   return { board, rank, newBest: rank === 0 && record.points > 0, record };
-}
-
-// ---- prefetch ---------------------------------------------------------------
-
-// The state the next puzzle is dealt from while the current one is still being solved:
-// the robots at the end of the current optimal line, with the target claimed.
-export function prefetchState(board, solution) {
-  const copy = RicochetBoard.fromSerializedState({ ...board.serializeState(), stateHistory: [], historyIndex: -1 });
-  copy.resetRound();
-  for (const m of solution) copy.applyMove(m);
-  return { ...copy.serializeState(), stateHistory: [], historyIndex: -1 };
 }

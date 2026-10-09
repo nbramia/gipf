@@ -28,14 +28,15 @@ export default function useSprint({ onEnd }) {
   }, []);
   const refresh = useCallback(() => setRemainingMs(Math.max(0, SPRINT_MS - elapsed())), [elapsed]);
 
-  const end = useCallback(() => {
+  // `reason`: 'time' at the buzzer, 'early' when the player ended it.
+  const end = useCallback((reason = 'time') => {
     const s = state.current;
     if (s.status !== 'running') return;
     const c = clock.current;
     c.accum = elapsed(); c.running = false; c.since = null;
     clearTimeout(buzzer.current);
     const summary = summarize(s.session);
-    s.result = { summary, ...addResult(s.key, summary) };
+    s.result = { summary, reason, ...addResult(s.key, summary) };
     s.status = 'results';
     s.held = 0;
     s.toast = null;
@@ -49,7 +50,7 @@ export default function useSprint({ onEnd }) {
     clearTimeout(buzzer.current);
     const c = clock.current;
     if (state.current.status !== 'running' || !c.running || c.since == null) return;
-    buzzer.current = setTimeout(end, Math.max(0, SPRINT_MS - elapsed()));
+    buzzer.current = setTimeout(() => end('time'), Math.max(0, SPRINT_MS - elapsed()));
   }, [end, elapsed]);
 
   const pause = useCallback(() => {
@@ -96,13 +97,14 @@ export default function useSprint({ onEnd }) {
   // out of the visible total until `release`, so a plan's replay does not give the result away.
   const bank = useCallback((solve) => {
     const s = state.current;
-    if (s.status !== 'running') return null;
+    // An overdue buzzer callback must not let a solve in after time is up.
+    if (s.status !== 'running' || elapsed() >= SPRINT_MS) return null;
     s.session = withSolve(s.session, solve);
     const points = s.session.solves[s.session.solves.length - 1].points;
     s.held = points;
     force();
     return points;
-  }, []);
+  }, [elapsed]);
 
   const release = useCallback(() => {
     const s = state.current;
