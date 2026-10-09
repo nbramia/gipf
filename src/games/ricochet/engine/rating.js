@@ -36,7 +36,8 @@ export function updateRating(rating, optimal, score, roundsPlayed) {
   const delta = Math.round(
     kFactor(roundsPlayed) * (score - expectedScore(rating, difficultyFor(optimal)))
   );
-  return { rating: Math.max(MIN_RATING, rating + delta), delta };
+  const next = Math.max(MIN_RATING, rating + delta);
+  return { rating: next, delta: next - rating };
 }
 
 // Optimal solution length to ask the generator for, near the player's level.

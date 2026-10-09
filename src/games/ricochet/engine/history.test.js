@@ -50,6 +50,25 @@ describe('recordRound', () => {
   });
 });
 
+describe('invalid input', () => {
+  test.each([
+    ['negative time', { optimal: 4, moves: 4, timeMs: -1 }],
+    ['NaN time', { optimal: 4, moves: 4, timeMs: NaN }],
+    ['moves below optimal', { optimal: 4, moves: 3, timeMs: 1000 }],
+    ['zero optimal', { optimal: 0, moves: 0, timeMs: 1000 }],
+    ['negative optimal', { optimal: -2, moves: 3, timeMs: 1000 }],
+    ['NaN moves', { optimal: 4, moves: NaN, timeMs: 1000 }],
+  ])('%s is rejected without touching storage', (_n, input) => {
+    expect(recordRound(input)).toBeNull();
+    expect(localStorage.getItem(HISTORY_KEY)).toBeNull();
+    expect(localStorage.getItem(RATING_KEY)).toBeNull();
+  });
+
+  test('revealed round may have fewer moves than optimal', () => {
+    expect(recordRound({ optimal: 4, moves: 0, timeMs: 1000, revealed: true })).not.toBeNull();
+  });
+});
+
 describe('corrupt storage', () => {
   test('corrupt JSON is ignored', () => {
     localStorage.setItem(HISTORY_KEY, '{nope');
@@ -81,7 +100,8 @@ describe('corrupt storage', () => {
     localStorage.setItem(HISTORY_KEY, JSON.stringify([
       good, partial, null, 7, 'x', entry({ moves: '4' }), entry({ revealed: 'no' }),
       entry({ score: 2 }), entry({ optimal: 0 }), entry({ timeMs: -1 }), entry({ at: null }),
-      entry({ ratingAfter: null }),
+      entry({ ratingAfter: null }), entry({ ratingBefore: 99 }), entry({ ratingAfter: 50 }),
+      entry({ moves: 3 }),
     ]));
     expect(loadHistory()).toEqual([good]);
   });
@@ -112,7 +132,7 @@ describe('summarize', () => {
     const s = summarize(h);
     expect(s.ratingSeries).toEqual([1210, 1190, 1200, 1180]);
     expect(s.roundsPlayed).toBe(4);
-    expect(s.avgQuality).toBeCloseTo(0.875, 10);
+    expect(s.avgQuality).toBeCloseTo((1 + 0.5 + 1) / 3, 10); // revealed round excluded
     expect(s.avgSecondsPerOptimalMove).toBeCloseTo(2.75, 10);
     expect(s.optimalShare).toBeCloseTo(0.5, 10); // revealed round does not count
     expect(s.revealedCount).toBe(1);
@@ -125,6 +145,13 @@ describe('summarize', () => {
     expect(s.avgQuality).toBeCloseTo(1, 10);
     expect(s.revealedCount).toBe(1);
     expect(s.optimalShare).toBeCloseTo(0.5, 10);
+  });
+
+  test('avgQuality ignores revealed rounds', () => {
+    const s = summarize([entry({ quality: 0.5 }), entry({ revealed: true, quality: 1 })]);
+    expect(s.avgQuality).toBeCloseTo(0.5, 10);
+    expect(s.roundsPlayed).toBe(2);
+    expect(s.revealedCount).toBe(1);
   });
 
   test('empty history yields zeros', () => {

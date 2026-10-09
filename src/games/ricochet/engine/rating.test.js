@@ -16,6 +16,17 @@ describe('basics', () => {
     expect(expectedScore(1400, 1400)).toBeCloseTo(0.5, 12);
   });
 
+  test('expected score away from equilibrium', () => {
+    expect(expectedScore(1000, 1400)).toBeCloseTo(1 / 11, 4);
+    expect(expectedScore(1400, 1000)).toBeCloseTo(10 / 11, 4);
+  });
+
+  test('delta equals the actual change, including at the floor', () => {
+    expect(updateRating(100, 2, 0, 0)).toEqual({ rating: 100, delta: 0 });
+    expect(updateRating(101, 2, 0, 0)).toEqual({ rating: 100, delta: -1 });
+    expect(updateRating(1100, 4, 1, 19)).toEqual({ rating: 1120, delta: 20 });
+  });
+
   test('score equal to expectation leaves rating unchanged', () => {
     expect(updateRating(1100, 4, 0.5, 100).rating).toBe(1100);
   });

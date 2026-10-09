@@ -48,7 +48,9 @@ export function validEntry(e) {
     isNum(e.quality) && e.quality >= 0 && e.quality <= 1 &&
     isNum(e.pace) && e.pace >= 0 && e.pace <= 1 &&
     isNum(e.score) && e.score >= 0 && e.score <= 1 &&
-    isNum(e.ratingBefore) && isNum(e.ratingAfter)
+    isNum(e.ratingBefore) && e.ratingBefore >= MIN_RATING &&
+    isNum(e.ratingAfter) && e.ratingAfter >= MIN_RATING &&
+    (e.revealed || e.moves >= e.optimal)
   );
 }
 
@@ -59,13 +61,21 @@ export function loadHistory() {
 }
 
 // Scores the round, updates and persists rating + history, returns the entry.
+// Returns null (touching nothing) for impossible input.
 export function recordRound({ optimal, moves, timeMs, revealed = false, gaveUp = false, at = Date.now() }) {
+  const abandoned = Boolean(revealed || gaveUp);
+  if (
+    !isNum(optimal) || optimal <= 0 || !isNum(timeMs) || timeMs < 0 || !isNum(at) ||
+    !isNum(moves) || moves < 0 || (!abandoned && moves < optimal)
+  ) {
+    return null;
+  }
   const { rating, rounds } = loadRating();
   const { quality, pace, score } = scoreRound({ optimal, moves, timeMs, revealed, gaveUp });
   const { rating: ratingAfter } = updateRating(rating, optimal, score, rounds);
   const entry = {
     at, optimal, moves, timeMs,
-    revealed: Boolean(revealed || gaveUp),
+    revealed: abandoned,
     quality, pace, score,
     ratingBefore: rating, ratingAfter,
   };
@@ -83,7 +93,7 @@ export function summarize(history, { window = DEFAULT_WINDOW } = {}) {
   return {
     ratingSeries: history.map((e) => e.ratingAfter),
     roundsPlayed: recent.length,
-    avgQuality: mean(recent.map((e) => e.quality)),
+    avgQuality: mean(recent.filter((e) => !e.revealed).map((e) => e.quality)),
     avgSecondsPerOptimalMove: mean(recent.map((e) => e.timeMs / 1000 / e.optimal)),
     optimalShare: recent.length
       ? recent.filter((e) => e.moves === e.optimal && !e.revealed).length / recent.length
