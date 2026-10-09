@@ -566,6 +566,7 @@ diplomacyGameState    # versioned in-progress save (board snapshot + UI phase + 
 
 ```
 ricochetDarkMode,
+ricochetInputMode,    # plan | live (default plan)
 ricochetRating,       # {rating, rounds}
 ricochetHistory       # last 500 scored rounds
 ```

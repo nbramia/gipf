@@ -25,7 +25,16 @@ Solo Ricochet Robots at `/ricochet`. Four robots on a 16 by 16 walled board; eac
 
 ## Play flow
 
-A round is dealt by the worker with `chooseNextRound(board, desiredLength(rating))`. The clock starts when the round is shown and pauses while the tab is hidden. Controls: select a robot (click, tap, or `R` `G` `B` `Y`), then arrow keys or `W` `A` `S` `D`, a direction arrow drawn beside the robot (legal directions only), the on-screen pad, or a swipe. `U`/Backspace undoes, `Esc` resets the round; neither stops the clock. Solving records one history entry and shows the results panel; "Show solution" replays the optimal line from the round's start and restores the solved position. "Give up" asks for confirmation, replays the optimal line, scores 0 and records the round as revealed. Dark mode is stored in `ricochetDarkMode`.
+A round is dealt by the worker with `chooseNextRound(board, desiredLength(rating))`. The clock starts when the round is shown and pauses while the tab is hidden. Select a robot by clicking or tapping it, or with `R` `G` `B` `Y`. Input mode is stored in `ricochetInputMode` (`plan` or `live`, default `plan`) and changed in Settings.
+
+**Plan mode (default).** The board does not move while a line is entered. Arrow keys, `W` `A` `S` `D`, the on-screen pad, a tap on the board (dominant axis from the selected robot) and a swipe each append a step (robot and direction) to the plan, shown as a chip list with a step count. Nothing indicates whether a step is legal: no direction arrows are drawn on the board, no pad direction is disabled, and a step whose robot cannot move still counts. `U`/Backspace removes the last step, `Esc` clears the plan, and `Enter` or Submit plays it on the board at about 0.3 s per step (near-instant with reduced motion), with a short bump for a blocked step. Input is locked during the replay. The plan is evaluated on a scratch board from the round's start positions:
+
+- If the target's robot (any robot for the vortex) stops on the target at some step, the round is solved. Its move count is that step's index (blocked steps included), later steps are ignored, and the time is the moment of submission minus hidden-tab time. One history entry is recorded, and the "You" line in the results shows the submitted steps up to the solving step.
+- Otherwise the final position is held for about 0.8 s, the robots return to the round start, and the plan stays for editing. The clock keeps running and nothing is recorded.
+
+**Live mode.** Each move slides immediately. Only legal directions are offered (arrows beside the selected robot, enabled pad directions). `U`/Backspace undoes a move, including a reset, but never into the previous round; `Esc` resets the round. Neither stops the clock.
+
+**Both modes.** Solving shows the results panel in place of the controls; "Show solution" replays the optimal line from the round's start and restores the solved position, and "Next puzzle" is available during a replay and cancels it. "Give up" asks for confirmation, replays the optimal line, scores 0 and records the round as revealed (with the number of steps entered). Dark mode is stored in `ricochetDarkMode`.
 
 ## Scoring and rating
 

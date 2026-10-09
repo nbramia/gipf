@@ -39,11 +39,13 @@ const deliver = (round, requestId = lastRequestId()) => act(() => {
   worker().onmessage({ data: { type: 'result', requestId, data: { round } } });
 });
 const press = (key) => act(() => { fireEvent.keyDown(window, { key }); });
+const pressTogether = (...keys) => act(() => { keys.forEach(key => fireEvent.keyDown(window, { key })); });
 const history = () => JSON.parse(localStorage.getItem('ricochetHistory') || '[]');
 const results = () => screen.findByRole('region', { name: 'Round results' });
 
 beforeEach(() => {
   localStorage.clear();
+  localStorage.setItem('ricochetInputMode', 'live'); // the older tests exercise live mode; plan mode has its own suite
   mockWorkers.length = 0;
   jest.useRealTimers();
 });
@@ -236,7 +238,7 @@ test('the progress panel shows rating, the provisional marker and recent rounds'
 });
 
 test('Ricochet device keys are cleared and retained with the rest of the account progress', () => {
-  expect(PROGRESS_KEYS).toEqual(expect.arrayContaining(['ricochetDarkMode', 'ricochetRating', 'ricochetHistory']));
+  expect(PROGRESS_KEYS).toEqual(expect.arrayContaining(['ricochetDarkMode', 'ricochetInputMode', 'ricochetRating', 'ricochetHistory']));
 });
 
 test('the HUD and results show a provisional tag instead of a question mark', async () => {
@@ -604,5 +606,229 @@ describe('dealing that never finishes', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe('plan mode (the default)', () => {
+  const at = (name) => Number(screen.getByTestId(`robot-${name}`).getAttribute('data-cell'));
+  const planText = () => (screen.queryByRole('list', { name: 'Planned moves' }) || { textContent: '' }).textContent;
+  const submit = () => fireEvent.click(screen.getByRole('button', { name: 'Submit' }));
+  const advance = (ms) => act(() => { jest.advanceTimersByTime(ms); });
+
+  beforeEach(() => {
+    localStorage.removeItem('ricochetInputMode');
+    jest.useFakeTimers();
+  });
+  afterEach(() => { jest.useRealTimers(); });
+
+  test('plan mode is the default and entering steps leaves the robots where they are', () => {
+    mount();
+    deliver(ROUND);
+    expect(screen.getByRole('region', { name: 'Plan' })).toBeTruthy();
+    press('ArrowRight'); press('ArrowDown'); press('g'); press('ArrowUp');
+    expect(planText()).toBe('R→R↓G↑');
+    expect(screen.getByTestId('plan-count').textContent).toMatch(/3 steps/);
+    expect(screen.getByTestId('move-count').textContent).toBe('3');
+    expect(at('red')).toBe(cellOf(0, 0));
+    expect(at('green')).toBe(cellOf(15, 0));
+    // the pad and a tap on the board append too, still without moving anything
+    fireEvent.click(screen.getByRole('button', { name: 'Move west' }));
+    expect(planText()).toBe('R→R↓G↑G←');
+    expect(at('green')).toBe(cellOf(15, 0));
+    expect(history()).toHaveLength(0);
+  });
+
+  test('tapping and swiping the board append steps without moving robots', () => {
+    if (!window.PointerEvent) {
+      window.PointerEvent = class extends MouseEvent {
+        constructor(type, init = {}) { super(type, init); this.pointerId = init.pointerId; this.isPrimary = init.isPrimary ?? true; }
+      };
+    }
+    mount();
+    deliver(ROUND);
+    const svg = screen.getByRole('img', { name: /Ricochet board/ });
+    svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 656, height: 656, right: 656, bottom: 656 });
+    fireEvent.pointerDown(svg, { clientX: 508, clientY: 28 });
+    fireEvent.pointerUp(svg, { clientX: 508, clientY: 28 });
+    fireEvent.pointerDown(svg, { clientX: 300, clientY: 300 });
+    fireEvent.pointerUp(svg, { clientX: 300, clientY: 380 });
+    expect(planText()).toBe('R→R↓');
+    expect(at('red')).toBe(cellOf(0, 0));
+  });
+
+  test('a robot key and a direction in the same tick use the new robot', () => {
+    mount();
+    deliver(ROUND);
+    pressTogether('g', 'ArrowUp');
+    expect(planText()).toBe('G↑');
+  });
+
+  test('no legality hints: no on-board arrows and every pad direction is enabled', () => {
+    mount();
+    deliver(ROUND);
+    expect(screen.queryByTestId('arrow-E')).toBeNull();
+    for (const d of ['north', 'east', 'south', 'west']) {
+      expect(screen.getByRole('button', { name: `Move ${d}` }).disabled).toBe(false);
+    }
+    expect(screen.getByRole('button', { name: 'Select red robot' }).getAttribute('aria-pressed')).toBe('true');
+  });
+
+  test('Backspace and U remove one step, Escape clears the plan', () => {
+    mount();
+    deliver(ROUND);
+    press('ArrowRight'); press('ArrowDown'); press('ArrowLeft');
+    press('Backspace');
+    expect(planText()).toBe('R→R↓');
+    press('u');
+    expect(planText()).toBe('R→');
+    press('ArrowDown');
+    press('Escape');
+    expect(screen.queryByRole('list', { name: 'Planned moves' })).toBeNull();
+    expect(screen.getByTestId('plan-count').textContent).toMatch(/0 steps/);
+    expect(screen.getByRole('button', { name: 'Submit' }).disabled).toBe(true);
+  });
+
+  test('a submit that reaches the target solves the round and records one entry', async () => {
+    mount();
+    deliver(ROUND);
+    press('ArrowRight'); press('ArrowDown');
+    submit();
+    advance(300);
+    expect(at('red')).toBe(cellOf(0, 15)); // replayed at about 0.3 s per step
+    expect(history()).toHaveLength(1); // recorded at submission
+    advance(300);
+    expect(at('red')).toBe(cellOf(15, 15));
+    advance(1000);
+    expect(screen.getByRole('region', { name: 'Round results' })).toBeTruthy();
+    expect(history()).toHaveLength(1);
+    expect(history()[0]).toMatchObject({ moves: 2, optimal: 2, revealed: false });
+    expect(screen.getByTestId('res-moves').textContent).toBe('2');
+  });
+
+  test('replay runs at about 0.3 s per step and ignores input while it plays', () => {
+    mount();
+    deliver(ROUND);
+    press('ArrowRight'); press('ArrowDown');
+    press('Enter');
+    advance(299);
+    expect(at('red')).toBe(cellOf(0, 0));
+    advance(1);
+    expect(at('red')).toBe(cellOf(0, 15));
+    press('ArrowLeft'); press('Backspace');
+    expect(screen.getByTestId('plan-count').textContent).toMatch(/2 steps/);
+  });
+
+  test('only the steps up to the solving step count, and the You line shows just those', () => {
+    mount();
+    deliver(ROUND);
+    press('ArrowRight'); press('ArrowDown'); press('ArrowLeft'); press('ArrowUp');
+    submit();
+    advance(3000);
+    expect(history()).toHaveLength(1);
+    expect(history()[0].moves).toBe(2);
+    expect(screen.getByRole('list', { name: 'You moves' }).textContent).toBe('R→R↓');
+  });
+
+  test('blocked steps count as moves', () => {
+    mount();
+    deliver(ROUND);
+    press('ArrowUp'); // red is against the top wall: blocked
+    press('ArrowRight'); press('ArrowDown');
+    submit();
+    advance(300);
+    expect(screen.getByTestId('robot-red').querySelector('[data-bump]').getAttribute('data-bump')).toBe('N');
+    advance(3000);
+    expect(history()).toHaveLength(1);
+    expect(history()[0]).toMatchObject({ moves: 3, optimal: 2 });
+    expect(screen.getByRole('list', { name: 'You moves' }).textContent).toBe('R↑R→R↓');
+  });
+
+  test('a failed submit records nothing, returns to the start, and keeps the plan', () => {
+    mount();
+    deliver(ROUND);
+    advance(2000);
+    press('ArrowRight');
+    submit();
+    advance(300);
+    expect(at('red')).toBe(cellOf(0, 15));
+    advance(500);
+    expect(at('red')).toBe(cellOf(0, 15)); // final position is held for a moment
+    advance(400);
+    expect(at('red')).toBe(cellOf(0, 0)); // then snaps back
+    expect(planText()).toBe('R→');
+    expect(history()).toHaveLength(0);
+    expect(screen.queryByRole('region', { name: 'Round results' })).toBeNull();
+    // the clock kept running and the plan can be edited and resubmitted
+    expect(Number(screen.getByTestId('clock').textContent.split(':')[1])).toBeGreaterThanOrEqual(3);
+    press('ArrowDown');
+    submit();
+    advance(4000);
+    expect(history()).toHaveLength(1);
+    expect(history()[0].moves).toBe(2);
+    expect(history()[0].timeMs).toBeGreaterThan(3000); // the failed attempt's time is not discarded
+  });
+
+  test('a failed submit does not stop the clock or lose time', () => {
+    mount();
+    deliver(ROUND);
+    advance(5000);
+    press('ArrowRight');
+    submit();
+    advance(3000);
+    expect(screen.getByTestId('clock').textContent).toBe('0:08');
+  });
+
+  test('reduced motion makes the replay near-instant', () => {
+    window.matchMedia = jest.fn().mockReturnValue({ matches: true, addEventListener() {}, removeEventListener() {} });
+    try {
+      mount();
+      deliver(ROUND);
+      press('ArrowRight'); press('ArrowDown');
+      submit();
+      advance(150);
+      expect(at('red')).toBe(cellOf(15, 15));
+      advance(400);
+      expect(screen.getByRole('region', { name: 'Round results' })).toBeTruthy();
+    } finally {
+      delete window.matchMedia;
+    }
+  });
+
+  test('Give up works from a plan and records the entered steps', () => {
+    mount();
+    deliver(ROUND);
+    press('ArrowRight');
+    fireEvent.click(screen.getByRole('button', { name: 'Give up' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal solution' }));
+    advance(5000);
+    expect(history()).toHaveLength(1);
+    expect(history()[0]).toMatchObject({ revealed: true, moves: 1 });
+    expect(at('red')).toBe(cellOf(15, 15));
+  });
+
+  test('switching to live mode in Settings keeps the original behaviour', () => {
+    mount();
+    deliver(ROUND);
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Live' }));
+    expect(localStorage.getItem('ricochetInputMode')).toBe('live');
+    fireEvent.keyDown(screen.getByRole('dialog', { name: 'Settings' }), { key: 'Escape' });
+    expect(screen.queryByRole('region', { name: 'Plan' })).toBeNull();
+    press('ArrowRight');
+    expect(at('red')).toBe(cellOf(0, 15)); // moves immediately
+    expect(screen.getByRole('button', { name: 'Reset' })).toBeTruthy();
+    expect(screen.getByTestId('arrow-S')).toBeTruthy();
+  });
+
+  test('the stored choice is honoured, and switching back to plan resets the round', () => {
+    localStorage.setItem('ricochetInputMode', 'live');
+    mount();
+    deliver(ROUND);
+    press('ArrowRight');
+    expect(at('red')).toBe(cellOf(0, 15));
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Plan' }));
+    expect(localStorage.getItem('ricochetInputMode')).toBe('plan');
+    expect(at('red')).toBe(cellOf(0, 0));
   });
 });

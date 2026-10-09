@@ -67,7 +67,7 @@ function wallSegments(walls) {
 }
 
 export default function RicochetBoardView({
-  board, robotCells, selected, arrows, onSelect, onMove, slideMs, interactive, showCurrent,
+  board, robotCells, selected, arrows, onSelect, onMove, slideMs, interactive, showCurrent, bump,
 }) {
   const swipe = useRef(null);
   const swiped = useRef(false);
@@ -205,10 +205,16 @@ export default function RicochetBoardView({
             }}
             onClick={guard(() => onSelect(name))}
           >
-            {isSel && <circle r="19.5" className="ricochet-select-ring" />}
-            <ellipse cy="12" rx="11" ry="4" className="ricochet-robot-shadow" />
-            <circle r="14" fill={`var(--rc-${name})`} className="ricochet-robot-body" />
-            <text y="5.5" textAnchor="middle" className="ricochet-robot-letter">{ROBOT_LETTER[name]}</text>
+            <g
+              key={bump && bump.robot === name ? bump.n : 0}
+              className={bump && bump.robot === name ? `ricochet-bump ricochet-bump-${bump.dir}` : undefined}
+              data-bump={bump && bump.robot === name ? bump.dir : undefined}
+            >
+              {isSel && <circle r="19.5" className="ricochet-select-ring" />}
+              <ellipse cy="12" rx="11" ry="4" className="ricochet-robot-shadow" />
+              <circle r="14" fill={`var(--rc-${name})`} className="ricochet-robot-body" />
+              <text y="5.5" textAnchor="middle" className="ricochet-robot-letter">{ROBOT_LETTER[name]}</text>
+            </g>
           </g>
         );
       })}

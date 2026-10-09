@@ -84,12 +84,12 @@
 .game-ricochet .ricochet-main {
   display: grid; gap: 14px; align-items: start;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: "hud" "board" "controls" "results" "sr";
+  grid-template-areas: "hud" "board" "plan" "controls" "results" "sr";
 }
 @media (min-width: 900px) {
   .game-ricochet .ricochet-main {
     grid-template-columns: minmax(0, 1fr) 340px;
-    grid-template-areas: "board hud" "board controls" "board results" "sr sr";
+    grid-template-areas: "board hud" "board plan" "board controls" "board results" "sr sr";
     column-gap: 24px;
   }
   .game-ricochet .ricochet-board-wrap { max-width: min(100%, calc(100vh - 110px)); }
@@ -267,7 +267,31 @@
 .game-ricochet .ricochet-step-arrow { font-weight: 700; font-size: 14px; }
 .game-ricochet .ricochet-spark-labels { display: flex; justify-content: space-between; gap: 8px; font-variant-numeric: tabular-nums; }
 
+/* A blocked planned step: the robot nudges toward the wall and settles back. */
+.game-ricochet .ricochet-bump-N { animation: ricochet-bump-n 0.22s ease-out; }
+.game-ricochet .ricochet-bump-E { animation: ricochet-bump-e 0.22s ease-out; }
+.game-ricochet .ricochet-bump-S { animation: ricochet-bump-s 0.22s ease-out; }
+.game-ricochet .ricochet-bump-W { animation: ricochet-bump-w 0.22s ease-out; }
+@keyframes ricochet-bump-n { 40% { transform: translateY(-6px); } }
+@keyframes ricochet-bump-e { 40% { transform: translateX(6px); } }
+@keyframes ricochet-bump-s { 40% { transform: translateY(6px); } }
+@keyframes ricochet-bump-w { 40% { transform: translateX(-6px); } }
+
+.game-ricochet .ricochet-plan {
+  grid-area: plan; display: flex; align-items: flex-start; gap: 8px; min-height: 40px; padding: 6px 10px;
+  background: var(--rc-panel); border: 1px solid var(--rc-line); border-radius: 12px;
+}
+.game-ricochet .ricochet-plan-label { flex: 0 0 auto; padding-top: 4px; font-size: 12px; font-weight: 700; color: var(--rc-muted); white-space: nowrap; }
+.game-ricochet .ricochet-plan ol { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; max-height: 56px; overflow-y: auto; }
+.game-ricochet .ricochet-plan-empty { font-size: 13px; color: var(--rc-muted); padding-top: 3px; }
+.game-ricochet .ricochet-seg { display: inline-flex; border: 1px solid var(--rc-line); border-radius: 8px; overflow: hidden; }
+.game-ricochet .ricochet-seg button { min-height: 40px; padding: 8px 16px; border: 0; background: var(--rc-bg); color: var(--rc-ink); font: inherit; font-weight: 600; cursor: pointer; }
+.game-ricochet .ricochet-seg button[aria-pressed="true"] { background: var(--rc-accent); color: var(--rc-accent-ink); }
+.game-ricochet .ricochet-setting { margin-bottom: 14px; }
+.game-ricochet .ricochet-setting p { margin: 6px 0 0; color: var(--rc-muted); font-size: 14px; }
+
 @media (prefers-reduced-motion: reduce) {
+  .game-ricochet .ricochet-bump { animation: none !important; }
   .game-ricochet .ricochet-target-ring, .game-ricochet .ricochet-select-ring, .game-ricochet .ricochet-results { animation: none; }
   .game-ricochet .ricochet-robot { transition: none !important; }
   .game-ricochet .ricochet-spinner { animation-duration: 2s; }

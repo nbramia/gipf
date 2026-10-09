@@ -11,6 +11,10 @@ import ConfirmDialog from '../../ConfirmDialog.jsx';
 import './ricochet.css';
 
 const DARK_KEY = 'ricochetDarkMode';
+const MODE_KEY = 'ricochetInputMode';
+const PLAN_STEP_MS = 300;
+const PLAN_HOLD_MS = 800;
+const MAX_PLAN = 60;
 const KEY_TO_ROBOT = { r: 'red', g: 'green', b: 'blue', y: 'yellow' };
 const KEY_TO_DIR = {
   arrowup: 'N', w: 'N', arrowright: 'E', d: 'E', arrowdown: 'S', s: 'S', arrowleft: 'W', a: 'W',
@@ -29,6 +33,9 @@ const reducedMotion = () => {
 };
 const readDark = () => {
   try { return localStorage.getItem(DARK_KEY) !== 'false'; } catch { return true; }
+};
+const readMode = () => {
+  try { return localStorage.getItem(MODE_KEY) === 'live' ? 'live' : 'plan'; } catch { return 'plan'; }
 };
 const pct = x => `${Math.round(x * 100)}%`;
 const fmtTime = ms => {
@@ -132,7 +139,8 @@ function HowToPlay() {
         <li>Fewer moves and a faster solve score higher. Your rating tracks both, and the next puzzle is chosen near your level.</li>
         <li>The next round starts from wherever the robots ended.</li>
       </ul>
-      <p><strong>Controls.</strong> Tap or click a robot, or press R, G, B or Y. Then press an arrow key or W A S D, tap a direction arrow, or swipe. U or Backspace undoes a move. Esc resets the round. The clock keeps running.</p>
+      <p><strong>Plan mode (default).</strong> The board does not move while you enter a line. Pick a robot (tap it, or press R, G, B or Y), then add steps with an arrow key or W A S D, the pad, a tap on the board, or a swipe. Steps appear in the plan list, and nothing says whether a step is legal; a step that cannot move still counts as a move. U or Backspace removes the last step, Esc clears the plan, and Enter or Submit plays it on the board. If the target robot stops on the target at some step the round is solved with that many moves; later steps are ignored. Otherwise the board returns to the start, your plan stays for editing, and the clock keeps running.</p>
+      <p><strong>Live mode.</strong> Choose it in Settings. Each move slides immediately, only legal directions are offered, U or Backspace undoes a move, and Esc resets the round.</p>
       <p className="ricochet-credit">Ricochet Robots was designed by Alex Randolph. This is an independent, solo implementation.</p>
     </div>
   );
@@ -193,13 +201,16 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   const boardRef = useRef(null);
   if (!boardRef.current) boardRef.current = createBoard();
   const board = boardRef.current;
-  const [, bump] = useReducer(n => n + 1, 0);
+  const [, repaint] = useReducer(n => n + 1, 0);
 
   const [darkMode, setDarkMode] = useState(readDark);
   // dealing | play | settling | results | replay | error
   const [phase, setPhase] = useState('dealing');
   const [round, setRound] = useState(null); // { targetId, length, solution }
   const [selected, setSelected] = useState(null);
+  // Mirrors `selected` so two key events in the same tick (select, then move) see the new robot.
+  const selectedRef = useRef(null);
+  selectedRef.current = selected;
   const [results, setResults] = useState(null); // { entry, revealed }
   const [rating, setRating] = useState(loadRating);
   const [panel, setPanel] = useState(null); // 'help' | 'progress'
@@ -210,6 +221,14 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   const [status, setStatus] = useState('');
   const [errorText, setErrorText] = useState('');
   const [elapsed, setElapsed] = useState(0);
+  const [mode, setMode] = useState(readMode);
+  const [plan, setPlan] = useState([]);
+  const [bump, setBump] = useState(null);
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const planRef = useRef(plan);
+  planRef.current = plan;
+  const bumpCount = useRef(0);
 
   const { requestRound, cancel } = useSolverWorker();
   const dealId = useRef(0);
@@ -257,7 +276,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   }, []);
 
   useEffect(() => {
-    if (phase !== 'play') return undefined;
+    if (phase !== 'play' && phase !== 'submit') return undefined;
     const id = setInterval(() => setElapsed(clockNow()), 250);
     return () => clearInterval(id);
   }, [phase, clockNow]);
@@ -303,6 +322,8 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
       board.startRound(picked.targetId);
       setRound(picked);
       setSelected(board.getTarget().color || 'red');
+      setPlan([]);
+      setBump(null);
       setStatus('New puzzle. Target: ' + targetLabel(board.getTarget()) + '.');
       startClock();
       setPhase('play');
@@ -336,7 +357,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     setSlideMs(dur);
     setSelected(robot);
     setStatus(`${COLOR_LABEL[robot]} moved ${DIR_NAME[dir]}. ${board.moves.length} move${board.moves.length === 1 ? '' : 's'}.`);
-    bump();
+    repaint();
     if (board.isSolved()) finishSolve(dur);
   }, [board, finishSolve]);
 
@@ -345,7 +366,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     board.undo();
     setSlideMs(reducedMotion() ? 0 : 120);
     setStatus(`Undid a move. ${board.moves.length} moves.`);
-    bump();
+    repaint();
   }, [board]);
 
   const reset = useCallback(() => {
@@ -353,7 +374,104 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     board.resetRound();
     setSlideMs(reducedMotion() ? 0 : 200);
     setStatus('Round reset.');
-    bump();
+    repaint();
+  }, [board]);
+
+  // ---- plan mode ---------------------------------------------------------------
+  const addStep = useCallback((robot, dir) => {
+    if (phaseRef.current !== 'play') return;
+    setSelected(robot);
+    setPlan(p => (p.length >= MAX_PLAN ? p : [...p, { robot, dir }]));
+    setStatus(`${COLOR_LABEL[robot]} ${DIR_NAME[dir]} added to the plan.`);
+  }, []);
+
+  const input = useCallback((robot, dir) => {
+    if (modeRef.current === 'plan') addStep(robot, dir);
+    else move(robot, dir);
+  }, [addStep, move]);
+
+  const removeStep = useCallback(() => {
+    if (phaseRef.current !== 'play') return;
+    setPlan(p => p.slice(0, -1));
+  }, []);
+  const clearPlan = useCallback(() => {
+    if (phaseRef.current !== 'play') return;
+    setPlan([]);
+    setStatus('Plan cleared.');
+  }, []);
+
+  // Plays the plan on the board step by step. The outcome is decided up front on a
+  // scratch board; the animation only shows it. A solve is recorded at submission.
+  const submitPlan = useCallback(() => {
+    const steps = planRef.current;
+    if (phaseRef.current !== 'play' || modeRef.current !== 'plan' || steps.length === 0) return;
+    const scratch = new RicochetBoard({ walls: board.walls, targets: board.targets, robots: board.roundStart });
+    scratch.startRound(board.currentTargetId);
+    const frames = [];
+    let solvedAt = 0;
+    for (let i = 0; i < steps.length; i++) {
+      const rec = scratch.applyMove(steps[i]);
+      frames.push({ robots: { ...scratch.robots }, blocked: !rec, step: steps[i], rec });
+      if (scratch.isSolved()) { solvedAt = i + 1; break; }
+    }
+    const token = ++replayToken.current;
+    const quick = reducedMotion();
+    setPhase('submit');
+    setOverlayCells({ ...board.roundStart });
+    setReplayStep(0);
+    setSlideMs(0);
+
+    let finishSolved = null;
+    if (solvedAt > 0) {
+      const timeMs = stopClock();
+      const entry = recordRound({ optimal: round.length, moves: solvedAt, timeMs });
+      setRating(loadRating());
+      const playerMoves = steps.slice(0, solvedAt).map(({ robot, dir }) => ({ robot, dir }));
+      for (const m of playerMoves) board.applyMove(m); // claim the target on the real board
+      setStatus(`Solved in ${solvedAt} moves.`);
+      finishSolved = () => {
+        setOverlayCells(null);
+        setResults({ entry, revealed: false, moves: solvedAt, timeMs, playerMoves });
+        setPhase('results');
+      };
+    } else {
+      setStatus('Not solved. The board is back at the start; edit the plan and submit again.');
+    }
+
+    const run = (i) => {
+      if (replayToken.current !== token) return;
+      if (i >= frames.length) {
+        later(() => {
+          if (replayToken.current !== token) return;
+          setBump(null);
+          setSlideMs(quick ? 0 : 150);
+          if (finishSolved) { finishSolved(); return; }
+          setOverlayCells(null);
+          setPhase('play');
+        }, finishSolved ? 200 : (quick ? 300 : PLAN_HOLD_MS));
+        return;
+      }
+      later(() => {
+        if (replayToken.current !== token) return;
+        const f = frames[i];
+        setSlideMs(quick ? 0 : 240);
+        setOverlayCells(f.robots);
+        setReplayStep(i + 1);
+        setSelected(f.step.robot);
+        setBump(f.blocked ? { robot: f.step.robot, dir: f.step.dir, n: ++bumpCount.current } : null);
+        run(i + 1);
+      }, quick ? 40 : PLAN_STEP_MS);
+    };
+    run(0);
+  }, [board, round, later, stopClock]);
+
+  const changeMode = useCallback((next) => {
+    if (next === modeRef.current || phaseRef.current === 'submit') return;
+    if (phaseRef.current === 'play' && board.moves.length > 0) board.resetRound();
+    setPlan([]);
+    setMode(next);
+    try { localStorage.setItem(MODE_KEY, next); } catch { /* unavailable */ }
+    repaint();
   }, [board]);
 
   // ---- solution replay (reveal and "Show solution") ------------------------
@@ -395,14 +513,15 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     setConfirmGiveUp(false);
     if (phaseRef.current !== 'play') return;
     const timeMs = stopClock();
-    const entry = recordRound({ optimal: round.length, moves: board.moves.length, timeMs, revealed: true });
+    const entered = modeRef.current === 'plan' ? planRef.current.length : board.moves.length;
+    const entry = recordRound({ optimal: round.length, moves: entered, timeMs, revealed: true });
     setRating(loadRating());
-    setResults({ entry, revealed: true, moves: board.moves.length, timeMs });
+    setResults({ entry, revealed: true, moves: entered, timeMs });
     // Settle the round on the optimal line so the target is claimed and the next
     // round starts from the solution's end positions.
     board.resetRound();
     for (const m of round.solution) board.applyMove(m);
-    bump();
+    repaint();
     setStatus('Solution revealed. This round scores 0.');
     playSolution();
   }, [board, round, playSolution, stopClock]);
@@ -427,14 +546,16 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     if (panel || confirmGiveUp) return;
     const key = e.key.toLowerCase();
     if (phaseRef.current !== 'play') return;
-    if (KEY_TO_ROBOT[key]) { e.preventDefault(); setSelected(KEY_TO_ROBOT[key]); return; }
+    if (KEY_TO_ROBOT[key]) { e.preventDefault(); selectedRef.current = KEY_TO_ROBOT[key]; setSelected(KEY_TO_ROBOT[key]); return; }
     if (KEY_TO_DIR[key]) {
       e.preventDefault();
-      if (selected) move(selected, KEY_TO_DIR[key]);
+      if (selectedRef.current) input(selectedRef.current, KEY_TO_DIR[key]);
       return;
     }
-    if (key === 'u' || key === 'backspace') { e.preventDefault(); undo(); return; }
-    if (key === 'escape') { e.preventDefault(); reset(); }
+    const planning = modeRef.current === 'plan';
+    if (key === 'u' || key === 'backspace') { e.preventDefault(); if (planning) removeStep(); else undo(); return; }
+    if (key === 'escape') { e.preventDefault(); if (planning) clearPlan(); else reset(); return; }
+    if (key === 'enter' && planning && !(t && t.closest && t.closest('button, a'))) { e.preventDefault(); submitPlan(); }
   };
   useEffect(() => {
     const handler = e => keyRef.current(e);
@@ -448,11 +569,13 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   const progressHistory = useMemo(() => (panel === 'progress' ? loadHistory() : []), [panel]);
   const target = board.getTarget();
   const robotCells = overlayCells || board.robots;
-  const legal = live ? board.getLegalMoves().filter(m => m.robot === selected) : [];
+  const planning = mode === 'plan';
+  const legal = live && !planning ? board.getLegalMoves().filter(m => m.robot === selected) : [];
   const arrows = legal.map(m => ({ dir: m.dir, to: board.getDestination(m.robot, m.dir) }));
   const legalDirs = new Set(legal.map(m => m.dir));
   const finished = phase === 'results' || phase === 'replay';
-  const moveCount = finished && results ? results.moves : board.moves.length;
+  const locked = phase === 'submit';
+  const moveCount = finished && results ? results.moves : planning ? plan.length : board.moves.length;
   const provisional = isProvisional(rating.rounds);
   const entry = results && results.entry;
 
@@ -468,6 +591,10 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
             <button type="button" className="ricochet-btn ricochet-btn-collapse" aria-label="Progress" onClick={() => setPanel('progress')}>
               <span className="ricochet-btn-text">Progress</span>
               <svg className="ricochet-btn-glyph" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 17V10M8 17V4M13 17V8M18 17V12" stroke="currentColor" strokeWidth="3" strokeLinecap="round" fill="none" /></svg>
+            </button>
+            <button type="button" className="ricochet-btn ricochet-btn-collapse" aria-label="Settings" onClick={() => setPanel('settings')}>
+              <span className="ricochet-btn-text">Settings</span>
+              <svg className="ricochet-btn-glyph" viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M3 6h14M3 14h14" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" fill="none" /><circle cx="7" cy="6" r="2.4" fill="currentColor" /><circle cx="13" cy="14" r="2.4" fill="currentColor" /></svg>
             </button>
             <button type="button" className="ricochet-btn ricochet-btn-collapse" aria-label="How to play" onClick={() => setPanel('help')}>
               <span className="ricochet-btn-text">How to play</span>
@@ -508,7 +635,8 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
               selected={phase === 'dealing' || phase === 'error' ? null : selected}
               arrows={arrows}
               onSelect={(r) => { if (live) setSelected(r); }}
-              onMove={move}
+              onMove={input}
+              bump={bump}
               slideMs={slideMs}
               interactive={live}
               showCurrent={phase !== 'dealing' && phase !== 'error'}
@@ -523,6 +651,22 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
               </div>
             )}
           </div>
+
+          {planning && !finished && (
+            <section className="ricochet-plan" aria-label="Plan">
+              <span className="ricochet-plan-label" data-testid="plan-count">Plan · {plan.length} step{plan.length === 1 ? '' : 's'}</span>
+              {plan.length === 0 ? <span className="ricochet-plan-empty">Pick a robot, then add directions.</span> : (
+                <ol aria-label="Planned moves">
+                  {plan.map((m, i) => (
+                    <li key={i} className={`ricochet-step${locked && i + 1 === replayStep ? ' is-diverged' : ''}`} title={`${COLOR_LABEL[m.robot]} ${DIR_NAME[m.dir]}`}>
+                      <span className={`ricochet-step-chip ricochet-step-${m.robot}`}>{ROBOT_LETTER[m.robot]}</span>
+                      <span className="ricochet-step-arrow">{ARROW[m.dir]}</span>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+          )}
 
           {!finished && (
           <section className="ricochet-controls" aria-label="Controls">
@@ -546,14 +690,24 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
                   type="button"
                   className={`ricochet-dir ricochet-dir-${d}`}
                   aria-label={`Move ${DIR_NAME[d]}`}
-                  disabled={!live || !selected || !legalDirs.has(d)}
-                  onClick={() => move(selected, d)}
+                  disabled={!live || !selected || (!planning && !legalDirs.has(d))}
+                  onClick={() => input(selected, d)}
                 ><span aria-hidden="true">{DIR_GLYPH[d]}</span></button>
               ))}
             </div>
             <div className="ricochet-actions">
-              <button type="button" className="ricochet-btn" disabled={!live || !canUndoInRound(board)} onClick={undo}>Undo</button>
-              <button type="button" className="ricochet-btn" disabled={!live || board.moves.length === 0} onClick={reset}>Reset</button>
+              {planning ? (
+                <>
+                  <button type="button" className="ricochet-btn" disabled={!live || plan.length === 0} onClick={removeStep}>Undo</button>
+                  <button type="button" className="ricochet-btn" disabled={!live || plan.length === 0} onClick={clearPlan}>Clear</button>
+                  <button type="button" className="ricochet-btn ricochet-btn-primary" disabled={!live || plan.length === 0} onClick={submitPlan}>Submit</button>
+                </>
+              ) : (
+                <>
+                  <button type="button" className="ricochet-btn" disabled={!live || !canUndoInRound(board)} onClick={undo}>Undo</button>
+                  <button type="button" className="ricochet-btn" disabled={!live || board.moves.length === 0} onClick={reset}>Reset</button>
+                </>
+              )}
               <button type="button" className="ricochet-btn ricochet-btn-danger" disabled={!live} onClick={() => setConfirmGiveUp(true)}>Give up</button>
             </div>
           </section>
@@ -594,6 +748,17 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
         </main>
       </div>
 
+      {panel === 'settings' && (
+        <Panel title="Settings" onClose={() => setPanel(null)}>
+          <div className="ricochet-setting">
+            <div className="ricochet-seg" role="group" aria-label="Input mode">
+              <button type="button" aria-pressed={mode === 'plan'} onClick={() => changeMode('plan')}>Plan</button>
+              <button type="button" aria-pressed={mode === 'live'} onClick={() => changeMode('live')}>Live</button>
+            </div>
+            <p>Plan: enter a whole line, then submit it; the board only moves on submit. Live: every move slides immediately. Changing mode clears the plan and resets the current round.</p>
+          </div>
+        </Panel>
+      )}
       {panel === 'help' && <Panel title="How to play" onClose={() => setPanel(null)}><HowToPlay /></Panel>}
       {panel === 'progress' && <Panel title="Progress" onClose={() => setPanel(null)}><ProgressPanel rating={rating} history={progressHistory} /></Panel>}
       {confirmGiveUp && (
