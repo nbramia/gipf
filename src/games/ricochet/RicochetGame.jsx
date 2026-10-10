@@ -375,7 +375,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   useEffect(() => {
     const onVisibility = () => {
       const c = clock.current;
-      if (!c.running) return;
+      if (!c.running || c.paused) return;
       if (document.visibilityState === 'hidden') {
         if (c.since != null) { c.accum += Date.now() - c.since; c.since = null; }
       } else if (c.since == null) {
@@ -405,6 +405,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   const deal = useCallback(() => {
     replayToken.current++;
     const sprintOn = sprintRef.current.isRunning();
+    if (sprintOn && sprintRef.current.expired()) return; // time was already up
     if (sprintOn) sprintRef.current.pause(); // dealing time is not Sprint time
     setPhase((phaseRef.current = 'dealing'));
     setResults(null);
@@ -555,6 +556,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
   const submitPlan = useCallback(() => {
     const steps = planRef.current;
     if (phaseRef.current !== 'play' || modeRef.current !== 'plan' || steps.length === 0) return;
+    if (sprintRef.current.isRunning() && sprintRef.current.expired()) return;
     const scratch = scratchOf(board);
     const frames = [];
     const traces = [];
@@ -570,7 +572,12 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
     const token = ++replayToken.current;
     const quick = reducedMotion();
     setPhase((phaseRef.current = 'submit'));
-    sprintRef.current.pause(); // the replay is not thinking time (no-op outside Sprint)
+    if (sprintRef.current.isRunning()) {
+      // The replay is not thinking time: neither the session clock nor the puzzle's own clock
+      // (which sets its points) runs during it.
+      sprintRef.current.pause();
+      clock.current = { running: true, paused: true, accum: clockNow(), since: null };
+    }
     setOverlayCells({ ...board.roundStart });
     setReplayStep(0);
     animate(0);
@@ -619,7 +626,10 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
           setStatus('Not solved. The board is back at the start; edit the plan and submit again.');
           setNotice('Not solved. Edit your plan and submit again.');
           setPhase((phaseRef.current = 'play'));
-          sprintRef.current.resume();
+          if (sprintRef.current.isRunning()) {
+            clock.current = { running: true, paused: false, accum: clock.current.accum, since: document.visibilityState === 'hidden' ? null : Date.now() };
+            sprintRef.current.resume();
+          }
         }, finishSolved ? 200 : (quick ? 300 : PLAN_HOLD_MS));
         return;
       }
@@ -728,6 +738,7 @@ export default function RicochetGame({ createBoard = () => new RicochetBoard({ s
 
   const skipPuzzle = useCallback(() => {
     if (phaseRef.current !== 'play' || !sprintRef.current.isRunning()) return;
+    if (sprintRef.current.expired()) return;
     sprintRef.current.skip();
     stopClock();
     // The skipped target is spent; nothing is revealed, and the robots stay exactly where they are.

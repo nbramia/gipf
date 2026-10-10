@@ -396,6 +396,28 @@ describe('skip', () => {
 });
 
 describe('the buzzer', () => {
+  test('Skip with the wall clock past 5:00 and the buzzer not yet fired ends the session instead', () => {
+    mount();
+    begin();
+    const before = requests();
+    act(() => { jest.setSystemTime(Date.now() + 300500); });
+    click('Skip');
+    expect(resultsPanel()).toBeTruthy();
+    expect(screen.getByTestId('sprint-res-skipped').textContent).toBe('0');
+    expect(requests()).toBe(before);
+  });
+
+  test('a plan submit past 5:00 ends the session instead of replaying', () => {
+    localStorage.setItem('ricochetInputMode', 'plan');
+    mount();
+    begin();
+    ['ArrowRight', 'ArrowDown'].forEach(press);
+    act(() => { jest.setSystemTime(Date.now() + 300500); });
+    click('Submit');
+    expect(resultsPanel()).toBeTruthy();
+    expect(screen.getByTestId('sprint-res-solved').textContent).toBe('0');
+  });
+
   test('a solve made after 5:00 of active time has passed is not banked, even if the buzzer has not fired yet', () => {
     mount();
     begin();
@@ -483,6 +505,23 @@ describe('plan mode', () => {
     expect(clockText()).toBe('5:00');
     advance(1000);
     expect(clockText()).toBe('4:59');
+  });
+
+  test('points use thinking time only: a failed replay does not slow the later solve', () => {
+    mount();
+    begin();
+    advance(19000);
+    plan(Array(9).fill('ArrowRight'));
+    click('Submit');
+    advance(9 * 300 + 800 + 100);
+    expect(screen.getByTestId('plan-notice').textContent).toMatch(/Not solved/);
+    press('Escape'); // clear the plan
+    plan(KEYS(0));
+    click('Submit');
+    advance(1200);
+    // 19 s of thinking is within the full-pace window (20 s for an optimal 2); the replay would push it past
+    expect(points()).toBe('100');
+    expect(screen.getByTestId('sprint-toast').textContent).toBe('+100');
   });
 
   test('the replay of a solving plan costs no session time either', () => {

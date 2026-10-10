@@ -106,6 +106,14 @@ export default function useSprint({ onEnd }) {
     return points;
   }, [elapsed]);
 
+  // True (after ending the session) when active time has already reached 5:00 but the buzzer
+  // callback has not run yet: every state-changing action checks this first.
+  const expired = useCallback(() => {
+    if (state.current.status !== 'running' || elapsed() < SPRINT_MS) return false;
+    end('time');
+    return true;
+  }, [elapsed, end]);
+
   const release = useCallback(() => {
     const s = state.current;
     if (s.status !== 'running' || !s.held) return;
@@ -159,6 +167,6 @@ export default function useSprint({ onEnd }) {
     toast: s.toast,
     result: s.result,
     key: s.key,
-    start, reset, pause, resume, end, bank, release, skip,
+    start, reset, pause, resume, end, expired, bank, release, skip,
   };
 }
