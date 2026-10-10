@@ -378,9 +378,10 @@ Solo and device-only: no MatchBoundary, cloud or account integration.
 | `engine/generator.js`, `geometry.js` | Seeded board generation and grid/wall primitives |
 | `engine/solver.js`, `rounds.js` | Optimal solver and next-round selection near a desired length |
 | `engine/scoring.js`, `rating.js`, `history.js`, `variants.js` | Per-round score, Elo-style rating, localStorage history and ratings per setup, stored variant |
+| `engine/sprint.js`, `hooks/useSprint.js`, `SprintPanel.jsx` | Sprint mode: pure ramp, points, session summary and leaderboard; the 5:00 active-time session hook; Start, Results, HUD tiles and leaderboard views |
 | `engine/solver.worker.js`, `hooks/` | Dealing in a Web Worker (`useSolverWorker.js`, mockable `createAIWorker.js`) |
 | `RicochetGame.jsx`, `RicochetBoardView.jsx`, `ricochet.css` | React UI and SVG board, scoped under `.game-ricochet` |
-| `RicochetGame.ui.test.jsx`, `RicochetGame.variants.test.jsx` | RTL tests with the worker mocked |
+| `RicochetGame.ui.test.jsx`, `RicochetGame.variants.test.jsx`, `RicochetGame.sprint.test.jsx` | RTL tests with the worker mocked |
 
 See [docs/ricochet.md](docs/ricochet.md) for rules, generator, solver and formulas.
 
@@ -571,7 +572,9 @@ ricochetPathTraces,   # off | on (default off)
 ricochetVariant,      # {size: 16|12, fifthRobot, diagonals} (default 16/false/false)
 ricochetRating,       # {rating, rounds} of the standard setup (16x16, no black robot, no barriers, Plan)
 ricochetVariantRatings, # {[setupKey]: {rating, rounds}} for every other setup, Live included
-ricochetHistory       # last 500 scored rounds per setup; non-standard setups carry `variant`
+ricochetHistory,      # last 500 scored rounds per setup; non-standard setups carry `variant`
+ricochetGameMode,     # classic | sprint (default classic)
+ricochetSprintBoard   # {[setupKey]: [{at, points, solved, skipped, avgQuality}]}, top 10 per setup; Sprint never writes the rating or history keys
 ```
 
 **Shared (app-wide):**
